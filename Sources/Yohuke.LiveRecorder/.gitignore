@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+**/coverage/
+**/TestResults/
+**/data/
+artifacts/
+publish/
+.env
+.env.local
+.env.*.local

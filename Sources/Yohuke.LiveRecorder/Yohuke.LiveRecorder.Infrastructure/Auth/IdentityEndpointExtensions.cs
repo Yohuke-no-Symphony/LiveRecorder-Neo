@@ -1,0 +1,136 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Yohuke.LiveRecorder.Application;
+using Yohuke.LiveRecorder.Application.Auth;
+
+namespace Yohuke.LiveRecorder.Infrastructure.Auth;
+
+/// <summary>映射 Cookie 身份、审核、邀请与服务器端 OAuth 流程。</summary>
+public static class IdentityEndpointExtensions
+{
+    private const string OAUTH_BINDING_COOKIE = "lr.oauth.binding";
+    private const string OAUTH_REGISTRATION_COOKIE = "lr.oauth.registration";
+
+    /// <summary>注册身份端点；调用方负责统一 CSRF 与异常中间件。</summary>
+    public static IEndpointRouteBuilder MapIdentityEndpoints(this IEndpointRouteBuilder endpoints, IReadOnlyCollection<string>? allowedWebUiOrigins = null)
+    {
+        var auth = endpoints.MapGroup("/api/auth");
+        auth.MapGet("/me", async (HttpContext http, IIdentityService identity, IAntiforgery antiforgery, CancellationToken ct) =>
+        {
+            var id = http.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var user = id is null ? null : await identity.GetUserAsync(id, ct);
+            if (user is { Status: not "Active" })
+            {
+                await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                http.User = new(new ClaimsIdentity());
+                user = null;
+            }
+            return Results.Ok(new { user, csrfToken = antiforgery.GetAndStoreTokens(http).RequestToken });
+        });
+        auth.MapPost("/login", async (LoginRequest request, HttpContext http, IIdentityService identity, IAntiforgery antiforgery, CancellationToken ct) =>
+        {
+            var user = await identity.AuthenticateAsync(request, ct);
+            await SignInAsync(http, user);
+            return Results.Ok(new { user, csrfToken = antiforgery.GetAndStoreTokens(http).RequestToken });
+        });
+        auth.MapPost("/logout", async (HttpContext http) =>
+        {
+            await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            http.User = new(new ClaimsIdentity());
+            return Results.NoContent();
+        });
+        auth.MapPost("/email-code", async (EmailCodeRequest request, IIdentityService identity, CancellationToken ct) =>
+        {
+            await identity.SendEmailCodeAsync(request, ct);
+            return Results.NoContent();
+        });
+        auth.MapPost("/register", async (RegisterRequest request, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.RegisterAsync(request, ct)));
+        auth.MapGet("/identities", async (HttpContext http, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.ListExternalProvidersAsync(http.User.FindFirstValue(ClaimTypes.NameIdentifier)!, ct))).RequireAuthorization();
+        auth.MapGet("/oauth/providers", async (ISettingsStore settings, CancellationToken ct) => Results.Ok((await settings.GetAsync(ct)).OAuthProviders.Where(x => x.Enabled).Select(x => new { x.Id, x.Name })));
+        auth.MapPost("/oauth/{providerId}/begin", async (string providerId, HttpContext http, IIdentityService identity, CancellationToken ct) =>
+        {
+            var binding = GetBrowserBinding(http);
+            var callback = GetOAuthCallback(http.Request, providerId, allowedWebUiOrigins);
+            return Results.Ok(await identity.BeginOAuthAsync(providerId, callback, binding, ct));
+        });
+        auth.MapPost("/oauth/{providerId}/bind", async (string providerId, HttpContext http, IIdentityService identity, CancellationToken ct) =>
+        {
+            var binding = GetBrowserBinding(http);
+            var callback = GetOAuthCallback(http.Request, providerId, allowedWebUiOrigins);
+            return Results.Ok(await identity.BeginOAuthBindingAsync(http.User.FindFirstValue(ClaimTypes.NameIdentifier)!, providerId, callback, binding, ct));
+        }).RequireAuthorization();
+        auth.MapPost("/oauth/{providerId}/exchange", async (string providerId, OAuthExchangeRequest request, HttpContext http, IIdentityService identity, IAntiforgery antiforgery, CancellationToken ct) =>
+        {
+            var result = await identity.CompleteOAuthAsync(providerId, request.State, request.Code, http.Request.Cookies[OAUTH_BINDING_COOKIE] ?? "", http.User.FindFirstValue(ClaimTypes.NameIdentifier), ct);
+            if (result.User is { } user)
+            {
+                await SignInAsync(http, user);
+                http.Response.Cookies.Delete(OAUTH_REGISTRATION_COOKIE, new CookieOptions { Path = "/api/auth/oauth" });
+            }
+            else if (result.RegistrationTicket is { } ticket)
+            {
+                http.Response.Cookies.Append(OAUTH_REGISTRATION_COOKIE, ticket, CookieOptions(http, "/api/auth/oauth"));
+            }
+            return Results.Ok(new { result.User, registrationRequired = result.RegistrationTicket is not null, result.Email, result.DisplayName, csrfToken = antiforgery.GetAndStoreTokens(http).RequestToken });
+        });
+        auth.MapPost("/oauth/register", async (OAuthRegistrationRequest request, HttpContext http, IIdentityService identity, CancellationToken ct) =>
+        {
+            var ticket = http.Request.Cookies[OAUTH_REGISTRATION_COOKIE] ?? throw new InfrastructureException("外部注册凭据已过期，请重新登录。");
+            var user = await identity.CompleteOAuthRegistrationAsync(ticket, request, ct);
+            http.Response.Cookies.Delete(OAUTH_REGISTRATION_COOKIE, new CookieOptions { Path = "/api/auth/oauth" });
+            return Results.Ok(user);
+        });
+        var admin = endpoints.MapGroup("/api/admin").RequireAuthorization(policy => policy.RequireRole("Admin"));
+        admin.MapGet("/users", async (IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.ListUsersAsync(ct)));
+        admin.MapPost("/users/{id}/approval", async (string id, ApprovalRequest request, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.SetApprovalAsync(id, request.Approved, ct)));
+        admin.MapPost("/users/{id}/role", async (string id, RoleRequest request, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.SetRoleAsync(id, request.Role, ct)));
+        admin.MapGet("/invitations", async (IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.ListInvitationsAsync(ct)));
+        admin.MapPost("/invitations", async (InvitationRequest request, HttpContext http, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.CreateInvitationAsync(request, http.User.FindFirstValue(ClaimTypes.NameIdentifier)!, ct)));
+        admin.MapDelete("/invitations/{id}", async (string id, IIdentityService identity, CancellationToken ct) =>
+        {
+            await identity.RevokeInvitationAsync(id, ct);
+            return Results.NoContent();
+        });
+        return endpoints;
+    }
+
+    private static string GetOAuthCallback(HttpRequest request, string providerId, IReadOnlyCollection<string>? allowedWebUiOrigins)
+    {
+        var origin = request.Headers.Origin.ToString();
+        var callbackOrigin = allowedWebUiOrigins?.Contains(origin, StringComparer.Ordinal) == true
+            ? origin
+            : $"{request.Scheme}://{request.Host}";
+        return $"{callbackOrigin}{request.PathBase}/oauth/callback/{Uri.EscapeDataString(providerId)}";
+    }
+
+    private static async Task SignInAsync(HttpContext http, UserProfile user)
+    {
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, user.Id),
+            new Claim(ClaimTypes.Name, user.DisplayName),
+            new Claim(ClaimTypes.Email, user.Email),
+            new Claim(ClaimTypes.Role, user.Role)
+        }, CookieAuthenticationDefaults.AuthenticationScheme));
+        await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, new AuthenticationProperties { IsPersistent = false, ExpiresUtc = DateTimeOffset.UtcNow.AddHours(12) });
+        http.User = principal;
+    }
+
+    private static CookieOptions CookieOptions(HttpContext http, string path) => new() { HttpOnly = true, Secure = http.Request.IsHttps, SameSite = SameSiteMode.Lax, Path = path, MaxAge = TimeSpan.FromMinutes(10), IsEssential = true };
+
+    private static string GetBrowserBinding(HttpContext http)
+    {
+        var binding = http.Request.Cookies[OAUTH_BINDING_COOKIE];
+        if (string.IsNullOrWhiteSpace(binding))
+        {
+            binding = IdentityToken.Create();
+        }
+        http.Response.Cookies.Append(OAUTH_BINDING_COOKIE, binding, CookieOptions(http, "/api/auth/oauth"));
+        return binding;
+    }
+}

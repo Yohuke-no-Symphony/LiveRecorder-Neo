@@ -1,0 +1,514 @@
+using System.Globalization;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.Identity;
+using MongoDB.Driver;
+using Yohuke.LiveRecorder.Application;
+using Yohuke.LiveRecorder.Application.Auth;
+using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Infrastructure.Persistence;
+
+namespace Yohuke.LiveRecorder.Infrastructure.Auth;
+
+/// <summary>以 MongoDB 保存账号与单次身份流程，所有新用户统一进入人工审核。</summary>
+public sealed class IdentityService(MongoContext context, ISettingsStore settingsStore, IEmailSender emailSender, ISecretProtector protector, IPasswordHasher<UserAccount> passwordHasher, IHttpClientFactory httpClientFactory) : IIdentityService
+{
+    private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly SemaphoreSlim indexGate = new(1, 1);
+    private bool indexesCreated;
+    private IMongoCollection<UserAccount> Users => context.Collection<UserAccount>("users");
+    private IMongoCollection<EmailVerificationCode> Codes => context.Collection<EmailVerificationCode>("email_codes");
+    private IMongoCollection<Invitation> Invitations => context.Collection<Invitation>("invitations");
+
+    /// <inheritdoc />
+    public async Task<UserProfile> AuthenticateAsync(LoginRequest request, CancellationToken cancellationToken = default)
+    {
+        var email = IdentityValidation.NormalizeEmail(request.Email);
+        if (string.IsNullOrEmpty(request.Password) || request.Password.Length > 256)
+        {
+            throw new InfrastructureException("账号或密码不正确。", 401);
+        }
+        var user = await Users.Find(x => x.NormalizedEmail == email).FirstOrDefaultAsync(cancellationToken);
+        if (user is null || string.IsNullOrEmpty(user.PasswordHash) || passwordHasher.VerifyHashedPassword(user, user.PasswordHash, request.Password) == PasswordVerificationResult.Failed)
+        {
+            throw new InfrastructureException("账号或密码不正确。", 401);
+        }
+        EnsureActive(user);
+        return Profile(user);
+    }
+
+    /// <inheritdoc />
+    public async Task<UserProfile?> GetUserAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var user = await Users.Find(x => x.Id == id).FirstOrDefaultAsync(cancellationToken);
+        return user is null ? null : Profile(user);
+    }
+
+    /// <inheritdoc />
+    public async Task<UserProfile?> ValidateSessionAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var profile = await GetUserAsync(id, cancellationToken);
+        return profile is { Status: "Active" } ? profile : null;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<UserProfile>> ListUsersAsync(CancellationToken cancellationToken = default) =>
+        (await Users.Find(FilterDefinition<UserAccount>.Empty).SortByDescending(x => x.CreatedAtUtc).ToListAsync(cancellationToken)).Select(Profile).ToArray();
+
+    /// <inheritdoc />
+    public async Task SendEmailCodeAsync(EmailCodeRequest request, CancellationToken cancellationToken = default)
+    {
+        var email = IdentityValidation.NormalizeEmail(request.Email);
+        if (request.Purpose != "register")
+        {
+            throw new InfrastructureException("不支持的邮箱验证用途。");
+        }
+        await EnsureRegistrationEnabledAsync(cancellationToken);
+        await EnsureIndexesAsync(cancellationToken);
+        EmailVerificationCode record;
+        string code;
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var id = IdentityToken.Hash($"register:{email}");
+            var previous = await Codes.Find(x => x.Id == id).FirstOrDefaultAsync(cancellationToken);
+            if (previous is not null && previous.CreatedAtUtc > DateTime.UtcNow.AddSeconds(-60))
+            {
+                throw new InfrastructureException("请在 60 秒后重新发送验证码。", 429);
+            }
+            code = RandomNumberGenerator.GetInt32(100000, 1000000).ToString(CultureInfo.InvariantCulture);
+            var salt = IdentityToken.Create();
+            record = new() { Id = id, Email = email, Salt = salt, CodeHash = IdentityToken.CodeHash(email, code, salt), ExpiresAtUtc = DateTime.UtcNow.AddMinutes(10) };
+            await Codes.ReplaceOneAsync(x => x.Id == id, record, new ReplaceOptions { IsUpsert = true }, cancellationToken);
+        }
+        finally
+        {
+            gate.Release();
+        }
+        try
+        {
+            await emailSender.SendAsync(email, "Live Recorder 邮箱验证", $"您的注册验证码为：{code}\n验证码 10 分钟内有效，请勿转发。若非本人操作，请忽略本邮件。", cancellationToken);
+        }
+        catch
+        {
+            await Codes.DeleteOneAsync(x => x.Id == record.Id && x.CodeHash == record.CodeHash, CancellationToken.None);
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<UserProfile> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default)
+    {
+        var email = IdentityValidation.NormalizeEmail(request.Email);
+        var name = IdentityValidation.NormalizeDisplayName(request.DisplayName);
+        IdentityValidation.ValidatePassword(request.Password);
+        var user = new UserAccount { Email = email, NormalizedEmail = email, DisplayName = name, EmailVerified = true };
+        user.PasswordHash = passwordHasher.HashPassword(user, request.Password);
+        return await RegisterCoreAsync(user, request.EmailCode, request.InvitationCode, null, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<UserProfile> CompleteOAuthRegistrationAsync(string ticket, OAuthRegistrationRequest request, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(ticket))
+        {
+            throw new InfrastructureException("外部注册凭据已过期，请重新登录。");
+        }
+        var registrations = context.Collection<OAuthRegistration>("oauth_registrations");
+        var id = IdentityToken.Hash(ticket);
+        var registration = await registrations.Find(x => x.Id == id && x.ExpiresAtUtc > DateTime.UtcNow).FirstOrDefaultAsync(cancellationToken)
+                           ?? throw new InfrastructureException("外部注册凭据已过期，请重新登录。");
+        var email = IdentityValidation.NormalizeEmail(request.Email);
+        var user = new UserAccount { Email = email, NormalizedEmail = email, DisplayName = IdentityValidation.NormalizeDisplayName(request.DisplayName), AvatarUrl = registration.AvatarUrl, EmailVerified = true };
+        var external = new ExternalLogin { Id = ExternalId(registration.ProviderId, registration.Subject), ProviderId = registration.ProviderId, Subject = registration.Subject, UserId = user.Id };
+        var result = await RegisterCoreAsync(user, request.EmailCode, request.InvitationCode, external, cancellationToken);
+        await registrations.DeleteOneAsync(x => x.Id == id, cancellationToken);
+        return result;
+    }
+
+    /// <inheritdoc />
+    public async Task<UserProfile> SetApprovalAsync(string id, bool approved, CancellationToken cancellationToken = default)
+    {
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var user = await RequireUserAsync(id, cancellationToken);
+            if (!approved)
+            {
+                await EnsureNotLastAdministratorAsync(user, cancellationToken);
+            }
+            user.Status = approved ? "Active" : "Rejected";
+            user.UpdatedAtUtc = DateTime.UtcNow;
+            await Users.ReplaceOneAsync(x => x.Id == id, user, cancellationToken: cancellationToken);
+            return Profile(user);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<UserProfile> SetRoleAsync(string id, string role, CancellationToken cancellationToken = default)
+    {
+        if (role is not ("Admin" or "User"))
+        {
+            throw new InfrastructureException("无效的角色。");
+        }
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var user = await RequireUserAsync(id, cancellationToken);
+            if (role != "Admin")
+            {
+                await EnsureNotLastAdministratorAsync(user, cancellationToken);
+            }
+            user.Role = role;
+            user.UpdatedAtUtc = DateTime.UtcNow;
+            await Users.ReplaceOneAsync(x => x.Id == id, user, cancellationToken: cancellationToken);
+            return Profile(user);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<InvitationSummary> CreateInvitationAsync(InvitationRequest request, string createdBy, CancellationToken cancellationToken = default)
+    {
+        if (request.MaxUses is < 1 or > 10000 || request.ExpiresAtUtc is { } expiry && expiry <= DateTime.UtcNow)
+        {
+            throw new InfrastructureException("邀请码次数必须为 1 至 10000，过期时间必须晚于当前时间。");
+        }
+        await EnsureIndexesAsync(cancellationToken);
+        var code = Convert.ToHexString(RandomNumberGenerator.GetBytes(12));
+        var invitation = new Invitation { CodeHash = IdentityToken.Hash(code), CreatedBy = createdBy, MaxUses = request.MaxUses, ExpiresAtUtc = request.ExpiresAtUtc?.ToUniversalTime() };
+        await Invitations.InsertOneAsync(invitation, cancellationToken: cancellationToken);
+        return InvitationProfile(invitation, code);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<InvitationSummary>> ListInvitationsAsync(CancellationToken cancellationToken = default) =>
+        (await Invitations.Find(FilterDefinition<Invitation>.Empty).SortByDescending(x => x.CreatedAtUtc).ToListAsync(cancellationToken)).Select(x => InvitationProfile(x)).ToArray();
+
+    /// <inheritdoc />
+    public async Task RevokeInvitationAsync(string id, CancellationToken cancellationToken = default) =>
+        _ = await Invitations.UpdateOneAsync(x => x.Id == id, Builders<Invitation>.Update.Set(x => x.Revoked, true), cancellationToken: cancellationToken);
+
+    /// <inheritdoc />
+    public Task<OAuthAuthorizationResult> BeginOAuthAsync(string providerId, string redirectUri, string browserBinding, CancellationToken cancellationToken = default) =>
+        BeginOAuthCoreAsync(providerId, redirectUri, browserBinding, null, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> ListExternalProvidersAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        EnsureActive(await RequireUserAsync(userId, cancellationToken));
+        return (await context.Collection<ExternalLogin>("external_logins").Find(x => x.UserId == userId).ToListAsync(cancellationToken)).Select(x => x.ProviderId).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+    }
+
+    /// <inheritdoc />
+    public async Task<OAuthAuthorizationResult> BeginOAuthBindingAsync(string userId, string providerId, string redirectUri, string browserBinding, CancellationToken cancellationToken = default)
+    {
+        EnsureActive(await RequireUserAsync(userId, cancellationToken));
+        return await BeginOAuthCoreAsync(providerId, redirectUri, browserBinding, userId, cancellationToken);
+    }
+
+    private async Task<OAuthAuthorizationResult> BeginOAuthCoreAsync(string providerId, string redirectUri, string browserBinding, string? linkUserId, CancellationToken cancellationToken)
+    {
+        var provider = await GetProviderAsync(providerId, cancellationToken);
+        ValidateEndpoint(redirectUri);
+        if (string.IsNullOrEmpty(browserBinding))
+        {
+            throw new InfrastructureException("浏览器授权流程缺少绑定。");
+        }
+        await EnsureIndexesAsync(cancellationToken);
+        var state = IdentityToken.Create();
+        var verifier = IdentityToken.Create();
+        var flow = new OAuthFlow { Id = IdentityToken.Hash(state), ProviderId = providerId, Intent = linkUserId is null ? "Login" : "Bind", LinkUserId = linkUserId, RedirectUri = redirectUri, BrowserBindingHash = IdentityToken.Hash(browserBinding), ProtectedVerifier = protector.Protect(verifier), ExpiresAtUtc = DateTime.UtcNow.AddMinutes(10) };
+        await context.Collection<OAuthFlow>("oauth_flows").InsertOneAsync(flow, cancellationToken: cancellationToken);
+        var challenge = Convert.ToBase64String(SHA256.HashData(Encoding.ASCII.GetBytes(verifier))).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var parameters = new Dictionary<string, string> { ["response_type"] = "code", ["client_id"] = provider.ClientId, ["redirect_uri"] = redirectUri, ["scope"] = provider.Scope, ["state"] = state, ["code_challenge"] = challenge, ["code_challenge_method"] = "S256" };
+        var separator = provider.AuthorizationEndpoint.Contains('?') ? '&' : '?';
+        return new(provider.AuthorizationEndpoint + separator + string.Join('&', parameters.Select(x => $"{Uri.EscapeDataString(x.Key)}={Uri.EscapeDataString(x.Value)}")), flow.ExpiresAtUtc);
+    }
+
+    /// <inheritdoc />
+    public Task<OAuthLoginResult> CompleteOAuthAsync(string providerId, string state, string code, string browserBinding, CancellationToken cancellationToken = default) =>
+        CompleteOAuthAsync(providerId, state, code, browserBinding, null, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<OAuthLoginResult> CompleteOAuthAsync(string providerId, string state, string code, string browserBinding, string? currentUserId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(state) || string.IsNullOrWhiteSpace(code) || code.Length > 4096 || string.IsNullOrWhiteSpace(browserBinding))
+        {
+            throw new InfrastructureException("外部授权回调无效。");
+        }
+        var hash = IdentityToken.Hash(state);
+        var bindingHash = IdentityToken.Hash(browserBinding);
+        var flows = context.Collection<OAuthFlow>("oauth_flows");
+        var flow = await flows.Find(x => x.Id == hash && x.ProviderId == providerId && x.BrowserBindingHash == bindingHash && x.ExpiresAtUtc > DateTime.UtcNow).FirstOrDefaultAsync(cancellationToken)
+                   ?? throw new InfrastructureException("授权流程已过期、已使用或不属于当前浏览器。");
+        if (flow.Intent is not ("Login" or "Bind"))
+        {
+            throw new InfrastructureException("授权流程意图无效。");
+        }
+        if (flow.Intent == "Bind")
+        {
+            if (string.IsNullOrWhiteSpace(currentUserId) || currentUserId != flow.LinkUserId)
+            {
+                throw new InfrastructureException("绑定流程必须由发起绑定的已登录用户完成。", 403);
+            }
+            EnsureActive(await RequireUserAsync(currentUserId, cancellationToken));
+        }
+        if (await flows.FindOneAndDeleteAsync(x => x.Id == hash && x.ProviderId == providerId && x.BrowserBindingHash == bindingHash && x.Intent == flow.Intent && x.LinkUserId == flow.LinkUserId && x.ExpiresAtUtc > DateTime.UtcNow, cancellationToken: cancellationToken) is null)
+        {
+            throw new InfrastructureException("授权流程已过期或已使用。");
+        }
+        var provider = await GetProviderAsync(providerId, cancellationToken);
+        using var client = httpClientFactory.CreateClient("identity");
+        using var tokenRequest = new HttpRequestMessage(HttpMethod.Post, provider.TokenEndpoint);
+        var form = new Dictionary<string, string> { ["grant_type"] = "authorization_code", ["code"] = code, ["code_verifier"] = protector.Unprotect(flow.ProtectedVerifier), ["redirect_uri"] = flow.RedirectUri, ["client_id"] = provider.ClientId };
+        var secret = string.IsNullOrEmpty(provider.ClientSecret) ? "" : protector.Unprotect(provider.ClientSecret);
+        if (provider.UseBasicAuthentication)
+        {
+            tokenRequest.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes($"{Uri.EscapeDataString(provider.ClientId)}:{Uri.EscapeDataString(secret)}")));
+        }
+        else if (secret.Length > 0)
+        {
+            form["client_secret"] = secret;
+        }
+        tokenRequest.Content = new FormUrlEncodedContent(form);
+        using var tokenResponse = await client.SendAsync(tokenRequest, cancellationToken);
+        if (!tokenResponse.IsSuccessStatusCode)
+        {
+            throw new InfrastructureException("外部提供方拒绝授权码，请重新登录。");
+        }
+        var tokens = await tokenResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: cancellationToken);
+        var accessToken = tokens?["access_token"]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(accessToken))
+        {
+            throw new InfrastructureException("外部提供方未返回有效的访问令牌。", 502);
+        }
+        using var infoRequest = new HttpRequestMessage(HttpMethod.Get, provider.UserInfoEndpoint);
+        infoRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        using var infoResponse = await client.SendAsync(infoRequest, cancellationToken);
+        if (!infoResponse.IsSuccessStatusCode)
+        {
+            throw new InfrastructureException("无法验证外部用户身份。", 502);
+        }
+        var info = await infoResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: cancellationToken) ?? throw new InfrastructureException("外部用户资料为空。", 502);
+        var subject = ReadField(info, provider.SubjectField);
+        if (string.IsNullOrWhiteSpace(subject) || subject.Length > 256)
+        {
+            throw new InfrastructureException("外部提供方没有返回稳定的用户标识。", 502);
+        }
+        var externalId = ExternalId(providerId, subject);
+        if (flow.Intent == "Bind")
+        {
+            return await BindIdentityAsync(flow.LinkUserId!, providerId, subject, externalId, cancellationToken);
+        }
+        var existing = await context.Collection<ExternalLogin>("external_logins").Find(x => x.Id == externalId).FirstOrDefaultAsync(cancellationToken);
+        if (existing is not null)
+        {
+            var user = await RequireUserAsync(existing.UserId, cancellationToken);
+            EnsureActive(user);
+            return new(Profile(user), null, user.Email, user.DisplayName);
+        }
+        await EnsureRegistrationEnabledAsync(cancellationToken);
+        var ticket = IdentityToken.Create();
+        var registration = new OAuthRegistration { Id = IdentityToken.Hash(ticket), ProviderId = providerId, Subject = subject, Email = ReadField(info, provider.EmailField), DisplayName = ReadField(info, provider.NameField), AvatarUrl = ReadField(info, provider.AvatarField), ExpiresAtUtc = DateTime.UtcNow.AddMinutes(10) };
+        await context.Collection<OAuthRegistration>("oauth_registrations").InsertOneAsync(registration, cancellationToken: cancellationToken);
+        return new(null, ticket, registration.Email, registration.DisplayName);
+    }
+
+    private async Task<OAuthLoginResult> BindIdentityAsync(string userId, string providerId, string subject, string externalId, CancellationToken cancellationToken)
+    {
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var user = await RequireUserAsync(userId, cancellationToken);
+            EnsureActive(user);
+            var logins = context.Collection<ExternalLogin>("external_logins");
+            var existing = await logins.Find(x => x.Id == externalId).FirstOrDefaultAsync(cancellationToken);
+            if (existing is not null && existing.UserId != userId)
+            {
+                throw new InfrastructureException("该外部身份已绑定其他账号。", 409);
+            }
+            if (existing is null)
+            {
+                await logins.InsertOneAsync(new ExternalLogin { Id = externalId, ProviderId = providerId, Subject = subject, UserId = userId }, cancellationToken: cancellationToken);
+            }
+            return new(Profile(user), null, user.Email, user.DisplayName);
+        }
+        catch (MongoWriteException exception) when (exception.WriteError.Category == ServerErrorCategory.DuplicateKey)
+        {
+            throw new InfrastructureException("该外部身份已被绑定，请刷新后重试。", 409);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async Task<UserProfile> RegisterCoreAsync(UserAccount user, string code, string invitationCode, ExternalLogin? external, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(code) || code.Length != 6 || !code.All(char.IsAsciiDigit) || string.IsNullOrWhiteSpace(invitationCode) || invitationCode.Length > 128)
+        {
+            throw new InfrastructureException("请输入六位邮箱验证码和有效邀请码。");
+        }
+        await EnsureRegistrationEnabledAsync(cancellationToken);
+        await EnsureIndexesAsync(cancellationToken);
+        await gate.WaitAsync(cancellationToken);
+        Invitation? reserved = null;
+        var insertedUser = false;
+        try
+        {
+            if (await Users.Find(x => x.NormalizedEmail == user.NormalizedEmail).AnyAsync(cancellationToken))
+            {
+                throw new InfrastructureException("该邮箱已经注册。", 409);
+            }
+            if (external is not null && await context.Collection<ExternalLogin>("external_logins").Find(x => x.Id == external.Id).AnyAsync(cancellationToken))
+            {
+                throw new InfrastructureException("该外部账号已经注册，请重新登录。", 409);
+            }
+            var codeId = IdentityToken.Hash($"register:{user.NormalizedEmail}");
+            var verification = await Codes.FindOneAndUpdateAsync(x => x.Id == codeId && !x.Consumed && x.ExpiresAtUtc > DateTime.UtcNow && x.Attempts < 5, Builders<EmailVerificationCode>.Update.Inc(x => x.Attempts, 1), cancellationToken: cancellationToken);
+            if (verification is null || !IdentityToken.EqualsHash(verification.CodeHash, IdentityToken.CodeHash(user.NormalizedEmail, code, verification.Salt)))
+            {
+                throw new InfrastructureException("邮箱验证码错误、已用完尝试次数或已过期。");
+            }
+            var invitationHash = IdentityToken.Hash(invitationCode.Trim().ToUpperInvariant());
+            var invitation = await Invitations.Find(x => x.CodeHash == invitationHash && !x.Revoked && (x.ExpiresAtUtc == null || x.ExpiresAtUtc > DateTime.UtcNow)).FirstOrDefaultAsync(cancellationToken);
+            if (invitation is null || invitation.UsedCount >= invitation.MaxUses)
+            {
+                throw new InfrastructureException("邀请码不存在、已过期或已用完。");
+            }
+            reserved = await Invitations.FindOneAndUpdateAsync(x => x.Id == invitation.Id && !x.Revoked && x.UsedCount == invitation.UsedCount, Builders<Invitation>.Update.Inc(x => x.UsedCount, 1), cancellationToken: cancellationToken);
+            if (reserved is null)
+            {
+                throw new InfrastructureException("邀请码已被使用，请重试。", 409);
+            }
+            await Users.InsertOneAsync(user, cancellationToken: cancellationToken);
+            insertedUser = true;
+            if (external is not null)
+            {
+                await context.Collection<ExternalLogin>("external_logins").InsertOneAsync(external, cancellationToken: cancellationToken);
+            }
+            await Codes.UpdateOneAsync(x => x.Id == codeId && x.CodeHash == verification.CodeHash, Builders<EmailVerificationCode>.Update.Set(x => x.Consumed, true), cancellationToken: cancellationToken);
+            return Profile(user);
+        }
+        catch
+        {
+            if (insertedUser)
+            {
+                await Users.DeleteOneAsync(x => x.Id == user.Id, CancellationToken.None);
+                if (external is not null)
+                {
+                    await context.Collection<ExternalLogin>("external_logins").DeleteOneAsync(x => x.Id == external.Id && x.UserId == user.Id, CancellationToken.None);
+                }
+            }
+            if (reserved is not null)
+            {
+                await Invitations.UpdateOneAsync(x => x.Id == reserved.Id && x.UsedCount > 0, Builders<Invitation>.Update.Inc(x => x.UsedCount, -1), cancellationToken: CancellationToken.None);
+            }
+            throw;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async Task EnsureRegistrationEnabledAsync(CancellationToken cancellationToken)
+    {
+        if (!(await settingsStore.GetAsync(cancellationToken)).RegistrationEnabled)
+        {
+            throw new InfrastructureException("管理员尚未开放注册。", 403);
+        }
+    }
+
+    private async Task<OAuthProviderSettings> GetProviderAsync(string id, CancellationToken cancellationToken)
+    {
+        var provider = (await settingsStore.GetAsync(cancellationToken)).OAuthProviders.FirstOrDefault(x => x.Id == id && x.Enabled)
+                       ?? throw new InfrastructureException("外部登录提供方未启用。", 404);
+        ValidateEndpoint(provider.AuthorizationEndpoint);
+        ValidateEndpoint(provider.TokenEndpoint);
+        ValidateEndpoint(provider.UserInfoEndpoint);
+        if (string.IsNullOrWhiteSpace(provider.ClientId))
+        {
+            throw new InfrastructureException("外部登录尚未配置 Client ID。", 503);
+        }
+        return provider;
+    }
+
+    private static void ValidateEndpoint(string value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Fragment) || uri.Scheme != "https" && !(uri.Scheme == "http" && uri.IsLoopback))
+        {
+            throw new InfrastructureException("外部授权地址必须使用 HTTPS（本机调试可用 HTTP）。");
+        }
+    }
+
+    private async Task<UserAccount> RequireUserAsync(string id, CancellationToken cancellationToken) =>
+        await Users.Find(x => x.Id == id).FirstOrDefaultAsync(cancellationToken) ?? throw new InfrastructureException("用户不存在。", 404);
+
+    private async Task EnsureNotLastAdministratorAsync(UserAccount user, CancellationToken cancellationToken)
+    {
+        if (user.Role == "Admin" && user.Status == "Active" && await Users.CountDocumentsAsync(x => x.Role == "Admin" && x.Status == "Active", cancellationToken: cancellationToken) <= 1)
+        {
+            throw new InfrastructureException("必须保留至少一名有效管理员。", 409);
+        }
+    }
+
+    private async Task EnsureIndexesAsync(CancellationToken cancellationToken)
+    {
+        if (indexesCreated)
+        {
+            return;
+        }
+        await indexGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (indexesCreated)
+            {
+                return;
+            }
+            await Users.Indexes.CreateOneAsync(new CreateIndexModel<UserAccount>(Builders<UserAccount>.IndexKeys.Ascending(x => x.NormalizedEmail), new CreateIndexOptions { Unique = true }), cancellationToken: cancellationToken);
+            await Invitations.Indexes.CreateOneAsync(new CreateIndexModel<Invitation>(Builders<Invitation>.IndexKeys.Ascending(x => x.CodeHash), new CreateIndexOptions { Unique = true }), cancellationToken: cancellationToken);
+            await Codes.Indexes.CreateOneAsync(new CreateIndexModel<EmailVerificationCode>(Builders<EmailVerificationCode>.IndexKeys.Ascending(x => x.ExpiresAtUtc), new CreateIndexOptions { ExpireAfter = TimeSpan.Zero }), cancellationToken: cancellationToken);
+            await context.Collection<OAuthFlow>("oauth_flows").Indexes.CreateOneAsync(new CreateIndexModel<OAuthFlow>(Builders<OAuthFlow>.IndexKeys.Ascending(x => x.ExpiresAtUtc), new CreateIndexOptions { ExpireAfter = TimeSpan.Zero }), cancellationToken: cancellationToken);
+            await context.Collection<OAuthRegistration>("oauth_registrations").Indexes.CreateOneAsync(new CreateIndexModel<OAuthRegistration>(Builders<OAuthRegistration>.IndexKeys.Ascending(x => x.ExpiresAtUtc), new CreateIndexOptions { ExpireAfter = TimeSpan.Zero }), cancellationToken: cancellationToken);
+            indexesCreated = true;
+        }
+        finally
+        {
+            indexGate.Release();
+        }
+    }
+
+    private static string ReadField(JsonObject value, string path)
+    {
+        JsonNode? current = value;
+        foreach (var part in path.Split('.'))
+        {
+            current = current is JsonObject obj ? obj[part] : null;
+        }
+        return current is JsonValue item ? item.ToString() : "";
+    }
+
+    private static string ExternalId(string provider, string subject) => IdentityToken.Hash($"{provider}\n{subject}");
+    private static UserProfile Profile(UserAccount user) => new(user.Id, user.Email, user.DisplayName, user.AvatarUrl, user.Role, user.Status);
+    private static InvitationSummary InvitationProfile(Invitation invitation, string? code = null) => new(invitation.Id, invitation.CreatedAtUtc, invitation.ExpiresAtUtc, invitation.MaxUses, invitation.UsedCount, invitation.Revoked, code);
+
+    private static void EnsureActive(UserAccount user)
+    {
+        if (user.Status != "Active")
+        {
+            throw new InfrastructureException(user.Status == "Pending" ? "账号正在等待管理员审核。" : "账号已被拒绝或停用。", 403);
+        }
+    }
+}

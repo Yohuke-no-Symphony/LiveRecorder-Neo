@@ -1,0 +1,10 @@
+using Yohuke.LiveRecorder.Infrastructure.Recording;
+
+namespace Yohuke.LiveRecorder.Infrastructure.Library;
+
+/// <summary>归组和拆分的文件先行批量发布日志。</summary>
+public sealed class ProjectionOperation
+{
+    public List<SessionManifest> Outputs { get; set; } = [];
+    public List<string> SourceIds { get; set; } = [];
+}

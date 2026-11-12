@@ -1,0 +1,149 @@
+using MongoDB.Bson;
+using MongoDB.Driver;
+using Yohuke.LiveRecorder.Application;
+using Yohuke.LiveRecorder.Application.Library;
+using Yohuke.LiveRecorder.Application.Media;
+using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Infrastructure.Library;
+using Yohuke.LiveRecorder.Infrastructure.Persistence;
+
+namespace Yohuke.LiveRecorder.Infrastructure.Jobs;
+
+/// <summary>校验任务输入并以持久快照入队。</summary>
+public sealed class MediaJobService(MongoContext context, LibraryService library, IStatusPublisher publisher)
+{
+    /// <summary>创建不会随浏览器断开而取消的作业。</summary>
+    public async Task<MediaJob> CreateAsync(CreateMediaJobRequest request, string ownerId, bool isAdmin, CancellationToken cancellationToken = default)
+    {
+        if (request.Kind is not ("Clip" or "Repair" or "Merge") || request.Mode is not ("Exact" or "Fast"))
+        {
+            throw new InfrastructureException("媒体任务类型或模式无效。");
+        }
+        if (request.Kind != "Clip" && !isAdmin)
+        {
+            throw new InfrastructureException("只有管理员可以修复或合并录播。", 403);
+        }
+        await EnsureMutationIndexAsync(cancellationToken);
+        var detail = await library.GetAsync(request.SessionId, cancellationToken);
+        if (request.Kind == "Clip" && detail.Session.EndedAtUtc is null && detail.Segments.Any(x => !x.IsClosed) &&
+            request.EndMs > detail.Segments.Max(x => x.StartOffsetMs + x.DurationMs))
+        {
+            throw new InfrastructureException("所选范围尚未完成归档，请稍后重试。", 425);
+        }
+        var selected = request.SegmentIds.Count == 0 ? detail.Segments : detail.Segments.Where(x => request.SegmentIds.Contains(x.Id)).ToList();
+        if (selected.Count == 0 || (request.SegmentIds.Count > 0 && selected.Count != request.SegmentIds.Distinct().Count()))
+        {
+            throw new InfrastructureException("所选片段不存在。");
+        }
+        if (request.Kind != "Clip" && (detail.Session.EndedAtUtc is null || selected.Any(x => !x.IsClosed)))
+        {
+            throw new InfrastructureException("修复与合并需要等待录制结束。", 409);
+        }
+        if (request.Kind != "Clip")
+        {
+            request.StartMs = selected.Min(x => x.StartOffsetMs);
+            request.EndMs = selected.Max(x => x.StartOffsetMs + x.DurationMs);
+        }
+        if (request.EndMs > detail.DurationMs + 1)
+        {
+            throw new InfrastructureException("切片终点超过已归档时间。");
+        }
+        var spans = SessionTimeline.ExportSpans(selected, request.StartMs, request.EndMs, x => x);
+        if (request.Mode == "Fast" && spans.Any(x => x.IsGap))
+        {
+            throw new InfrastructureException("所选范围包含断流空档，请使用精确模式。", 422);
+        }
+        var queued = await context.Collection<MediaJob>("jobs").CountDocumentsAsync(x => x.OwnerId == ownerId && (x.State == "Queued" || x.State == "Running" || x.State == "Publishing"), cancellationToken: cancellationToken);
+        if (!isAdmin && queued >= 5)
+        {
+            throw new InfrastructureException("请先等待现有任务完成。", 429);
+        }
+        var job = new MediaJob
+        {
+            OwnerId = ownerId,
+            SessionId = request.SessionId,
+            Kind = request.Kind,
+            Title = string.IsNullOrWhiteSpace(request.Title) ? detail.Session.Title : request.Title.Trim(),
+            Mode = request.Mode,
+            StartMs = request.StartMs,
+            EndMs = request.EndMs,
+            SegmentIds = selected.Select(x => x.Id).ToList(),
+            SourceSegments = selected,
+            SourceRevision = detail.Session.MediaRevision,
+            MutationKey = request.Kind == "Repair" ? detail.Session.Id : null
+        };
+        try
+        {
+            await context.Collection<MediaJob>("jobs").InsertOneAsync(job, cancellationToken: cancellationToken);
+        }
+        catch (MongoWriteException error) when (error.WriteError.Category == ServerErrorCategory.DuplicateKey)
+        {
+            throw new InfrastructureException("该场次已有修复任务。", 409);
+        }
+        await publisher.PublishAsync("job", job.Id, ownerId, cancellationToken);
+        return job;
+    }
+
+    /// <summary>原子取消当前排队状态或通知仍在运行的执行者，不修改已完成作业。</summary>
+    public async Task CancelAsync(MediaJob job, CancellationToken cancellationToken = default)
+    {
+        var jobs = context.Collection<MediaJob>("jobs");
+        var queued = await jobs.UpdateOneAsync(x => x.Id == job.Id && x.State == "Queued", Builders<MediaJob>.Update
+            .Set(x => x.CancelRequested, true).Set(x => x.State, "Cancelled").Set(x => x.MutationKey, null)
+            .Set(x => x.LeaseOwner, null).Set(x => x.LeaseUntilUtc, null).Set(x => x.FinishedAtUtc, DateTime.UtcNow), cancellationToken: cancellationToken);
+        if (queued.MatchedCount == 0)
+        {
+            await jobs.UpdateOneAsync(x => x.Id == job.Id && (x.State == "Running" || x.State == "Publishing"),
+                Builders<MediaJob>.Update.Set(x => x.CancelRequested, true), cancellationToken: cancellationToken);
+        }
+        await publisher.PublishAsync("job", job.Id, job.OwnerId, cancellationToken);
+    }
+
+    /// <summary>基于当前终态重新入队，并重新取得场次修复互斥键。</summary>
+    public async Task RetryAsync(MediaJob job, CancellationToken cancellationToken = default)
+    {
+        await EnsureMutationIndexAsync(cancellationToken);
+        var current = await context.Collection<MediaJob>("jobs").Find(x => x.Id == job.Id).FirstOrDefaultAsync(cancellationToken)
+                      ?? throw new InfrastructureException("任务不存在。", 404);
+        if (current.State is not ("Failed" or "Cancelled"))
+        {
+            throw new InfrastructureException("只有失败或取消的任务可以重试。", 409);
+        }
+        if (current.Kind == "Repair")
+        {
+            var detail = await library.GetAsync(current.SessionId, cancellationToken);
+            if (detail.Session.MediaRevision != current.SourceRevision
+                && !(detail.Session.MediaRevision == current.SourceRevision + 1 && detail.Session.MediaRevisionJobId == current.Id))
+            {
+                throw new InfrastructureException("输入媒体版本已经变化，请新建修复任务。", 409);
+            }
+        }
+        try
+        {
+            var updated = await context.Collection<MediaJob>("jobs").UpdateOneAsync(x => x.Id == current.Id && x.Attempt == current.Attempt && (x.State == "Failed" || x.State == "Cancelled"),
+                Builders<MediaJob>.Update.Set(x => x.State, "Queued").Set(x => x.Error, null).Set(x => x.Progress, 0).Set(x => x.CancelRequested, false)
+                    .Set(x => x.FinishedAtUtc, null).Set(x => x.LeaseOwner, null).Set(x => x.LeaseUntilUtc, null)
+                    .Set(x => x.MutationKey, current.Kind == "Repair" ? current.SessionId : null), cancellationToken: cancellationToken);
+            if (updated.MatchedCount == 0)
+            {
+                throw new InfrastructureException("任务状态已经改变。", 409);
+            }
+        }
+        catch (MongoWriteException error) when (error.WriteError.Category == ServerErrorCategory.DuplicateKey)
+        {
+            throw new InfrastructureException("该场次已有其他修复任务。", 409);
+        }
+        await publisher.PublishAsync("job", current.Id, current.OwnerId, cancellationToken);
+    }
+
+    private Task EnsureMutationIndexAsync(CancellationToken cancellationToken)
+    {
+        return context.Collection<MediaJob>("jobs").Indexes.CreateOneAsync(new CreateIndexModel<MediaJob>(
+            Builders<MediaJob>.IndexKeys.Ascending(x => x.MutationKey), new CreateIndexOptions<MediaJob>
+            {
+                Name = "active_mutation",
+                Unique = true,
+                PartialFilterExpression = new BsonDocument("MutationKey", new BsonDocument("$type", "string"))
+            }), cancellationToken: cancellationToken);
+    }
+}

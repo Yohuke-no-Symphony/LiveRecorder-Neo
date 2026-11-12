@@ -1,0 +1,31 @@
+import { post, remove, request } from './APIBase'
+import type { BilibiliAccount, BilibiliLoginSession, Invitation, OAuthExchange, Registration, SmsChallengeAnswer, UserProfile, UserSession } from '@/models/auth'
+
+export const AuthAPI = {
+  setupStatus: () => request<{ installed: boolean; requiresToken: boolean }>('setup/status'),
+  setup: (body: { token: string; mongoConnectionString: string; databaseName: string; storagePath: string; userName: string; email: string; password: string; ffmpegPath?: string; ffprobePath?: string }) => post<void>('setup', body),
+  me: () => request<UserSession>('auth/me'),
+  login: (email: string, password: string) => post<UserSession>('auth/login', { email, password }),
+  logout: () => post<void>('auth/logout'),
+  emailCode: (email: string) => post<void>('auth/email-code', { email, purpose: 'register' }),
+  register: (body: Registration) => post<UserProfile>('auth/register', body),
+  providers: () => request<{ id: string; name: string }[]>('auth/oauth/providers'),
+  identities: () => request<string[]>('auth/identities'),
+  oauthBegin: (id: string) => post<{ authorizationUrl: string }>(`auth/oauth/${encodeURIComponent(id)}/begin`),
+  oauthBind: (id: string) => post<{ authorizationUrl: string; expiresAtUtc: string }>(`auth/oauth/${encodeURIComponent(id)}/bind`),
+  oauthExchange: (id: string, code: string, state: string) => post<OAuthExchange>(`auth/oauth/${encodeURIComponent(id)}/exchange`, { code, state }),
+  oauthRegister: (body: Omit<Registration, 'password'>) => post<UserProfile>('auth/oauth/register', body),
+  users: () => request<UserProfile[]>('admin/users'),
+  approveUser: (id: string, approved: boolean) => post<UserProfile>(`admin/users/${encodeURIComponent(id)}/approval`, { approved }),
+  userRole: (id: string, role: 'Admin' | 'User') => post<UserProfile>(`admin/users/${encodeURIComponent(id)}/role`, { role }),
+  invitations: () => request<Invitation[]>('admin/invitations'),
+  createInvitation: (maxUses: number, expiresAtUtc: string | null) => post<Invitation>('admin/invitations', { maxUses, expiresAtUtc }),
+  revokeInvitation: (id: string) => remove(`admin/invitations/${encodeURIComponent(id)}`),
+  bilibiliAccounts: () => request<BilibiliAccount[]>('admin/bilibili/accounts'),
+  deleteBilibiliAccount: (id: string) => remove(`admin/bilibili/accounts/${encodeURIComponent(id)}`),
+  createQrLogin: () => post<BilibiliLoginSession>('admin/bilibili/qr'),
+  pollQrLogin: (id: string) => request<BilibiliLoginSession>(`admin/bilibili/qr/${encodeURIComponent(id)}`),
+  createSmsLogin: (cid: string, tel: string) => post<BilibiliLoginSession>('admin/bilibili/sms', { cid, tel }),
+  sendSms: (id: string, body: SmsChallengeAnswer) => post<BilibiliLoginSession>(`admin/bilibili/sms/${encodeURIComponent(id)}/send`, body),
+  completeSms: (id: string, code: string) => post<BilibiliLoginSession>(`admin/bilibili/sms/${encodeURIComponent(id)}/complete`, { code }),
+}

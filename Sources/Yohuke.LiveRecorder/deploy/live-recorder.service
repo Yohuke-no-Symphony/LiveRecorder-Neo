@@ -1,0 +1,19 @@
+[Unit]
+Description=Yohuke Live Recorder
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=liverecorder
+Group=liverecorder
+WorkingDirectory=/opt/live-recorder
+ExecStart=/opt/live-recorder/Yohuke.LiveRecorder.Server --urls http://127.0.0.1:4784 --DataDirectory /var/lib/live-recorder
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=90
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

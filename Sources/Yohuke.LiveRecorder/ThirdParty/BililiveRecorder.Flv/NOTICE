@@ -1,0 +1,15 @@
+BililiveRecorder.Flv
+Copyright © 2018-2026 Genteure
+Source: https://github.com/BililiveRecorder/BililiveRecorder
+Upstream commit: 2744d605b93fec44d00a7957de93ec3148e412fc
+Upstream version: v2.20.0-1-g2744d60
+License: GPL-3.0 (see LICENSE).
+
+Local integration changes:
+- Standalone .NET 10 build; no upstream GitVersion or history requirement.
+- Fixed upstream version stamp for diagnostic logs.
+- Framework DI/Pipelines references and Newtonsoft.Json 13.0.4.
+- Explicit nullable context to preserve annotations under generated-code analysis.
+- ReadExactly for the H264 NALU length prefix (truncated input returns false).
+- Suppress obsolete formatter serialization warning in unchanged upstream exception types.
+All other source files retain their upstream implementation.

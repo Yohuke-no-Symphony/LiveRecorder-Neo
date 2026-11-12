@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <ItemGroup>
+        <ProjectReference Include="../Yohuke.LiveRecorder.Domain/Yohuke.LiveRecorder.Domain.csproj" />
+    </ItemGroup>
+</Project>

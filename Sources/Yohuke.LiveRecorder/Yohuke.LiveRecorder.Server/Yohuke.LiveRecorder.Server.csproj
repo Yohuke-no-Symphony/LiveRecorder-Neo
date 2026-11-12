@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12"/>
+        <ProjectReference Include="../Yohuke.LiveRecorder.Infrastructure/Yohuke.LiveRecorder.Infrastructure.csproj" />
+        <ProjectReference Include="../Yohuke.LiveRecorder.Media/Yohuke.LiveRecorder.Media.csproj" />
+    </ItemGroup>
+
+    <Target Name="BuildWebUI" BeforeTargets="IncludeWebUI" Condition="'$(BuildWebUI)' != 'false'">
+        <Exec WorkingDirectory="../WebUI" Command="pnpm install --frozen-lockfile" />
+        <Exec WorkingDirectory="../WebUI" Command="pnpm build" />
+    </Target>
+    <Target Name="IncludeWebUI" BeforeTargets="ComputeFilesToPublish">
+        <ItemGroup>
+            <_WebUiAsset Include="../WebUI/dist/**/*" />
+            <ResolvedFileToPublish Include="@(_WebUiAsset)">
+                <RelativePath>webui/%(_WebUiAsset.RecursiveDir)%(_WebUiAsset.Filename)%(_WebUiAsset.Extension)</RelativePath>
+                <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+            </ResolvedFileToPublish>
+        </ItemGroup>
+    </Target>
+</Project>

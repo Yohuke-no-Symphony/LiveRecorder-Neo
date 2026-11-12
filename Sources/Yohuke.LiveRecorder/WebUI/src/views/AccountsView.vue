@@ -1,0 +1,146 @@
+<template>
+  <PageHeader title="B站账号"><v-btn color="primary" prepend-icon="mdi-plus" @click="openLogin">添加账号</v-btn></PageHeader>
+  <v-alert v-if="error" type="error" class="mb-6">{{ error }}</v-alert>
+  <div v-if="accounts.length" class="settings-grid">
+    <v-card v-for="account in accounts" :key="account.id" class="pa-6"><div class="d-flex align-center ga-4"><v-avatar size="58" color="surface-variant"><v-img :src="account.avatarUrl" /></v-avatar><div class="flex-grow-1"><h2 class="text-body-1 font-weight-medium">{{ account.userName }}</h2><div class="text-caption muted mono mt-1">UID {{ account.uid }}</div></div><v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-horizontal" size="small" variant="text" aria-label="账号操作" /></template><v-list density="compact"><v-list-item title="移除账号" prepend-icon="mdi-delete-outline" @click="selected = account" /></v-list></v-menu></div><div class="d-flex justify-space-between align-center mt-6"><StatusChip :status="account.status" /><span class="text-caption muted">{{ formatDate(account.lastValidatedAtUtc) }}</span></div></v-card>
+  </div>
+  <EmptyState v-else-if="!busy" title="暂无B站账号" icon="mdi-account-box-outline"><v-btn color="primary" @click="openLogin">添加账号</v-btn></EmptyState>
+  <v-dialog v-model="loginOpen" max-width="440" @after-leave="resetLogin"><v-card class="pa-6"><h2 class="text-h6 mb-5">添加B站账号</h2><v-tabs v-model="loginMethod" color="primary" grow class="mb-6"><v-tab value="qr">扫码登录</v-tab><v-tab value="sms">短信登录</v-tab></v-tabs><v-alert v-if="loginError" type="error" class="mb-5">{{ loginError }}</v-alert>
+    <div v-if="loginMethod === 'qr'" class="qr-login">
+      <v-progress-circular v-if="loginBusy" indeterminate color="primary" class="my-10" />
+      <img v-else-if="qrImage && !['Expired', 'Complete', 'Failed'].includes(loginSession?.status ?? '')" :src="qrImage" width="220" height="220" alt="B站登录二维码" />
+      <v-icon v-else :icon="loginSession?.status === 'Complete' ? 'mdi-check-circle-outline' : 'mdi-qrcode'" :color="loginSession?.status === 'Complete' ? 'success' : 'secondary'" size="80" class="my-9" />
+      <div class="text-body-2 mt-5">{{ loginStatusLabel }}</div>
+      <v-btn v-if="['Expired', 'Failed'].includes(loginSession?.status ?? '')" variant="tonal" color="primary" class="mt-5" @click="createQr">刷新二维码</v-btn>
+      <v-btn v-if="loginSession?.verificationUrl" :href="loginSession.verificationUrl" target="_blank" rel="noopener noreferrer" color="primary" class="mt-4">完成B站验证</v-btn>
+    </div>
+    <form v-else class="form-stack" @submit.prevent="submitSms">
+      <template v-if="!loginSession || !['Challenge', 'SmsSent', 'Complete', 'VerificationRequired'].includes(loginSession.status)"><div class="d-flex ga-3"><v-text-field v-model="countryCode" label="区号" style="max-width: 92px" prefix="+" required /><v-text-field v-model="phone" label="手机号" inputmode="tel" autocomplete="tel-national" required /></div><v-btn type="submit" color="primary" :loading="loginBusy" block>获取验证码</v-btn></template>
+      <CaptchaChallenge v-else-if="loginSession.status === 'Challenge' && loginSession.challenge" :challenge="loginSession.challenge" @verified="sendSms" />
+      <template v-else-if="loginSession.status === 'SmsSent'"><v-text-field v-model="smsCode" label="短信验证码" inputmode="numeric" autocomplete="one-time-code" required /><v-btn type="submit" color="primary" :loading="loginBusy" block>登录</v-btn></template>
+      <div v-else class="text-center py-6"><v-icon :icon="loginSession.status === 'Complete' ? 'mdi-check-circle-outline' : 'mdi-shield-check-outline'" color="primary" size="48" /><div class="mt-5">{{ loginStatusLabel }}</div><v-btn v-if="loginSession.verificationUrl" :href="loginSession.verificationUrl" target="_blank" rel="noopener noreferrer" color="primary" class="mt-5">完成B站验证</v-btn></div>
+    </form>
+    <div class="d-flex justify-end mt-6"><v-btn variant="text" @click="loginOpen = false">{{ loginSession?.status === 'Complete' ? '完成' : '关闭' }}</v-btn></div>
+  </v-card></v-dialog>
+  <ConfirmDialog :model-value="!!selected" title="移除B站账号？" :message="selected?.userName" action-label="移除" :busy="busy" :error="error" @update:model-value="!$event && (selected = undefined)" @confirm="removeAccount" />
+</template>
+
+<script setup lang="ts">
+import QRCode from 'qrcode'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { AuthAPI } from '@/apis/AuthAPI'
+import { useAction } from '@/composables/useAction'
+import { usePolling } from '@/composables/usePolling'
+import type { BilibiliAccount, BilibiliLoginSession, SmsChallengeAnswer } from '@/models/auth'
+import { formatDate } from '@/utilities/format'
+import PageHeader from '@/components/common/PageHeader.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import StatusChip from '@/components/common/StatusChip.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import CaptchaChallenge from '@/components/accounts/CaptchaChallenge.vue'
+
+const accounts = ref<BilibiliAccount[]>([])
+const selected = ref<BilibiliAccount>()
+const loginOpen = ref(false)
+const loginMethod = ref('qr')
+const loginSession = ref<BilibiliLoginSession>()
+const qrImage = ref('')
+const countryCode = ref('86')
+const phone = ref('')
+const smsCode = ref('')
+const { busy, error, run } = useAction()
+const { busy: loginBusy, error: loginError, run: runLogin } = useAction()
+let qrTimer: ReturnType<typeof setTimeout> | undefined
+let loginGeneration = 0
+const statusLabels: Record<string, string> = { Waiting: '使用哔哩哔哩客户端扫码', Scanned: '已扫码，请在手机上确认', Expired: '二维码已过期', Challenge: '请完成安全验证', SmsSent: '验证码已发送', Complete: '登录成功', VerificationRequired: '需要完成B站验证', Failed: '登录失败' }
+const loginStatusLabel = computed(() => loginSession.value?.message || statusLabels[loginSession.value?.status ?? 'Waiting'])
+usePolling(async () => { await run(async () => { accounts.value = await AuthAPI.bilibiliAccounts() }) }, 30000)
+
+function openLogin(): void
+{
+  resetLogin()
+  loginMethod.value = 'qr'
+  loginOpen.value = true
+  void createQr()
+}
+function resetLogin(): void
+{
+  loginGeneration++
+  clearTimeout(qrTimer)
+  loginSession.value = undefined
+  qrImage.value = ''
+  loginError.value = ''
+  smsCode.value = ''
+}
+watch(loginMethod, value =>
+{
+  resetLogin()
+  if (value === 'qr' && loginOpen.value) { void createQr() }
+}, { flush: 'sync' })
+watch(loginOpen, value => { if (!value) { loginGeneration++; clearTimeout(qrTimer) } })
+async function createQr(): Promise<void>
+{
+  const operation = ++loginGeneration
+  clearTimeout(qrTimer)
+  await runLogin(async () =>
+  {
+    const session = await AuthAPI.createQrLogin()
+    if (operation !== loginGeneration) { return }
+    loginSession.value = session
+    qrImage.value = session.qrUrl ? await QRCode.toDataURL(session.qrUrl, { width: 280, margin: 2, errorCorrectionLevel: 'M' }) : ''
+    qrTimer = setTimeout(() => { void pollQr(operation) }, 2000)
+  })
+}
+async function pollQr(operation: number): Promise<void>
+{
+  if (!loginOpen.value || operation !== loginGeneration || !loginSession.value) { return }
+  try
+  {
+    const session = await AuthAPI.pollQrLogin(loginSession.value.sessionId)
+    if (operation !== loginGeneration) { return }
+    loginSession.value = session
+    if (session.status === 'Complete')
+    {
+      accounts.value = await AuthAPI.bilibiliAccounts()
+      return
+    }
+    if (!['Expired', 'Failed'].includes(session.status))
+    {
+      qrTimer = setTimeout(() => { void pollQr(operation) }, 2000)
+    }
+  }
+  catch (value)
+  {
+    loginError.value = value instanceof Error ? value.message : '二维码状态获取失败'
+  }
+}
+async function submitSms(): Promise<void>
+{
+  await runLogin(async () =>
+  {
+    if (loginSession.value?.status === 'SmsSent')
+    {
+      loginSession.value = await AuthAPI.completeSms(loginSession.value.sessionId, smsCode.value)
+      if (loginSession.value.status === 'Complete') { accounts.value = await AuthAPI.bilibiliAccounts() }
+    }
+    else
+    {
+      loginSession.value = await AuthAPI.createSmsLogin(countryCode.value, phone.value)
+      if (loginSession.value.challenge && loginSession.value.status !== 'Challenge') { loginSession.value.status = 'Challenge' }
+    }
+  })
+}
+async function sendSms(answer: SmsChallengeAnswer): Promise<void>
+{
+  if (!loginSession.value) { return }
+  await runLogin(async () => { loginSession.value = await AuthAPI.sendSms(loginSession.value!.sessionId, answer) })
+}
+async function removeAccount(): Promise<void>
+{
+  if (!selected.value) { return }
+  await run(async () => { await AuthAPI.deleteBilibiliAccount(selected.value!.id); selected.value = undefined; accounts.value = await AuthAPI.bilibiliAccounts() })
+}
+onBeforeUnmount(resetLogin)
+</script>
+
+<style scoped>.qr-login { display: flex; flex-direction: column; align-items: center; min-height: 280px; }.qr-login img { border-radius: 12px; background: white; }</style>

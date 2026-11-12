@@ -1,0 +1,6 @@
+@Yohuke.LiveRecorder.Server_HostAddress = http://localhost:5172
+
+GET {{Yohuke.LiveRecorder.Server_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
