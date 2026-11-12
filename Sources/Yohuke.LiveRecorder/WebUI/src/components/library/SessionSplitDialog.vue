@@ -1,20 +1,23 @@
 <template>
   <v-dialog v-model="opened" :persistent="busy" max-width="580" scrollable>
     <v-card>
-      <h2 class="text-h6 pa-6">拆分场次</h2>
-      <v-card-text class="pt-0"><v-radio-group v-model="beforeSegmentId" label="拆分起始片段" :disabled="busy" hide-details><v-radio v-for="(segment, index) in boundaries" :key="segment.id" :value="segment.id" :label="`片段 ${String(index + 2).padStart(2, '0')} · ${formatDuration(segment.startOffsetMs, true)} · ${formatBytes(segment.committedBytes)}`" /></v-radio-group><v-alert v-if="error" type="error" class="mt-5">{{ error }}</v-alert><EmptyState v-if="!boundaries.length" title="暂无可拆分片段" /></v-card-text>
-      <div class="d-flex justify-end ga-3 pa-6"><v-btn variant="text" :disabled="busy" @click="opened = false">取消</v-btn><v-btn color="primary" :loading="busy" :disabled="busy || !beforeSegmentId" @click="submit">拆分</v-btn></div>
+      <h2 class="text-h6 pa-6">{{ t('components.library.splitTitle') }}</h2>
+      <v-card-text class="pt-0"><v-radio-group v-model="beforeSegmentId" :label="t('components.library.splitBoundary')" :disabled="busy" hide-details><v-radio v-for="(segment, index) in boundaries" :key="segment.id" :value="segment.id" :label="t('components.library.segment', { number: String(index + 2).padStart(2, '0'), time: formatDuration(segment.startOffsetMs, true), size: formatBytes(segment.committedBytes) })" /></v-radio-group><v-alert v-if="error" type="error" class="mt-5">{{ error }}</v-alert><EmptyState v-if="!boundaries.length" :title="t('components.library.noBoundaries')" /></v-card-text>
+      <div class="d-flex justify-end ga-3 pa-6"><v-btn variant="text" :disabled="busy" @click="opened = false">{{ t('components.common.cancel') }}</v-btn><v-btn color="primary" :loading="busy" :disabled="busy || !beforeSegmentId" @click="submit">{{ t('components.library.split') }}</v-btn></div>
     </v-card>
   </v-dialog>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed, ref } from 'vue'
 import { MediaAPI } from '@/apis/MediaAPI'
 import { useAction } from '@/composables/useAction'
 import type { RecordingSegment } from '@/models/media'
 import { formatBytes, formatDuration } from '@/utilities/format'
 import EmptyState from '@/components/common/EmptyState.vue'
+
+const { t } = useI18n()
 
 const opened = defineModel<boolean>({ required: true })
 const props = defineProps<{ sessionId: string; segments: RecordingSegment[] }>()

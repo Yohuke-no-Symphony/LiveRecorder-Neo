@@ -114,7 +114,8 @@ public sealed class RecordingProgressSink : IProgress<MediaRecordingUpdate>, IAs
             }
             await context.Collection<BroadcastSession>("sessions").UpdateOneAsync(x => x.Id == session.Id,
                 Builders<BroadcastSession>.Update.Set(x => x.LastMediaAtUtc, session.LastMediaAtUtc).Set(x => x.TotalBytes, session.TotalBytes)
-                    .Set(x => x.Error, session.Error).Set(x => x.State, session.State).Set(x => x.HasDanmu, session.HasDanmu));
+                    .Set(x => x.Error, session.Error).Set(x => x.ErrorCode, session.ErrorCode).Set(x => x.ErrorArguments, session.ErrorArguments)
+                    .Set(x => x.State, session.State).Set(x => x.HasDanmu, session.HasDanmu));
             await publisher.PublishAsync("session", session.Id);
         }
         catch (Exception error)

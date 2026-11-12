@@ -1,41 +1,44 @@
 <template>
-  <section ref="player" class="media-player" tabindex="0" aria-label="录播播放器" @keydown="onKeydown">
+  <section ref="player" class="media-player" tabindex="0" :aria-label="t('components.player.label')" @keydown="onKeydown">
     <div class="video-stage" @dblclick="fullscreen" @click="togglePlay">
       <video ref="video" crossorigin="use-credentials" playsinline preload="metadata" :muted="muted" @loadedmetadata="syncVideo" @canplay="onCanPlay" @waiting="onWaiting" @ended="onEnded" @error="onVideoError" />
-      <div v-if="gap" class="video-overlay gap-overlay"><v-icon icon="mdi-video-off-outline" size="40" /><span>录制中断</span></div>
-      <div v-else-if="error" class="video-overlay error-overlay" @click.stop><v-icon icon="mdi-alert-circle-outline" size="38" /><span>{{ error }}</span><v-btn variant="tonal" color="white" size="small" @click="retry">重试</v-btn></div>
+      <div v-if="gap" class="video-overlay gap-overlay"><v-icon icon="mdi-video-off-outline" size="40" /><span>{{ t('components.events.gap') }}</span></div>
+      <div v-else-if="error" class="video-overlay error-overlay" @click.stop><v-icon icon="mdi-alert-circle-outline" size="38" /><span>{{ error }}</span><v-btn variant="tonal" color="white" size="small" @click="retry">{{ t('components.common.retry') }}</v-btn></div>
       <div v-else-if="loading" class="video-overlay"><v-progress-circular indeterminate color="primary" size="38" /></div>
       <div v-else-if="!playing" class="video-overlay play-overlay"><v-icon icon="mdi-play" size="60" /></div>
     </div>
     <div class="player-controls">
       <div class="timeline-track">
         <div class="timeline-gaps" aria-hidden="true"><span v-for="item in normalizedGaps" :key="item.startMs" :style="{ left: `${item.startMs / durationMs * 100}%`, width: `${(item.endMs - item.startMs) / durationMs * 100}%` }" /></div>
-        <v-slider :model-value="sliderOffset" :max="Math.max(durationMs, 1)" :step="1" color="primary" track-color="white" track-opacity="0.17" thumb-size="12" track-size="4" hide-details density="compact" aria-label="播放位置" @update:model-value="scrub" @start="scrubbing = true" @end="finishScrub" />
+        <v-slider :model-value="sliderOffset" :max="Math.max(durationMs, 1)" :step="1" color="primary" track-color="white" track-opacity="0.17" thumb-size="12" track-size="4" hide-details density="compact" :aria-label="t('components.player.position')" @update:model-value="scrub" @start="scrubbing = true" @end="finishScrub" />
       </div>
       <div class="d-flex align-center ga-1">
-        <v-btn :icon="playing ? 'mdi-pause' : 'mdi-play'" :aria-label="playing ? '暂停' : '播放'" size="small" variant="text" color="white" @click="togglePlay" />
-        <v-btn icon="mdi-rewind-10" size="small" variant="text" color="white" aria-label="后退10秒" @click="seek(currentMs - 10000)" />
-        <v-btn icon="mdi-fast-forward-10" size="small" variant="text" color="white" aria-label="前进10秒" @click="seek(currentMs + 10000)" />
+        <v-btn :icon="playing ? 'mdi-pause' : 'mdi-play'" :aria-label="playing ? t('components.player.pause') : t('components.player.play')" size="small" variant="text" color="white" @click="togglePlay" />
+        <v-btn icon="mdi-rewind-10" size="small" variant="text" color="white" :aria-label="t('components.player.rewind')" @click="seek(currentMs - 10000)" />
+        <v-btn icon="mdi-fast-forward-10" size="small" variant="text" color="white" :aria-label="t('components.player.forward')" @click="seek(currentMs + 10000)" />
         <span class="player-time mono">{{ formatDuration(currentMs, true) }}<span class="time-divider"> / </span>{{ formatDuration(durationMs, true) }}</span>
         <v-spacer />
-        <v-btn v-if="isLive" variant="text" size="small" color="primary" @click="seek(Math.max(0, durationMs - 2000))"><span class="live-indicator" />追录</v-btn>
-        <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" variant="text" size="small" color="white">{{ rate }}×</v-btn></template><v-list density="compact"><v-list-item v-for="value in [0.5, 0.75, 1, 1.25, 1.5, 2]" :key="value" :title="`${value}×`" @click="setRate(value)" /></v-list></v-menu>
-        <v-btn :icon="muted || volume === 0 ? 'mdi-volume-off' : 'mdi-volume-high'" :aria-label="muted ? '取消静音' : '静音'" variant="text" size="small" color="white" @click="muted = !muted" />
-        <v-slider v-model="volume" :min="0" :max="1" :step="0.01" class="volume-slider" hide-details density="compact" color="white" thumb-size="8" track-size="3" aria-label="音量" @update:model-value="setVolume" />
-        <v-btn icon="mdi-fullscreen" variant="text" size="small" color="white" aria-label="全屏" @click="fullscreen" />
+        <v-btn v-if="isLive" variant="text" size="small" color="primary" @click="seek(Math.max(0, durationMs - 2000))"><span class="live-indicator" />{{ t('components.player.chaseLive') }}</v-btn>
+        <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" variant="text" size="small" color="white">{{ formatNumber(rate) }}×</v-btn></template><v-list density="compact"><v-list-item v-for="value in [0.5, 0.75, 1, 1.25, 1.5, 2]" :key="value" :title="`${formatNumber(value)}×`" @click="setRate(value)" /></v-list></v-menu>
+        <v-btn :icon="muted || volume === 0 ? 'mdi-volume-off' : 'mdi-volume-high'" :aria-label="muted ? t('components.player.unmute') : t('components.player.mute')" variant="text" size="small" color="white" @click="muted = !muted" />
+        <v-slider v-model="volume" :min="0" :max="1" :step="0.01" class="volume-slider" hide-details density="compact" color="white" thumb-size="8" track-size="3" :aria-label="t('components.player.volume')" @update:model-value="setVolume" />
+        <v-btn icon="mdi-fullscreen" variant="text" size="small" color="white" :aria-label="t('components.player.fullscreen')" @click="fullscreen" />
       </div>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import Hls from 'hls.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ApiError } from '@/apis/APIBase'
 import { getServerUrl } from '@/apis/ServerURL'
 import type { PlaybackWindow, TimelineGap } from '@/models/media'
-import { formatDuration } from '@/utilities/format'
+import { formatDuration, formatNumber } from '@/utilities/format'
 import { clampOffset, findGap, normalizeTimelineGaps, playbackPosition, windowPosition } from '@/utilities/timeline'
+
+const { t } = useI18n()
 
 const props = defineProps<{ durationMs: number; gaps: TimelineGap[]; isLive: boolean; initialOffsetMs?: number; loadWindow: (offsetMs: number) => Promise<PlaybackWindow> }>()
 const currentMs = defineModel<number>({ required: true })
@@ -146,7 +149,7 @@ async function seek(value: number, force = false): Promise<void>
       return
     }
     const sourceUrl = playback.url?.trim()
-    if (!sourceUrl) { throw new Error('当前时段没有可播放的视频') }
+    if (!sourceUrl) { throw new Error(t('components.player.noVideo')) }
     currentWindow.value = playback
     serverGap.value = undefined
     hls?.destroy()
@@ -166,7 +169,7 @@ async function seek(value: number, force = false): Promise<void>
         {
           loading.value = false
           playing.value = false
-          error.value = '视频加载失败'
+          error.value = t('components.player.loadFailed')
         }
       })
       instance.attachMedia(element)
@@ -179,14 +182,14 @@ async function seek(value: number, force = false): Promise<void>
     }
     else
     {
-      throw new Error('当前浏览器无法播放此录播')
+      throw new Error(t('components.player.unsupported'))
     }
   }
   catch (value)
   {
     if (operation === generation)
     {
-      error.value = value instanceof Error ? value.message : '视频加载失败'
+      error.value = value instanceof Error ? value.message : t('components.player.loadFailed')
       loading.value = false
       playing.value = false
     }
@@ -287,7 +290,7 @@ function onVideoError(): void
 {
   if (!loading.value && !hls)
   {
-    error.value = '视频加载失败'
+    error.value = t('components.player.loadFailed')
     playing.value = false
   }
 }

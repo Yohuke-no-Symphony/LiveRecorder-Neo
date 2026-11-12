@@ -2,6 +2,8 @@ using System.Text.Json;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Domain.Localization;
+using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Server.Configuration;
@@ -23,7 +25,7 @@ public static class ManagementEndpoints
             var previous = await settingsStore.GetAsync(ct);
             if (Path.GetFullPath(request.StoragePath) != Path.GetFullPath(previous.StoragePath) && await context.Collection<BroadcastSession>("sessions").Find(FilterDefinition<BroadcastSession>.Empty).AnyAsync(ct))
             {
-                throw new InfrastructureException("已有录播时不能直接修改存储根目录。", 409);
+                throw new InfrastructureException(MessageCode.SETTINGS_STORAGE_PATH_LOCKED, 409);
             }
             request.Smtp.Password = string.IsNullOrEmpty(request.Smtp.Password) ? previous.Smtp.Password : protector.Protect(request.Smtp.Password);
             foreach (var provider in request.OAuthProviders)
@@ -50,9 +52,13 @@ public static class ManagementEndpoints
 
     private static void Validate(ServerSettings settings)
     {
+        if (!SupportedLanguages.IsSupported(settings.DefaultLanguage))
+        {
+            throw new InfrastructureException(MessageCode.LANGUAGE_UNSUPPORTED);
+        }
         if (string.IsNullOrWhiteSpace(settings.StoragePath) || !Path.IsPathRooted(settings.StoragePath) || settings.Quality <= 0 || settings.SegmentBytes < 0 || settings.ClipRetentionDays is < 1 or > 3650 || settings.TrashRetentionDays is < 1 or > 3650 || settings.MediaConcurrency is < 1 or > 16 || settings.PlaybackConcurrency is < 1 or > 32 || settings.MonitorIntervalSeconds is < 5 or > 600 || settings.SessionGraceMinutes is < 0 or > 120 || settings.MinimumFreeBytes < 0 || settings.CacheLimitBytes < 64 * 1024 * 1024 || settings.CacheRetentionMinutes < 1 || string.IsNullOrWhiteSpace(settings.FfmpegPath) || string.IsNullOrWhiteSpace(settings.FfprobePath))
         {
-            throw new InfrastructureException("设置参数无效。");
+            throw new InfrastructureException(MessageCode.SETTINGS_INVALID);
         }
         try
         {
@@ -60,17 +66,17 @@ public static class ManagementEndpoints
         }
         catch (TimeZoneNotFoundException)
         {
-            throw new InfrastructureException("时区无效。");
+            throw new InfrastructureException(MessageCode.SETTINGS_TIME_ZONE_INVALID);
         }
         if (settings.OAuthProviders.Select(x => x.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() != settings.OAuthProviders.Count)
         {
-            throw new InfrastructureException("OAuth 提供方标识重复。");
+            throw new InfrastructureException(MessageCode.SETTINGS_OAUTH_DUPLICATE_ID);
         }
         foreach (var provider in settings.OAuthProviders.Where(x => x.Enabled))
         {
             if (!System.Text.RegularExpressions.Regex.IsMatch(provider.Id, "^[a-zA-Z0-9_-]{1,50}$") || new[] { provider.AuthorizationEndpoint, provider.TokenEndpoint, provider.UserInfoEndpoint }.Any(x => !Uri.TryCreate(x, UriKind.Absolute, out var uri) || (uri.Scheme != "https" && !(uri.Scheme == "http" && uri.IsLoopback))))
             {
-                throw new InfrastructureException("OAuth 端点或标识无效。");
+                throw new InfrastructureException(MessageCode.SETTINGS_OAUTH_ENDPOINT_INVALID);
             }
         }
     }

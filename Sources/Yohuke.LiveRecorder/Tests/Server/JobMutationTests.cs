@@ -1,6 +1,7 @@
 using MongoDB.Driver;
 using Xunit;
 using Yohuke.LiveRecorder.Application;
+using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Application.Media;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Jobs;
@@ -64,5 +65,54 @@ public sealed class JobMutationTests
         Assert.Equal("Completed", current.State);
         Assert.False(current.CancelRequested);
         Assert.Equal(100, current.Progress);
+    }
+
+    /// <summary>重试与排队取消必须一并清除旧错误文本、标识和参数。</summary>
+    [Fact]
+    public async Task RetryAndQueuedCancellationClearLocalizedFailure()
+    {
+        await using var fixture = await JobTestContext.CreateAsync();
+        var job = new MediaJob
+        {
+            State = "Failed", Error = "failure", ErrorCode = nameof(MessageCode.JOB_PROCESSING_FAILED), ErrorArguments = ["diagnostic"]
+        };
+        await fixture.Mongo.Collection<MediaJob>("jobs").InsertOneAsync(job);
+        var service = new MediaJobService(fixture.Mongo, new LibraryService(fixture.Mongo, TimeProvider.System), fixture.Publisher);
+        await service.RetryAsync(job);
+        var retried = await fixture.Mongo.Collection<MediaJob>("jobs").Find(item => item.Id == job.Id).SingleAsync();
+        Assert.Equal("Queued", retried.State);
+        Assert.Null(retried.Error);
+        Assert.Null(retried.ErrorCode);
+        Assert.Empty(retried.ErrorArguments);
+        await fixture.Mongo.Collection<MediaJob>("jobs").UpdateOneAsync(item => item.Id == job.Id,
+            Builders<MediaJob>.Update.Set(item => item.Error, job.Error).Set(item => item.ErrorCode, job.ErrorCode).Set(item => item.ErrorArguments, job.ErrorArguments));
+        await service.CancelAsync(retried);
+        var cancelled = await fixture.Mongo.Collection<MediaJob>("jobs").Find(item => item.Id == job.Id).SingleAsync();
+        Assert.Equal("Cancelled", cancelled.State);
+        Assert.Null(cancelled.Error);
+        Assert.Null(cancelled.ErrorCode);
+        Assert.Empty(cancelled.ErrorArguments);
+    }
+
+    /// <summary>过期执行者的取消收尾不能保留之前失败的本地化错误。</summary>
+    [Fact]
+    public async Task ExpiredCancellationClearsLocalizedFailure()
+    {
+        await using var fixture = await JobTestContext.CreateAsync();
+        var job = new MediaJob
+        {
+            State = "Running", CancelRequested = true, LeaseUntilUtc = DateTime.UtcNow.AddMinutes(-1),
+            Error = "failure", ErrorCode = nameof(MessageCode.JOB_PROCESSING_FAILED), ErrorArguments = ["diagnostic"]
+        };
+        await fixture.Mongo.Collection<MediaJob>("jobs").InsertOneAsync(job);
+        var worker = fixture.CreateWorker();
+        var sweep = (Task)typeof(MediaJobWorker).GetMethod("FinalizeExpiredCancellationsAsync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(worker, [CancellationToken.None])!;
+        await sweep;
+        var cancelled = await fixture.Mongo.Collection<MediaJob>("jobs").Find(item => item.Id == job.Id).SingleAsync();
+        Assert.Equal("Cancelled", cancelled.State);
+        Assert.Null(cancelled.Error);
+        Assert.Null(cancelled.ErrorCode);
+        Assert.Empty(cancelled.ErrorArguments);
     }
 }

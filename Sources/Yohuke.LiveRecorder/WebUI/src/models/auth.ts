@@ -1,3 +1,5 @@
+import type { AppLanguage } from '@/localization/types'
+
 export interface UserProfile
 {
   id: string
@@ -6,6 +8,7 @@ export interface UserProfile
   role: 'Admin' | 'User'
   status: 'Active' | 'Pending' | 'Rejected' | 'Disabled'
   avatarUrl?: string | null
+  language?: AppLanguage | null
 }
 
 export interface UserSession

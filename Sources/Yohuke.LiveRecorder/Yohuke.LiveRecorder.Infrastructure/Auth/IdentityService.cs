@@ -9,6 +9,8 @@ using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Domain.Localization;
+using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Auth;
@@ -29,12 +31,12 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
         var email = IdentityValidation.NormalizeEmail(request.Email);
         if (string.IsNullOrEmpty(request.Password) || request.Password.Length > 256)
         {
-            throw new InfrastructureException("账号或密码不正确。", 401);
+            throw new InfrastructureException(MessageCode.AUTH_INVALID_CREDENTIALS, 401);
         }
         var user = await Users.Find(x => x.NormalizedEmail == email).FirstOrDefaultAsync(cancellationToken);
         if (user is null || string.IsNullOrEmpty(user.PasswordHash) || passwordHasher.VerifyHashedPassword(user, user.PasswordHash, request.Password) == PasswordVerificationResult.Failed)
         {
-            throw new InfrastructureException("账号或密码不正确。", 401);
+            throw new InfrastructureException(MessageCode.AUTH_INVALID_CREDENTIALS, 401);
         }
         EnsureActive(user);
         return Profile(user);
@@ -45,6 +47,20 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
     {
         var user = await Users.Find(x => x.Id == id).FirstOrDefaultAsync(cancellationToken);
         return user is null ? null : Profile(user);
+    }
+
+    /// <inheritdoc />
+    public async Task<UserProfile> SetLanguageAsync(string id, LanguagePreferenceRequest request, CancellationToken cancellationToken = default)
+    {
+        if (request.Language is not null && !SupportedLanguages.IsSupported(request.Language))
+        {
+            throw new InfrastructureException(MessageCode.LANGUAGE_UNSUPPORTED);
+        }
+        var user = await Users.FindOneAndUpdateAsync(x => x.Id == id && x.Status == "Active",
+            Builders<UserAccount>.Update.Set(x => x.Language, request.Language).Set(x => x.UpdatedAtUtc, DateTime.UtcNow),
+            new FindOneAndUpdateOptions<UserAccount> { ReturnDocument = ReturnDocument.After }, cancellationToken)
+            ?? throw new InfrastructureException(MessageCode.AUTH_USER_NOT_FOUND, 404);
+        return Profile(user);
     }
 
     /// <inheritdoc />
@@ -64,7 +80,7 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
         var email = IdentityValidation.NormalizeEmail(request.Email);
         if (request.Purpose != "register")
         {
-            throw new InfrastructureException("不支持的邮箱验证用途。");
+            throw new InfrastructureException(MessageCode.AUTH_EMAIL_PURPOSE_UNSUPPORTED);
         }
         await EnsureRegistrationEnabledAsync(cancellationToken);
         await EnsureIndexesAsync(cancellationToken);
@@ -77,7 +93,7 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
             var previous = await Codes.Find(x => x.Id == id).FirstOrDefaultAsync(cancellationToken);
             if (previous is not null && previous.CreatedAtUtc > DateTime.UtcNow.AddSeconds(-60))
             {
-                throw new InfrastructureException("请在 60 秒后重新发送验证码。", 429);
+                throw new InfrastructureException(MessageCode.AUTH_EMAIL_CODE_RATE_LIMIT, 429);
             }
             code = RandomNumberGenerator.GetInt32(100000, 1000000).ToString(CultureInfo.InvariantCulture);
             var salt = IdentityToken.Create();
@@ -90,7 +106,7 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
         }
         try
         {
-            await emailSender.SendAsync(email, "Live Recorder 邮箱验证", $"您的注册验证码为：{code}\n验证码 10 分钟内有效，请勿转发。若非本人操作，请忽略本邮件。", cancellationToken);
+            await emailSender.SendAsync(email, LocalizedText.Get(MessageCode.EMAIL_VERIFICATION_SUBJECT), LocalizedText.Get(MessageCode.EMAIL_VERIFICATION_BODY, code), cancellationToken);
         }
         catch
         {
@@ -115,12 +131,12 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
     {
         if (string.IsNullOrWhiteSpace(ticket))
         {
-            throw new InfrastructureException("外部注册凭据已过期，请重新登录。");
+            throw new InfrastructureException(MessageCode.AUTH_OAUTH_REGISTRATION_EXPIRED);
         }
         var registrations = context.Collection<OAuthRegistration>("oauth_registrations");
         var id = IdentityToken.Hash(ticket);
         var registration = await registrations.Find(x => x.Id == id && x.ExpiresAtUtc > DateTime.UtcNow).FirstOrDefaultAsync(cancellationToken)
-                           ?? throw new InfrastructureException("外部注册凭据已过期，请重新登录。");
+                           ?? throw new InfrastructureException(MessageCode.AUTH_OAUTH_REGISTRATION_EXPIRED);
         var email = IdentityValidation.NormalizeEmail(request.Email);
         var user = new UserAccount { Email = email, NormalizedEmail = email, DisplayName = IdentityValidation.NormalizeDisplayName(request.DisplayName), AvatarUrl = registration.AvatarUrl, EmailVerified = true };
         var external = new ExternalLogin { Id = ExternalId(registration.ProviderId, registration.Subject), ProviderId = registration.ProviderId, Subject = registration.Subject, UserId = user.Id };
@@ -156,7 +172,7 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
     {
         if (role is not ("Admin" or "User"))
         {
-            throw new InfrastructureException("无效的角色。");
+            throw new InfrastructureException(MessageCode.AUTH_INVALID_ROLE);
         }
         await gate.WaitAsync(cancellationToken);
         try
@@ -182,7 +198,7 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
     {
         if (request.MaxUses is < 1 or > 10000 || request.ExpiresAtUtc is { } expiry && expiry <= DateTime.UtcNow)
         {
-            throw new InfrastructureException("邀请码次数必须为 1 至 10000，过期时间必须晚于当前时间。");
+            throw new InfrastructureException(MessageCode.AUTH_INVALID_INVITATION_LIMIT);
         }
         await EnsureIndexesAsync(cancellationToken);
         var code = Convert.ToHexString(RandomNumberGenerator.GetBytes(12));
@@ -223,7 +239,7 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
         ValidateEndpoint(redirectUri);
         if (string.IsNullOrEmpty(browserBinding))
         {
-            throw new InfrastructureException("浏览器授权流程缺少绑定。");
+            throw new InfrastructureException(MessageCode.AUTH_OAUTH_BROWSER_BINDING_MISSING);
         }
         await EnsureIndexesAsync(cancellationToken);
         var state = IdentityToken.Create();
@@ -245,28 +261,28 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
     {
         if (string.IsNullOrWhiteSpace(state) || string.IsNullOrWhiteSpace(code) || code.Length > 4096 || string.IsNullOrWhiteSpace(browserBinding))
         {
-            throw new InfrastructureException("外部授权回调无效。");
+            throw new InfrastructureException(MessageCode.AUTH_OAUTH_CALLBACK_INVALID);
         }
         var hash = IdentityToken.Hash(state);
         var bindingHash = IdentityToken.Hash(browserBinding);
         var flows = context.Collection<OAuthFlow>("oauth_flows");
         var flow = await flows.Find(x => x.Id == hash && x.ProviderId == providerId && x.BrowserBindingHash == bindingHash && x.ExpiresAtUtc > DateTime.UtcNow).FirstOrDefaultAsync(cancellationToken)
-                   ?? throw new InfrastructureException("授权流程已过期、已使用或不属于当前浏览器。");
+                   ?? throw new InfrastructureException(MessageCode.AUTH_OAUTH_FLOW_UNAVAILABLE);
         if (flow.Intent is not ("Login" or "Bind"))
         {
-            throw new InfrastructureException("授权流程意图无效。");
+            throw new InfrastructureException(MessageCode.AUTH_OAUTH_INTENT_INVALID);
         }
         if (flow.Intent == "Bind")
         {
             if (string.IsNullOrWhiteSpace(currentUserId) || currentUserId != flow.LinkUserId)
             {
-                throw new InfrastructureException("绑定流程必须由发起绑定的已登录用户完成。", 403);
+                throw new InfrastructureException(MessageCode.AUTH_OAUTH_BINDING_USER_MISMATCH, 403);
             }
             EnsureActive(await RequireUserAsync(currentUserId, cancellationToken));
         }
         if (await flows.FindOneAndDeleteAsync(x => x.Id == hash && x.ProviderId == providerId && x.BrowserBindingHash == bindingHash && x.Intent == flow.Intent && x.LinkUserId == flow.LinkUserId && x.ExpiresAtUtc > DateTime.UtcNow, cancellationToken: cancellationToken) is null)
         {
-            throw new InfrastructureException("授权流程已过期或已使用。");
+            throw new InfrastructureException(MessageCode.AUTH_OAUTH_FLOW_EXPIRED);
         }
         var provider = await GetProviderAsync(providerId, cancellationToken);
         using var client = httpClientFactory.CreateClient("identity");
@@ -285,26 +301,26 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
         using var tokenResponse = await client.SendAsync(tokenRequest, cancellationToken);
         if (!tokenResponse.IsSuccessStatusCode)
         {
-            throw new InfrastructureException("外部提供方拒绝授权码，请重新登录。");
+            throw new InfrastructureException(MessageCode.AUTH_OAUTH_CODE_REJECTED);
         }
         var tokens = await tokenResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: cancellationToken);
         var accessToken = tokens?["access_token"]?.GetValue<string>();
         if (string.IsNullOrWhiteSpace(accessToken))
         {
-            throw new InfrastructureException("外部提供方未返回有效的访问令牌。", 502);
+            throw new InfrastructureException(MessageCode.AUTH_OAUTH_TOKEN_INVALID, 502);
         }
         using var infoRequest = new HttpRequestMessage(HttpMethod.Get, provider.UserInfoEndpoint);
         infoRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         using var infoResponse = await client.SendAsync(infoRequest, cancellationToken);
         if (!infoResponse.IsSuccessStatusCode)
         {
-            throw new InfrastructureException("无法验证外部用户身份。", 502);
+            throw new InfrastructureException(MessageCode.AUTH_OAUTH_IDENTITY_UNVERIFIABLE, 502);
         }
-        var info = await infoResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: cancellationToken) ?? throw new InfrastructureException("外部用户资料为空。", 502);
+        var info = await infoResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: cancellationToken) ?? throw new InfrastructureException(MessageCode.AUTH_OAUTH_PROFILE_EMPTY, 502);
         var subject = ReadField(info, provider.SubjectField);
         if (string.IsNullOrWhiteSpace(subject) || subject.Length > 256)
         {
-            throw new InfrastructureException("外部提供方没有返回稳定的用户标识。", 502);
+            throw new InfrastructureException(MessageCode.AUTH_OAUTH_SUBJECT_MISSING, 502);
         }
         var externalId = ExternalId(providerId, subject);
         if (flow.Intent == "Bind")
@@ -336,7 +352,7 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
             var existing = await logins.Find(x => x.Id == externalId).FirstOrDefaultAsync(cancellationToken);
             if (existing is not null && existing.UserId != userId)
             {
-                throw new InfrastructureException("该外部身份已绑定其他账号。", 409);
+                throw new InfrastructureException(MessageCode.AUTH_OAUTH_BOUND_ELSEWHERE, 409);
             }
             if (existing is null)
             {
@@ -346,7 +362,7 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
         }
         catch (MongoWriteException exception) when (exception.WriteError.Category == ServerErrorCategory.DuplicateKey)
         {
-            throw new InfrastructureException("该外部身份已被绑定，请刷新后重试。", 409);
+            throw new InfrastructureException(MessageCode.AUTH_OAUTH_ALREADY_BOUND, 409);
         }
         finally
         {
@@ -358,7 +374,7 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
     {
         if (string.IsNullOrWhiteSpace(code) || code.Length != 6 || !code.All(char.IsAsciiDigit) || string.IsNullOrWhiteSpace(invitationCode) || invitationCode.Length > 128)
         {
-            throw new InfrastructureException("请输入六位邮箱验证码和有效邀请码。");
+            throw new InfrastructureException(MessageCode.AUTH_REGISTRATION_CODES_REQUIRED);
         }
         await EnsureRegistrationEnabledAsync(cancellationToken);
         await EnsureIndexesAsync(cancellationToken);
@@ -369,28 +385,28 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
         {
             if (await Users.Find(x => x.NormalizedEmail == user.NormalizedEmail).AnyAsync(cancellationToken))
             {
-                throw new InfrastructureException("该邮箱已经注册。", 409);
+                throw new InfrastructureException(MessageCode.AUTH_EMAIL_ALREADY_REGISTERED, 409);
             }
             if (external is not null && await context.Collection<ExternalLogin>("external_logins").Find(x => x.Id == external.Id).AnyAsync(cancellationToken))
             {
-                throw new InfrastructureException("该外部账号已经注册，请重新登录。", 409);
+                throw new InfrastructureException(MessageCode.AUTH_OAUTH_ALREADY_REGISTERED, 409);
             }
             var codeId = IdentityToken.Hash($"register:{user.NormalizedEmail}");
             var verification = await Codes.FindOneAndUpdateAsync(x => x.Id == codeId && !x.Consumed && x.ExpiresAtUtc > DateTime.UtcNow && x.Attempts < 5, Builders<EmailVerificationCode>.Update.Inc(x => x.Attempts, 1), cancellationToken: cancellationToken);
             if (verification is null || !IdentityToken.EqualsHash(verification.CodeHash, IdentityToken.CodeHash(user.NormalizedEmail, code, verification.Salt)))
             {
-                throw new InfrastructureException("邮箱验证码错误、已用完尝试次数或已过期。");
+                throw new InfrastructureException(MessageCode.AUTH_EMAIL_CODE_INVALID);
             }
             var invitationHash = IdentityToken.Hash(invitationCode.Trim().ToUpperInvariant());
             var invitation = await Invitations.Find(x => x.CodeHash == invitationHash && !x.Revoked && (x.ExpiresAtUtc == null || x.ExpiresAtUtc > DateTime.UtcNow)).FirstOrDefaultAsync(cancellationToken);
             if (invitation is null || invitation.UsedCount >= invitation.MaxUses)
             {
-                throw new InfrastructureException("邀请码不存在、已过期或已用完。");
+                throw new InfrastructureException(MessageCode.AUTH_INVITATION_INVALID);
             }
             reserved = await Invitations.FindOneAndUpdateAsync(x => x.Id == invitation.Id && !x.Revoked && x.UsedCount == invitation.UsedCount, Builders<Invitation>.Update.Inc(x => x.UsedCount, 1), cancellationToken: cancellationToken);
             if (reserved is null)
             {
-                throw new InfrastructureException("邀请码已被使用，请重试。", 409);
+                throw new InfrastructureException(MessageCode.AUTH_INVITATION_CONFLICT, 409);
             }
             await Users.InsertOneAsync(user, cancellationToken: cancellationToken);
             insertedUser = true;
@@ -427,20 +443,20 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
     {
         if (!(await settingsStore.GetAsync(cancellationToken)).RegistrationEnabled)
         {
-            throw new InfrastructureException("管理员尚未开放注册。", 403);
+            throw new InfrastructureException(MessageCode.AUTH_REGISTRATION_CLOSED, 403);
         }
     }
 
     private async Task<OAuthProviderSettings> GetProviderAsync(string id, CancellationToken cancellationToken)
     {
         var provider = (await settingsStore.GetAsync(cancellationToken)).OAuthProviders.FirstOrDefault(x => x.Id == id && x.Enabled)
-                       ?? throw new InfrastructureException("外部登录提供方未启用。", 404);
+                       ?? throw new InfrastructureException(MessageCode.AUTH_OAUTH_PROVIDER_DISABLED, 404);
         ValidateEndpoint(provider.AuthorizationEndpoint);
         ValidateEndpoint(provider.TokenEndpoint);
         ValidateEndpoint(provider.UserInfoEndpoint);
         if (string.IsNullOrWhiteSpace(provider.ClientId))
         {
-            throw new InfrastructureException("外部登录尚未配置 Client ID。", 503);
+            throw new InfrastructureException(MessageCode.AUTH_OAUTH_CLIENT_ID_MISSING, 503);
         }
         return provider;
     }
@@ -449,18 +465,18 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
     {
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Fragment) || uri.Scheme != "https" && !(uri.Scheme == "http" && uri.IsLoopback))
         {
-            throw new InfrastructureException("外部授权地址必须使用 HTTPS（本机调试可用 HTTP）。");
+            throw new InfrastructureException(MessageCode.AUTH_OAUTH_HTTPS_REQUIRED);
         }
     }
 
     private async Task<UserAccount> RequireUserAsync(string id, CancellationToken cancellationToken) =>
-        await Users.Find(x => x.Id == id).FirstOrDefaultAsync(cancellationToken) ?? throw new InfrastructureException("用户不存在。", 404);
+        await Users.Find(x => x.Id == id).FirstOrDefaultAsync(cancellationToken) ?? throw new InfrastructureException(MessageCode.AUTH_USER_NOT_FOUND, 404);
 
     private async Task EnsureNotLastAdministratorAsync(UserAccount user, CancellationToken cancellationToken)
     {
         if (user.Role == "Admin" && user.Status == "Active" && await Users.CountDocumentsAsync(x => x.Role == "Admin" && x.Status == "Active", cancellationToken: cancellationToken) <= 1)
         {
-            throw new InfrastructureException("必须保留至少一名有效管理员。", 409);
+            throw new InfrastructureException(MessageCode.AUTH_LAST_ADMIN_REQUIRED, 409);
         }
     }
 
@@ -501,14 +517,14 @@ public sealed class IdentityService(MongoContext context, ISettingsStore setting
     }
 
     private static string ExternalId(string provider, string subject) => IdentityToken.Hash($"{provider}\n{subject}");
-    private static UserProfile Profile(UserAccount user) => new(user.Id, user.Email, user.DisplayName, user.AvatarUrl, user.Role, user.Status);
+    private static UserProfile Profile(UserAccount user) => new(user.Id, user.Email, user.DisplayName, user.AvatarUrl, user.Role, user.Status, user.Language);
     private static InvitationSummary InvitationProfile(Invitation invitation, string? code = null) => new(invitation.Id, invitation.CreatedAtUtc, invitation.ExpiresAtUtc, invitation.MaxUses, invitation.UsedCount, invitation.Revoked, code);
 
     private static void EnsureActive(UserAccount user)
     {
         if (user.Status != "Active")
         {
-            throw new InfrastructureException(user.Status == "Pending" ? "账号正在等待管理员审核。" : "账号已被拒绝或停用。", 403);
+            throw new InfrastructureException(user.Status == "Pending" ? MessageCode.AUTH_PENDING_APPROVAL : MessageCode.AUTH_ACCOUNT_DISABLED, 403);
         }
     }
 }

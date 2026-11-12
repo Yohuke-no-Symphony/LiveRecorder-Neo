@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Localization;
 using System.Net.Mail;
 using Yohuke.LiveRecorder.Application;
 
@@ -12,7 +13,7 @@ public static class IdentityValidation
         var value = email?.Trim() ?? "";
         if (value.Length is < 3 or > 254 || !MailAddress.TryCreate(value, out var parsed) || parsed.Address != value || value.Contains('\r') || value.Contains('\n'))
         {
-            throw new InfrastructureException("请输入有效的邮箱地址。");
+            throw new InfrastructureException(MessageCode.AUTH_EMAIL_INVALID);
         }
         return value.ToLowerInvariant();
     }
@@ -22,7 +23,7 @@ public static class IdentityValidation
     {
         if (string.IsNullOrWhiteSpace(password) || password.Length is < 12 or > 256)
         {
-            throw new InfrastructureException("密码长度必须为 12 至 256 个字符。");
+            throw new InfrastructureException(MessageCode.AUTH_PASSWORD_LENGTH_INVALID);
         }
     }
 
@@ -32,7 +33,7 @@ public static class IdentityValidation
         var value = displayName?.Trim() ?? "";
         if (value.Length is < 1 or > 80 || value.Any(char.IsControl))
         {
-            throw new InfrastructureException("显示名称必须为 1 至 80 个字符。");
+            throw new InfrastructureException(MessageCode.AUTH_DISPLAY_NAME_LENGTH_INVALID);
         }
         return value;
     }

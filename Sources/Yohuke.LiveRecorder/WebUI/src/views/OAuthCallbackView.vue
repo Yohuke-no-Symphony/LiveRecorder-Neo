@@ -2,20 +2,23 @@
   <div class="auth-page">
     <v-card class="auth-card text-center">
       <v-progress-circular v-if="busy" indeterminate color="primary" size="42" class="mb-6" />
-      <h1 class="auth-title">{{ error ? '登录失败' : '正在登录' }}</h1>
+      <h1 class="auth-title">{{ error ? t('views.oauth.failed') : t('views.oauth.signingIn') }}</h1>
       <v-alert v-if="error" type="error" class="mb-6">{{ error }}</v-alert>
-      <v-btn v-if="error" block color="primary" to="/login">返回登录</v-btn>
+      <v-btn v-if="error" block color="primary" to="/login">{{ t('views.common.backToLogin') }}</v-btn>
     </v-card>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AuthAPI } from '@/apis/AuthAPI'
 import { useAuthStore } from '@/stores/auth'
 import { useAction } from '@/composables/useAction'
 import { safeReturnPath } from '@/utilities/format'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const router = useRouter()
@@ -29,7 +32,7 @@ onMounted(() =>
     const state = typeof route.query.state === 'string' ? route.query.state : ''
     if (route.query.error || !code || !state)
     {
-      throw new Error(route.query.error === 'access_denied' ? '已取消授权' : '授权回调无效')
+      throw new Error(route.query.error === 'access_denied' ? t('views.oauth.cancelled') : t('views.oauth.invalidCallback'))
     }
     const response = await AuthAPI.oauthExchange(String(route.params.providerId), code, state)
     window.history.replaceState(null, '', route.path)

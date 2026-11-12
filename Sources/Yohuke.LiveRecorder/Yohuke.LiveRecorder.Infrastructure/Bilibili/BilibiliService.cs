@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Localization;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -26,7 +27,7 @@ public sealed class BilibiliService(MongoContext context, ISecretProtector prote
     {
         if (roomId <= 0)
         {
-            throw new InfrastructureException("直播间号必须为正整数。");
+            throw new InfrastructureException(MessageCode.BILIBILI_ROOM_ID_INVALID);
         }
         var (_, credentials) = await GetCredentialsAsync(accountId, cancellationToken);
         using var client = httpClientFactory.CreateClient("bilibili");
@@ -34,7 +35,7 @@ public sealed class BilibiliService(MongoContext context, ISecretProtector prote
         var response = await api.GetRoomInfoAsync(roomId, cancellationToken: cancellationToken);
         if (response.Code != 0 || response.Data?.RoomInfo is not { } room)
         {
-            throw new InfrastructureException($"无法读取直播间资料（{response.Code}）。", 502);
+            throw new InfrastructureException(MessageCode.BILIBILI_ROOM_UNAVAILABLE, 502, response.Code);
         }
         var anchor = response.Data.AnchorInfo?.BaseInfo;
         var started = room.LiveStartTime;
@@ -55,7 +56,7 @@ public sealed class BilibiliService(MongoContext context, ISecretProtector prote
         var response = await api.GetRoomPlayInfoAsync(roomId, quality, credentials.Cookie, cancellationToken: cancellationToken);
         if (response.Code != 0 || response.Data?.LiveStatus != 1)
         {
-            throw new InfrastructureException($"直播流暂不可用（{response.Code}）。", 503);
+            throw new InfrastructureException(MessageCode.BILIBILI_STREAM_UNAVAILABLE, 503, response.Code);
         }
         var streams = response.Data.PlayUrlInfo?.PlayUrl?.Streams ?? [];
         foreach (var stream in streams.Where(x => x.ProtocolName == "http_stream"))
@@ -75,7 +76,7 @@ public sealed class BilibiliService(MongoContext context, ISecretProtector prote
                 }
             }
         }
-        throw new InfrastructureException("当前直播未提供可录制的 HTTP-FLV 流，请稍后重试。", 503);
+        throw new InfrastructureException(MessageCode.BILIBILI_FLV_STREAM_MISSING, 503);
     }
 
     /// <inheritdoc />
@@ -140,7 +141,7 @@ public sealed class BilibiliService(MongoContext context, ISecretProtector prote
             }
             if (session.QrKey is null)
             {
-                throw new InfrastructureException("该会话不是扫码登录。");
+                throw new InfrastructureException(MessageCode.BILIBILI_QR_SESSION_REQUIRED);
             }
             return await ApplyLoginResultAsync(session, await session.Client.PollQrAsync(session.QrKey, cancellationToken), cancellationToken);
         }
@@ -155,7 +156,7 @@ public sealed class BilibiliService(MongoContext context, ISecretProtector prote
     {
         if (string.IsNullOrWhiteSpace(request.Cid) || request.Cid.Length > 5 || !request.Cid.All(char.IsAsciiDigit) || string.IsNullOrWhiteSpace(request.Tel) || request.Tel.Length is < 5 or > 20 || !request.Tel.All(char.IsAsciiDigit))
         {
-            throw new InfrastructureException("请输入有效的国家区号与手机号。");
+            throw new InfrastructureException(MessageCode.BILIBILI_PHONE_INVALID);
         }
         var session = CreateSession();
         try
@@ -181,11 +182,11 @@ public sealed class BilibiliService(MongoContext context, ISecretProtector prote
         {
             if (session.Completed is not null || session.Challenge is null)
             {
-                throw new InfrastructureException("短信登录会话不可用。");
+                throw new InfrastructureException(MessageCode.BILIBILI_SMS_SESSION_UNAVAILABLE);
             }
             if (session.LastSentAtUtc > DateTime.UtcNow.AddSeconds(-60))
             {
-                throw new InfrastructureException("请在 60 秒后重新请求短信。", 429);
+                throw new InfrastructureException(MessageCode.BILIBILI_SMS_RATE_LIMIT, 429);
             }
             var proof = new BilibiliChallengeProof { Token = response.Token, Challenge = response.Challenge, Validate = response.Validate, Seccode = response.Seccode, LotNumber = response.LotNumber, CaptchaOutput = response.CaptchaOutput, PassToken = response.PassToken, GenTime = response.GenTime, Captcha = response.Captcha };
             session.CaptchaKey = await session.Client.SendSmsAsync(session.Cid, session.Tel, session.Challenge, proof, cancellationToken);
@@ -211,7 +212,7 @@ public sealed class BilibiliService(MongoContext context, ISecretProtector prote
             }
             if (string.IsNullOrWhiteSpace(session.CaptchaKey) || string.IsNullOrWhiteSpace(code))
             {
-                throw new InfrastructureException("请先发送短信并填写验证码。");
+                throw new InfrastructureException(MessageCode.BILIBILI_SMS_CODE_REQUIRED);
             }
             return await ApplyLoginResultAsync(session, await session.Client.CompleteSmsAsync(session.Cid, session.Tel, session.CaptchaKey, code, cancellationToken), cancellationToken);
         }
@@ -226,7 +227,7 @@ public sealed class BilibiliService(MongoContext context, ISecretProtector prote
     {
         if (await context.Collection<Streamer>("streamers").Find(x => x.AccountId == id && x.Enabled).AnyAsync(cancellationToken))
         {
-            throw new InfrastructureException("该账号正用于录制目标，请先更换目标的账号。", 409);
+            throw new InfrastructureException(MessageCode.BILIBILI_ACCOUNT_IN_USE, 409);
         }
         await Accounts.DeleteOneAsync(x => x.Id == id, cancellationToken);
         RotateLifetime(id);
@@ -313,7 +314,7 @@ public sealed class BilibiliService(MongoContext context, ISecretProtector prote
         var navigation = await api.GetNavigationAsync(cancellationToken: cancellationToken);
         if (navigation.Code != 0 || navigation.Data is not { IsLogin: true, Uid: > 0 } user)
         {
-            throw new InfrastructureException("平台没有确认有效登录身份，请重新登录。");
+            throw new InfrastructureException(MessageCode.BILIBILI_IDENTITY_NOT_CONFIRMED);
         }
         var avatar = "";
         try
@@ -350,22 +351,22 @@ public sealed class BilibiliService(MongoContext context, ISecretProtector prote
         var account = accountId is null
             ? await Accounts.Find(x => x.Status == "Valid").SortBy(x => x.CreatedAtUtc).FirstOrDefaultAsync(cancellationToken)
               ?? await Accounts.Find(FilterDefinition<BilibiliAccount>.Empty).SortBy(x => x.CreatedAtUtc).FirstOrDefaultAsync(cancellationToken)
-            : await Accounts.Find(x => x.Id == accountId).FirstOrDefaultAsync(cancellationToken) ?? throw new InfrastructureException("采集账号不存在，请重新选择账号。", 409);
+            : await Accounts.Find(x => x.Id == accountId).FirstOrDefaultAsync(cancellationToken) ?? throw new InfrastructureException(MessageCode.BILIBILI_ACCOUNT_NOT_FOUND, 409);
         if (account is not null && account.Status == "Expired")
         {
-            throw new InfrastructureException("采集账号已失效，需要管理员重新登录。", 409);
+            throw new InfrastructureException(MessageCode.BILIBILI_ACCOUNT_EXPIRED, 409);
         }
         return (account, account is null ? new() : DeserializeCredentials(account));
     }
 
-    private BilibiliLoginCredentials DeserializeCredentials(BilibiliAccount account) => JsonSerializer.Deserialize<BilibiliLoginCredentials>(protector.Unprotect(account.ProtectedCredentials)) ?? throw new InfrastructureException("采集凭据损坏，请重新绑定账号。", 503);
+    private BilibiliLoginCredentials DeserializeCredentials(BilibiliAccount account) => JsonSerializer.Deserialize<BilibiliLoginCredentials>(protector.Unprotect(account.ProtectedCredentials)) ?? throw new InfrastructureException(MessageCode.BILIBILI_CREDENTIALS_CORRUPT, 503);
 
     private BilibiliBindingSession CreateSession()
     {
         PruneSessions();
         if (sessions.Count >= 50)
         {
-            throw new InfrastructureException("正在进行的登录流程过多，请稍后重试。", 429);
+            throw new InfrastructureException(MessageCode.BILIBILI_TOO_MANY_LOGIN_FLOWS, 429);
         }
         var session = new BilibiliBindingSession(new(httpClientFactory.CreateClient("bilibili-login"), true));
         sessions[session.Id] = session;
@@ -376,7 +377,7 @@ public sealed class BilibiliService(MongoContext context, ISecretProtector prote
     {
         if (!sessions.TryGetValue(id, out var session) || session.ExpiresAtUtc <= DateTime.UtcNow)
         {
-            throw new InfrastructureException("登录流程已过期，请重新开始。", 410);
+            throw new InfrastructureException(MessageCode.BILIBILI_LOGIN_EXPIRED, 410);
         }
         return session;
     }

@@ -1,29 +1,32 @@
 <template>
   <div class="storage-block">
     <div class="d-flex justify-space-between align-center mb-3 text-caption">
-      <span class="d-flex align-center ga-2"><v-icon icon="mdi-harddisk" size="16" />磁盘</span>
+      <span class="d-flex align-center ga-2"><v-icon icon="mdi-harddisk" size="16" />{{ t('components.storage.disk') }}</span>
       <span class="mono muted">{{ usedPercent }}%</span>
     </div>
-    <div class="storage-bar" role="meter" :aria-valuenow="usedPercent" :aria-valuemin="0" :aria-valuemax="100" :aria-label="`磁盘已用 ${usedPercent}%`">
+    <div class="storage-bar" role="meter" :aria-valuenow="usedPercent" :aria-valuemin="0" :aria-valuemax="100" :aria-label="t('components.storage.usedPercent', { percent: usedPercent })">
       <div class="storage-used" :style="{ width: `${regularPercent}%` }" />
       <div class="storage-trash" :style="{ width: `${trashPercent}%` }" />
     </div>
     <div class="d-flex justify-space-between mt-2 text-caption muted">
-      <span>{{ formatBytes(volume.freeBytes) }} 空余</span>
+      <span>{{ t('components.storage.freeBytes', { bytes: formatBytes(volume.freeBytes) }) }}</span>
       <span>{{ formatBytes(volume.totalBytes) }}</span>
     </div>
     <div v-if="detailed" class="storage-legend mt-4">
-      <span><i class="legend-dot bg-primary" />占用 {{ formatBytes(regularBytes) }}</span>
-      <span><i class="legend-dot bg-warning" />回收站 {{ formatBytes(volume.trashBytes) }}</span>
-      <span><i class="legend-dot storage-free" />空余 {{ formatBytes(volume.freeBytes) }}</span>
+      <span><i class="legend-dot bg-primary" />{{ t('components.storage.used', { bytes: formatBytes(regularBytes) }) }}</span>
+      <span><i class="legend-dot bg-warning" />{{ t('components.storage.trash', { bytes: formatBytes(volume.trashBytes) }) }}</span>
+      <span><i class="legend-dot storage-free" />{{ t('components.storage.free', { bytes: formatBytes(volume.freeBytes) }) }}</span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed } from 'vue'
 import type { StorageVolume } from '@/models/media'
 import { formatBytes } from '@/utilities/format'
+
+const { t } = useI18n()
 
 const props = defineProps<{ volume: StorageVolume; detailed?: boolean }>()
 const regularBytes = computed(() => Math.max(0, props.volume.totalBytes - props.volume.freeBytes - props.volume.trashBytes))

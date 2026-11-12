@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Localization;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
@@ -32,6 +33,8 @@ public static class IdentityEndpointExtensions
             }
             return Results.Ok(new { user, csrfToken = antiforgery.GetAndStoreTokens(http).RequestToken });
         });
+        auth.MapPut("/language", async (LanguagePreferenceRequest request, HttpContext http, IIdentityService identity, CancellationToken ct) =>
+            Results.Ok(await identity.SetLanguageAsync(http.User.FindFirstValue(ClaimTypes.NameIdentifier)!, request, ct))).RequireAuthorization();
         auth.MapPost("/login", async (LoginRequest request, HttpContext http, IIdentityService identity, IAntiforgery antiforgery, CancellationToken ct) =>
         {
             var user = await identity.AuthenticateAsync(request, ct);
@@ -80,7 +83,7 @@ public static class IdentityEndpointExtensions
         });
         auth.MapPost("/oauth/register", async (OAuthRegistrationRequest request, HttpContext http, IIdentityService identity, CancellationToken ct) =>
         {
-            var ticket = http.Request.Cookies[OAUTH_REGISTRATION_COOKIE] ?? throw new InfrastructureException("外部注册凭据已过期，请重新登录。");
+            var ticket = http.Request.Cookies[OAUTH_REGISTRATION_COOKIE] ?? throw new InfrastructureException(MessageCode.AUTH_OAUTH_REGISTRATION_EXPIRED);
             var user = await identity.CompleteOAuthRegistrationAsync(ticket, request, ct);
             http.Response.Cookies.Delete(OAUTH_REGISTRATION_COOKIE, new CookieOptions { Path = "/api/auth/oauth" });
             return Results.Ok(user);

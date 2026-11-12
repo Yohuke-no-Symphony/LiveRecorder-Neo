@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms</value></resheader>
+  <data name="AUTH_INVALID_CREDENTIALS" xml:space="preserve"><value>The email or password is incorrect.</value></data>
+  <data name="AUTH_EMAIL_PURPOSE_UNSUPPORTED" xml:space="preserve"><value>This email verification purpose is not supported.</value></data>
+  <data name="AUTH_EMAIL_CODE_RATE_LIMIT" xml:space="preserve"><value>Wait 60 seconds before requesting another verification code.</value></data>
+  <data name="AUTH_OAUTH_REGISTRATION_EXPIRED" xml:space="preserve"><value>Your external registration session has expired. Sign in again.</value></data>
+  <data name="AUTH_INVALID_ROLE" xml:space="preserve"><value>The role is invalid.</value></data>
+  <data name="AUTH_INVALID_INVITATION_LIMIT" xml:space="preserve"><value>Invitations must allow 1–10,000 uses and expire in the future.</value></data>
+  <data name="AUTH_OAUTH_BROWSER_BINDING_MISSING" xml:space="preserve"><value>The authorization flow is not bound to this browser.</value></data>
+  <data name="AUTH_OAUTH_CALLBACK_INVALID" xml:space="preserve"><value>The external authorization callback is invalid.</value></data>
+  <data name="AUTH_OAUTH_FLOW_UNAVAILABLE" xml:space="preserve"><value>The authorization flow has expired, was already used, or belongs to another browser.</value></data>
+  <data name="AUTH_OAUTH_INTENT_INVALID" xml:space="preserve"><value>The authorization flow intent is invalid.</value></data>
+  <data name="AUTH_OAUTH_BINDING_USER_MISMATCH" xml:space="preserve"><value>Account linking must be completed by the signed-in user who started it.</value></data>
+  <data name="AUTH_OAUTH_FLOW_EXPIRED" xml:space="preserve"><value>The authorization flow has expired or was already used.</value></data>
+  <data name="AUTH_OAUTH_CODE_REJECTED" xml:space="preserve"><value>The external provider rejected the authorization code. Sign in again.</value></data>
+  <data name="AUTH_OAUTH_TOKEN_INVALID" xml:space="preserve"><value>The external provider did not return a valid access token.</value></data>
+  <data name="AUTH_OAUTH_IDENTITY_UNVERIFIABLE" xml:space="preserve"><value>The external user identity could not be verified.</value></data>
+  <data name="AUTH_OAUTH_PROFILE_EMPTY" xml:space="preserve"><value>The external user profile is empty.</value></data>
+  <data name="AUTH_OAUTH_SUBJECT_MISSING" xml:space="preserve"><value>The external provider did not return a stable user identifier.</value></data>
+  <data name="AUTH_OAUTH_BOUND_ELSEWHERE" xml:space="preserve"><value>This external identity is linked to another account.</value></data>
+  <data name="AUTH_OAUTH_ALREADY_BOUND" xml:space="preserve"><value>This external identity is already linked. Refresh and try again.</value></data>
+  <data name="AUTH_REGISTRATION_CODES_REQUIRED" xml:space="preserve"><value>Enter a six-digit email verification code and a valid invitation code.</value></data>
+  <data name="AUTH_EMAIL_ALREADY_REGISTERED" xml:space="preserve"><value>This email address is already registered.</value></data>
+  <data name="AUTH_OAUTH_ALREADY_REGISTERED" xml:space="preserve"><value>This external account is already registered. Sign in again.</value></data>
+  <data name="AUTH_EMAIL_CODE_INVALID" xml:space="preserve"><value>The email verification code is incorrect, expired, or has no attempts left.</value></data>
+  <data name="AUTH_INVITATION_INVALID" xml:space="preserve"><value>The invitation code does not exist, has expired, or has no uses left.</value></data>
+  <data name="AUTH_INVITATION_CONFLICT" xml:space="preserve"><value>The invitation code was used by another request. Try again.</value></data>
+  <data name="AUTH_REGISTRATION_CLOSED" xml:space="preserve"><value>Registration has not been enabled by the administrator.</value></data>
+  <data name="AUTH_OAUTH_PROVIDER_DISABLED" xml:space="preserve"><value>This external sign-in provider is not enabled.</value></data>
+  <data name="AUTH_OAUTH_CLIENT_ID_MISSING" xml:space="preserve"><value>The external sign-in Client ID has not been configured.</value></data>
+  <data name="AUTH_OAUTH_HTTPS_REQUIRED" xml:space="preserve"><value>External authorization URLs must use HTTPS. HTTP is allowed for local development.</value></data>
+  <data name="AUTH_USER_NOT_FOUND" xml:space="preserve"><value>The user does not exist.</value></data>
+  <data name="AUTH_LAST_ADMIN_REQUIRED" xml:space="preserve"><value>At least one active administrator must remain.</value></data>
+  <data name="AUTH_PENDING_APPROVAL" xml:space="preserve"><value>Your account is awaiting administrator approval.</value></data>
+  <data name="AUTH_ACCOUNT_DISABLED" xml:space="preserve"><value>Your account was rejected or disabled.</value></data>
+  <data name="AUTH_EMAIL_INVALID" xml:space="preserve"><value>Enter a valid email address.</value></data>
+  <data name="AUTH_PASSWORD_LENGTH_INVALID" xml:space="preserve"><value>The password must contain 12–256 characters.</value></data>
+  <data name="AUTH_DISPLAY_NAME_LENGTH_INVALID" xml:space="preserve"><value>The display name must contain 1–80 characters.</value></data>
+  <data name="SMTP_CONFIGURATION_INVALID" xml:space="preserve"><value>The administrator has not configured a valid outgoing mail server.</value></data>
+  <data name="SMTP_TLS_REQUIRED" xml:space="preserve"><value>TLS is required when using SMTP authentication.</value></data>
+  <data name="SETUP_TOKEN_INVALID" xml:space="preserve"><value>The installation token is incorrect.</value></data>
+  <data name="SETUP_CONFIGURATION_INVALID" xml:space="preserve"><value>The recording directory must be an absolute path and the database name must be valid.</value></data>
+  <data name="SETUP_ALREADY_INSTALLED" xml:space="preserve"><value>Installation is complete. Administrator and database settings cannot be overwritten.</value></data>
+  <data name="SETUP_EXISTING_ADMIN" xml:space="preserve"><value>An administrator already exists in the unfinished installation. Retry with the original settings.</value></data>
+  <data name="SETUP_EXISTING_ADMIN_PASSWORD_MISMATCH" xml:space="preserve"><value>The existing administrator password does not match. Overwriting is not allowed.</value></data>
+  <data name="SETUP_REQUIRED" xml:space="preserve"><value>Complete installation first.</value></data>
+  <data name="SETUP_COMPLETED" xml:space="preserve"><value>Installation is already complete.</value></data>
+  <data name="SETUP_MEDIA_TOOL_START_FAILED" xml:space="preserve"><value>The media tool could not be started.</value></data>
+  <data name="SETUP_MEDIA_TOOL_VERIFICATION_FAILED" xml:space="preserve"><value>Media tool verification failed.</value></data>
+  <data name="SETUP_MEDIA_TOOL_NOT_FOUND" xml:space="preserve"><value>A runnable FFmpeg/ffprobe was not found. Check the paths.</value></data>
+  <data name="SETTINGS_STORAGE_PATH_LOCKED" xml:space="preserve"><value>The storage root cannot be changed while recordings exist.</value></data>
+  <data name="SETTINGS_INVALID" xml:space="preserve"><value>The settings are invalid.</value></data>
+  <data name="SETTINGS_TIME_ZONE_INVALID" xml:space="preserve"><value>The time zone is invalid.</value></data>
+  <data name="SETTINGS_OAUTH_DUPLICATE_ID" xml:space="preserve"><value>OAuth provider identifiers must be unique.</value></data>
+  <data name="SETTINGS_OAUTH_ENDPOINT_INVALID" xml:space="preserve"><value>An OAuth endpoint or identifier is invalid.</value></data>
+  <data name="LANGUAGE_UNSUPPORTED" xml:space="preserve"><value>This interface language is not supported.</value></data>
+  <data name="PATH_ABSOLUTE_REQUIRED" xml:space="preserve"><value>Enter a valid absolute directory path.</value></data>
+  <data name="PATH_WEBUI_OVERLAP" xml:space="preserve"><value>Recording and service data directories must be outside the WebUI directory.</value></data>
+  <data name="PATH_ABSOLUTE_MEDIA_FORBIDDEN" xml:space="preserve"><value>Absolute media paths are not allowed.</value></data>
+  <data name="PATH_MEDIA_OUTSIDE_STORAGE" xml:space="preserve"><value>The media path is outside the storage directory.</value></data>
+  <data name="PATH_MEDIA_DIRECTORY_SYMLINK" xml:space="preserve"><value>Symbolic links are not allowed in media directories.</value></data>
+  <data name="PATH_MEDIA_FILE_SYMLINK" xml:space="preserve"><value>Symbolic links are not allowed for media files.</value></data>
+  <data name="LIBRARY_SESSION_NOT_FOUND" xml:space="preserve"><value>The recording session does not exist.</value></data>
+  <data name="LIBRARY_CURSOR_NOT_FOUND" xml:space="preserve"><value>The pagination position does not exist.</value></data>
+  <data name="LIBRARY_EVENT_RANGE_INVALID" xml:space="preserve"><value>The event time range is invalid.</value></data>
+  <data name="LIBRARY_OUTPUT_NOT_READY" xml:space="preserve"><value>The output is not complete or does not exist.</value></data>
+  <data name="LIBRARY_CLIP_EXPIRED" xml:space="preserve"><value>The clip has expired or was moved to the trash.</value></data>
+  <data name="LIBRARY_FILE_NOT_FOUND" xml:space="preserve"><value>The file does not exist.</value></data>
+  <data name="LIBRARY_ROOM_ID_REQUIRED" xml:space="preserve"><value>Enter a live room ID.</value></data>
+  <data name="LIBRARY_ROOM_ALREADY_EXISTS" xml:space="preserve"><value>This live room already exists.</value></data>
+  <data name="LIBRARY_RECORDING_PARAMETERS_INVALID" xml:space="preserve"><value>The recording parameters are invalid.</value></data>
+  <data name="LIBRARY_ACCESS_DENIED" xml:space="preserve"><value>You do not have access to this item.</value></data>
+  <data name="LIBRARY_CLIP_NOT_FOUND" xml:space="preserve"><value>The clip does not exist.</value></data>
+  <data name="LIBRARY_TRASH_NOT_FOUND" xml:space="preserve"><value>The trash entry does not exist.</value></data>
+  <data name="TIMELINE_CLIP_RANGE_INVALID" xml:space="preserve"><value>The clip time range is invalid.</value></data>
+  <data name="TIMELINE_RECORDED_VIDEO_MISSING" xml:space="preserve"><value>No recorded video is available in the selected range.</value></data>
+  <data name="GROUPING_COUNT_INVALID" xml:space="preserve"><value>Select 2–100 recording sessions.</value></data>
+  <data name="GROUPING_STREAMER_MISMATCH" xml:space="preserve"><value>Only recordings from the same streamer can be grouped.</value></data>
+  <data name="GROUPING_SESSIONS_OVERLAP" xml:space="preserve"><value>The selected sessions overlap. Check the session boundaries.</value></data>
+  <data name="GROUPING_TOO_MANY_ARCHIVES" xml:space="preserve"><value>Too many archive references are selected. Group them in smaller batches.</value></data>
+  <data name="GROUPING_BOUNDARY_NOT_FOUND" xml:space="preserve"><value>The boundary segment does not exist.</value></data>
+  <data name="GROUPING_BOUNDARY_OVERLAP" xml:space="preserve"><value>Choose a physical boundary that does not overlap other segments.</value></data>
+  <data name="GROUPING_VIDEO_REQUIRED_BOTH_SIDES" xml:space="preserve"><value>Video must be present on both sides of the boundary.</value></data>
+  <data name="GROUPING_SESSION_NOT_EDITABLE" xml:space="preserve"><value>Select a finished recording that is not grouped into another session.</value></data>
+  <data name="GROUPING_REPAIR_IN_PROGRESS" xml:space="preserve"><value>This session is being repaired. Wait for the task to finish.</value></data>
+  <data name="JOB_KIND_INVALID" xml:space="preserve"><value>The media task type or mode is invalid.</value></data>
+  <data name="JOB_ADMIN_REQUIRED" xml:space="preserve"><value>Only administrators can repair or merge recordings.</value></data>
+  <data name="JOB_ARCHIVE_NOT_READY" xml:space="preserve"><value>The selected range has not finished archiving. Try again later.</value></data>
+  <data name="JOB_SEGMENT_NOT_FOUND" xml:space="preserve"><value>The selected segment does not exist.</value></data>
+  <data name="JOB_RECORDING_MUST_FINISH" xml:space="preserve"><value>Wait until recording finishes before repairing or merging.</value></data>
+  <data name="JOB_CLIP_END_BEYOND_ARCHIVE" xml:space="preserve"><value>The clip ends beyond the archived duration.</value></data>
+  <data name="JOB_GAP_REQUIRES_EXACT_MODE" xml:space="preserve"><value>The selected range contains stream gaps. Use exact mode.</value></data>
+  <data name="JOB_WAIT_FOR_EXISTING" xml:space="preserve"><value>Wait for the existing task to finish.</value></data>
+  <data name="JOB_REPAIR_ALREADY_EXISTS" xml:space="preserve"><value>A repair task already exists for this session.</value></data>
+  <data name="JOB_NOT_FOUND" xml:space="preserve"><value>The task does not exist.</value></data>
+  <data name="JOB_RETRY_STATE_INVALID" xml:space="preserve"><value>Only failed or cancelled tasks can be retried.</value></data>
+  <data name="JOB_SOURCE_REVISION_CHANGED" xml:space="preserve"><value>The input media version has changed. Create a new repair task.</value></data>
+  <data name="JOB_STATE_CHANGED" xml:space="preserve"><value>The task state has changed.</value></data>
+  <data name="JOB_OTHER_REPAIR_EXISTS" xml:space="preserve"><value>Another repair task exists for this session.</value></data>
+  <data name="JOB_SOURCE_SESSION_NOT_FOUND" xml:space="preserve"><value>The original recording session does not exist.</value></data>
+  <data name="JOB_REVISION_OWNED_ELSEWHERE" xml:space="preserve"><value>This media version belongs to another publication and cannot be overwritten.</value></data>
+  <data name="JOB_ACTIVE_REVISION_INCOMPLETE" xml:space="preserve"><value>The active version has missing segments. The task cannot be marked complete.</value></data>
+  <data name="JOB_SESSION_REVISION_CHANGED" xml:space="preserve"><value>The session media version has changed. Create a new repair task.</value></data>
+  <data name="JOB_REVISION_COMMIT_CONFLICT" xml:space="preserve"><value>The media version commit conflicted or the task lease expired.</value></data>
+  <data name="JOB_DISK_RESERVE_REQUIRED" xml:space="preserve"><value>The media task stopped because free disk space is low. Space has been reserved for recording.</value></data>
+  <data name="PLAYBACK_TIME_OUT_OF_RANGE" xml:space="preserve"><value>The playback time is outside the session range.</value></data>
+  <data name="PLAYBACK_MEDIA_NOT_COMMITTED" xml:space="preserve"><value>The media has not been committed yet. Try again later.</value></data>
+  <data name="PLAYBACK_WINDOW_NOT_READY" xml:space="preserve"><value>The playback window is not ready yet.</value></data>
+  <data name="PLAYBACK_CACHE_SPACE_INSUFFICIENT" xml:space="preserve"><value>There is not enough playback cache space. Recording space has been reserved.</value></data>
+  <data name="PLAYBACK_RESOURCE_NOT_FOUND" xml:space="preserve"><value>The playback resource does not exist.</value></data>
+  <data name="PLAYBACK_CACHE_EXPIRED" xml:space="preserve"><value>The playback cache has expired. Seek to the playback position again.</value></data>
+  <data name="PLAYBACK_RESOURCE_INVALID" xml:space="preserve"><value>The playback resource is invalid.</value></data>
+  <data name="BILIBILI_ROOM_ID_INVALID" xml:space="preserve"><value>The live room ID must be a positive integer.</value></data>
+  <data name="BILIBILI_ROOM_UNAVAILABLE" xml:space="preserve"><value>The live room profile could not be retrieved ({0}).</value></data>
+  <data name="BILIBILI_STREAM_UNAVAILABLE" xml:space="preserve"><value>The live stream is temporarily unavailable ({0}).</value></data>
+  <data name="BILIBILI_FLV_STREAM_MISSING" xml:space="preserve"><value>This broadcast does not provide a recordable HTTP-FLV stream. Try again later.</value></data>
+  <data name="BILIBILI_QR_SESSION_REQUIRED" xml:space="preserve"><value>This session does not use QR code sign-in.</value></data>
+  <data name="BILIBILI_PHONE_INVALID" xml:space="preserve"><value>Enter a valid country calling code and phone number.</value></data>
+  <data name="BILIBILI_SMS_SESSION_UNAVAILABLE" xml:space="preserve"><value>The SMS sign-in session is unavailable.</value></data>
+  <data name="BILIBILI_SMS_RATE_LIMIT" xml:space="preserve"><value>Wait 60 seconds before requesting another SMS.</value></data>
+  <data name="BILIBILI_SMS_CODE_REQUIRED" xml:space="preserve"><value>Request an SMS first, then enter the verification code.</value></data>
+  <data name="BILIBILI_ACCOUNT_IN_USE" xml:space="preserve"><value>This account is used by a recording target. Change the target's account first.</value></data>
+  <data name="BILIBILI_IDENTITY_NOT_CONFIRMED" xml:space="preserve"><value>The platform did not confirm a valid sign-in. Sign in again.</value></data>
+  <data name="BILIBILI_ACCOUNT_NOT_FOUND" xml:space="preserve"><value>The capture account does not exist. Select another account.</value></data>
+  <data name="BILIBILI_ACCOUNT_EXPIRED" xml:space="preserve"><value>The capture account has expired. An administrator must sign in again.</value></data>
+  <data name="BILIBILI_CREDENTIALS_CORRUPT" xml:space="preserve"><value>The capture credentials are corrupted. Link the account again.</value></data>
+  <data name="BILIBILI_TOO_MANY_LOGIN_FLOWS" xml:space="preserve"><value>Too many sign-in flows are in progress. Try again later.</value></data>
+  <data name="BILIBILI_LOGIN_EXPIRED" xml:space="preserve"><value>The sign-in flow has expired. Start again.</value></data>
+  <data name="STORAGE_PURGING" xml:space="preserve"><value>The file is being permanently deleted and cannot be restored.</value></data>
+  <data name="STORAGE_SOURCE_CLIP_CHANGED" xml:space="preserve"><value>The original clip no longer exists or its file has changed.</value></data>
+  <data name="STORAGE_TRASH_PATH_CONFLICT" xml:space="preserve"><value>Another file exists at the trash path and cannot be overwritten.</value></data>
+  <data name="STORAGE_TRASH_LEASE_LOST" xml:space="preserve"><value>The trash operation lost its lease and is awaiting reconciliation.</value></data>
+  <data name="STORAGE_RESTORE_STATE_INVALID" xml:space="preserve"><value>This trash entry cannot be restored in its current state.</value></data>
+  <data name="STORAGE_RESTORE_DESTINATION_EXISTS" xml:space="preserve"><value>A file already exists at the original location. It cannot be overwritten during restoration.</value></data>
+  <data name="STORAGE_TRASH_FILE_MISSING" xml:space="preserve"><value>The trashed file no longer exists.</value></data>
+  <data name="STORAGE_OPERATION_TAKEN_OVER" xml:space="preserve"><value>Another storage operation has taken over this entry.</value></data>
+  <data name="STORAGE_LEASE_EXPIRED" xml:space="preserve"><value>The storage operation lease has expired.</value></data>
+  <data name="STORAGE_OPERATION_IN_PROGRESS" xml:space="preserve"><value>Another storage operation is running on this file. Try again later.</value></data>
+  <data name="REQUEST_CSRF_EXPIRED" xml:space="preserve"><value>Request verification has expired. Refresh and try again.</value></data>
+  <data name="REQUEST_DATABASE_UNAVAILABLE" xml:space="preserve"><value>The database is temporarily unavailable.</value></data>
+  <data name="REQUEST_TIMEOUT" xml:space="preserve"><value>The service is temporarily unresponsive. Try again later.</value></data>
+  <data name="REQUEST_FAILED" xml:space="preserve"><value>The operation failed. Check the server logs.</value></data>
+  <data name="REQUEST_ENDPOINT_NOT_FOUND" xml:space="preserve"><value>The API endpoint does not exist.</value></data>
+  <data name="REQUEST_WEBUI_NOT_BUILT" xml:space="preserve"><value>The WebUI has not been built yet.</value></data>
+  <data name="REQUEST_INVALID" xml:space="preserve"><value>The request parameters are invalid.</value></data>
+  <data name="REQUEST_UNAUTHORIZED" xml:space="preserve"><value>Sign in to continue.</value></data>
+  <data name="REQUEST_FORBIDDEN" xml:space="preserve"><value>You do not have permission to perform this action.</value></data>
+  <data name="REQUEST_RATE_LIMIT" xml:space="preserve"><value>Too many requests. Try again later.</value></data>
+  <data name="RECORDING_DISK_SPACE_LOW" xml:space="preserve"><value>Recording has paused because the recording volume is low on free space.</value></data>
+  <data name="RECORDING_EVENT_CAPTURE_GAP" xml:space="preserve"><value>Event capture was interrupted: {0}</value></data>
+  <data name="RECORDING_EVENT_CONNECTION_LOST" xml:space="preserve"><value>Event connection interrupted</value></data>
+  <data name="EMAIL_VERIFICATION_SUBJECT" xml:space="preserve"><value>Yohuke Live Recorder email verification</value></data>
+  <data name="EMAIL_VERIFICATION_BODY" xml:space="preserve"><value>Your registration verification code is: {0}
+This code is valid for 10 minutes. Do not share it. If you did not request it, ignore this email.</value></data>
+  <data name="JOB_OUTPUT_EMPTY" xml:space="preserve"><value>The media output is empty or does not exist.</value></data>
+  <data name="JOB_OUTPUT_INVALID" xml:space="preserve"><value>Media output validation failed.</value></data>
+  <data name="JOB_PROCESSING_FAILED" xml:space="preserve"><value>Media processing failed: {0}</value></data>
+  <data name="RECORDING_CAPTURE_FAILED" xml:space="preserve"><value>Recording was interrupted: {0}</value></data>
+</root>

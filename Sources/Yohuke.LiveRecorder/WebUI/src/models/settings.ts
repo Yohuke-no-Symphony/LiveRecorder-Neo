@@ -1,3 +1,5 @@
+import type { AppLanguage } from '@/localization/types'
+
 export interface SmtpSettings
 {
   host: string
@@ -29,6 +31,7 @@ export interface OAuthProviderSettings
 
 export interface ServerSettings
 {
+  defaultLanguage: AppLanguage
   id: string
   storagePath: string
   timeZone: string
@@ -52,9 +55,9 @@ export interface ServerSettings
 }
 
 export const QUALITY_OPTIONS = [
-  { title: '原画', value: 10000 },
-  { title: '蓝光', value: 400 },
-  { title: '超清', value: 250 },
-  { title: '高清', value: 150 },
-  { title: '流畅', value: 80 },
-]
+  { titleKey: 'components.quality.original', value: 10000 },
+  { titleKey: 'components.quality.bluRay', value: 400 },
+  { titleKey: 'components.quality.ultra', value: 250 },
+  { titleKey: 'components.quality.high', value: 150 },
+  { titleKey: 'components.quality.smooth', value: 80 },
+] as const

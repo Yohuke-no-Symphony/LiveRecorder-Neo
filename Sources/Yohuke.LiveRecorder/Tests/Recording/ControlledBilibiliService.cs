@@ -12,6 +12,10 @@ internal sealed class ControlledBilibiliService : IBilibiliService
     {
         var room = Rooms[roomId];
         await room.BeforeQueryAsync(cancellationToken);
+        if (room.QueryFailure is { } error)
+        {
+            throw error;
+        }
         return new(roomId, roomId + 100000, $"测试主播 {roomId}", "", room.Title, "", room.IsLive, room.LiveStartedAtUtc);
     }
 

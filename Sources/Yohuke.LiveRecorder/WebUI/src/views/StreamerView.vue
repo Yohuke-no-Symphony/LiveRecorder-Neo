@@ -1,18 +1,19 @@
 <template>
-  <PageHeader :title="streamer?.name || '主播录播'" :eyebrow="streamer ? `直播间 ${streamer.roomId}` : undefined">
+  <PageHeader :title="streamer?.name || t('views.common.streamerRecordings')" :eyebrow="streamer ? t('views.streamer.room', { roomId: streamer.roomId }) : undefined">
     <template #avatar><v-avatar v-if="streamer" size="66" color="surface-variant"><v-img :src="MediaAPI.avatar(streamer.id)" /></v-avatar></template>
     <StatusChip v-if="streamer?.isLive" status="live" />
-    <v-btn variant="outlined" prepend-icon="mdi-arrow-left" to="/">媒体库</v-btn>
+    <v-btn variant="outlined" prepend-icon="mdi-arrow-left" to="/">{{ t('views.common.library') }}</v-btn>
   </PageHeader>
   <v-alert v-if="sessionError || error" type="error" class="mb-6">{{ sessionError || error }}</v-alert>
-  <div class="filter-bar"><v-text-field v-model="search" label="搜索标题" prepend-inner-icon="mdi-magnify" clearable density="compact" style="max-width: 360px" @keydown.enter="applySearch" /></div>
+  <div class="filter-bar"><v-text-field v-model="search" :label="t('views.streamer.search')" prepend-inner-icon="mdi-magnify" clearable density="compact" style="max-width: 360px" @keydown.enter="applySearch" /></div>
   <v-progress-linear v-if="loading && !sessions.length" indeterminate color="primary" />
   <div v-if="sessions.length" class="media-grid"><SessionCard v-for="session in sessions" :key="session.id" :session="session" /></div>
   <LoadMoreButton :has-more="hasMore" :loading="loadingMore" @load="loadMore" />
-  <EmptyState v-if="!sessions.length && !loading" :title="searchQuery ? '没有匹配的录播' : '暂无录播'" />
+  <EmptyState v-if="!sessions.length && !loading" :title="searchQuery ? t('views.common.noMatchingRecordings') : t('views.common.noRecordings')" />
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { MediaAPI } from '@/apis/MediaAPI'
@@ -25,6 +26,8 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import LoadMoreButton from '@/components/common/LoadMoreButton.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import SessionCard from '@/components/library/SessionCard.vue'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const streamer = ref<Streamer>()

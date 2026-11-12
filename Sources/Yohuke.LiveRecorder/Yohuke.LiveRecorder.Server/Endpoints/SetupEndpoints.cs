@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Localization;
 using System.Diagnostics;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
@@ -17,7 +18,7 @@ public static class SetupEndpoints
         {
             if (installation.IsInstalled)
             {
-                return Results.Conflict(new { detail = "安装已完成。" });
+                throw new InfrastructureException(MessageCode.SETUP_COMPLETED, 409);
             }
             webUi.EnsurePrivate(request.StoragePath);
             var ffmpeg = string.IsNullOrWhiteSpace(request.FfmpegPath) ? "ffmpeg" : request.FfmpegPath;
@@ -40,7 +41,7 @@ public static class SetupEndpoints
         {
             var start = new ProcessStartInfo(path) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
             start.ArgumentList.Add("-version");
-            using var process = Process.Start(start) ?? throw new InfrastructureException("媒体工具无法启动。");
+            using var process = Process.Start(start) ?? throw new InfrastructureException(MessageCode.SETUP_MEDIA_TOOL_START_FAILED);
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             deadline.CancelAfter(TimeSpan.FromSeconds(10));
             var output = process.StandardOutput.ReadToEndAsync(deadline.Token);
@@ -60,12 +61,12 @@ public static class SetupEndpoints
             await Task.WhenAll(output, error);
             if (process.ExitCode != 0)
             {
-                throw new InfrastructureException("媒体工具验证失败。");
+                throw new InfrastructureException(MessageCode.SETUP_MEDIA_TOOL_VERIFICATION_FAILED);
             }
         }
         catch (Exception error) when (error is not InfrastructureException && error is not OperationCanceledException)
         {
-            throw new InfrastructureException("找不到可运行的 FFmpeg/ffprobe，请检查路径。");
+            throw new InfrastructureException(MessageCode.SETUP_MEDIA_TOOL_NOT_FOUND);
         }
     }
 }

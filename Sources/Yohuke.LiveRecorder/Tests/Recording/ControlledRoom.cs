@@ -9,11 +9,13 @@ internal sealed class ControlledRoom(long roomId)
     private int connections;
     private int activeSubscriptions;
     private int blockNextQuery;
+    private Exception? queryFailure;
     private long events;
     internal long RoomId { get; } = roomId;
     internal string Title { get => Volatile.Read(ref title); set => Volatile.Write(ref title, value); }
     internal DateTime LiveStartedAtUtc { get => new(Interlocked.Read(ref liveTimeTicks), DateTimeKind.Utc); set => Interlocked.Exchange(ref liveTimeTicks, value.Ticks); }
     internal bool IsLive { get; set; } = true;
+    internal Exception? QueryFailure { get => Volatile.Read(ref queryFailure); set => Volatile.Write(ref queryFailure, value); }
     internal int? DisconnectAfterMs { get; set; }
     internal double PaceScale { get; set; } = 1;
     internal long ReadBytes => Interlocked.Read(ref readBytes);

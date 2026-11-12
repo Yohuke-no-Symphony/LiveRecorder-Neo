@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { i18n } from '@/plugins/i18n'
 
 export function useAction()
 {
@@ -15,7 +16,7 @@ export function useAction()
     }
     catch (value)
     {
-      error.value = value instanceof Error ? value.message : '操作失败'
+      error.value = value instanceof Error ? value.message : i18n.global.t('components.common.operationFailed')
       return undefined
     }
     finally

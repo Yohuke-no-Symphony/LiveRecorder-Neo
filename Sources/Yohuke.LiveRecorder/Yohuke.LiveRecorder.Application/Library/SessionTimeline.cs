@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Application.Media;
 using Yohuke.LiveRecorder.Domain;
 
@@ -40,7 +41,7 @@ public static class SessionTimeline
     {
         if (!double.IsFinite(startMs) || !double.IsFinite(endMs) || startMs < 0 || endMs <= startMs)
         {
-            throw new InfrastructureException("切片时间范围无效。");
+            throw new InfrastructureException(MessageCode.TIMELINE_CLIP_RANGE_INVALID);
         }
         var result = new List<MediaInputSpan>();
         var cursor = startMs;
@@ -75,7 +76,7 @@ public static class SessionTimeline
         }
         if (result.All(x => x.IsGap))
         {
-            throw new InfrastructureException("所选范围没有已录制的视频。");
+            throw new InfrastructureException(MessageCode.TIMELINE_RECORDED_VIDEO_MISSING);
         }
         return result;
     }

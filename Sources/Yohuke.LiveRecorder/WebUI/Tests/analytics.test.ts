@@ -1,17 +1,19 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { defineComponent, h } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import AnalyticsView from '../src/views/AnalyticsView.vue'
 import type { Analytics, BroadcastSession } from '../src/models/media'
 import { formatMoney } from '../src/utilities/format'
+import { i18n } from '../src/plugins/i18n'
 
 const { sessions, streamers, analytics, sessionDetail } = vi.hoisted(() => ({ sessions: vi.fn(), streamers: vi.fn(), analytics: vi.fn(), sessionDetail: vi.fn() }))
 vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { sessions, streamers, analytics, session: sessionDetail } }))
 const card = defineComponent({ setup: (_, { slots }) => () => h('div', slots.default?.()) })
 const table = defineComponent({ setup: (_, { slots }) => () => h('table', slots.default?.()) })
 let wrapper: VueWrapper | undefined
+beforeEach(() => { i18n.global.locale.value = 'zh-CN' })
 afterEach(() => { wrapper?.unmount(); vi.restoreAllMocks() })
 
 describe('分析金额展示', () =>
@@ -40,7 +42,7 @@ describe('分析金额展示', () =>
     sessionDetail.mockResolvedValue({ session: source, durationMs: 60000, segments: [], gaps: [] })
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { render: () => null } }] })
     await router.push('/')
-    wrapper = mount(AnalyticsView, { global: { plugins: [router], stubs: { VCard: card, VTable: table, VSelect: true, VAlert: true, VProgressLinear: true, VMenu: true, VBtn: true, VBtnToggle: true, VDivider: true, VListItem: true, VProgressCircular: true, VIcon: true } } })
+    wrapper = mount(AnalyticsView, { global: { plugins: [router, i18n], stubs: { VCard: card, VTable: table, VSelect: true, VAlert: true, VProgressLinear: true, VMenu: true, VBtn: true, VBtnToggle: true, VDivider: true, VListItem: true, VProgressCircular: true, VIcon: true } } })
     await flushPromises()
     await vi.waitFor(() => expect(wrapper!.findAll('.amount-row')).toHaveLength(6))
     const summary = wrapper.get('.analytics-stats')

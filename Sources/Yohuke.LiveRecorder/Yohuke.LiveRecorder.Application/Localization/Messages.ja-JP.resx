@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms</value></resheader>
+  <data name="AUTH_INVALID_CREDENTIALS" xml:space="preserve"><value>メールアドレスまたはパスワードが正しくありません。</value></data>
+  <data name="AUTH_EMAIL_PURPOSE_UNSUPPORTED" xml:space="preserve"><value>このメール認証の用途には対応していません。</value></data>
+  <data name="AUTH_EMAIL_CODE_RATE_LIMIT" xml:space="preserve"><value>認証コードの再送信は 60 秒後に行ってください。</value></data>
+  <data name="AUTH_OAUTH_REGISTRATION_EXPIRED" xml:space="preserve"><value>外部アカウントの登録セッションが期限切れです。もう一度ログインしてください。</value></data>
+  <data name="AUTH_INVALID_ROLE" xml:space="preserve"><value>ロールが無効です。</value></data>
+  <data name="AUTH_INVALID_INVITATION_LIMIT" xml:space="preserve"><value>招待コードの利用回数は 1～10,000 回、有効期限は現在より後に設定してください。</value></data>
+  <data name="AUTH_OAUTH_BROWSER_BINDING_MISSING" xml:space="preserve"><value>認証フローがこのブラウザーに紐付けられていません。</value></data>
+  <data name="AUTH_OAUTH_CALLBACK_INVALID" xml:space="preserve"><value>外部認証のコールバックが無効です。</value></data>
+  <data name="AUTH_OAUTH_FLOW_UNAVAILABLE" xml:space="preserve"><value>認証フローが期限切れ、使用済み、または別のブラウザーのものです。</value></data>
+  <data name="AUTH_OAUTH_INTENT_INVALID" xml:space="preserve"><value>認証フローの目的が無効です。</value></data>
+  <data name="AUTH_OAUTH_BINDING_USER_MISMATCH" xml:space="preserve"><value>アカウント連携は、開始したユーザーがログインした状態で完了してください。</value></data>
+  <data name="AUTH_OAUTH_FLOW_EXPIRED" xml:space="preserve"><value>認証フローが期限切れ、または使用済みです。</value></data>
+  <data name="AUTH_OAUTH_CODE_REJECTED" xml:space="preserve"><value>外部プロバイダーが認証コードを拒否しました。もう一度ログインしてください。</value></data>
+  <data name="AUTH_OAUTH_TOKEN_INVALID" xml:space="preserve"><value>外部プロバイダーから有効なアクセストークンが返されませんでした。</value></data>
+  <data name="AUTH_OAUTH_IDENTITY_UNVERIFIABLE" xml:space="preserve"><value>外部ユーザーの本人確認ができませんでした。</value></data>
+  <data name="AUTH_OAUTH_PROFILE_EMPTY" xml:space="preserve"><value>外部ユーザーのプロフィールが空です。</value></data>
+  <data name="AUTH_OAUTH_SUBJECT_MISSING" xml:space="preserve"><value>外部プロバイダーから一意のユーザー識別子が返されませんでした。</value></data>
+  <data name="AUTH_OAUTH_BOUND_ELSEWHERE" xml:space="preserve"><value>この外部アカウントは別のアカウントに連携されています。</value></data>
+  <data name="AUTH_OAUTH_ALREADY_BOUND" xml:space="preserve"><value>この外部アカウントは既に連携されています。再読み込みしてお試しください。</value></data>
+  <data name="AUTH_REGISTRATION_CODES_REQUIRED" xml:space="preserve"><value>6 桁のメール認証コードと有効な招待コードを入力してください。</value></data>
+  <data name="AUTH_EMAIL_ALREADY_REGISTERED" xml:space="preserve"><value>このメールアドレスは既に登録されています。</value></data>
+  <data name="AUTH_OAUTH_ALREADY_REGISTERED" xml:space="preserve"><value>この外部アカウントは既に登録されています。もう一度ログインしてください。</value></data>
+  <data name="AUTH_EMAIL_CODE_INVALID" xml:space="preserve"><value>メール認証コードが正しくない、有効期限切れ、または試行回数の上限に達しています。</value></data>
+  <data name="AUTH_INVITATION_INVALID" xml:space="preserve"><value>招待コードが存在しない、有効期限切れ、または利用回数の上限に達しています。</value></data>
+  <data name="AUTH_INVITATION_CONFLICT" xml:space="preserve"><value>招待コードが別のリクエストで使用されました。もう一度お試しください。</value></data>
+  <data name="AUTH_REGISTRATION_CLOSED" xml:space="preserve"><value>管理者が新規登録を許可していません。</value></data>
+  <data name="AUTH_OAUTH_PROVIDER_DISABLED" xml:space="preserve"><value>この外部ログインプロバイダーは有効になっていません。</value></data>
+  <data name="AUTH_OAUTH_CLIENT_ID_MISSING" xml:space="preserve"><value>外部ログインの Client ID が設定されていません。</value></data>
+  <data name="AUTH_OAUTH_HTTPS_REQUIRED" xml:space="preserve"><value>外部認証の URL には HTTPS が必要です。ローカル開発では HTTP を使用できます。</value></data>
+  <data name="AUTH_USER_NOT_FOUND" xml:space="preserve"><value>ユーザーが存在しません。</value></data>
+  <data name="AUTH_LAST_ADMIN_REQUIRED" xml:space="preserve"><value>有効な管理者を最低 1 人残す必要があります。</value></data>
+  <data name="AUTH_PENDING_APPROVAL" xml:space="preserve"><value>アカウントは管理者の承認待ちです。</value></data>
+  <data name="AUTH_ACCOUNT_DISABLED" xml:space="preserve"><value>アカウントが却下、または無効化されています。</value></data>
+  <data name="AUTH_EMAIL_INVALID" xml:space="preserve"><value>有効なメールアドレスを入力してください。</value></data>
+  <data name="AUTH_PASSWORD_LENGTH_INVALID" xml:space="preserve"><value>パスワードは 12～256 文字で入力してください。</value></data>
+  <data name="AUTH_DISPLAY_NAME_LENGTH_INVALID" xml:space="preserve"><value>表示名は 1～80 文字で入力してください。</value></data>
+  <data name="SMTP_CONFIGURATION_INVALID" xml:space="preserve"><value>管理者が有効な送信メールサーバーを設定していません。</value></data>
+  <data name="SMTP_TLS_REQUIRED" xml:space="preserve"><value>SMTP 認証を使用する場合は TLS を有効にしてください。</value></data>
+  <data name="SETUP_TOKEN_INVALID" xml:space="preserve"><value>インストールトークンが正しくありません。</value></data>
+  <data name="SETUP_CONFIGURATION_INVALID" xml:space="preserve"><value>録画ディレクトリには絶対パスを、有効なデータベース名を指定してください。</value></data>
+  <data name="SETUP_ALREADY_INSTALLED" xml:space="preserve"><value>インストールは完了しています。管理者やデータベースの設定は上書きできません。</value></data>
+  <data name="SETUP_EXISTING_ADMIN" xml:space="preserve"><value>未完了のインストールに別の管理者が存在します。元の設定で再試行してください。</value></data>
+  <data name="SETUP_EXISTING_ADMIN_PASSWORD_MISMATCH" xml:space="preserve"><value>既存の管理者パスワードが一致しないため、上書きできません。</value></data>
+  <data name="SETUP_REQUIRED" xml:space="preserve"><value>先にインストールを完了してください。</value></data>
+  <data name="SETUP_COMPLETED" xml:space="preserve"><value>インストールは既に完了しています。</value></data>
+  <data name="SETUP_MEDIA_TOOL_START_FAILED" xml:space="preserve"><value>メディアツールを起動できませんでした。</value></data>
+  <data name="SETUP_MEDIA_TOOL_VERIFICATION_FAILED" xml:space="preserve"><value>メディアツールの検証に失敗しました。</value></data>
+  <data name="SETUP_MEDIA_TOOL_NOT_FOUND" xml:space="preserve"><value>実行可能な FFmpeg/ffprobe が見つかりません。パスを確認してください。</value></data>
+  <data name="SETTINGS_STORAGE_PATH_LOCKED" xml:space="preserve"><value>録画が存在する場合、保存先のルートディレクトリは変更できません。</value></data>
+  <data name="SETTINGS_INVALID" xml:space="preserve"><value>設定値が無効です。</value></data>
+  <data name="SETTINGS_TIME_ZONE_INVALID" xml:space="preserve"><value>タイムゾーンが無効です。</value></data>
+  <data name="SETTINGS_OAUTH_DUPLICATE_ID" xml:space="preserve"><value>OAuth プロバイダーの識別子が重複しています。</value></data>
+  <data name="SETTINGS_OAUTH_ENDPOINT_INVALID" xml:space="preserve"><value>OAuth のエンドポイントまたは識別子が無効です。</value></data>
+  <data name="LANGUAGE_UNSUPPORTED" xml:space="preserve"><value>この表示言語には対応していません。</value></data>
+  <data name="PATH_ABSOLUTE_REQUIRED" xml:space="preserve"><value>有効な絶対ディレクトリパスを入力してください。</value></data>
+  <data name="PATH_WEBUI_OVERLAP" xml:space="preserve"><value>録画とサービスデータのディレクトリは WebUI ディレクトリの外に設定してください。</value></data>
+  <data name="PATH_ABSOLUTE_MEDIA_FORBIDDEN" xml:space="preserve"><value>メディアの絶対パスは使用できません。</value></data>
+  <data name="PATH_MEDIA_OUTSIDE_STORAGE" xml:space="preserve"><value>メディアパスが保存先ディレクトリの外にあります。</value></data>
+  <data name="PATH_MEDIA_DIRECTORY_SYMLINK" xml:space="preserve"><value>メディアディレクトリにシンボリックリンクは使用できません。</value></data>
+  <data name="PATH_MEDIA_FILE_SYMLINK" xml:space="preserve"><value>メディアファイルにシンボリックリンクは使用できません。</value></data>
+  <data name="LIBRARY_SESSION_NOT_FOUND" xml:space="preserve"><value>録画セッションが存在しません。</value></data>
+  <data name="LIBRARY_CURSOR_NOT_FOUND" xml:space="preserve"><value>ページの取得位置が存在しません。</value></data>
+  <data name="LIBRARY_EVENT_RANGE_INVALID" xml:space="preserve"><value>コメントの時間範囲が無効です。</value></data>
+  <data name="LIBRARY_OUTPUT_NOT_READY" xml:space="preserve"><value>出力が未完了、または存在しません。</value></data>
+  <data name="LIBRARY_CLIP_EXPIRED" xml:space="preserve"><value>クリップが期限切れ、またはごみ箱に移動されています。</value></data>
+  <data name="LIBRARY_FILE_NOT_FOUND" xml:space="preserve"><value>ファイルが存在しません。</value></data>
+  <data name="LIBRARY_ROOM_ID_REQUIRED" xml:space="preserve"><value>配信ルーム ID を入力してください。</value></data>
+  <data name="LIBRARY_ROOM_ALREADY_EXISTS" xml:space="preserve"><value>この配信ルームは既に存在します。</value></data>
+  <data name="LIBRARY_RECORDING_PARAMETERS_INVALID" xml:space="preserve"><value>録画パラメーターが無効です。</value></data>
+  <data name="LIBRARY_ACCESS_DENIED" xml:space="preserve"><value>この項目へのアクセス権限がありません。</value></data>
+  <data name="LIBRARY_CLIP_NOT_FOUND" xml:space="preserve"><value>クリップが存在しません。</value></data>
+  <data name="LIBRARY_TRASH_NOT_FOUND" xml:space="preserve"><value>ごみ箱の項目が存在しません。</value></data>
+  <data name="TIMELINE_CLIP_RANGE_INVALID" xml:space="preserve"><value>クリップの時間範囲が無効です。</value></data>
+  <data name="TIMELINE_RECORDED_VIDEO_MISSING" xml:space="preserve"><value>選択した範囲に録画済みの映像がありません。</value></data>
+  <data name="GROUPING_COUNT_INVALID" xml:space="preserve"><value>録画セッションを 2～100 件選択してください。</value></data>
+  <data name="GROUPING_STREAMER_MISMATCH" xml:space="preserve"><value>同じ配信者の録画のみグループ化できます。</value></data>
+  <data name="GROUPING_SESSIONS_OVERLAP" xml:space="preserve"><value>選択したセッションの時間が重複しています。セッションの境界を確認してください。</value></data>
+  <data name="GROUPING_TOO_MANY_ARCHIVES" xml:space="preserve"><value>アーカイブの参照が多すぎます。分けてグループ化してください。</value></data>
+  <data name="GROUPING_BOUNDARY_NOT_FOUND" xml:space="preserve"><value>分割の境界セグメントが存在しません。</value></data>
+  <data name="GROUPING_BOUNDARY_OVERLAP" xml:space="preserve"><value>他のセグメントと重複しない物理的な境界を選択してください。</value></data>
+  <data name="GROUPING_VIDEO_REQUIRED_BOTH_SIDES" xml:space="preserve"><value>境界の両側に映像が必要です。</value></data>
+  <data name="GROUPING_SESSION_NOT_EDITABLE" xml:space="preserve"><value>終了済みで、他のセッションにグループ化されていない録画を選択してください。</value></data>
+  <data name="GROUPING_REPAIR_IN_PROGRESS" xml:space="preserve"><value>このセッションは修復中です。処理が完了するまでお待ちください。</value></data>
+  <data name="JOB_KIND_INVALID" xml:space="preserve"><value>メディアタスクの種類またはモードが無効です。</value></data>
+  <data name="JOB_ADMIN_REQUIRED" xml:space="preserve"><value>録画の修復や結合は管理者のみ実行できます。</value></data>
+  <data name="JOB_ARCHIVE_NOT_READY" xml:space="preserve"><value>選択した範囲のアーカイブが未完了です。しばらくしてからお試しください。</value></data>
+  <data name="JOB_SEGMENT_NOT_FOUND" xml:space="preserve"><value>選択したセグメントが存在しません。</value></data>
+  <data name="JOB_RECORDING_MUST_FINISH" xml:space="preserve"><value>録画が終了してから修復または結合してください。</value></data>
+  <data name="JOB_CLIP_END_BEYOND_ARCHIVE" xml:space="preserve"><value>クリップの終了位置がアーカイブ済みの時間を超えています。</value></data>
+  <data name="JOB_GAP_REQUIRES_EXACT_MODE" xml:space="preserve"><value>選択した範囲に配信の中断区間があります。正確モードを使用してください。</value></data>
+  <data name="JOB_WAIT_FOR_EXISTING" xml:space="preserve"><value>実行中のタスクが完了するまでお待ちください。</value></data>
+  <data name="JOB_REPAIR_ALREADY_EXISTS" xml:space="preserve"><value>このセッションには既に修復タスクがあります。</value></data>
+  <data name="JOB_NOT_FOUND" xml:space="preserve"><value>タスクが存在しません。</value></data>
+  <data name="JOB_RETRY_STATE_INVALID" xml:space="preserve"><value>失敗またはキャンセルされたタスクのみ再試行できます。</value></data>
+  <data name="JOB_SOURCE_REVISION_CHANGED" xml:space="preserve"><value>入力メディアのバージョンが変更されています。修復タスクを新しく作成してください。</value></data>
+  <data name="JOB_STATE_CHANGED" xml:space="preserve"><value>タスクの状態が変更されています。</value></data>
+  <data name="JOB_OTHER_REPAIR_EXISTS" xml:space="preserve"><value>このセッションには別の修復タスクがあります。</value></data>
+  <data name="JOB_SOURCE_SESSION_NOT_FOUND" xml:space="preserve"><value>元の録画セッションが存在しません。</value></data>
+  <data name="JOB_REVISION_OWNED_ELSEWHERE" xml:space="preserve"><value>このメディアバージョンは別の公開処理に属するため上書きできません。</value></data>
+  <data name="JOB_ACTIVE_REVISION_INCOMPLETE" xml:space="preserve"><value>有効なバージョンのセグメントが不足しているため、タスクを完了にできません。</value></data>
+  <data name="JOB_SESSION_REVISION_CHANGED" xml:space="preserve"><value>セッションのメディアバージョンが変更されています。修復タスクを作成し直してください。</value></data>
+  <data name="JOB_REVISION_COMMIT_CONFLICT" xml:space="preserve"><value>メディアバージョンの確定が競合したか、タスクのリースが期限切れです。</value></data>
+  <data name="JOB_DISK_RESERVE_REQUIRED" xml:space="preserve"><value>空き容量が不足しているため、録画用の容量を確保してメディアタスクを停止しました。</value></data>
+  <data name="PLAYBACK_TIME_OUT_OF_RANGE" xml:space="preserve"><value>再生位置がセッションの範囲外です。</value></data>
+  <data name="PLAYBACK_MEDIA_NOT_COMMITTED" xml:space="preserve"><value>メディアがまだ確定されていません。しばらくしてからお試しください。</value></data>
+  <data name="PLAYBACK_WINDOW_NOT_READY" xml:space="preserve"><value>再生ウィンドウの準備ができていません。</value></data>
+  <data name="PLAYBACK_CACHE_SPACE_INSUFFICIENT" xml:space="preserve"><value>再生キャッシュの空き容量が不足しています。録画用の容量は確保されています。</value></data>
+  <data name="PLAYBACK_RESOURCE_NOT_FOUND" xml:space="preserve"><value>再生リソースが存在しません。</value></data>
+  <data name="PLAYBACK_CACHE_EXPIRED" xml:space="preserve"><value>再生キャッシュが期限切れです。再生位置を指定し直してください。</value></data>
+  <data name="PLAYBACK_RESOURCE_INVALID" xml:space="preserve"><value>再生リソースが無効です。</value></data>
+  <data name="BILIBILI_ROOM_ID_INVALID" xml:space="preserve"><value>配信ルーム ID は正の整数で入力してください。</value></data>
+  <data name="BILIBILI_ROOM_UNAVAILABLE" xml:space="preserve"><value>配信ルームの情報を取得できませんでした（{0}）。</value></data>
+  <data name="BILIBILI_STREAM_UNAVAILABLE" xml:space="preserve"><value>配信ストリームを現在利用できません（{0}）。</value></data>
+  <data name="BILIBILI_FLV_STREAM_MISSING" xml:space="preserve"><value>この配信には録画可能な HTTP-FLV ストリームがありません。しばらくしてからお試しください。</value></data>
+  <data name="BILIBILI_QR_SESSION_REQUIRED" xml:space="preserve"><value>このセッションは QR コードログインではありません。</value></data>
+  <data name="BILIBILI_PHONE_INVALID" xml:space="preserve"><value>有効な国番号と電話番号を入力してください。</value></data>
+  <data name="BILIBILI_SMS_SESSION_UNAVAILABLE" xml:space="preserve"><value>SMS ログインセッションを利用できません。</value></data>
+  <data name="BILIBILI_SMS_RATE_LIMIT" xml:space="preserve"><value>SMS の再送信は 60 秒後に行ってください。</value></data>
+  <data name="BILIBILI_SMS_CODE_REQUIRED" xml:space="preserve"><value>先に SMS を送信し、認証コードを入力してください。</value></data>
+  <data name="BILIBILI_ACCOUNT_IN_USE" xml:space="preserve"><value>このアカウントは録画対象で使用中です。先に対象のアカウントを変更してください。</value></data>
+  <data name="BILIBILI_IDENTITY_NOT_CONFIRMED" xml:space="preserve"><value>プラットフォームで有効なログインを確認できませんでした。もう一度ログインしてください。</value></data>
+  <data name="BILIBILI_ACCOUNT_NOT_FOUND" xml:space="preserve"><value>収集用アカウントが存在しません。アカウントを選択し直してください。</value></data>
+  <data name="BILIBILI_ACCOUNT_EXPIRED" xml:space="preserve"><value>収集用アカウントが期限切れです。管理者が再ログインする必要があります。</value></data>
+  <data name="BILIBILI_CREDENTIALS_CORRUPT" xml:space="preserve"><value>収集用の認証情報が破損しています。アカウントを連携し直してください。</value></data>
+  <data name="BILIBILI_TOO_MANY_LOGIN_FLOWS" xml:space="preserve"><value>ログイン処理が多すぎます。しばらくしてからお試しください。</value></data>
+  <data name="BILIBILI_LOGIN_EXPIRED" xml:space="preserve"><value>ログイン処理が期限切れです。最初からやり直してください。</value></data>
+  <data name="STORAGE_PURGING" xml:space="preserve"><value>ファイルは完全削除中のため復元できません。</value></data>
+  <data name="STORAGE_SOURCE_CLIP_CHANGED" xml:space="preserve"><value>元のクリップが存在しないか、ファイルが変更されています。</value></data>
+  <data name="STORAGE_TRASH_PATH_CONFLICT" xml:space="preserve"><value>ごみ箱の保存先に別のファイルが存在するため上書きできません。</value></data>
+  <data name="STORAGE_TRASH_LEASE_LOST" xml:space="preserve"><value>ごみ箱への移動処理の実行権が失われ、整合性の確認を待っています。</value></data>
+  <data name="STORAGE_RESTORE_STATE_INVALID" xml:space="preserve"><value>このごみ箱の項目は現在の状態では復元できません。</value></data>
+  <data name="STORAGE_RESTORE_DESTINATION_EXISTS" xml:space="preserve"><value>元の場所にファイルが存在するため、上書きして復元できません。</value></data>
+  <data name="STORAGE_TRASH_FILE_MISSING" xml:space="preserve"><value>ごみ箱のファイルが存在しません。</value></data>
+  <data name="STORAGE_OPERATION_TAKEN_OVER" xml:space="preserve"><value>別の保存処理がこの項目を引き継いでいます。</value></data>
+  <data name="STORAGE_LEASE_EXPIRED" xml:space="preserve"><value>保存処理のリースが期限切れです。</value></data>
+  <data name="STORAGE_OPERATION_IN_PROGRESS" xml:space="preserve"><value>このファイルでは別の保存処理を実行中です。しばらくしてからお試しください。</value></data>
+  <data name="REQUEST_CSRF_EXPIRED" xml:space="preserve"><value>リクエストの検証が期限切れです。再読み込みしてお試しください。</value></data>
+  <data name="REQUEST_DATABASE_UNAVAILABLE" xml:space="preserve"><value>データベースを一時的に利用できません。</value></data>
+  <data name="REQUEST_TIMEOUT" xml:space="preserve"><value>サービスが一時的に応答していません。しばらくしてからお試しください。</value></data>
+  <data name="REQUEST_FAILED" xml:space="preserve"><value>操作に失敗しました。サーバーログを確認してください。</value></data>
+  <data name="REQUEST_ENDPOINT_NOT_FOUND" xml:space="preserve"><value>API エンドポイントが存在しません。</value></data>
+  <data name="REQUEST_WEBUI_NOT_BUILT" xml:space="preserve"><value>WebUI がまだビルドされていません。</value></data>
+  <data name="REQUEST_INVALID" xml:space="preserve"><value>リクエストのパラメーターが無効です。</value></data>
+  <data name="REQUEST_UNAUTHORIZED" xml:space="preserve"><value>ログインしてください。</value></data>
+  <data name="REQUEST_FORBIDDEN" xml:space="preserve"><value>この操作を実行する権限がありません。</value></data>
+  <data name="REQUEST_RATE_LIMIT" xml:space="preserve"><value>リクエストが多すぎます。しばらくしてからお試しください。</value></data>
+  <data name="RECORDING_DISK_SPACE_LOW" xml:space="preserve"><value>録画先の空き容量が不足しているため、収集を一時停止しました。</value></data>
+  <data name="RECORDING_EVENT_CAPTURE_GAP" xml:space="preserve"><value>コメントの収集が中断されました：{0}</value></data>
+  <data name="RECORDING_EVENT_CONNECTION_LOST" xml:space="preserve"><value>コメント接続が切断されました</value></data>
+  <data name="EMAIL_VERIFICATION_SUBJECT" xml:space="preserve"><value>夜更けのレコーダー メール認証</value></data>
+  <data name="EMAIL_VERIFICATION_BODY" xml:space="preserve"><value>登録用の認証コード：{0}
+このコードは 10 分間有効です。他の人に教えないでください。心当たりがない場合は、このメールを無視してください。</value></data>
+  <data name="JOB_OUTPUT_EMPTY" xml:space="preserve"><value>メディアの出力が空、または存在しません。</value></data>
+  <data name="JOB_OUTPUT_INVALID" xml:space="preserve"><value>メディアの出力検証に失敗しました。</value></data>
+  <data name="JOB_PROCESSING_FAILED" xml:space="preserve"><value>メディア処理に失敗しました：{0}</value></data>
+  <data name="RECORDING_CAPTURE_FAILED" xml:space="preserve"><value>録画が中断されました：{0}</value></data>
+</root>

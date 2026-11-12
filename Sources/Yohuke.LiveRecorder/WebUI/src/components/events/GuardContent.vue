@@ -1,14 +1,17 @@
 <template>
-  <div class="guard-content"><span>{{ level }} <b>×{{ eventQuantity(event) }}</b></span><span v-if="event.amount !== null && event.amount !== undefined" class="guard-amount mono"><span v-if="isQuote" class="quote-label">报价</span>{{ formatMoney(event.amount) }}</span></div>
+  <div class="guard-content"><span>{{ level }} <b>×{{ formatNumber(eventQuantity(event)) }}</b></span><span v-if="event.amount !== null && event.amount !== undefined" class="guard-amount mono"><span v-if="isQuote" class="quote-label">{{ t('components.events.quote') }}</span>{{ formatMoney(event.amount) }}</span></div>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed } from 'vue'
 import type { RecordedEvent } from '@/models/media'
-import { formatMoney } from '@/utilities/format'
+import { formatMoney, formatNumber } from '@/utilities/format'
 import { eventQuantity, guardLevelName, textValue } from '@/utilities/eventPresentation'
+
+const { t } = useI18n()
 const props = defineProps<{ event: RecordedEvent }>()
-const level = computed(() => guardLevelName(props.event.payload?.guardLevel) || textValue(props.event.payload?.guardLevelName) || props.event.text || '大航海')
+const level = computed(() => guardLevelName(props.event.payload?.guardLevel) || textValue(props.event.payload?.guardLevelName) || props.event.text || t('components.events.membership'))
 const isQuote = computed(() => props.event.priceSource === 'ProtocolQuote')
 </script>
 

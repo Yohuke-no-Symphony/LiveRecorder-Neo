@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Localization;
 using System.Security.Cryptography;
 using System.Text;
 using MongoDB.Bson;
@@ -101,7 +102,7 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
         {
             if (current.State == "Purging")
             {
-                throw new InfrastructureException("文件正在彻底删除，无法恢复。", 409);
+                throw new InfrastructureException(MessageCode.STORAGE_PURGING, 409);
             }
             if (current.State is "Pending" or "Moving")
             {
@@ -229,13 +230,13 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
         if (clip is null)
         {
             await context.Collection<TrashEntry>("trash").DeleteOneAsync(OperationFilter(entry), cancellationToken);
-            throw new InfrastructureException("原切片已经不存在或已更换文件。", 410);
+            throw new InfrastructureException(MessageCode.STORAGE_SOURCE_CLIP_CHANGED, 410);
         }
         var source = MediaPaths.Resolve(settings.StoragePath, entry.OriginalRelativePath);
         var destination = MediaPaths.Resolve(settings.StoragePath, entry.TrashRelativePath);
         if (File.Exists(source) && File.Exists(destination))
         {
-            throw new InfrastructureException("回收路径已存在其他文件，无法覆盖。", 409);
+            throw new InfrastructureException(MessageCode.STORAGE_TRASH_PATH_CONFLICT, 409);
         }
         await RequireOperationAsync(entry, cancellationToken);
         await context.Collection<Clip>("clips").UpdateOneAsync(x => x.Id == entry.EntityId && x.RelativePath == entry.OriginalRelativePath,
@@ -249,7 +250,7 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
             .Set(x => x.State, "Active").Set(x => x.OperationOwner, null).Set(x => x.OperationLeaseUntilUtc, null), cancellationToken: cancellationToken);
         if (changed.MatchedCount == 0)
         {
-            throw new InfrastructureException("回收操作已失去执行权，等待对账。", 409);
+            throw new InfrastructureException(MessageCode.STORAGE_TRASH_LEASE_LOST, 409);
         }
         entry.State = "Active";
         entry.OperationOwner = null;
@@ -261,18 +262,18 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
     {
         if (entry.State is not ("Active" or "Restoring"))
         {
-            throw new InfrastructureException("回收条目当前不能恢复。", 409);
+            throw new InfrastructureException(MessageCode.STORAGE_RESTORE_STATE_INVALID, 409);
         }
         var resuming = entry.State == "Restoring";
         var source = MediaPaths.Resolve(settings.StoragePath, entry.TrashRelativePath);
         var destination = MediaPaths.Resolve(settings.StoragePath, entry.OriginalRelativePath);
         if (File.Exists(destination) && (!resuming || File.Exists(source)))
         {
-            throw new InfrastructureException("原位置已有文件，无法覆盖恢复。", 409);
+            throw new InfrastructureException(MessageCode.STORAGE_RESTORE_DESTINATION_EXISTS, 409);
         }
         if (!File.Exists(source) && !File.Exists(destination))
         {
-            throw new InfrastructureException("回收文件已不存在。", 410);
+            throw new InfrastructureException(MessageCode.STORAGE_TRASH_FILE_MISSING, 410);
         }
         entry = await ClaimAsync(entry, "Restoring", cancellationToken);
         await RequireOperationAsync(entry, cancellationToken);
@@ -291,14 +292,14 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
         var changed = await context.Collection<TrashEntry>("trash").FindOneAndUpdateAsync(x => x.Id == entry.Id && x.State == entry.State && x.OperationOwner == entry.OperationOwner,
             Builders<TrashEntry>.Update.Set(x => x.State, state).Set(x => x.OperationOwner, Guid.NewGuid().ToString("N")).Set(x => x.OperationLeaseUntilUtc, DateTime.UtcNow.AddMinutes(2)),
             new FindOneAndUpdateOptions<TrashEntry> { ReturnDocument = ReturnDocument.After }, cancellationToken);
-        return changed ?? throw new InfrastructureException("另一个存储操作已接管该条目。", 409);
+        return changed ?? throw new InfrastructureException(MessageCode.STORAGE_OPERATION_TAKEN_OVER, 409);
     }
 
     private async Task RequireOperationAsync(TrashEntry entry, CancellationToken cancellationToken)
     {
         if (!await context.Collection<TrashEntry>("trash").Find(OperationFilter(entry)).AnyAsync(cancellationToken))
         {
-            throw new InfrastructureException("存储操作租约已过期。", 409);
+            throw new InfrastructureException(MessageCode.STORAGE_LEASE_EXPIRED, 409);
         }
     }
 
@@ -319,7 +320,7 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
         }
         catch (IOException)
         {
-            throw new InfrastructureException("该文件正在执行其他存储操作，请稍后重试。", 409);
+            throw new InfrastructureException(MessageCode.STORAGE_OPERATION_IN_PROGRESS, 409);
         }
     }
 

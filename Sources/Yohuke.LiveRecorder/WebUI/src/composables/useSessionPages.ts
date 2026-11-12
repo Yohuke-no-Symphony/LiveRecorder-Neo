@@ -1,6 +1,7 @@
 import { onScopeDispose, ref, watch } from 'vue'
 import { MediaAPI } from '@/apis/MediaAPI'
 import type { BroadcastSession } from '@/models/media'
+import { i18n } from '@/plugins/i18n'
 import { usePolling } from './usePolling'
 
 const PAGE_SIZE = 50
@@ -52,7 +53,7 @@ export function useSessionPages(parameters: () => { streamerId?: string; search?
     }
     catch (value)
     {
-      if (operation === generation) { error.value = value instanceof Error ? value.message : '录播加载失败' }
+      if (operation === generation) { error.value = value instanceof Error ? value.message : i18n.global.t('components.library.loadFailed') }
     }
     finally
     {
@@ -76,7 +77,7 @@ export function useSessionPages(parameters: () => { streamerId?: string; search?
     }
     catch (value)
     {
-      if (operation === generation) { error.value = value instanceof Error ? value.message : '录播加载失败' }
+      if (operation === generation) { error.value = value instanceof Error ? value.message : i18n.global.t('components.library.loadFailed') }
     }
     finally
     {
@@ -113,14 +114,14 @@ export function useSessionPages(parameters: () => { streamerId?: string; search?
           break
         }
         const next = page.at(-1)?.id
-        if (!next || next === before) { throw new Error('录播分页响应无效') }
+        if (!next || next === before) { throw new Error(i18n.global.t('components.library.invalidPage')) }
         before = next
       }
       error.value = ''
     }
     catch (value)
     {
-      if (operation === generation) { error.value = value instanceof Error ? value.message : '录播刷新失败' }
+      if (operation === generation) { error.value = value instanceof Error ? value.message : i18n.global.t('components.library.refreshFailed') }
     }
     finally
     {

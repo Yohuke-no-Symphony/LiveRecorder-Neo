@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Localization;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Library;
@@ -13,7 +14,7 @@ public sealed class LibraryService(MongoContext context, TimeProvider timeProvid
     public async Task<SessionDetail> GetAsync(string id, CancellationToken cancellationToken = default)
     {
         var session = await context.Collection<BroadcastSession>("sessions").Find(x => x.Id == id && !x.IsTrashed && x.ProjectionReady).FirstOrDefaultAsync(cancellationToken)
-                      ?? throw new InfrastructureException("场次不存在。", 404);
+                      ?? throw new InfrastructureException(MessageCode.LIBRARY_SESSION_NOT_FOUND, 404);
         var segments = await context.Collection<RecordingSegment>("segments").Find(x => x.SessionId == id && x.Revision == session.MediaRevision).ToListAsync(cancellationToken);
         return SessionTimeline.Build(session, segments, timeProvider.GetUtcNow().UtcDateTime);
     }

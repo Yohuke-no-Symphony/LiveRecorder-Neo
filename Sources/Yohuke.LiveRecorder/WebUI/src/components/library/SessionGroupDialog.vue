@@ -1,29 +1,32 @@
 <template>
   <v-dialog v-model="opened" :persistent="busy" max-width="720" scrollable>
     <v-card>
-      <div class="d-flex justify-space-between align-center ga-4 pa-6"><h2 class="text-h6">归组场次</h2><v-chip v-if="selectedIds.length" color="primary">已选 {{ selectedIds.length }}</v-chip></div>
+      <div class="d-flex justify-space-between align-center ga-4 pa-6"><h2 class="text-h6">{{ t('components.library.groupTitle') }}</h2><v-chip v-if="selectedIds.length" color="primary">{{ t('components.library.selected', { count: formatNumber(selectedIds.length) }) }}</v-chip></div>
       <v-card-text class="pt-0">
-        <div class="form-stack mb-5"><v-text-field v-model="title" label="归组标题" :disabled="busy" maxlength="180" /><v-text-field v-model="search" label="搜索场次" prepend-inner-icon="mdi-magnify" clearable :disabled="busy" @keydown.enter="applySearch" /></div>
+        <div class="form-stack mb-5"><v-text-field v-model="title" :label="t('components.library.groupName')" :disabled="busy" maxlength="180" /><v-text-field v-model="search" :label="t('components.library.searchSessions')" prepend-inner-icon="mdi-magnify" clearable :disabled="busy" @keydown.enter="applySearch" /></div>
         <v-alert v-if="error || pageError" type="error" class="mb-4">{{ error || pageError }}</v-alert>
         <v-progress-linear v-if="loading" indeterminate color="primary" />
-        <div v-for="session in candidates" :key="session.id" class="group-candidate"><v-checkbox v-model="selectedIds" :value="session.id" :disabled="busy" :aria-label="`选择 ${session.title}`" density="compact" /><div class="flex-grow-1" @click="toggle(session.id)"><div class="text-body-2">{{ session.title }}</div><div class="text-caption muted mt-1">{{ formatDate(session.startedAtUtc) }} · {{ formatDuration(duration(session)) }}</div></div></div>
+        <div v-for="session in candidates" :key="session.id" class="group-candidate"><v-checkbox v-model="selectedIds" :value="session.id" :disabled="busy" :aria-label="t('components.library.selectSession', { title: session.title })" density="compact" /><div class="flex-grow-1" @click="toggle(session.id)"><div class="text-body-2">{{ session.title }}</div><div class="text-caption muted mt-1">{{ formatDate(session.startedAtUtc) }} · {{ formatDuration(duration(session)) }}</div></div></div>
         <LoadMoreButton v-if="!busy" :has-more="hasMore" :loading="loadingMore" @load="loadMore" />
-        <EmptyState v-if="!loading && !candidates.length" title="暂无可选场次" />
+        <EmptyState v-if="!loading && !candidates.length" :title="t('components.library.noCandidates')" />
       </v-card-text>
-      <div class="d-flex justify-end ga-3 pa-6"><v-btn variant="text" :disabled="busy" @click="opened = false">取消</v-btn><v-btn color="primary" :loading="busy" :disabled="busy || !selectedIds.length" @click="submit">归组</v-btn></div>
+      <div class="d-flex justify-end ga-3 pa-6"><v-btn variant="text" :disabled="busy" @click="opened = false">{{ t('components.common.cancel') }}</v-btn><v-btn color="primary" :loading="busy" :disabled="busy || !selectedIds.length" @click="submit">{{ t('components.library.group') }}</v-btn></div>
     </v-card>
   </v-dialog>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { MediaAPI } from '@/apis/MediaAPI'
 import { useAction } from '@/composables/useAction'
 import { useSessionPages } from '@/composables/useSessionPages'
 import type { BroadcastSession } from '@/models/media'
-import { formatDate, formatDuration } from '@/utilities/format'
+import { formatDate, formatDuration, formatNumber } from '@/utilities/format'
 import EmptyState from '@/components/common/EmptyState.vue'
 import LoadMoreButton from '@/components/common/LoadMoreButton.vue'
+
+const { t } = useI18n()
 
 const opened = defineModel<boolean>({ required: true })
 const props = defineProps<{ session: BroadcastSession }>()

@@ -1,17 +1,20 @@
 <template>
   <div class="red-pocket-content">
-    <div class="pocket-heading"><span>{{ textValue(data.danmu) || event.text || '红包' }}</span><span class="pocket-status">{{ hasResult ? '已开奖' : event.payload?.isDrawn === true ? '已开奖，暂无结果' : '待开奖' }}</span></div>
-    <div v-if="awards.length" class="pocket-awards"><div v-for="(award, index) in awards" :key="index" class="pocket-award"><img v-if="safeImageUrl(award.imageUrl)" :src="safeImageUrl(award.imageUrl)" :alt="textValue(award.name)" loading="lazy" /><span>{{ textValue(award.name) || textValue(award.giftId) || '奖品' }}<span v-if="numberValue(award.quantity)"> ×{{ award.quantity }}</span></span></div></div>
-    <div v-if="totalCount !== undefined || endTime" class="pocket-meta"><span v-if="totalCount !== undefined">{{ totalCount }} 份</span><span v-if="endTime">开奖 {{ formatDate(endTime) }}</span></div>
-    <div v-if="hasResult && winners.length" class="pocket-winners"><div v-for="(winner, index) in winners" :key="index" class="pocket-winner"><img v-if="safeImageUrl(winner.avatarUrl)" :src="safeImageUrl(winner.avatarUrl)" alt="" class="winner-avatar" loading="lazy" /><span class="winner-name">{{ winner.isMystery === true ? '神秘人' : textValue(winner.userName) || (winner.uid ? `UID ${winner.uid}` : '访客') }}</span><span>{{ winnerAward(winner) }}<span v-if="numberValue(winner.quantity) && Number(winner.quantity) > 1"> ×{{ winner.quantity }}</span></span></div></div>
+    <div class="pocket-heading"><span>{{ textValue(data.danmu) || event.text || t('components.events.redPocket') }}</span><span class="pocket-status">{{ hasResult ? t('components.events.drawn') : event.payload?.isDrawn === true ? t('components.events.drawnWithoutResult') : t('components.events.pendingDraw') }}</span></div>
+    <div v-if="awards.length" class="pocket-awards"><div v-for="(award, index) in awards" :key="index" class="pocket-award"><img v-if="safeImageUrl(award.imageUrl)" :src="safeImageUrl(award.imageUrl)" :alt="textValue(award.name)" loading="lazy" /><span>{{ textValue(award.name) || textValue(award.giftId) || t('components.events.award') }}<span v-if="numberValue(award.quantity)"> ×{{ formatNumber(Number(award.quantity)) }}</span></span></div></div>
+    <div v-if="totalCount !== undefined || endTime" class="pocket-meta"><span v-if="totalCount !== undefined">{{ t('components.events.awardCount', { count: formatNumber(totalCount) }) }}</span><span v-if="endTime">{{ t('components.events.drawAt', { date: formatDate(endTime) }) }}</span></div>
+    <div v-if="hasResult && winners.length" class="pocket-winners"><div v-for="(winner, index) in winners" :key="index" class="pocket-winner"><img v-if="safeImageUrl(winner.avatarUrl)" :src="safeImageUrl(winner.avatarUrl)" alt="" class="winner-avatar" loading="lazy" /><span class="winner-name">{{ winner.isMystery === true ? t('components.events.mystery') : textValue(winner.userName) || (winner.uid ? `UID ${winner.uid}` : t('components.events.guest')) }}</span><span>{{ winnerAward(winner) }}<span v-if="numberValue(winner.quantity) && Number(winner.quantity) > 1"> ×{{ formatNumber(Number(winner.quantity)) }}</span></span></div></div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed } from 'vue'
 import type { RecordedEvent } from '@/models/media'
-import { formatDate } from '@/utilities/format'
+import { formatDate, formatNumber } from '@/utilities/format'
 import { numberValue, objectValue, redPocketData, safeImageUrl, textValue } from '@/utilities/eventPresentation'
+
+const { t } = useI18n()
 const props = defineProps<{ event: RecordedEvent }>()
 const data = computed(() => redPocketData(props.event))
 const hasResult = computed(() => data.value.hasResult === true)
@@ -27,8 +30,8 @@ const endTime = computed(() =>
 function winnerAward(winner: Record<string, unknown>): string
 {
   return textValue(winner.giftName) || textValue(awards.value.find(award => award.giftId === winner.giftId)?.name) ||
-    (numberValue(winner.batteryAmount) !== undefined ? `${winner.batteryAmount} 电池` : '') ||
-    (numberValue(winner.intimacyAmount) !== undefined ? `${winner.intimacyAmount} 亲密度` : '')
+    (numberValue(winner.batteryAmount) !== undefined ? t('components.events.battery', { count: formatNumber(Number(winner.batteryAmount)) }) : '') ||
+    (numberValue(winner.intimacyAmount) !== undefined ? t('components.events.intimacy', { count: formatNumber(Number(winner.intimacyAmount)) }) : '')
 }
 </script>
 

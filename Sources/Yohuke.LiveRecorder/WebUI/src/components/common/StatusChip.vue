@@ -4,39 +4,46 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{ status: string }>()
-const definitions: Record<string, { label: string; color: string; icon?: string }> = {
-  recording: { label: '录制中', color: 'error', icon: 'mdi-record' },
-  live: { label: '直播中', color: 'error', icon: 'mdi-record' },
-  monitoring: { label: '监听中', color: 'success' },
-  waiting: { label: '等待开播', color: 'secondary' },
-  paused: { label: '已暂停', color: 'warning' },
-  suspended: { label: '已暂停', color: 'warning' },
-  reconnecting: { label: '重连中', color: 'warning' },
-  error: { label: '异常', color: 'error' },
-  stopped: { label: '已停止', color: 'secondary' },
-  offline: { label: '未开播', color: 'secondary' },
-  queued: { label: '排队中', color: 'secondary', icon: 'mdi-clock-outline' },
-  pending: { label: '待审核', color: 'warning' },
-  running: { label: '处理中', color: 'info' },
-  publishing: { label: '发布中', color: 'info' },
-  completed: { label: '已完成', color: 'success' },
-  succeeded: { label: '已完成', color: 'success' },
-  ready: { label: '可播放', color: 'success' },
-  failed: { label: '失败', color: 'error' },
-  interrupted: { label: '已中断', color: 'warning' },
-  canceled: { label: '已取消', color: 'secondary' },
-  cancelled: { label: '已取消', color: 'secondary' },
-  approved: { label: '已通过', color: 'success' },
-  rejected: { label: '已拒绝', color: 'error' },
-  disabled: { label: '已禁用', color: 'secondary' },
-  expired: { label: '已过期', color: 'warning' },
-  valid: { label: '有效', color: 'success' },
-  active: { label: '有效', color: 'success' },
-  invalid: { label: '登录失效', color: 'error' },
-  needslogin: { label: '需重新登录', color: 'warning' },
-  trashed: { label: '回收站', color: 'secondary' },
+const definitions: Record<string, { labelKey: string; color: string; icon?: string }> = {
+  recording: { labelKey: 'components.status.recording', color: 'error', icon: 'mdi-record' },
+  live: { labelKey: 'components.status.live', color: 'error', icon: 'mdi-record' },
+  monitoring: { labelKey: 'components.status.monitoring', color: 'success' },
+  waiting: { labelKey: 'components.status.waiting', color: 'secondary' },
+  paused: { labelKey: 'components.status.paused', color: 'warning' },
+  suspended: { labelKey: 'components.status.paused', color: 'warning' },
+  reconnecting: { labelKey: 'components.status.reconnecting', color: 'warning' },
+  error: { labelKey: 'components.status.error', color: 'error' },
+  stopped: { labelKey: 'components.status.stopped', color: 'secondary' },
+  offline: { labelKey: 'components.status.offline', color: 'secondary' },
+  queued: { labelKey: 'components.status.queued', color: 'secondary', icon: 'mdi-clock-outline' },
+  pending: { labelKey: 'components.status.pending', color: 'warning' },
+  running: { labelKey: 'components.status.running', color: 'info' },
+  publishing: { labelKey: 'components.status.publishing', color: 'info' },
+  completed: { labelKey: 'components.status.completed', color: 'success' },
+  succeeded: { labelKey: 'components.status.completed', color: 'success' },
+  ready: { labelKey: 'components.status.ready', color: 'success' },
+  failed: { labelKey: 'components.status.failed', color: 'error' },
+  interrupted: { labelKey: 'components.status.interrupted', color: 'warning' },
+  canceled: { labelKey: 'components.status.canceled', color: 'secondary' },
+  cancelled: { labelKey: 'components.status.canceled', color: 'secondary' },
+  approved: { labelKey: 'components.status.approved', color: 'success' },
+  rejected: { labelKey: 'components.status.rejected', color: 'error' },
+  disabled: { labelKey: 'components.status.disabled', color: 'secondary' },
+  expired: { labelKey: 'components.status.expired', color: 'warning' },
+  valid: { labelKey: 'components.status.valid', color: 'success' },
+  active: { labelKey: 'components.status.valid', color: 'success' },
+  invalid: { labelKey: 'components.status.invalid', color: 'error' },
+  needslogin: { labelKey: 'components.status.needsLogin', color: 'warning' },
+  trashed: { labelKey: 'components.status.trashed', color: 'secondary' },
 }
-const appearance = computed(() => definitions[props.status.toLowerCase()] ?? { label: props.status, color: 'secondary' })
+const appearance = computed(() =>
+{
+  const definition = definitions[props.status.toLowerCase()]
+  return definition ? { ...definition, label: t(definition.labelKey) } : { label: props.status, color: 'secondary', icon: undefined }
+})
 </script>

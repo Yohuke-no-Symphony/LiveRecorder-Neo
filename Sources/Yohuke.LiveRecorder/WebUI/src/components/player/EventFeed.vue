@@ -1,40 +1,43 @@
 <template>
   <v-card class="event-panel">
-    <div class="feed-heading"><h2>直播消息</h2><v-btn :color="follow ? 'primary' : 'secondary'" variant="text" size="small" :prepend-icon="follow ? 'mdi-arrow-down-circle-outline' : 'mdi-pause-circle-outline'" @click="follow = !follow">跟随</v-btn></div>
-    <v-chip-group v-model="kind" mandatory class="feed-tabs px-4" color="primary"><v-chip value="all" size="small">全部</v-chip><v-chip v-for="item in kinds" :key="item.value" :value="item.value" size="small">{{ item.title }}</v-chip></v-chip-group>
+    <div class="feed-heading"><h2>{{ t('components.events.title') }}</h2><v-btn :color="follow ? 'primary' : 'secondary'" variant="text" size="small" :prepend-icon="follow ? 'mdi-arrow-down-circle-outline' : 'mdi-pause-circle-outline'" @click="follow = !follow">{{ t('components.events.follow') }}</v-btn></div>
+    <v-chip-group v-model="kind" mandatory class="feed-tabs px-4" color="primary"><v-chip value="all" size="small">{{ t('components.events.all') }}</v-chip><v-chip v-for="item in kinds" :key="item.value" :value="item.value" size="small">{{ item.title }}</v-chip></v-chip-group>
     <v-alert v-if="error" type="error" class="mx-4 my-3" density="compact">{{ error }}</v-alert>
     <v-progress-linear v-if="loading" color="primary" height="2" indeterminate />
     <v-virtual-scroll v-if="visibleEvents.length" ref="feed" :items="visibleEvents" class="event-scroll" :item-height="78" height="500" @scroll.passive="onScroll">
       <template #default="{ item }">
         <div class="event-row" :class="`event-${item.kind.toLowerCase()}`">
-          <div v-if="item.kind === 'Gap'" class="gap-message"><button class="event-time mono" type="button" @click="$emit('seek', item.offsetMs)">{{ formatDuration(item.offsetMs) }}</button><v-icon icon="mdi-video-off-outline" size="15" /><span>{{ item.text || '录制中断' }}</span></div>
+          <div v-if="item.kind === 'Gap'" class="gap-message"><button class="event-time mono" type="button" @click="$emit('seek', item.offsetMs)">{{ formatDuration(item.offsetMs) }}</button><v-icon icon="mdi-video-off-outline" size="15" /><span>{{ item.text || t('components.events.gap') }}</span></div>
           <template v-else><div class="d-flex align-center ga-2 mb-1">
             <button class="event-time mono" type="button" @click="$emit('seek', item.offsetMs)">{{ formatDuration(item.offsetMs) }}</button>
             <v-avatar size="22" color="surface-variant"><v-img v-if="safeImageUrl(item.avatarUrl)" :src="safeImageUrl(item.avatarUrl)" /><span v-else class="text-caption">{{ item.userName?.slice(0, 1) || '·' }}</span></v-avatar>
-            <span class="event-user text-truncate">{{ item.userName || '访客' }}</span>
+            <span class="event-user text-truncate">{{ item.userName || t('components.events.guest') }}</span>
             <v-icon v-if="item.kind !== 'Danmu'" :icon="kindIcons[item.kind]" :color="kindColors[item.kind]" size="14" />
           </div>
           <div class="event-content"><DanmuContent v-if="item.kind === 'Danmu'" :event="item" /><ScContent v-else-if="item.kind === 'SuperChat'" :event="item" /><GiftContent v-else-if="item.kind === 'Gift'" :event="item" /><GuardContent v-else-if="item.kind === 'Guard'" :event="item" /><RedPocketContent v-else-if="item.kind === 'RedPocket'" :event="item" /></div></template>
         </div>
       </template>
     </v-virtual-scroll>
-    <div v-else-if="!loading" class="event-empty"><v-icon icon="mdi-comment-text-outline" size="28" /><span>{{ enabled ? '当前时段暂无消息' : '此场录播未保存弹幕' }}</span></div>
-    <div class="feed-footer mono">{{ formatDuration(offsetMs, true) }}<span>{{ visibleEvents.length }} 条</span></div>
+    <div v-else-if="!loading" class="event-empty"><v-icon icon="mdi-comment-text-outline" size="28" /><span>{{ enabled ? t('components.events.empty') : t('components.events.notRecorded') }}</span></div>
+    <div class="feed-footer mono">{{ formatDuration(offsetMs, true) }}<span>{{ t('components.events.count', { count: formatNumber(visibleEvents.length) }) }}</span></div>
   </v-card>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { MediaAPI } from '@/apis/MediaAPI'
 import { usePolling } from '@/composables/usePolling'
 import type { EventKind, RecordedEvent } from '@/models/media'
-import { formatDuration } from '@/utilities/format'
+import { formatDuration, formatNumber } from '@/utilities/format'
 import { displayEvents, safeImageUrl } from '@/utilities/eventPresentation'
 import DanmuContent from '@/components/events/DanmuContent.vue'
 import ScContent from '@/components/events/ScContent.vue'
 import GiftContent from '@/components/events/GiftContent.vue'
 import GuardContent from '@/components/events/GuardContent.vue'
 import RedPocketContent from '@/components/events/RedPocketContent.vue'
+
+const { t } = useI18n()
 
 const props = defineProps<{ sessionId: string; offsetMs: number; enabled: boolean; isLive: boolean }>()
 defineEmits<{ seek: [offsetMs: number] }>()
@@ -45,7 +48,13 @@ const error = ref('')
 const loading = ref(false)
 const follow = ref(true)
 const feed = ref<{ scrollToIndex: (index: number) => void }>()
-const kinds: { title: string; value: EventKind }[] = [{ title: '弹幕', value: 'Danmu' }, { title: 'SC', value: 'SuperChat' }, { title: '礼物', value: 'Gift' }, { title: '舰长', value: 'Guard' }, { title: '红包', value: 'RedPocket' }]
+const kinds = computed<{ title: string; value: EventKind }[]>(() => [
+  { title: t('components.events.danmu'), value: 'Danmu' },
+  { title: t('components.events.superChat'), value: 'SuperChat' },
+  { title: t('components.events.gift'), value: 'Gift' },
+  { title: t('components.events.guard'), value: 'Guard' },
+  { title: t('components.events.redPocket'), value: 'RedPocket' },
+])
 const kindIcons: Record<string, string> = { SuperChat: 'mdi-message-badge-outline', Gift: 'mdi-gift-outline', Guard: 'mdi-shield-crown-outline', RedPocket: 'mdi-red-envelope' }
 const kindColors: Record<string, string> = { SuperChat: 'info', Gift: 'primary', Guard: 'warning', RedPocket: 'error' }
 const visibleEvents = computed(() => displayEvents([...events.value.filter(item => item.kind !== 'RedPocket'), ...pocketHistory.value], props.offsetMs, kind.value).filter(item => item.offsetMs >= rangeStart.value))
@@ -93,7 +102,7 @@ async function load(force = false): Promise<void>
   {
     if (!signal.aborted && operation === generation)
     {
-      error.value = value instanceof Error ? value.message : '消息加载失败'
+      error.value = value instanceof Error ? value.message : t('components.events.loadFailed')
     }
   }
   finally

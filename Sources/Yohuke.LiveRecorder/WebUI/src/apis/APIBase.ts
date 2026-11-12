@@ -1,4 +1,5 @@
 import { getServerUrl } from './ServerURL'
+import { i18n } from '@/plugins/i18n'
 
 export class ApiError extends Error
 {
@@ -20,6 +21,7 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
 {
   const headers = new Headers(options.headers)
   headers.set('Accept', 'application/json')
+  headers.set('Accept-Language', i18n.global.locale.value)
   if (options.body && !(options.body instanceof FormData))
   {
     headers.set('Content-Type', 'application/json')
@@ -41,16 +43,17 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
     {
       throw error
     }
-    throw new ApiError(0, '无法连接服务器')
+    throw new ApiError(0, i18n.global.t('core.errors.connection'))
   }
   if (!response.ok)
   {
     const problem = await response.json().catch(() => ({})) as Record<string, unknown>
     const validation = problem.errors && typeof problem.errors === 'object'
-      ? Object.values(problem.errors as Record<string, unknown>).flat().filter(value => typeof value === 'string').join('；')
+      ? Object.values(problem.errors as Record<string, unknown>).flat().filter(value => typeof value === 'string').join('; ')
       : ''
+    const fallbackKey = response.status === 401 ? 'core.errors.unauthorized' : response.status === 403 ? 'core.errors.forbidden' : response.status === 429 ? 'core.errors.tooManyRequests' : 'core.errors.request'
     const message = validation || [problem.detail, problem.message, problem.title, problem.error].find(value => typeof value === 'string')
-    throw new ApiError(response.status, typeof message === 'string' ? message : `请求失败（${response.status}）`, typeof problem.code === 'string' ? problem.code : undefined)
+    throw new ApiError(response.status, typeof message === 'string' ? message : i18n.global.t(fallbackKey, { status: response.status }), typeof problem.code === 'string' ? problem.code : undefined)
   }
   if (response.status === 204 || response.headers.get('Content-Length') === '0')
   {

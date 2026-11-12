@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Localization;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
@@ -22,7 +23,7 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
         var detail = await library.GetAsync(sessionId, cancellationToken);
         if (!double.IsFinite(offsetMs) || offsetMs < 0 || offsetMs > detail.DurationMs + 100)
         {
-            throw new InfrastructureException("播放时间超出场次范围。");
+            throw new InfrastructureException(MessageCode.PLAYBACK_TIME_OUT_OF_RANGE);
         }
         var gap = detail.Gaps.FirstOrDefault(x => offsetMs >= x.StartMs && offsetMs < x.EndMs);
         if (gap is not null)
@@ -32,7 +33,7 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
         var segment = detail.Segments.FirstOrDefault(x => offsetMs >= x.StartOffsetMs - 100 && offsetMs < x.StartOffsetMs + x.DurationMs);
         if (segment is null || segment.CommittedBytes < 13)
         {
-            throw new InfrastructureException("媒体尚未提交，请稍后重试。", 425);
+            throw new InfrastructureException(MessageCode.PLAYBACK_MEDIA_NOT_COMMITTED, 425);
         }
         var settings = await settingsStore.GetAsync(cancellationToken);
         var windowStart = Math.Floor(Math.Max(0, offsetMs - segment.StartOffsetMs) / 120000) * 120000;
@@ -60,7 +61,7 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
                 var duration = Math.Min(120000, segment.DurationMs - windowStart);
                 if (duration < 200)
                 {
-                    throw new InfrastructureException("媒体窗口尚未就绪。", 425);
+                    throw new InfrastructureException(MessageCode.PLAYBACK_WINDOW_NOT_READY, 425);
                 }
                 var estimatedBytes = segment.CommittedBytes * (duration / Math.Max(1, segment.DurationMs)) * 2;
                 var freeBytes = new DriveInfo(settings.StoragePath).AvailableFreeSpace;
@@ -70,7 +71,7 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
                     freeBytes = new DriveInfo(settings.StoragePath).AvailableFreeSpace;
                     if (freeBytes - estimatedBytes <= Storage.StorageService.MediaThreshold(settings))
                     {
-                        throw new InfrastructureException("播放缓存空间不足，已保留录制余量。", 507);
+                        throw new InfrastructureException(MessageCode.PLAYBACK_CACHE_SPACE_INSUFFICIENT, 507);
                     }
                 }
                 Touch(key + "/" + generation);
@@ -127,24 +128,24 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
     {
         if (!Regex.IsMatch(key, "^[a-f0-9]{32}$") || !Regex.IsMatch(generation, "^[a-f0-9]{32}$") || fileName != Path.GetFileName(fileName) || fileName is "window.json" or "latest.json")
         {
-            throw new InfrastructureException("播放资源不存在。", 404);
+            throw new InfrastructureException(MessageCode.PLAYBACK_RESOURCE_NOT_FOUND, 404);
         }
         var settings = await settingsStore.GetAsync(cancellationToken);
         var directory = MediaPaths.Resolve(settings.StoragePath, Path.Combine(".cache", "playback", key, generation));
         var manifest = Path.Combine(directory, "window.json");
         if (!File.Exists(manifest))
         {
-            throw new InfrastructureException("播放缓存已过期，请重新定位播放。", 410);
+            throw new InfrastructureException(MessageCode.PLAYBACK_CACHE_EXPIRED, 410);
         }
         await using var input = File.OpenRead(manifest);
         var entry = await JsonSerializer.DeserializeAsync<PlaybackCacheEntry>(input, JsonFiles.Options, cancellationToken)
-                    ?? throw new InfrastructureException("播放资源无效。", 404);
+                    ?? throw new InfrastructureException(MessageCode.PLAYBACK_RESOURCE_INVALID, 404);
         await library.GetAsync(entry.SessionId, cancellationToken);
         Touch(key + "/" + generation);
         var path = MediaPaths.Resolve(directory, fileName);
         if (!File.Exists(path))
         {
-            throw new InfrastructureException("播放资源不存在。", 404);
+            throw new InfrastructureException(MessageCode.PLAYBACK_RESOURCE_NOT_FOUND, 404);
         }
         return path;
     }

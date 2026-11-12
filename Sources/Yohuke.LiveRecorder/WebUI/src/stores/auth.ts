@@ -1,12 +1,16 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { AuthAPI } from '@/apis/AuthAPI'
 import { setCsrfToken } from '@/apis/APIBase'
 import type { UserProfile } from '@/models/auth'
+import type { AppLanguage } from '@/localization/types'
+import { usePreferencesStore } from './preferences'
 
 export const useAuthStore = defineStore('auth', () =>
 {
   const user = ref<UserProfile | null>(null)
+  const preferences = usePreferencesStore()
+  watch(user, value => preferences.setSession(value), { immediate: true, flush: 'sync' })
   const installed = ref(true)
   const requiresToken = ref(true)
   const ready = ref(false)
@@ -32,6 +36,7 @@ export const useAuthStore = defineStore('auth', () =>
         const status = await AuthAPI.setupStatus()
         installed.value = status.installed
         requiresToken.value = status.requiresToken
+        await preferences.refreshDefaults()
         await refresh()
         if (installed.value)
         {
@@ -55,6 +60,11 @@ export const useAuthStore = defineStore('auth', () =>
     setCsrfToken(session.csrfToken)
   }
 
+  async function setLanguage(language: AppLanguage | null): Promise<void>
+  {
+    user.value = await AuthAPI.setLanguage(language)
+  }
+
   async function logout(): Promise<void>
   {
     await AuthAPI.logout()
@@ -63,5 +73,5 @@ export const useAuthStore = defineStore('auth', () =>
     await refresh()
   }
 
-  return { user, installed, requiresToken, ready, providers, oauthDraft, isAdmin, hasAccess, bootstrap, refresh, login, logout }
+  return { user, installed, requiresToken, ready, providers, oauthDraft, isAdmin, hasAccess, bootstrap, refresh, login, logout, setLanguage }
 })

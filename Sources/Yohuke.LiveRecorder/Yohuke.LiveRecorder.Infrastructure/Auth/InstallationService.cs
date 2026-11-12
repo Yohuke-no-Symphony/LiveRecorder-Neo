@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Localization;
 using Microsoft.AspNetCore.Identity;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -21,21 +22,21 @@ public sealed class InstallationService(BootstrapStore bootstrap, ISettingsStore
     {
         if (string.IsNullOrWhiteSpace(request.InstallationToken) || !IdentityToken.EqualsHash(IdentityToken.Hash(request.InstallationToken), IdentityToken.Hash(bootstrap.InstallationToken)))
         {
-            throw new InfrastructureException("安装令牌不正确。", 403);
+            throw new InfrastructureException(MessageCode.SETUP_TOKEN_INVALID, 403);
         }
         var email = IdentityValidation.NormalizeEmail(request.AdminEmail);
         var name = IdentityValidation.NormalizeDisplayName(request.AdminDisplayName);
         IdentityValidation.ValidatePassword(request.AdminPassword);
         if (!Path.IsPathFullyQualified(request.StoragePath) || string.IsNullOrWhiteSpace(request.DatabaseName) || request.DatabaseName.Length > 63 || request.DatabaseName.IndexOfAny(['/', '\\', '.', ' ', '"', '$', '\0']) >= 0)
         {
-            throw new InfrastructureException("录制目录必须为绝对路径，数据库名称必须有效。");
+            throw new InfrastructureException(MessageCode.SETUP_CONFIGURATION_INVALID);
         }
         await gate.WaitAsync(cancellationToken);
         try
         {
             if (bootstrap.IsInstalled)
             {
-                throw new InfrastructureException("已经完成安装，不能覆盖管理员或数据库配置。", 409);
+                throw new InfrastructureException(MessageCode.SETUP_ALREADY_INSTALLED, 409);
             }
             var mongoSettings = MongoClientSettings.FromConnectionString(request.MongoConnectionString);
             mongoSettings.ServerSelectionTimeout = TimeSpan.FromSeconds(8);
@@ -63,7 +64,7 @@ public sealed class InstallationService(BootstrapStore bootstrap, ISettingsStore
             var existing = await users.Find(x => x.Role == "Admin").FirstOrDefaultAsync(cancellationToken);
             if (existing is not null && existing.NormalizedEmail != email)
             {
-                throw new InfrastructureException("未完成安装中已存在其他管理员，请使用原安装参数重试。", 409);
+                throw new InfrastructureException(MessageCode.SETUP_EXISTING_ADMIN, 409);
             }
             if (existing is null)
             {
@@ -73,7 +74,7 @@ public sealed class InstallationService(BootstrapStore bootstrap, ISettingsStore
             }
             else if (passwordHasher.VerifyHashedPassword(existing, existing.PasswordHash, request.AdminPassword) == PasswordVerificationResult.Failed)
             {
-                throw new InfrastructureException("已有管理员密码不匹配，拒绝覆盖。", 409);
+                throw new InfrastructureException(MessageCode.SETUP_EXISTING_ADMIN_PASSWORD_MISMATCH, 409);
             }
             await settingsStore.SaveAsync(new ServerSettings { StoragePath = storagePath }, cancellationToken);
             configuration.Installed = true;

@@ -17,6 +17,8 @@ public sealed class BroadcastSession : Entity
     public bool HasDanmu { get; set; }
     public long TotalBytes { get; set; }
     public string? Error { get; set; }
+    public string? ErrorCode { get; set; }
+    public List<string> ErrorArguments { get; set; } = [];
     public bool IsTrashed { get; set; }
     public int MediaRevision { get; set; } = 1;
     public string? MediaRevisionJobId { get; set; }

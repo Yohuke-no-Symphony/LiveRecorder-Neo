@@ -2,6 +2,7 @@ using System.Reflection;
 using MongoDB.Driver;
 using Xunit;
 using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Infrastructure.Jobs;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 
@@ -58,7 +59,10 @@ public sealed class JobReliabilityTests
         var (_, execution) = await fixture.ExecuteOwnedAsync(job);
         await execution;
         Assert.Equal(2, fixture.Processor.ProbeCalls);
-        Assert.Equal("Failed", (await fixture.Mongo.Collection<MediaJob>("jobs").Find(item => item.Id == job.Id).SingleAsync()).State);
+        var failed = await fixture.Mongo.Collection<MediaJob>("jobs").Find(item => item.Id == job.Id).SingleAsync();
+        Assert.Equal("Failed", failed.State);
+        Assert.Equal(nameof(MessageCode.JOB_OUTPUT_INVALID), failed.ErrorCode);
+        Assert.Empty(failed.ErrorArguments);
         Assert.Equal(1, (await fixture.Mongo.Collection<BroadcastSession>("sessions").Find(item => item.Id == session.Id).SingleAsync()).MediaRevision);
         Assert.Equal("canonical-original-0", await File.ReadAllTextAsync(Path.Combine(fixture.Root, session.DirectoryPath, segments[0].RelativePath)));
     }
@@ -107,10 +111,16 @@ public sealed class JobReliabilityTests
         Directory.CreateDirectory(Path.Combine(work, "0"));
         await File.WriteAllTextAsync(Path.Combine(work, "0", "orphan.mp4"), "incomplete");
         job.Attempt = 2;
+        job.Error = "previous attempt failed";
+        job.ErrorCode = nameof(MessageCode.JOB_PROCESSING_FAILED);
+        job.ErrorArguments = ["previous attempt diagnostic"];
         var (_, execution) = await fixture.ExecuteOwnedAsync(job);
         await execution;
         var current = await fixture.Mongo.Collection<MediaJob>("jobs").Find(item => item.Id == job.Id).SingleAsync();
         Assert.Equal("Completed", current.State);
+        Assert.Null(current.Error);
+        Assert.Null(current.ErrorCode);
+        Assert.Empty(current.ErrorArguments);
         Assert.Equal(relative, current.OutputRelativePath);
         Assert.Equal(0, fixture.Processor.ExportCalls);
         Assert.False(Directory.Exists(work));

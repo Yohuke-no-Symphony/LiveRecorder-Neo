@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Localization;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
@@ -15,7 +16,7 @@ public sealed class SmtpEmailSender(ISettingsStore settingsStore, ISecretProtect
         var settings = (await settingsStore.GetAsync(cancellationToken)).Smtp;
         if (string.IsNullOrWhiteSpace(settings.Host) || string.IsNullOrWhiteSpace(settings.FromAddress) || settings.Port is < 1 or > 65535)
         {
-            throw new InfrastructureException("管理员尚未配置有效的发件服务器。", 503);
+            throw new InfrastructureException(MessageCode.SMTP_CONFIGURATION_INVALID, 503);
         }
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(settings.FromName, settings.FromAddress));
@@ -29,7 +30,7 @@ public sealed class SmtpEmailSender(ISettingsStore settingsStore, ISecretProtect
         {
             if (!client.IsSecure)
             {
-                throw new InfrastructureException("使用 SMTP 账号时必须启用 TLS。", 503);
+                throw new InfrastructureException(MessageCode.SMTP_TLS_REQUIRED, 503);
             }
             await client.AuthenticateAsync(settings.UserName, protector.Unprotect(settings.Password), cancellationToken);
         }

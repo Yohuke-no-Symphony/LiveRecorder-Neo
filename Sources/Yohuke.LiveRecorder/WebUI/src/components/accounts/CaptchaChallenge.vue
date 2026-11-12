@@ -1,14 +1,17 @@
 <template>
   <div>
-    <template v-if="challenge.type === 'img'"><v-img :src="challenge.imageUrl" height="80" contain class="mb-4" /><v-text-field v-model="imageCode" label="图片验证码" required autocomplete="off" /><v-btn color="primary" block class="mt-4" :disabled="!imageCode" @click="emit('verified', { token: challenge.token, captcha: imageCode })">验证并发送短信</v-btn></template>
-    <v-btn v-else color="primary" block :loading="busy" @click="verify">完成安全验证</v-btn>
+    <template v-if="challenge.type === 'img'"><v-img :src="challenge.imageUrl" height="80" contain class="mb-4" /><v-text-field v-model="imageCode" :label="t('components.captcha.imageCode')" required autocomplete="off" /><v-btn color="primary" block class="mt-4" :disabled="!imageCode" @click="emit('verified', { token: challenge.token, captcha: imageCode })">{{ t('components.captcha.verifyAndSend') }}</v-btn></template>
+    <v-btn v-else color="primary" block :loading="busy" @click="verify">{{ t('components.captcha.verify') }}</v-btn>
     <v-alert v-if="error" type="error" class="mt-4">{{ error }}</v-alert>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { onBeforeUnmount, ref } from 'vue'
 import type { BilibiliChallenge, SmsChallengeAnswer } from '@/models/auth'
+
+const { t, locale } = useI18n()
 
 interface CaptchaInstance
 {
@@ -38,7 +41,7 @@ function loadScript(url: string): Promise<void>
     if (existing?.dataset.loaded === 'true') { resolve(); return }
     const script = existing ?? document.createElement('script')
     script.addEventListener('load', () => { script.dataset.loaded = 'true'; resolve() }, { once: true })
-    script.addEventListener('error', () => { script.remove(); reject(new Error('安全验证加载失败')) }, { once: true })
+    script.addEventListener('error', () => { script.remove(); reject(new Error(t('components.captcha.loadFailed'))) }, { once: true })
     if (!existing)
     {
       script.src = url
@@ -58,16 +61,18 @@ async function verify(): Promise<void>
     await loadScript(isV4 ? 'https://static.geetest.com/v4/gt4.js' : 'https://static.geetest.com/static/tools/gt.js')
     if (disposed) { return }
     const initialize = isV4 ? global.initGeetest4 : global.initGeetest
-    if (!initialize) { throw new Error('安全验证不可用') }
+    if (!initialize) { throw new Error(t('components.captcha.unavailable')) }
     captcha?.destroy?.()
+    const language = locale.value.startsWith('en') ? 'eng' : locale.value.startsWith('ja') ? 'jpn' : 'zho'
+    const lang = locale.value.startsWith('en') ? 'en' : locale.value.startsWith('ja') ? 'ja' : 'zh-cn'
     initialize(isV4
-      ? { captchaId: props.challenge.gt, product: 'bind', language: 'zho', protocol: 'https://' }
-      : { gt: props.challenge.gt, challenge: props.challenge.challenge, product: 'bind', offline: false, new_captcha: true, https: true }, instance =>
+      ? { captchaId: props.challenge.gt, product: 'bind', language, protocol: 'https://' }
+      : { gt: props.challenge.gt, challenge: props.challenge.challenge, product: 'bind', lang, offline: false, new_captcha: true, https: true }, instance =>
     {
       if (disposed) { instance.destroy?.(); return }
       captcha = instance
       instance.onReady(() => { busy.value = false; if (isV4) { instance.showCaptcha?.() } else { instance.verify?.() } })
-      instance.onError(() => { busy.value = false; error.value = '安全验证失败，请重试' })
+      instance.onError(() => { busy.value = false; error.value = t('components.captcha.failed') })
       instance.onClose?.(() => { busy.value = false })
       instance.onSuccess(() =>
       {
@@ -82,7 +87,7 @@ async function verify(): Promise<void>
   catch (value)
   {
     busy.value = false
-    error.value = value instanceof Error ? value.message : '安全验证加载失败'
+    error.value = value instanceof Error ? value.message : t('components.captcha.loadFailed')
   }
 }
 onBeforeUnmount(() => { disposed = true; captcha?.destroy?.() })

@@ -1,23 +1,25 @@
 <template>
-  <PageHeader title="录播库">
-    <v-text-field v-model="search" label="搜索录播" prepend-inner-icon="mdi-magnify" clearable width="300" density="compact" @keydown.enter="applySearch" />
+  <PageHeader :title="t('views.library.title')">
+    <v-text-field v-model="search" :label="t('views.library.search')" prepend-inner-icon="mdi-magnify" clearable width="300" density="compact" @keydown.enter="applySearch" />
   </PageHeader>
   <v-alert v-if="sessionError || error" type="error" class="mb-6">{{ sessionError || error }}</v-alert>
   <v-progress-linear v-if="loading && !sessions.length" indeterminate color="primary" />
   <template v-if="visibleStreamers.length">
-    <div class="d-flex align-center justify-space-between mb-4"><h2 class="section-heading mb-0">主播</h2><span class="text-caption muted">{{ visibleStreamers.length }}</span></div>
+    <div class="d-flex align-center justify-space-between mb-4"><h2 class="section-heading mb-0">{{ t('views.library.streamers') }}</h2><span class="text-caption muted">{{ formatNumber(visibleStreamers.length) }}</span></div>
     <div class="streamer-grid mb-10"><StreamerCard v-for="streamer in visibleStreamers" :key="streamer.id" :streamer="streamer" /></div>
   </template>
-  <h2 class="section-heading">{{ searchQuery ? '搜索结果' : '最近录播' }}</h2>
+  <h2 class="section-heading">{{ searchQuery ? t('views.library.results') : t('views.library.recent') }}</h2>
   <div v-if="sessions.length" class="media-grid"><SessionCard v-for="session in sessions" :key="session.id" :session="session" :streamer-name="streamerNames[session.streamerId]" /></div>
   <LoadMoreButton :has-more="hasMore" :loading="loadingMore" @load="loadMore" />
-  <EmptyState v-if="!sessions.length && !loading" :title="searchQuery ? '没有匹配的录播' : '暂无录播'">
-    <v-btn v-if="auth.isAdmin && !searchQuery" color="primary" to="/admin/targets" prepend-icon="mdi-plus">添加录制</v-btn>
+  <EmptyState v-if="!sessions.length && !loading" :title="searchQuery ? t('views.common.noMatchingRecordings') : t('views.common.noRecordings')">
+    <v-btn v-if="auth.isAdmin && !searchQuery" color="primary" to="/admin/targets" prepend-icon="mdi-plus">{{ t('views.library.addRecording') }}</v-btn>
   </EmptyState>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { formatNumber } from '@/utilities/format'
 import { MediaAPI } from '@/apis/MediaAPI'
 import { useAuthStore } from '@/stores/auth'
 import { useAction } from '@/composables/useAction'
@@ -29,6 +31,8 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import LoadMoreButton from '@/components/common/LoadMoreButton.vue'
 import SessionCard from '@/components/library/SessionCard.vue'
 import StreamerCard from '@/components/library/StreamerCard.vue'
+
+const { t } = useI18n()
 
 const auth = useAuthStore()
 const search = ref<string | null>('')

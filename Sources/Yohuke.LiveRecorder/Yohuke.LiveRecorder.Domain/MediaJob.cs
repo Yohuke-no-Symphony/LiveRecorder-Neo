@@ -17,6 +17,8 @@ public sealed class MediaJob : Entity
     public string State { get; set; } = "Queued";
     public double Progress { get; set; }
     public string? Error { get; set; }
+    public string? ErrorCode { get; set; }
+    public List<string> ErrorArguments { get; set; } = [];
     public string? OutputRelativePath { get; set; }
     public List<string> OutputRelativePaths { get; set; } = [];
     public DateTime? FinishedAtUtc { get; set; }

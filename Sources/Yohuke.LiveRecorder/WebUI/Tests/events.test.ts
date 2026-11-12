@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { config, flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { defineComponent, h } from 'vue'
+import { i18n } from '../src/plugins/i18n'
 import type { RecordedEvent } from '../src/models/media'
 import { displayEvents, redPocketData, safeImageUrl } from '../src/utilities/eventPresentation'
 import DanmuContent from '../src/components/events/DanmuContent.vue'
@@ -16,6 +17,7 @@ const { hlsConstructor, supported, eventsRequest } = vi.hoisted(() => ({ hlsCons
 vi.mock('hls.js', () => ({ default: Object.assign(hlsConstructor, { isSupported: supported, Events: { MANIFEST_PARSED: 'manifest', ERROR: 'error' } }) }))
 vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { events: eventsRequest } }))
 const mounted: VueWrapper[] = []
+const originalPlugins = [...config.global.plugins]
 const card = defineComponent({ setup: (_, { slots }) => () => h('div', slots.default?.()) })
 const virtualScroll = defineComponent({
   props: ['items'],
@@ -40,7 +42,9 @@ function pocketEvents(): RecordedEvent[]
   ]
 }
 
-beforeEach(() => { hlsConstructor.mockClear(); supported.mockClear(); eventsRequest.mockReset() })
+beforeAll(() => { config.global.plugins = [...originalPlugins, i18n] })
+afterAll(() => { config.global.plugins = originalPlugins })
+beforeEach(() => { i18n.global.locale.value = 'zh-CN'; hlsConstructor.mockClear(); supported.mockClear(); eventsRequest.mockReset() })
 afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 describe('实际消息内容组件', () =>

@@ -6,6 +6,7 @@ import { defineComponent, h } from 'vue'
 import SetupView from '../src/views/SetupView.vue'
 import router from '../src/router'
 import { setCsrfToken } from '../src/apis/APIBase'
+import { i18n } from '../src/plugins/i18n'
 
 const textField = defineComponent({
   props: ['modelValue', 'label', 'type'],
@@ -30,6 +31,7 @@ let wrapper: VueWrapper | undefined
 beforeEach(() =>
 {
   vi.stubEnv('DEV', false)
+  i18n.global.locale.value = 'zh-CN'
 })
 
 afterEach(() =>
@@ -60,6 +62,10 @@ describe('首次安装页面', () =>
       {
         return new Response(JSON.stringify({ user: null, csrfToken: 'anonymous-install-csrf' }))
       }
+      if (path === '/api/ui-settings')
+      {
+        return new Response(JSON.stringify({ defaultLanguage: 'zh-CN' }))
+      }
       if (path === '/api/setup')
       {
         const valid = new Headers(options.headers).get('X-CSRF-TOKEN') === 'anonymous-install-csrf'
@@ -73,7 +79,7 @@ describe('首次安装页面', () =>
     await router.isReady()
     wrapper = mount(SetupView, {
       global: {
-        plugins: [pinia, router],
+        plugins: [pinia, router, i18n],
         stubs: {
           VTextField: textField, VBtn: button,
           VCard: { template: '<div><slot /></div>' },
@@ -96,7 +102,7 @@ describe('首次安装页面', () =>
     await flushPromises()
     await vi.waitFor(() => expect(wrapper!.get('[role="alert"]').text()).toBe('数据库不可连接'))
 
-    expect(calls.map(call => call.path)).toEqual(['/api/setup/status', '/api/auth/me', '/api/setup'])
+    expect(calls.map(call => call.path)).toEqual(['/api/setup/status', '/api/ui-settings', '/api/auth/me', '/api/setup'])
     const submitted = calls.at(-1)!.options
     expect(submitted.method).toBe('POST')
     expect(submitted.credentials).toBe('include')

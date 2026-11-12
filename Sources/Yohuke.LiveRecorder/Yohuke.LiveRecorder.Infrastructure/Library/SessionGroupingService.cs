@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Localization;
 using System.Globalization;
 using System.Text.Json;
 using MongoDB.Driver;
@@ -24,7 +25,7 @@ public sealed class SessionGroupingService(MongoContext context, LibraryService 
             var ids = otherIds.Append(id).Distinct().ToList();
             if (ids.Count is < 2 or > 100)
             {
-                throw new InfrastructureException("请选择 2 至 100 场录播。");
+                throw new InfrastructureException(MessageCode.GROUPING_COUNT_INVALID);
             }
             var details = new List<SessionDetail>();
             foreach (var sourceId in ids)
@@ -35,13 +36,13 @@ public sealed class SessionGroupingService(MongoContext context, LibraryService 
             details = details.OrderBy(x => x.Session.StartedAtUtc).ToList();
             if (details.Select(x => x.Session.StreamerId).Distinct().Count() != 1)
             {
-                throw new InfrastructureException("只能归组同一主播的录播。");
+                throw new InfrastructureException(MessageCode.GROUPING_STREAMER_MISMATCH);
             }
             for (var index = 1; index < details.Count; index++)
             {
                 if (details[index].Session.StartedAtUtc < details[index - 1].Session.EndedAtUtc!.Value)
                 {
-                    throw new InfrastructureException("所选场次时间重叠，请先检查场次边界。", 422);
+                    throw new InfrastructureException(MessageCode.GROUPING_SESSIONS_OVERLAP, 422);
                 }
             }
             var first = details[0].Session;
@@ -63,7 +64,7 @@ public sealed class SessionGroupingService(MongoContext context, LibraryService 
             result.EventSources = result.EventSources.OrderBy(x => x.StartOffsetMs + x.FromMs).ToList();
             if (result.EventSources.Count > 1000)
             {
-                throw new InfrastructureException("归档引用过多，请分批归组。");
+                throw new InfrastructureException(MessageCode.GROUPING_TOO_MANY_ARCHIVES);
             }
             await PublishBatchAsync(new ProjectionOperation { Outputs = [new SessionManifest { Session = result, Segments = segments }], SourceIds = ids }, cancellationToken);
             return result;
@@ -81,11 +82,11 @@ public sealed class SessionGroupingService(MongoContext context, LibraryService 
         try
         {
             var detail = await RequireEditableAsync(id, cancellationToken);
-            var boundary = detail.Segments.FirstOrDefault(x => x.Id == beforeSegmentId) ?? throw new InfrastructureException("分界片段不存在。");
+            var boundary = detail.Segments.FirstOrDefault(x => x.Id == beforeSegmentId) ?? throw new InfrastructureException(MessageCode.GROUPING_BOUNDARY_NOT_FOUND);
             var point = boundary.StartOffsetMs;
             if (point <= 0 || point >= detail.DurationMs || detail.Segments.Any(x => x.StartOffsetMs < point && x.StartOffsetMs + x.DurationMs > point))
             {
-                throw new InfrastructureException("请选择不与其他片段重叠的物理分界。", 422);
+                throw new InfrastructureException(MessageCode.GROUPING_BOUNDARY_OVERLAP, 422);
             }
             var original = detail.Session;
             var left = Projection(original, original.Title + "_上", original.StartedAtUtc, original.StartedAtUtc.AddMilliseconds(point), [id]);
@@ -94,7 +95,7 @@ public sealed class SessionGroupingService(MongoContext context, LibraryService 
             var rightSegments = detail.Segments.Where(x => x.StartOffsetMs >= point).Select(x => ProjectSegment(x, original, right, -point)).ToList();
             if (leftSegments.Count == 0 || rightSegments.Count == 0)
             {
-                throw new InfrastructureException("分界两侧都必须有视频。");
+                throw new InfrastructureException(MessageCode.GROUPING_VIDEO_REQUIRED_BOTH_SIDES);
             }
             foreach (var source in Sources(original))
             {
@@ -162,11 +163,11 @@ public sealed class SessionGroupingService(MongoContext context, LibraryService 
         var detail = await library.GetAsync(id, cancellationToken);
         if (detail.Session.EndedAtUtc is null || detail.Session.IsHidden || detail.Segments.Any(x => !x.IsClosed))
         {
-            throw new InfrastructureException("请选择已结束且未归入其他场次的录播。", 409);
+            throw new InfrastructureException(MessageCode.GROUPING_SESSION_NOT_EDITABLE, 409);
         }
         if (await context.Collection<MediaJob>("jobs").Find(x => x.MutationKey == id).AnyAsync(cancellationToken))
         {
-            throw new InfrastructureException("场次正在修复，请等待任务结束。", 409);
+            throw new InfrastructureException(MessageCode.GROUPING_REPAIR_IN_PROGRESS, 409);
         }
         return detail;
     }

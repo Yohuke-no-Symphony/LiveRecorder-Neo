@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Localization;
 using System.Text.Json;
 using MongoDB.Bson;
 using Microsoft.Extensions.Hosting;
@@ -94,7 +95,7 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
             }
             settings = await settingsStore.GetAsync(cancellation.Token);
             session = await context.Collection<BroadcastSession>("sessions").Find(x => x.Id == job.SessionId).FirstOrDefaultAsync(cancellation.Token)
-                      ?? throw new InfrastructureException("原场次不存在。", 404);
+                      ?? throw new InfrastructureException(MessageCode.JOB_SOURCE_SESSION_NOT_FOUND, 404);
             jobRoot = MediaPaths.Resolve(settings.StoragePath, Path.Combine(".work", "jobs", job.Id));
             Directory.CreateDirectory(jobRoot);
             var manifest = await RecoverOutputAsync(job, session, jobRoot, settings.StoragePath, cancellation.Token)
@@ -106,7 +107,7 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
             }
             await PublishAsync(job, session, manifest, settings, cancellation.Token);
             var changed = await context.Collection<MediaJob>("jobs").UpdateOneAsync(Fence(job), Builders<MediaJob>.Update
-                .Set(x => x.State, "Completed").Set(x => x.Progress, 100).Set(x => x.Error, null).Set(x => x.FinishedAtUtc, DateTime.UtcNow)
+                .Set(x => x.State, "Completed").Set(x => x.Progress, 100).Set(x => x.Error, null).Set(x => x.ErrorCode, null).Set(x => x.ErrorArguments, []).Set(x => x.FinishedAtUtc, DateTime.UtcNow)
                 .Set(x => x.OutputRelativePaths, manifest.Paths).Set(x => x.OutputRelativePath, manifest.Paths.FirstOrDefault())
                 .Set(x => x.MutationKey, null).Set(x => x.LeaseOwner, null).Set(x => x.LeaseUntilUtc, null), cancellationToken: cancellation.Token);
             completed = changed.MatchedCount > 0;
@@ -121,8 +122,11 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
             {
                 var current = await context.Collection<MediaJob>("jobs").Find(x => x.Id == job.Id).FirstOrDefaultAsync(CancellationToken.None);
                 var state = current?.CancelRequested == true ? "Cancelled" : stoppingToken.IsCancellationRequested ? "Queued" : "Failed";
+                var errorCode = job.ErrorCode ?? (error as InfrastructureException)?.Code ?? MessageCode.JOB_PROCESSING_FAILED.ToString();
+                var errorArguments = job.ErrorCode is not null ? job.ErrorArguments : error is InfrastructureException { Code: not null } businessError ? businessError.Arguments.ToList() : [error.Message];
                 var changed = await context.Collection<MediaJob>("jobs").UpdateOneAsync(Fence(job, true), Builders<MediaJob>.Update
                     .Set(x => x.State, state).Set(x => x.Error, state == "Failed" ? job.Error ?? error.Message : null)
+                    .Set(x => x.ErrorCode, state == "Failed" ? errorCode : null).Set(x => x.ErrorArguments, state == "Failed" ? errorArguments : [])
                     .Set(x => x.LeaseOwner, null).Set(x => x.LeaseUntilUtc, null)
                     .Set(x => x.MutationKey, state == "Queued" && job.Kind == "Repair" ? job.SessionId : null), cancellationToken: CancellationToken.None);
                 if (changed.MatchedCount > 0)
@@ -285,13 +289,13 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
             {
                 if (session.MediaRevisionJobId != job.Id || session.MediaRevisionAttempt != manifest.Attempt)
                 {
-                    throw new InfrastructureException("该媒体版本属于其他发布，不能覆盖。", 409);
+                    throw new InfrastructureException(MessageCode.JOB_REVISION_OWNED_ELSEWHERE, 409);
                 }
                 var published = await context.Collection<RecordingSegment>("segments").Find(x => x.SessionId == session.Id && x.Revision == session.MediaRevision).ToListAsync(cancellationToken);
                 if (manifest.RepairedSegments.Any(expected => !published.Any(actual => actual.Id == expected.Id && actual.RelativePath == expected.RelativePath
                         && actual.CommittedBytes == expected.CommittedBytes && actual.DurationMs == expected.DurationMs)))
                 {
-                    throw new InfrastructureException("已激活版本的分段不完整，不能将任务标记完成。", 409);
+                    throw new InfrastructureException(MessageCode.JOB_ACTIVE_REVISION_INCOMPLETE, 409);
                 }
                 await RequireLeaseAsync(job, cancellationToken);
                 await JsonFiles.WriteAsync(Path.Combine(sessionDirectory, "场次.json"), new SessionManifest { Session = session, Segments = published }, cancellationToken);
@@ -299,7 +303,7 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
             }
             if (session.MediaRevision != job.SourceRevision)
             {
-                throw new InfrastructureException("场次媒体版本已改变，请重新创建修复任务。", 409);
+                throw new InfrastructureException(MessageCode.JOB_SESSION_REVISION_CHANGED, 409);
             }
             var original = await context.Collection<RecordingSegment>("segments").Find(x => x.SessionId == session.Id && x.Revision == job.SourceRevision).ToListAsync(cancellationToken);
             var next = original.Where(x => !job.SegmentIds.Contains(x.Id)).Select(item => new RecordingSegment
@@ -346,7 +350,7 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
                 Builders<BroadcastSession>.Update.Set(x => x.MediaRevision, job.SourceRevision + 1).Set(x => x.MediaRevisionJobId, job.Id).Set(x => x.MediaRevisionAttempt, manifest.Attempt), cancellationToken: cancellationToken);
             if (activated.MatchedCount == 0)
             {
-                throw new InfrastructureException("媒体版本提交冲突或租约失效。", 409);
+                throw new InfrastructureException(MessageCode.JOB_REVISION_COMMIT_CONFLICT, 409);
             }
             session.MediaRevision = job.SourceRevision + 1;
             session.MediaRevisionJobId = job.Id;
@@ -433,12 +437,12 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
     {
         if (!File.Exists(path) || new FileInfo(path).Length == 0)
         {
-            throw new InvalidDataException("媒体输出为空或不存在。");
+            throw new InfrastructureException(MessageCode.JOB_OUTPUT_EMPTY);
         }
         var probe = await processor.ProbeAsync(path, cancellationToken);
         if (!double.IsFinite(probe.DurationMs) || probe.DurationMs <= 0 || string.IsNullOrWhiteSpace(probe.VideoCodec) || probe.Width <= 0 || probe.Height <= 0)
         {
-            throw new InvalidDataException("媒体输出校验失败。");
+            throw new InfrastructureException(MessageCode.JOB_OUTPUT_INVALID);
         }
         return probe;
     }
@@ -459,7 +463,9 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
                 var settings = await settingsStore.GetAsync(cancellation.Token);
                 if (await storage.GetFreeBytesAsync(cancellation.Token) <= StorageService.MediaThreshold(settings))
                 {
-                    job.Error = "磁盘余量不足，媒体任务已停止以保留录制空间。";
+                    job.ErrorCode = MessageCode.JOB_DISK_RESERVE_REQUIRED.ToString();
+                    job.ErrorArguments = [];
+                    job.Error = LocalizedText.Format(job.ErrorCode, "", culture: System.Globalization.CultureInfo.InvariantCulture);
                     await cancellation.CancelAsync();
                     return;
                 }
@@ -487,7 +493,8 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
     {
         var now = DateTime.UtcNow;
         await context.Collection<MediaJob>("jobs").UpdateManyAsync(x => x.CancelRequested && (x.State == "Running" || x.State == "Publishing") && (x.LeaseUntilUtc == null || x.LeaseUntilUtc < now),
-            Builders<MediaJob>.Update.Set(x => x.State, "Cancelled").Set(x => x.MutationKey, null).Set(x => x.LeaseOwner, null).Set(x => x.LeaseUntilUtc, null).Set(x => x.FinishedAtUtc, now), cancellationToken: cancellationToken);
+            Builders<MediaJob>.Update.Set(x => x.State, "Cancelled").Set(x => x.Error, null).Set(x => x.ErrorCode, null).Set(x => x.ErrorArguments, [])
+                .Set(x => x.MutationKey, null).Set(x => x.LeaseOwner, null).Set(x => x.LeaseUntilUtc, null).Set(x => x.FinishedAtUtc, now), cancellationToken: cancellationToken);
     }
 
     private FilterDefinition<MediaJob> Fence(MediaJob job, bool allowCancellation = false)

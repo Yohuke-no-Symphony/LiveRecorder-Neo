@@ -18,5 +18,7 @@ public sealed class Streamer : Entity
     public bool IsLive { get; set; }
     public string State { get; set; } = "Waiting";
     public string? Error { get; set; }
+    public string? ErrorCode { get; set; }
+    public List<string> ErrorArguments { get; set; } = [];
     public DateTime? LastCheckedAtUtc { get; set; }
 }

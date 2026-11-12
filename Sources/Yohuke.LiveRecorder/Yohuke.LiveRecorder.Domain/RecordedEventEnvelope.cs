@@ -16,6 +16,8 @@ public sealed class RecordedEventEnvelope
     public string UserId { get; set; } = "";
     public string UserName { get; set; } = "";
     public string Text { get; set; } = "";
+    public string? TextCode { get; set; }
+    public List<string> TextArguments { get; set; } = [];
     public string? AvatarUrl { get; set; }
     public decimal? Amount { get; set; }
     public int Quantity { get; set; } = 1;

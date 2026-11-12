@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Localization;
 using System.Globalization;
 using System.Text;
 using Yohuke.LiveRecorder.Application;
@@ -59,26 +60,26 @@ public static class MediaPaths
         var fullRoot = Path.GetFullPath(root);
         if (Path.IsPathRooted(relativePath))
         {
-            throw new InfrastructureException("不允许绝对媒体路径。", 400);
+            throw new InfrastructureException(MessageCode.PATH_ABSOLUTE_MEDIA_FORBIDDEN, 400);
         }
         var result = Path.GetFullPath(Path.Combine(fullRoot, relativePath));
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         if (!result.StartsWith(Path.TrimEndingDirectorySeparator(fullRoot) + Path.DirectorySeparatorChar, comparison))
         {
-            throw new InfrastructureException("媒体路径超出存储目录。", 400);
+            throw new InfrastructureException(MessageCode.PATH_MEDIA_OUTSIDE_STORAGE, 400);
         }
         var current = Path.GetDirectoryName(result);
         while (current is not null && !string.Equals(current, fullRoot, comparison))
         {
             if (Directory.Exists(current) && new DirectoryInfo(current).LinkTarget is not null)
             {
-                throw new InfrastructureException("媒体目录不允许符号链接。", 400);
+                throw new InfrastructureException(MessageCode.PATH_MEDIA_DIRECTORY_SYMLINK, 400);
             }
             current = Path.GetDirectoryName(current);
         }
         if (File.Exists(result) && new FileInfo(result).LinkTarget is not null)
         {
-            throw new InfrastructureException("媒体文件不允许符号链接。", 400);
+            throw new InfrastructureException(MessageCode.PATH_MEDIA_FILE_SYMLINK, 400);
         }
         return result;
     }

@@ -6,10 +6,13 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Localization;
 using Microsoft.Extensions.FileProviders;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
+using Yohuke.LiveRecorder.Application.Localization;
+using Yohuke.LiveRecorder.Domain.Localization;
 using Yohuke.LiveRecorder.Infrastructure.Analytics;
 using Yohuke.LiveRecorder.Infrastructure.Auth;
 using Yohuke.LiveRecorder.Infrastructure.Bilibili;
@@ -25,6 +28,7 @@ using Yohuke.LiveRecorder.Media;
 using Yohuke.LiveRecorder.Server.Endpoints;
 using Yohuke.LiveRecorder.Server.Realtime;
 using Yohuke.LiveRecorder.Server.Configuration;
+using Yohuke.LiveRecorder.Server.Localization;
 
 namespace Yohuke.LiveRecorder.Server;
 
@@ -106,13 +110,11 @@ public static class ServerStartup
             options.SlidingExpiration = true;
             options.Events.OnRedirectToLogin = context =>
             {
-                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                return Task.CompletedTask;
+                return LocalizedProblem.Create(MessageCode.REQUEST_UNAUTHORIZED, StatusCodes.Status401Unauthorized).ExecuteAsync(context.HttpContext);
             };
             options.Events.OnRedirectToAccessDenied = context =>
             {
-                context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                return Task.CompletedTask;
+                return LocalizedProblem.Create(MessageCode.REQUEST_FORBIDDEN, StatusCodes.Status403Forbidden).ExecuteAsync(context.HttpContext);
             };
             options.Events.OnValidatePrincipal = async context =>
             {
@@ -150,8 +152,18 @@ public static class ServerStartup
                 ? RateLimitPartition.GetFixedWindowLimiter(http.Connection.RemoteIpAddress?.ToString() ?? "local", _ => new FixedWindowRateLimiterOptions { PermitLimit = 60, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })
                 : RateLimitPartition.GetNoLimiter("other"));
             options.RejectionStatusCode = 429;
+            options.OnRejected = async (context, _) => await LocalizedProblem.Create(MessageCode.REQUEST_RATE_LIMIT, 429).ExecuteAsync(context.HttpContext);
         });
         var app = builder.Build();
+        var localization = new RequestLocalizationOptions
+        {
+            ApplyCurrentCultureToResponseHeaders = true,
+            RequestCultureProviders = [new AcceptLanguageHeaderRequestCultureProvider()]
+        };
+        localization.SetDefaultCulture(SupportedLanguages.DEFAULT)
+            .AddSupportedCultures(SupportedLanguages.CHINESE, SupportedLanguages.ENGLISH, SupportedLanguages.JAPANESE)
+            .AddSupportedUICultures(SupportedLanguages.CHINESE, SupportedLanguages.ENGLISH, SupportedLanguages.JAPANESE);
+        app.UseRequestLocalization(localization);
         app.Use(async (http, next) =>
         {
             try
@@ -161,11 +173,11 @@ public static class ServerStartup
             }
             catch (InfrastructureException error) when (!http.Response.HasStarted)
             {
-                await Results.Problem(statusCode: error.StatusCode, detail: error.Message).ExecuteAsync(http);
+                await LocalizedProblem.Create(error).ExecuteAsync(http);
             }
             catch (AntiforgeryValidationException) when (!http.Response.HasStarted)
             {
-                await Results.Problem(statusCode: 400, detail: "请求校验已失效，请刷新后重试。").ExecuteAsync(http);
+                await LocalizedProblem.Create(MessageCode.REQUEST_CSRF_EXPIRED, 400).ExecuteAsync(http);
             }
             catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
             {
@@ -173,17 +185,33 @@ public static class ServerStartup
             catch (MongoException error) when (!http.Response.HasStarted)
             {
                 app.Logger.LogWarning("数据库请求失败：{Message}", error.Message);
-                await Results.Problem(statusCode: 503, detail: "数据库暂时不可用。").ExecuteAsync(http);
+                await LocalizedProblem.Create(MessageCode.REQUEST_DATABASE_UNAVAILABLE, 503).ExecuteAsync(http);
             }
             catch (TimeoutException error) when (!http.Response.HasStarted)
             {
                 app.Logger.LogWarning("请求等待超时：{Message}", error.Message);
-                await Results.Problem(statusCode: 503, detail: "服务暂时无响应，请稍后重试。").ExecuteAsync(http);
+                await LocalizedProblem.Create(MessageCode.REQUEST_TIMEOUT, 503).ExecuteAsync(http);
             }
             catch (Exception error) when (!http.Response.HasStarted)
             {
                 app.Logger.LogError(error, "请求失败");
-                await Results.Problem(statusCode: 500, detail: "操作失败，请查看服务端日志。").ExecuteAsync(http);
+                await LocalizedProblem.Create(MessageCode.REQUEST_FAILED, 500).ExecuteAsync(http);
+            }
+        });
+        app.UseStatusCodePages(async context =>
+        {
+            if (context.HttpContext.Request.Path.StartsWithSegments("/api"))
+            {
+                var status = context.HttpContext.Response.StatusCode;
+                var code = status switch
+                {
+                    401 => MessageCode.REQUEST_UNAUTHORIZED,
+                    403 => MessageCode.REQUEST_FORBIDDEN,
+                    404 => MessageCode.REQUEST_ENDPOINT_NOT_FOUND,
+                    429 => MessageCode.REQUEST_RATE_LIMIT,
+                    _ => MessageCode.REQUEST_INVALID
+                };
+                await LocalizedProblem.Create(code, status).ExecuteAsync(context.HttpContext);
             }
         });
         app.UseForwardedHeaders();
@@ -204,6 +232,7 @@ public static class ServerStartup
             await next();
         });
         app.MapSetupEndpoints();
+        app.MapUiSettingsEndpoints();
         app.MapIdentityEndpoints(developmentOrigins);
         app.MapBilibiliEndpoints();
         app.MapLibraryEndpoints();
@@ -222,13 +251,13 @@ public static class ServerStartup
         {
             if (http.Request.Path.StartsWithSegments("/api") || http.Request.Path.StartsWithSegments("/hubs"))
             {
-                await Results.Problem(statusCode: 404, detail: "接口不存在。").ExecuteAsync(http);
+                await LocalizedProblem.Create(MessageCode.REQUEST_ENDPOINT_NOT_FOUND, 404).ExecuteAsync(http);
                 return;
             }
             var index = Path.Combine(webRoot, "index.html");
             if (!File.Exists(index))
             {
-                await Results.Problem(statusCode: 503, detail: "WebUI 尚未构建。").ExecuteAsync(http);
+                await LocalizedProblem.Create(MessageCode.REQUEST_WEBUI_NOT_BUILT, 503).ExecuteAsync(http);
                 return;
             }
             http.Response.ContentType = "text/html; charset=utf-8";

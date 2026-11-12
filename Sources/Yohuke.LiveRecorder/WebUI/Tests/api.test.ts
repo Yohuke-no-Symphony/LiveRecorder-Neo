@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, post, query, request, setCsrfToken } from '../src/apis/APIBase'
+import { i18n } from '../src/plugins/i18n'
 
 beforeEach(() =>
 {
+  i18n.global.locale.value = 'zh-CN'
   vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:5784' } })
   vi.stubEnv('DEV', true)
   vi.stubEnv('VITE_API_BASE_URL', 'http://127.0.0.1:4784')
@@ -17,6 +19,22 @@ afterEach(() =>
 
 describe('API 请求', () =>
 {
+  it.each(['zh-CN', 'en-US', 'ja-JP'] as const)('请求携带当前界面语言 %s', async language =>
+  {
+    i18n.global.locale.value = language
+    const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetcher)
+    await request('auth/me')
+    expect(new Headers(fetcher.mock.calls[0]![1].headers).get('Accept-Language')).toBe(language)
+  })
+
+  it('连接失败使用当前语言的操作提示', async () =>
+  {
+    i18n.global.locale.value = 'en-US'
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network failed')))
+    await expect(request('sessions')).rejects.toThrow('Cannot connect to the server')
+  })
+
   it('使用 Cookie 和 CSRF 请求头提交修改，保留 raw JSON', async () =>
   {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 'clip-1' }), { headers: { 'Content-Type': 'application/json' } }))

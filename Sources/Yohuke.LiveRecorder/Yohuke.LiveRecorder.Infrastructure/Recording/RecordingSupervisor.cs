@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
+using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Application.Bilibili;
 using Yohuke.LiveRecorder.Application.Media;
 using Yohuke.LiveRecorder.Domain;
@@ -141,7 +142,7 @@ public sealed class RecordingSupervisor(MongoContext context, BootstrapStore boo
                     }
                     if (AvailableBytes(settings.StoragePath) < settings.MinimumFreeBytes)
                     {
-                        throw new IOException("录播卷剩余空间不足，采集已暂停。");
+                        throw new InfrastructureException(MessageCode.RECORDING_DISK_SPACE_LOW, 507);
                     }
                     var source = await bilibili.ResolveStreamAsync(target.RoomId, target.Quality ?? settings.Quality, target.AccountId, cancellationToken);
                     var attemptId = Guid.NewGuid().ToString("N");
@@ -172,9 +173,13 @@ public sealed class RecordingSupervisor(MongoContext context, BootstrapStore boo
                 {
                     target.State = "Retrying";
                     target.Error = error.Message;
+                    target.ErrorCode = (error as InfrastructureException)?.Code ?? MessageCode.RECORDING_CAPTURE_FAILED.ToString();
+                    target.ErrorArguments = error is InfrastructureException { Code: not null } businessError ? businessError.Arguments.ToList() : [error.Message];
                     if (session is not null)
                     {
                         session.Error = error.Message;
+                        session.ErrorCode = target.ErrorCode;
+                        session.ErrorArguments = target.ErrorArguments.ToList();
                     }
                     await TrySaveTargetAsync(target, cancellationToken);
                     logger.LogWarning("直播间 {RoomId} 等待重试：{Message}", target.RoomId, error.Message);
@@ -245,12 +250,15 @@ public sealed class RecordingSupervisor(MongoContext context, BootstrapStore boo
             catch (Exception error)
             {
                 session.Error = "弹幕采集缺失：" + error.Message;
+                session.ErrorCode = (error as InfrastructureException)?.Code ?? MessageCode.RECORDING_EVENT_CAPTURE_GAP.ToString();
+                session.ErrorArguments = error is InfrastructureException { Code: not null } businessError ? businessError.Arguments.ToList() : [error.Message];
                 await writer.WriteAsync(new RecordedEventEnvelope
                 {
                     Kind = "Gap",
                     ReceivedAtUtc = DateTime.UtcNow,
                     OffsetMs = Math.Max(0, (DateTime.UtcNow - session.StartedAtUtc).TotalMilliseconds),
-                    Text = "弹幕连接中断"
+                    Text = LocalizedText.Format(MessageCode.RECORDING_EVENT_CONNECTION_LOST.ToString(), "", culture: CultureInfo.InvariantCulture),
+                    TextCode = MessageCode.RECORDING_EVENT_CONNECTION_LOST.ToString()
                 }, cancellationToken);
                 logger.LogWarning("直播间 {RoomId} 弹幕将重连：{Message}", target.RoomId, error.Message);
             }
@@ -307,6 +315,8 @@ public sealed class RecordingSupervisor(MongoContext context, BootstrapStore boo
         target.IsLive = room.IsLive;
         target.State = state;
         target.Error = error;
+        target.ErrorCode = null;
+        target.ErrorArguments = [];
         target.LastCheckedAtUtc = DateTime.UtcNow;
         await TrySaveTargetAsync(target, cancellationToken);
     }
@@ -320,7 +330,9 @@ public sealed class RecordingSupervisor(MongoContext context, BootstrapStore boo
             await context.Collection<Streamer>("streamers").UpdateOneAsync(x => x.Id == target.Id,
                 Builders<Streamer>.Update.Set(x => x.RoomId, target.RoomId).Set(x => x.Uid, target.Uid)
                     .Set(x => x.Name, target.Name).Set(x => x.DirectoryName, target.DirectoryName)
-                    .Set(x => x.IsLive, target.IsLive).Set(x => x.State, target.State).Set(x => x.Error, target.Error).Set(x => x.LastCheckedAtUtc, target.LastCheckedAtUtc), cancellationToken: cancellationToken);
+                    .Set(x => x.IsLive, target.IsLive).Set(x => x.State, target.State).Set(x => x.Error, target.Error)
+                    .Set(x => x.ErrorCode, target.ErrorCode).Set(x => x.ErrorArguments, target.ErrorArguments)
+                    .Set(x => x.LastCheckedAtUtc, target.LastCheckedAtUtc), cancellationToken: cancellationToken);
             await publisher.PublishAsync("streamer", target.Id, cancellationToken: cancellationToken);
         }
         catch (Exception error) when (error is not OperationCanceledException)

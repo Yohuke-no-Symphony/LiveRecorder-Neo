@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Localization;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
@@ -15,7 +16,7 @@ public sealed class MongoContext(BootstrapStore bootstrap)
     {
         get
         {
-            var configuration = bootstrap.Current ?? throw new InfrastructureException("请先完成安装。", 503);
+            var configuration = bootstrap.Current ?? throw new InfrastructureException(MessageCode.SETUP_REQUIRED, 503);
             lock (gate)
             {
                 if (client is null || connection != configuration.MongoConnectionString)

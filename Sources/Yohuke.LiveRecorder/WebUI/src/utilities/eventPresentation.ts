@@ -1,4 +1,5 @@
 import type { EventKind, RecordedEvent } from '@/models/media'
+import { i18n } from '@/plugins/i18n'
 
 export interface EmoticonToken
 {
@@ -36,7 +37,8 @@ export function safeImageUrl(value: unknown): string | undefined
 
 export function guardLevelName(level: unknown): string
 {
-  return ({ 1: '总督', 2: '提督', 3: '舰长' } as Record<number, string>)[Number(level)] ?? ''
+  const key = ({ 1: 'governor', 2: 'admiral', 3: 'captain' } as Record<number, string>)[Number(level)]
+  return key ? i18n.global.t(`components.events.${key}`) : ''
 }
 
 export function eventQuantity(event: RecordedEvent): number

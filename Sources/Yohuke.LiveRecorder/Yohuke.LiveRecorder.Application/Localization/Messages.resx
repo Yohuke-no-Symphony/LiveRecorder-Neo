@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms</value></resheader>
+  <data name="AUTH_INVALID_CREDENTIALS" xml:space="preserve"><value>账号或密码不正确。</value></data>
+  <data name="AUTH_EMAIL_PURPOSE_UNSUPPORTED" xml:space="preserve"><value>不支持的邮箱验证用途。</value></data>
+  <data name="AUTH_EMAIL_CODE_RATE_LIMIT" xml:space="preserve"><value>请在 60 秒后重新发送验证码。</value></data>
+  <data name="AUTH_OAUTH_REGISTRATION_EXPIRED" xml:space="preserve"><value>外部注册凭据已过期，请重新登录。</value></data>
+  <data name="AUTH_INVALID_ROLE" xml:space="preserve"><value>无效的角色。</value></data>
+  <data name="AUTH_INVALID_INVITATION_LIMIT" xml:space="preserve"><value>邀请码次数必须为 1 至 10000，过期时间必须晚于当前时间。</value></data>
+  <data name="AUTH_OAUTH_BROWSER_BINDING_MISSING" xml:space="preserve"><value>浏览器授权流程缺少绑定。</value></data>
+  <data name="AUTH_OAUTH_CALLBACK_INVALID" xml:space="preserve"><value>外部授权回调无效。</value></data>
+  <data name="AUTH_OAUTH_FLOW_UNAVAILABLE" xml:space="preserve"><value>授权流程已过期、已使用或不属于当前浏览器。</value></data>
+  <data name="AUTH_OAUTH_INTENT_INVALID" xml:space="preserve"><value>授权流程意图无效。</value></data>
+  <data name="AUTH_OAUTH_BINDING_USER_MISMATCH" xml:space="preserve"><value>绑定流程必须由发起绑定的已登录用户完成。</value></data>
+  <data name="AUTH_OAUTH_FLOW_EXPIRED" xml:space="preserve"><value>授权流程已过期或已使用。</value></data>
+  <data name="AUTH_OAUTH_CODE_REJECTED" xml:space="preserve"><value>外部提供方拒绝授权码，请重新登录。</value></data>
+  <data name="AUTH_OAUTH_TOKEN_INVALID" xml:space="preserve"><value>外部提供方未返回有效的访问令牌。</value></data>
+  <data name="AUTH_OAUTH_IDENTITY_UNVERIFIABLE" xml:space="preserve"><value>无法验证外部用户身份。</value></data>
+  <data name="AUTH_OAUTH_PROFILE_EMPTY" xml:space="preserve"><value>外部用户资料为空。</value></data>
+  <data name="AUTH_OAUTH_SUBJECT_MISSING" xml:space="preserve"><value>外部提供方没有返回稳定的用户标识。</value></data>
+  <data name="AUTH_OAUTH_BOUND_ELSEWHERE" xml:space="preserve"><value>该外部身份已绑定其他账号。</value></data>
+  <data name="AUTH_OAUTH_ALREADY_BOUND" xml:space="preserve"><value>该外部身份已被绑定，请刷新后重试。</value></data>
+  <data name="AUTH_REGISTRATION_CODES_REQUIRED" xml:space="preserve"><value>请输入六位邮箱验证码和有效邀请码。</value></data>
+  <data name="AUTH_EMAIL_ALREADY_REGISTERED" xml:space="preserve"><value>该邮箱已经注册。</value></data>
+  <data name="AUTH_OAUTH_ALREADY_REGISTERED" xml:space="preserve"><value>该外部账号已经注册，请重新登录。</value></data>
+  <data name="AUTH_EMAIL_CODE_INVALID" xml:space="preserve"><value>邮箱验证码错误、已用完尝试次数或已过期。</value></data>
+  <data name="AUTH_INVITATION_INVALID" xml:space="preserve"><value>邀请码不存在、已过期或已用完。</value></data>
+  <data name="AUTH_INVITATION_CONFLICT" xml:space="preserve"><value>邀请码已被使用，请重试。</value></data>
+  <data name="AUTH_REGISTRATION_CLOSED" xml:space="preserve"><value>管理员尚未开放注册。</value></data>
+  <data name="AUTH_OAUTH_PROVIDER_DISABLED" xml:space="preserve"><value>外部登录提供方未启用。</value></data>
+  <data name="AUTH_OAUTH_CLIENT_ID_MISSING" xml:space="preserve"><value>外部登录尚未配置 Client ID。</value></data>
+  <data name="AUTH_OAUTH_HTTPS_REQUIRED" xml:space="preserve"><value>外部授权地址必须使用 HTTPS（本机调试可用 HTTP）。</value></data>
+  <data name="AUTH_USER_NOT_FOUND" xml:space="preserve"><value>用户不存在。</value></data>
+  <data name="AUTH_LAST_ADMIN_REQUIRED" xml:space="preserve"><value>必须保留至少一名有效管理员。</value></data>
+  <data name="AUTH_PENDING_APPROVAL" xml:space="preserve"><value>账号正在等待管理员审核。</value></data>
+  <data name="AUTH_ACCOUNT_DISABLED" xml:space="preserve"><value>账号已被拒绝或停用。</value></data>
+  <data name="AUTH_EMAIL_INVALID" xml:space="preserve"><value>请输入有效的邮箱地址。</value></data>
+  <data name="AUTH_PASSWORD_LENGTH_INVALID" xml:space="preserve"><value>密码长度必须为 12 至 256 个字符。</value></data>
+  <data name="AUTH_DISPLAY_NAME_LENGTH_INVALID" xml:space="preserve"><value>显示名称必须为 1 至 80 个字符。</value></data>
+  <data name="SMTP_CONFIGURATION_INVALID" xml:space="preserve"><value>管理员尚未配置有效的发件服务器。</value></data>
+  <data name="SMTP_TLS_REQUIRED" xml:space="preserve"><value>使用 SMTP 账号时必须启用 TLS。</value></data>
+  <data name="SETUP_TOKEN_INVALID" xml:space="preserve"><value>安装令牌不正确。</value></data>
+  <data name="SETUP_CONFIGURATION_INVALID" xml:space="preserve"><value>录制目录必须为绝对路径，数据库名称必须有效。</value></data>
+  <data name="SETUP_ALREADY_INSTALLED" xml:space="preserve"><value>已经完成安装，不能覆盖管理员或数据库配置。</value></data>
+  <data name="SETUP_EXISTING_ADMIN" xml:space="preserve"><value>未完成安装中已存在其他管理员，请使用原安装参数重试。</value></data>
+  <data name="SETUP_EXISTING_ADMIN_PASSWORD_MISMATCH" xml:space="preserve"><value>已有管理员密码不匹配，拒绝覆盖。</value></data>
+  <data name="SETUP_REQUIRED" xml:space="preserve"><value>请先完成安装。</value></data>
+  <data name="SETUP_COMPLETED" xml:space="preserve"><value>安装已完成。</value></data>
+  <data name="SETUP_MEDIA_TOOL_START_FAILED" xml:space="preserve"><value>媒体工具无法启动。</value></data>
+  <data name="SETUP_MEDIA_TOOL_VERIFICATION_FAILED" xml:space="preserve"><value>媒体工具验证失败。</value></data>
+  <data name="SETUP_MEDIA_TOOL_NOT_FOUND" xml:space="preserve"><value>找不到可运行的 FFmpeg/ffprobe，请检查路径。</value></data>
+  <data name="SETTINGS_STORAGE_PATH_LOCKED" xml:space="preserve"><value>已有录播时不能直接修改存储根目录。</value></data>
+  <data name="SETTINGS_INVALID" xml:space="preserve"><value>设置参数无效。</value></data>
+  <data name="SETTINGS_TIME_ZONE_INVALID" xml:space="preserve"><value>时区无效。</value></data>
+  <data name="SETTINGS_OAUTH_DUPLICATE_ID" xml:space="preserve"><value>OAuth 提供方标识重复。</value></data>
+  <data name="SETTINGS_OAUTH_ENDPOINT_INVALID" xml:space="preserve"><value>OAuth 端点或标识无效。</value></data>
+  <data name="LANGUAGE_UNSUPPORTED" xml:space="preserve"><value>不支持的界面语言。</value></data>
+  <data name="PATH_ABSOLUTE_REQUIRED" xml:space="preserve"><value>请填写有效的绝对目录。</value></data>
+  <data name="PATH_WEBUI_OVERLAP" xml:space="preserve"><value>录播和服务数据目录必须位于 WebUI 目录之外。</value></data>
+  <data name="PATH_ABSOLUTE_MEDIA_FORBIDDEN" xml:space="preserve"><value>不允许绝对媒体路径。</value></data>
+  <data name="PATH_MEDIA_OUTSIDE_STORAGE" xml:space="preserve"><value>媒体路径超出存储目录。</value></data>
+  <data name="PATH_MEDIA_DIRECTORY_SYMLINK" xml:space="preserve"><value>媒体目录不允许符号链接。</value></data>
+  <data name="PATH_MEDIA_FILE_SYMLINK" xml:space="preserve"><value>媒体文件不允许符号链接。</value></data>
+  <data name="LIBRARY_SESSION_NOT_FOUND" xml:space="preserve"><value>场次不存在。</value></data>
+  <data name="LIBRARY_CURSOR_NOT_FOUND" xml:space="preserve"><value>分页位置不存在。</value></data>
+  <data name="LIBRARY_EVENT_RANGE_INVALID" xml:space="preserve"><value>弹幕时间范围无效。</value></data>
+  <data name="LIBRARY_OUTPUT_NOT_READY" xml:space="preserve"><value>产物尚未完成或不存在。</value></data>
+  <data name="LIBRARY_CLIP_EXPIRED" xml:space="preserve"><value>切片已过期或进入回收站。</value></data>
+  <data name="LIBRARY_FILE_NOT_FOUND" xml:space="preserve"><value>文件不存在。</value></data>
+  <data name="LIBRARY_ROOM_ID_REQUIRED" xml:space="preserve"><value>请输入直播间号。</value></data>
+  <data name="LIBRARY_ROOM_ALREADY_EXISTS" xml:space="preserve"><value>直播间已存在。</value></data>
+  <data name="LIBRARY_RECORDING_PARAMETERS_INVALID" xml:space="preserve"><value>录制参数无效。</value></data>
+  <data name="LIBRARY_ACCESS_DENIED" xml:space="preserve"><value>无权访问该条目。</value></data>
+  <data name="LIBRARY_CLIP_NOT_FOUND" xml:space="preserve"><value>切片不存在。</value></data>
+  <data name="LIBRARY_TRASH_NOT_FOUND" xml:space="preserve"><value>回收条目不存在。</value></data>
+  <data name="TIMELINE_CLIP_RANGE_INVALID" xml:space="preserve"><value>切片时间范围无效。</value></data>
+  <data name="TIMELINE_RECORDED_VIDEO_MISSING" xml:space="preserve"><value>所选范围没有已录制的视频。</value></data>
+  <data name="GROUPING_COUNT_INVALID" xml:space="preserve"><value>请选择 2 至 100 场录播。</value></data>
+  <data name="GROUPING_STREAMER_MISMATCH" xml:space="preserve"><value>只能归组同一主播的录播。</value></data>
+  <data name="GROUPING_SESSIONS_OVERLAP" xml:space="preserve"><value>所选场次时间重叠，请先检查场次边界。</value></data>
+  <data name="GROUPING_TOO_MANY_ARCHIVES" xml:space="preserve"><value>归档引用过多，请分批归组。</value></data>
+  <data name="GROUPING_BOUNDARY_NOT_FOUND" xml:space="preserve"><value>分界片段不存在。</value></data>
+  <data name="GROUPING_BOUNDARY_OVERLAP" xml:space="preserve"><value>请选择不与其他片段重叠的物理分界。</value></data>
+  <data name="GROUPING_VIDEO_REQUIRED_BOTH_SIDES" xml:space="preserve"><value>分界两侧都必须有视频。</value></data>
+  <data name="GROUPING_SESSION_NOT_EDITABLE" xml:space="preserve"><value>请选择已结束且未归入其他场次的录播。</value></data>
+  <data name="GROUPING_REPAIR_IN_PROGRESS" xml:space="preserve"><value>场次正在修复，请等待任务结束。</value></data>
+  <data name="JOB_KIND_INVALID" xml:space="preserve"><value>媒体任务类型或模式无效。</value></data>
+  <data name="JOB_ADMIN_REQUIRED" xml:space="preserve"><value>只有管理员可以修复或合并录播。</value></data>
+  <data name="JOB_ARCHIVE_NOT_READY" xml:space="preserve"><value>所选范围尚未完成归档，请稍后重试。</value></data>
+  <data name="JOB_SEGMENT_NOT_FOUND" xml:space="preserve"><value>所选片段不存在。</value></data>
+  <data name="JOB_RECORDING_MUST_FINISH" xml:space="preserve"><value>修复与合并需要等待录制结束。</value></data>
+  <data name="JOB_CLIP_END_BEYOND_ARCHIVE" xml:space="preserve"><value>切片终点超过已归档时间。</value></data>
+  <data name="JOB_GAP_REQUIRES_EXACT_MODE" xml:space="preserve"><value>所选范围包含断流空档，请使用精确模式。</value></data>
+  <data name="JOB_WAIT_FOR_EXISTING" xml:space="preserve"><value>请先等待现有任务完成。</value></data>
+  <data name="JOB_REPAIR_ALREADY_EXISTS" xml:space="preserve"><value>该场次已有修复任务。</value></data>
+  <data name="JOB_NOT_FOUND" xml:space="preserve"><value>任务不存在。</value></data>
+  <data name="JOB_RETRY_STATE_INVALID" xml:space="preserve"><value>只有失败或取消的任务可以重试。</value></data>
+  <data name="JOB_SOURCE_REVISION_CHANGED" xml:space="preserve"><value>输入媒体版本已经变化，请新建修复任务。</value></data>
+  <data name="JOB_STATE_CHANGED" xml:space="preserve"><value>任务状态已经改变。</value></data>
+  <data name="JOB_OTHER_REPAIR_EXISTS" xml:space="preserve"><value>该场次已有其他修复任务。</value></data>
+  <data name="JOB_SOURCE_SESSION_NOT_FOUND" xml:space="preserve"><value>原场次不存在。</value></data>
+  <data name="JOB_REVISION_OWNED_ELSEWHERE" xml:space="preserve"><value>该媒体版本属于其他发布，不能覆盖。</value></data>
+  <data name="JOB_ACTIVE_REVISION_INCOMPLETE" xml:space="preserve"><value>已激活版本的分段不完整，不能将任务标记完成。</value></data>
+  <data name="JOB_SESSION_REVISION_CHANGED" xml:space="preserve"><value>场次媒体版本已改变，请重新创建修复任务。</value></data>
+  <data name="JOB_REVISION_COMMIT_CONFLICT" xml:space="preserve"><value>媒体版本提交冲突或租约失效。</value></data>
+  <data name="JOB_DISK_RESERVE_REQUIRED" xml:space="preserve"><value>磁盘余量不足，媒体任务已停止以保留录制空间。</value></data>
+  <data name="PLAYBACK_TIME_OUT_OF_RANGE" xml:space="preserve"><value>播放时间超出场次范围。</value></data>
+  <data name="PLAYBACK_MEDIA_NOT_COMMITTED" xml:space="preserve"><value>媒体尚未提交，请稍后重试。</value></data>
+  <data name="PLAYBACK_WINDOW_NOT_READY" xml:space="preserve"><value>媒体窗口尚未就绪。</value></data>
+  <data name="PLAYBACK_CACHE_SPACE_INSUFFICIENT" xml:space="preserve"><value>播放缓存空间不足，已保留录制余量。</value></data>
+  <data name="PLAYBACK_RESOURCE_NOT_FOUND" xml:space="preserve"><value>播放资源不存在。</value></data>
+  <data name="PLAYBACK_CACHE_EXPIRED" xml:space="preserve"><value>播放缓存已过期，请重新定位播放。</value></data>
+  <data name="PLAYBACK_RESOURCE_INVALID" xml:space="preserve"><value>播放资源无效。</value></data>
+  <data name="BILIBILI_ROOM_ID_INVALID" xml:space="preserve"><value>直播间号必须为正整数。</value></data>
+  <data name="BILIBILI_ROOM_UNAVAILABLE" xml:space="preserve"><value>无法读取直播间资料（{0}）。</value></data>
+  <data name="BILIBILI_STREAM_UNAVAILABLE" xml:space="preserve"><value>直播流暂不可用（{0}）。</value></data>
+  <data name="BILIBILI_FLV_STREAM_MISSING" xml:space="preserve"><value>当前直播未提供可录制的 HTTP-FLV 流，请稍后重试。</value></data>
+  <data name="BILIBILI_QR_SESSION_REQUIRED" xml:space="preserve"><value>该会话不是扫码登录。</value></data>
+  <data name="BILIBILI_PHONE_INVALID" xml:space="preserve"><value>请输入有效的国家区号与手机号。</value></data>
+  <data name="BILIBILI_SMS_SESSION_UNAVAILABLE" xml:space="preserve"><value>短信登录会话不可用。</value></data>
+  <data name="BILIBILI_SMS_RATE_LIMIT" xml:space="preserve"><value>请在 60 秒后重新请求短信。</value></data>
+  <data name="BILIBILI_SMS_CODE_REQUIRED" xml:space="preserve"><value>请先发送短信并填写验证码。</value></data>
+  <data name="BILIBILI_ACCOUNT_IN_USE" xml:space="preserve"><value>该账号正用于录制目标，请先更换目标的账号。</value></data>
+  <data name="BILIBILI_IDENTITY_NOT_CONFIRMED" xml:space="preserve"><value>平台没有确认有效登录身份，请重新登录。</value></data>
+  <data name="BILIBILI_ACCOUNT_NOT_FOUND" xml:space="preserve"><value>采集账号不存在，请重新选择账号。</value></data>
+  <data name="BILIBILI_ACCOUNT_EXPIRED" xml:space="preserve"><value>采集账号已失效，需要管理员重新登录。</value></data>
+  <data name="BILIBILI_CREDENTIALS_CORRUPT" xml:space="preserve"><value>采集凭据损坏，请重新绑定账号。</value></data>
+  <data name="BILIBILI_TOO_MANY_LOGIN_FLOWS" xml:space="preserve"><value>正在进行的登录流程过多，请稍后重试。</value></data>
+  <data name="BILIBILI_LOGIN_EXPIRED" xml:space="preserve"><value>登录流程已过期，请重新开始。</value></data>
+  <data name="STORAGE_PURGING" xml:space="preserve"><value>文件正在彻底删除，无法恢复。</value></data>
+  <data name="STORAGE_SOURCE_CLIP_CHANGED" xml:space="preserve"><value>原切片已经不存在或已更换文件。</value></data>
+  <data name="STORAGE_TRASH_PATH_CONFLICT" xml:space="preserve"><value>回收路径已存在其他文件，无法覆盖。</value></data>
+  <data name="STORAGE_TRASH_LEASE_LOST" xml:space="preserve"><value>回收操作已失去执行权，等待对账。</value></data>
+  <data name="STORAGE_RESTORE_STATE_INVALID" xml:space="preserve"><value>回收条目当前不能恢复。</value></data>
+  <data name="STORAGE_RESTORE_DESTINATION_EXISTS" xml:space="preserve"><value>原位置已有文件，无法覆盖恢复。</value></data>
+  <data name="STORAGE_TRASH_FILE_MISSING" xml:space="preserve"><value>回收文件已不存在。</value></data>
+  <data name="STORAGE_OPERATION_TAKEN_OVER" xml:space="preserve"><value>另一个存储操作已接管该条目。</value></data>
+  <data name="STORAGE_LEASE_EXPIRED" xml:space="preserve"><value>存储操作租约已过期。</value></data>
+  <data name="STORAGE_OPERATION_IN_PROGRESS" xml:space="preserve"><value>该文件正在执行其他存储操作，请稍后重试。</value></data>
+  <data name="REQUEST_CSRF_EXPIRED" xml:space="preserve"><value>请求校验已失效，请刷新后重试。</value></data>
+  <data name="REQUEST_DATABASE_UNAVAILABLE" xml:space="preserve"><value>数据库暂时不可用。</value></data>
+  <data name="REQUEST_TIMEOUT" xml:space="preserve"><value>服务暂时无响应，请稍后重试。</value></data>
+  <data name="REQUEST_FAILED" xml:space="preserve"><value>操作失败，请查看服务端日志。</value></data>
+  <data name="REQUEST_ENDPOINT_NOT_FOUND" xml:space="preserve"><value>接口不存在。</value></data>
+  <data name="REQUEST_WEBUI_NOT_BUILT" xml:space="preserve"><value>WebUI 尚未构建。</value></data>
+  <data name="REQUEST_INVALID" xml:space="preserve"><value>请求参数无效。</value></data>
+  <data name="REQUEST_UNAUTHORIZED" xml:space="preserve"><value>请先登录。</value></data>
+  <data name="REQUEST_FORBIDDEN" xml:space="preserve"><value>无权执行此操作。</value></data>
+  <data name="REQUEST_RATE_LIMIT" xml:space="preserve"><value>请求过于频繁，请稍后重试。</value></data>
+  <data name="RECORDING_DISK_SPACE_LOW" xml:space="preserve"><value>录播卷剩余空间不足，采集已暂停。</value></data>
+  <data name="RECORDING_EVENT_CAPTURE_GAP" xml:space="preserve"><value>弹幕采集缺失：{0}</value></data>
+  <data name="RECORDING_EVENT_CONNECTION_LOST" xml:space="preserve"><value>弹幕连接中断</value></data>
+  <data name="EMAIL_VERIFICATION_SUBJECT" xml:space="preserve"><value>夜半录播 邮箱验证</value></data>
+  <data name="EMAIL_VERIFICATION_BODY" xml:space="preserve"><value>您的注册验证码为：{0}
+验证码 10 分钟内有效，请勿转发。若非本人操作，请忽略本邮件。</value></data>
+  <data name="JOB_OUTPUT_EMPTY" xml:space="preserve"><value>媒体输出为空或不存在。</value></data>
+  <data name="JOB_OUTPUT_INVALID" xml:space="preserve"><value>媒体输出校验失败。</value></data>
+  <data name="JOB_PROCESSING_FAILED" xml:space="preserve"><value>媒体处理失败：{0}</value></data>
+  <data name="RECORDING_CAPTURE_FAILED" xml:space="preserve"><value>录制暂时中断：{0}</value></data>
+</root>

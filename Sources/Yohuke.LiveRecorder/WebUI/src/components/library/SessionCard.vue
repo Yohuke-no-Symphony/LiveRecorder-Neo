@@ -4,15 +4,15 @@
       <v-img :src="MediaAPI.cover(session.id)" :aspect-ratio="16 / 9" cover>
         <template #error><div class="cover-fallback"><v-icon icon="mdi-play-box-outline" size="40" /></div></template>
       </v-img>
-      <div class="cover-top"><v-chip v-if="session.state.toLowerCase() === 'recording'" color="error" variant="flat" size="x-small" prepend-icon="mdi-record">录制中</v-chip></div>
+      <div class="cover-top"><v-chip v-if="session.state.toLowerCase() === 'recording'" color="error" variant="flat" size="x-small" prepend-icon="mdi-record">{{ t('components.status.recording') }}</v-chip></div>
       <span class="duration mono">{{ duration }}</span>
       <div class="cover-play"><v-icon icon="mdi-play" size="34" /></div>
     </div>
     <div class="session-info">
-      <h3 class="session-title">{{ session.title || '未命名录播' }}</h3>
+      <h3 class="session-title">{{ session.title || t('components.library.unnamedSession') }}</h3>
       <div class="d-flex align-center justify-space-between ga-2 mt-3">
         <span class="text-caption muted text-truncate">{{ streamerName || formatDate(session.startedAtUtc) }}</span>
-        <v-icon v-if="session.hasDanmu" icon="mdi-comment-text-outline" size="15" color="secondary" aria-label="包含弹幕" />
+        <v-icon v-if="session.hasDanmu" icon="mdi-comment-text-outline" size="15" color="secondary" :aria-label="t('components.library.hasDanmu')" />
       </div>
       <div v-if="streamerName" class="text-caption muted mt-1">{{ formatDate(session.startedAtUtc) }}</div>
     </div>
@@ -20,10 +20,13 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed } from 'vue'
 import { MediaAPI } from '@/apis/MediaAPI'
 import type { BroadcastSession } from '@/models/media'
 import { formatDate, formatDuration } from '@/utilities/format'
+
+const { t } = useI18n()
 
 const props = defineProps<{ session: BroadcastSession; streamerName?: string }>()
 const duration = computed(() => formatDuration(Math.max(0, new Date(props.session.endedAtUtc ?? props.session.lastMediaAtUtc).getTime() - new Date(props.session.startedAtUtc).getTime())))

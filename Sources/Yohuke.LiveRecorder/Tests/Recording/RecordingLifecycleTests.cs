@@ -1,6 +1,8 @@
 using System.Text.Json;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Application;
+using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Xunit;
 
@@ -9,6 +11,31 @@ namespace Yohuke.LiveRecorder.Recording.Tests;
 /// <summary>真实协调器、数据库和 FLV 写入的生命周期回归。</summary>
 public sealed class RecordingLifecycleTests
 {
+    /// <summary>可重试的采集失败保存稳定消息标识，恢复后清除目标的旧错误。</summary>
+    [RecordingFact]
+    public async Task RecordingFailureMetadataPersistsAndClearsAfterRecovery()
+    {
+        await using var fixture = await RecordingFixture.CreateAsync();
+        var (target, room) = await fixture.AddRoomAsync(100);
+        room.QueryFailure = new InfrastructureException(MessageCode.BILIBILI_ACCOUNT_EXPIRED, 409);
+        await fixture.StartSupervisorAsync();
+        await RecordingFixture.WaitUntilAsync(async () =>
+        {
+            var saved = await fixture.Context.Collection<Streamer>("streamers").Find(item => item.Id == target.Id).SingleAsync();
+            return saved.State == "Retrying" && saved.ErrorCode == nameof(MessageCode.BILIBILI_ACCOUNT_EXPIRED);
+        }, "capture failure persists a stable message code");
+        var failed = await fixture.Context.Collection<Streamer>("streamers").Find(item => item.Id == target.Id).SingleAsync();
+        Assert.Equal("采集账号已失效，需要管理员重新登录。", failed.Error);
+        Assert.Empty(failed.ErrorArguments);
+        room.QueryFailure = null;
+        await RecordingFixture.WaitUntilAsync(async () =>
+        {
+            var saved = await fixture.Context.Collection<Streamer>("streamers").Find(item => item.Id == target.Id).SingleAsync();
+            return room.Connections > 0 && saved.Error is null && saved.ErrorCode is null && saved.ErrorArguments.Count == 0;
+        }, "successful capture clears the localized failure");
+        await fixture.StopSupervisorAsync();
+    }
+
     [RecordingFact]
     public async Task SameLiveTimeReconnectsStayInOneSessionAndDanmuOnlyLivesInFiles()
     {
