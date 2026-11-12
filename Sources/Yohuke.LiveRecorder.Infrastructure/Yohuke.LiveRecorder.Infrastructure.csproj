@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <ItemGroup>
         <ProjectReference Include="../Yohuke.LiveRecorder.Application/Yohuke.LiveRecorder.Application.csproj" />
-        <ProjectReference Include="../../../Core/Sources/Yohuke.DanmuCore/Yohuke.DanmuCore.csproj" />
+        <ProjectReference Include="../../Core/Sources/Yohuke.DanmuCore/Yohuke.DanmuCore.csproj" />
         <FrameworkReference Include="Microsoft.AspNetCore.App" />
         <PackageReference Include="MongoDB.Driver" Version="3.13.0" />
         <PackageReference Include="MailKit" Version="4.17.0" />
