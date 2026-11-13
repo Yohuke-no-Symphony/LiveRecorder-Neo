@@ -172,6 +172,9 @@ export interface StorageVolume
   trashBytes: number
   freeBytes: number
   cacheBytes: number
+  recordingBytes: number
+  clipBytes: number
+  otherBytes: number
 }
 
 export interface Analytics

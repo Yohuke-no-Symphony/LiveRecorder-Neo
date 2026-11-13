@@ -5,6 +5,7 @@ import type { SessionBookmark } from '@/models/sessionBookmark'
 import type { SessionTrashResult } from '@/models/sessionLibrary'
 import type { Analytics, BroadcastSession, Clip, CreateJob, EventKind, EventPage, MediaJob, PlaybackWindow, SessionDetail, StorageVolume, Streamer, TrashEntry } from '@/models/media'
 import type { ServerPaths, ServerSettings } from '@/models/settings'
+import type { StorageUsageReport } from '@/models/storage'
 
 export const MediaAPI = {
   streamers: () => request<Streamer[]>('streamers'),
@@ -37,7 +38,8 @@ export const MediaAPI = {
   trash: () => request<TrashEntry[]>('trash'),
   restoreTrash: (id: string) => post<void>(`trash/${encodeURIComponent(id)}/restore`),
   purgeTrash: (id: string) => remove(`trash/${encodeURIComponent(id)}`),
-  storage: () => request<StorageVolume[]>('storage'),
+  storage: (refresh = false) => request<StorageVolume[]>(`storage${query({ refresh })}`),
+  storageDetails: (refresh = false) => request<StorageUsageReport>(`storage/details${query({ refresh })}`),
   settings: () => request<ServerSettings>('settings'),
   settingsPaths: () => request<ServerPaths>('settings/paths'),
   updateSettingsPaths: (body: { dataDirectory: string; recordsDirectory: string }) => put<ServerPaths>('settings/paths', body),

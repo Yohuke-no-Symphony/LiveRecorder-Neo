@@ -10,7 +10,7 @@
     </v-list>
     <template #append>
       <div class="shell-footer">
-        <StorageBar v-if="volumes[0]" :volume="volumes[0]" />
+        <StorageBar v-if="recordingVolume" :volume="recordingVolume" />
       </div>
     </template>
   </v-navigation-drawer>
@@ -28,7 +28,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDisplay, useTheme } from 'vuetify'
 import { useAuthStore } from '@/stores/auth'
@@ -47,6 +47,7 @@ const theme = useTheme()
 const { mobile } = useDisplay()
 const drawer = ref(!mobile.value)
 const volumes = ref<StorageVolume[]>([])
+const recordingVolume = computed(() => volumes.value.find(volume => volume.id === 'recordings'))
 const error = ref('')
 const errorOpen = ref(false)
 const links = computed(() => [
@@ -60,6 +61,7 @@ const adminLinks = computed(() => [
   { to: '/admin/targets', title: t('shell.nav.targets'), icon: 'mdi-record-circle-outline' },
   { to: '/admin/accounts', title: t('shell.nav.accounts'), icon: 'mdi-account-box-outline' },
   { to: '/admin/users', title: t('shell.nav.users'), icon: 'mdi-account-group-outline' },
+  { to: '/admin/storage', title: t('shell.nav.storage'), icon: 'mdi-harddisk' },
   { to: '/admin/settings', title: t('shell.nav.settings'), icon: 'mdi-cog-outline' },
 ])
 const breadcrumbs = computed(() => [{ title: t('shell.nav.library'), to: '/' }, ...(route.path === '/' ? [] : [{ title: [...links.value, ...adminLinks.value].find(link => route.path.startsWith(link.to) && link.to !== '/')?.title ?? (route.path === '/account' ? t('shell.nav.account') : route.path.startsWith('/sessions') ? t('shell.nav.playRecording') : t('shell.nav.streamerRecordings')) }])])
@@ -68,6 +70,14 @@ usePolling(async () =>
   try { volumes.value = await MediaAPI.storage() }
   catch { volumes.value = [] }
 }, 30000)
+
+watch(() => auth.isAdmin, allowed =>
+{
+  if (!allowed && route.path.startsWith('/admin/'))
+  {
+    void router.replace('/')
+  }
+})
 
 function toggleTheme(): void
 {

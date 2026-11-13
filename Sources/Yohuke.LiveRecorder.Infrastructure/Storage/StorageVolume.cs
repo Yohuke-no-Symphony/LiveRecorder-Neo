@@ -10,4 +10,7 @@ public sealed class StorageVolume
     public long TrashBytes { get; set; }
     public long FreeBytes { get; set; }
     public long CacheBytes { get; set; }
+    public long RecordingBytes { get; set; }
+    public long ClipBytes { get; set; }
+    public long OtherBytes { get; set; }
 }

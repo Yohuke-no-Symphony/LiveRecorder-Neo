@@ -207,9 +207,11 @@ public static class LibraryEndpoints
             }
             return Results.NoContent();
         });
-        api.MapGet("/storage", async (StorageService storage, CancellationToken ct) => Results.Ok(await storage.GetVolumesAsync(ct)));
+        api.MapGet("/storage", async (bool? refresh, StorageUsageService storage, CancellationToken ct) => Results.Ok(await storage.GetVolumesAsync(refresh ?? false, ct)));
 
         var admin = api.MapGroup("").RequireAuthorization(policy => policy.RequireRole("Admin"));
+        admin.MapGet("/storage/details", async (bool? refresh, StorageUsageService storage, StorageUsageMetadataService metadata, CancellationToken ct) =>
+            Results.Ok(await metadata.EnrichAsync(await storage.GetDetailsAsync(refresh ?? false, ct), ct)));
         admin.MapDelete("/sessions/{id}", async (string id, HttpContext http, SessionTrashService sessionTrash, CancellationToken ct) =>
         {
             await sessionTrash.TrashAsync(id, Owner(http), ct);

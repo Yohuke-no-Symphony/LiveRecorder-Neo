@@ -1,6 +1,14 @@
 import type { MessageSchema } from '@/localization/types'
 
 export const viewsZh = {
+  storage: {
+    title: '磁盘', rooms: '直播间', users: '用户', directories: '目录', name: '名称与目录', total: '合计',
+    search: '搜索名称、ID 或目录', empty: '暂无空间占用明细', scannedAt: '统计时间：{date}',
+    retainedInPlace: '原位保留', partial: '部分目录无法读取或位于其他磁盘，当前明细未包含这些文件。',
+    columns: { recordingBytes: '录播文件', clipBytes: '个人切片', trashBytes: '回收站', otherBytes: '其他文件' },
+    kinds: { recordings: '录播文件', clips: '个人切片', trash: '回收站', cache: '缓存', work: '工作目录', data: '数据文件', other: '其他文件' },
+  },
+
   common: {
     email: '邮箱', password: '密码', cancel: '取消', save: '保存', refresh: '刷新', retry: '重试', close: '关闭', done: '完成',
     login: '登录', logout: '退出登录', backToLogin: '返回登录', library: '媒体库', streamer: '主播', streamerRecordings: '主播录播',
@@ -75,6 +83,14 @@ export const viewsZh = {
 }
 
 export const viewsEn: MessageSchema<typeof viewsZh> = {
+  storage: {
+    title: 'Disk', rooms: 'Live rooms', users: 'Users', directories: 'Directories', name: 'Name and directory', total: 'Total',
+    search: 'Search name, ID or directory', empty: 'No storage details available', scannedAt: 'Scanned: {date}',
+    retainedInPlace: 'Retained in place', partial: 'Some directories are inaccessible or on another disk. Their files are not included in these details.',
+    columns: { recordingBytes: 'Recordings', clipBytes: 'Personal clips', trashBytes: 'Trash', otherBytes: 'Other files' },
+    kinds: { recordings: 'Recordings', clips: 'Personal clips', trash: 'Trash', cache: 'Cache', work: 'Work directory', data: 'Data files', other: 'Other files' },
+  },
+
   common: {
     email: 'Email', password: 'Password', cancel: 'Cancel', save: 'Save', refresh: 'Refresh', retry: 'Retry', close: 'Close', done: 'Done',
     login: 'Sign in', logout: 'Sign out', backToLogin: 'Back to sign in', library: 'Library', streamer: 'Streamer', streamerRecordings: 'Streamer recordings',
@@ -149,6 +165,14 @@ export const viewsEn: MessageSchema<typeof viewsZh> = {
 }
 
 export const viewsJa: MessageSchema<typeof viewsZh> = {
+  storage: {
+    title: 'ディスク', rooms: '配信ルーム', users: 'ユーザー', directories: 'ディレクトリ', name: '名前とディレクトリ', total: '合計',
+    search: '名前・ID・ディレクトリを検索', empty: 'ストレージ使用量の詳細はありません', scannedAt: '集計日時：{date}',
+    retainedInPlace: '元の場所で保持', partial: 'アクセスできない、または別のディスクにあるディレクトリのファイルは集計に含まれていません。',
+    columns: { recordingBytes: '録画ファイル', clipBytes: '個人クリップ', trashBytes: 'ゴミ箱', otherBytes: 'その他のファイル' },
+    kinds: { recordings: '録画ファイル', clips: '個人クリップ', trash: 'ゴミ箱', cache: 'キャッシュ', work: '作業ディレクトリ', data: 'データファイル', other: 'その他のファイル' },
+  },
+
   common: {
     email: 'メールアドレス', password: 'パスワード', cancel: 'キャンセル', save: '保存', refresh: '更新', retry: '再試行', close: '閉じる', done: '完了',
     login: 'ログイン', logout: 'ログアウト', backToLogin: 'ログインに戻る', library: 'ライブラリ', streamer: '配信者', streamerRecordings: '配信者の録画',
