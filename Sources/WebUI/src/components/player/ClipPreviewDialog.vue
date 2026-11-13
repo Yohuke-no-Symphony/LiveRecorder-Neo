@@ -1,7 +1,9 @@
 <template>
   <v-dialog v-model="opened" max-width="960">
     <v-card>
-      <div class="d-flex align-center justify-space-between ga-4 pa-5"><h2 class="text-h6 text-truncate">{{ clip?.title }}</h2><v-btn icon="mdi-close" variant="text" size="small" :aria-label="t('components.player.closePreview')" @click="opened = false" /></div>
+      <CardHeader :title="clip?.title ?? ''">
+        <template #actions><v-btn icon="mdi-close" variant="text" size="small" :aria-label="t('components.player.closePreview')" @click="opened = false" /></template>
+      </CardHeader>
       <video v-if="opened && clip" :key="clip.id" ref="video" :src="MediaAPI.previewClip(clip.id)" crossorigin="use-credentials" controls playsinline preload="metadata" class="clip-preview" @error="failed = true" />
       <v-alert v-if="failed" type="error" class="ma-5">{{ t('components.player.previewFailed') }}</v-alert>
     </v-card>
@@ -13,6 +15,7 @@ import { useI18n } from 'vue-i18n'
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { MediaAPI } from '@/apis/MediaAPI'
 import type { Clip } from '@/models/media'
+import CardHeader from '@/components/common/CardHeader.vue'
 
 const { t } = useI18n()
 

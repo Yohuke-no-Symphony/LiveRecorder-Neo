@@ -1,11 +1,11 @@
 <template>
   <div class="activity-chart">
-    <div class="chart-header mb-4">
-      <div><h2 class="section-heading mb-1">{{ t('views.analytics.activityTitle') }}</h2><p class="text-caption muted">{{ t('views.analytics.perMinute') }}</p></div>
-      <div class="chart-metrics" role="group" :aria-label="t('views.analytics.activityTitle')">
+    <CardHeader class="pa-0 mb-3" :title="t('views.analytics.activityTitle')">
+      <template #suffix><span class="text-caption muted">{{ t('views.analytics.perMinute') }}</span></template>
+      <template #actions><div class="chart-metrics" role="group" :aria-label="t('views.analytics.activityTitle')">
         <v-btn v-for="option in metricOptions" :key="option.value" :data-metric="option.value" :aria-pressed="metric === option.value" :variant="metric === option.value ? 'tonal' : 'text'" :color="metric === option.value ? 'primary' : undefined" size="small" @click="metric = option.value">{{ option.title }}</v-btn>
-      </div>
-    </div>
+      </div></template>
+    </CardHeader>
     <div class="chart-legend mb-7"><span v-for="item in series" :key="item.field"><i :style="{ background: `rgb(var(--v-theme-${item.color}))` }" />{{ item.label }}</span></div>
     <div v-if="!groups.length" class="empty-state py-10">{{ t('components.chart.empty') }}</div>
     <template v-else>
@@ -41,6 +41,7 @@ import { computed, ref, useId, watch, type CSSProperties } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Analytics } from '@/models/media'
 import { formatDuration, formatMoney, formatNumber } from '@/utilities/format'
+import CardHeader from '@/components/common/CardHeader.vue'
 
 type ChartMetric = 'danmu' | 'users' | 'revenue' | 'cumulative'
 type BucketField = 'danmuCount' | 'activeUsers' | 'danmuUsers' | 'superChatAmount' | 'giftAmount' | 'guardAmount' | 'paidAmount'
@@ -203,7 +204,6 @@ function describe(group: ChartGroup): string
 </script>
 
 <style scoped>
-.chart-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
 .chart-metrics { display: flex; gap: 4px; flex-wrap: wrap; }
 .chart-legend { display: flex; gap: 20px; flex-wrap: wrap; font-size: .75rem; color: rgba(var(--v-theme-on-surface), .65); }
 .chart-legend > span { display: flex; align-items: center; gap: 7px; }

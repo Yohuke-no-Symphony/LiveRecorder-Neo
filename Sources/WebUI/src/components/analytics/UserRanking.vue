@@ -1,10 +1,10 @@
 <template>
   <v-card class="user-ranking">
-    <div class="ranking-header pa-6 pb-3">
-      <div><h2 class="section-heading mb-1">{{ t('views.analytics.activeUsers') }}</h2><p class="text-caption muted">{{ t('views.analytics.leaderboardLimit') }}</p></div>
-      <v-select v-model="metric" :items="metricOptions" :label="t('views.analytics.rankBy')" density="compact" hide-details class="ranking-selector" />
-    </div>
-    <p v-if="metric.startsWith('redPocket')" class="px-6 pb-3 text-caption muted">{{ t('views.analytics.redPocketExplanation') }}</p>
+    <CardHeader class="ranking-header" :title="t('views.analytics.activeUsers')">
+      <template #suffix><span class="text-caption muted">{{ t('views.analytics.leaderboardLimit') }}</span></template>
+      <template #actions><v-select v-model="metric" :items="metricOptions" :label="t('views.analytics.rankBy')" density="compact" hide-details class="ranking-selector" /></template>
+    </CardHeader>
+    <p v-if="metric.startsWith('redPocket')" class="px-4 pb-3 text-caption muted">{{ t('views.analytics.redPocketExplanation') }}</p>
     <v-table density="comfortable">
       <thead><tr><th>{{ t('views.analytics.rank') }}</th><th>{{ t('views.common.user') }}</th><th class="text-end">{{ t(`views.analytics.ranking.${metric}`) }}</th><th class="text-end">{{ t('views.analytics.observedAmount') }}</th></tr></thead>
       <tbody>
@@ -26,6 +26,7 @@ import { useI18n } from 'vue-i18n'
 import type { Analytics } from '@/models/media'
 import { formatMoney, formatNumber } from '@/utilities/format'
 import EmptyState from '@/components/common/EmptyState.vue'
+import CardHeader from '@/components/common/CardHeader.vue'
 
 const METRICS = ['danmuCount', 'superChatAmount', 'superChatCount', 'giftAmount', 'giftQuantity', 'guardAmount', 'guardQuantity', 'redPocketAmount', 'redPocketCount'] as const
 const props = defineProps<{ rankings: Analytics['userRankings'] }>()
@@ -44,8 +45,7 @@ function formatValue(value: number | null): string
 </script>
 
 <style scoped>
-.ranking-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
-.ranking-selector { flex: 0 1 260px; min-width: 200px; }
+.ranking-selector { width: 260px; }
 .user-ranking :deep(tbody tr:last-child td) { border-bottom: none; }
-@media (max-width: 600px) { .ranking-selector { flex-basis: 100%; } }
+@media (max-width: 600px) { .ranking-header :deep(.card-header-actions) { width: 100%; }.ranking-selector { width: 100%; } }
 </style>

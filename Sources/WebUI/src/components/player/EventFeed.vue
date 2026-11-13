@@ -1,6 +1,8 @@
 <template>
   <v-card class="event-panel">
-    <div class="feed-heading"><h2>{{ t('components.events.title') }}</h2><v-btn :color="follow ? 'primary' : 'secondary'" variant="text" size="small" :prepend-icon="follow ? 'mdi-arrow-down-circle-outline' : 'mdi-pause-circle-outline'" @click="follow = !follow">{{ t('components.events.follow') }}</v-btn></div>
+    <CardHeader class="feed-heading" :title="t('components.events.title')">
+      <template #actions><v-btn :color="follow ? 'primary' : 'secondary'" variant="text" size="small" :prepend-icon="follow ? 'mdi-arrow-down-circle-outline' : 'mdi-pause-circle-outline'" @click="follow = !follow">{{ t('components.events.follow') }}</v-btn></template>
+    </CardHeader>
     <v-chip-group v-model="kind" mandatory class="feed-tabs px-4" color="primary"><v-chip value="all" size="small">{{ t('components.events.all') }}</v-chip><v-chip v-for="item in kinds" :key="item.value" :value="item.value" size="small">{{ item.title }}</v-chip></v-chip-group>
     <v-alert v-if="error" type="error" class="mx-4 my-3" density="compact">{{ error }}</v-alert>
     <v-progress-linear v-if="loading" color="primary" height="2" indeterminate />
@@ -29,6 +31,7 @@ import { usePlaybackEvents } from '@/composables/usePlaybackEvents'
 import type { EventKind, RecordedEvent } from '@/models/media'
 import { formatDuration, formatNumber } from '@/utilities/format'
 import EventMessageRow from '@/components/events/EventMessageRow.vue'
+import CardHeader from '@/components/common/CardHeader.vue'
 
 const { t } = useI18n()
 
@@ -278,7 +281,6 @@ onBeforeUnmount(() =>
 <style scoped>
 .event-panel { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .feed-heading, .feed-tabs, .feed-footer { flex-shrink: 0; }
-.feed-heading { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px 5px 20px; }.feed-heading h2 { font-size: .94rem; font-weight: 600; }
 .feed-tabs :deep(.v-slide-group__content) { gap: 4px; }.feed-tabs :deep(.v-chip) { font-size: .7rem; margin-inline: 0; }
 .event-scroll { flex: 1; min-height: 0; position: relative; overflow-y: auto; overscroll-behavior-y: contain; }
 .event-scroll.is-following { overflow-anchor: none; }

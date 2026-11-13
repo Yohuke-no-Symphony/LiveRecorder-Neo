@@ -2,13 +2,12 @@ import type { MessageSchema } from '@/localization/types'
 
 export const componentsZh = {
   targets: {
-    "description": "搜索主播或直播间，也可以手动输入直播间号添加录制。",
     "automaticSearch": "自动搜索",
     "manualAdd": "手动添加",
     "searchLabel": "昵称、UID 或直播间号",
     "search": "搜索",
     "searchHint": "留空搜索可查看所选账号正在直播的关注列表。",
-    "manualHint": "支持标准直播间号和短号，添加时会读取主播资料。",
+    "manualHint": "支持直播间号或短号",
     "searchFailed": "搜索失败，请稍后重试。",
     "noResults": "没有找到可添加的直播间",
     "add": "添加",
@@ -75,7 +74,7 @@ export const componentsZh = {
     setClipStart: '设为切片开始', setClipEnd: '设为切片结束', clearClipSelection: '清除切片选区', selectedClipRange: '切片选区',
   },
   bookmarks: {
-    title: '我的标记', description: '仅自己可见，可用于跳转和设置切片起止。', empty: '播放时添加标记，记录想回看的时间点。',
+    title: '我的标记', empty: '暂无标记',
     add: '添加标记', create: '新建标记', edit: '编辑标记', delete: '删除标记', deleteConfirm: '删除“{title}”标记？',
     save: '保存标记', name: '标记名称', time: '时间点', defaultTitle: '标记 {time}',
     invalidTitle: '请输入 1 至 180 个字符的标记名称', invalidTime: '请输入录像范围内的有效时间点',
@@ -108,13 +107,12 @@ export const componentsZh = {
 
 export const componentsEn: MessageSchema<typeof componentsZh> = {
   targets: {
-    "description": "Search for a streamer or live room, or enter a room ID to add a recording target.",
     "automaticSearch": "Search",
     "manualAdd": "Manual entry",
     "searchLabel": "Name, UID or room ID",
     "search": "Search",
     "searchHint": "Leave blank to find followed streamers who are live using the selected account.",
-    "manualHint": "Full and short room IDs are supported. Streamer details are retrieved when adding.",
+    "manualHint": "Full or short room ID",
     "searchFailed": "Search failed. Please try again later.",
     "noResults": "No live rooms found",
     "add": "Add",
@@ -182,7 +180,7 @@ export const componentsEn: MessageSchema<typeof componentsZh> = {
     setClipStart: 'Set clip start', setClipEnd: 'Set clip end', clearClipSelection: 'Clear clip selection', selectedClipRange: 'Clip selection',
   },
   bookmarks: {
-    title: 'My bookmarks', description: 'Private to you. Jump to a moment or use it as a clip boundary.', empty: 'Add bookmarks during playback to save moments for later.',
+    title: 'My bookmarks', empty: 'No bookmarks',
     add: 'Add bookmark', create: 'New bookmark', edit: 'Edit bookmark', delete: 'Delete bookmark', deleteConfirm: 'Delete the bookmark “{title}”?',
     save: 'Save bookmark', name: 'Bookmark name', time: 'Time', defaultTitle: 'Bookmark {time}',
     invalidTitle: 'Enter a bookmark name with 1 to 180 characters', invalidTime: 'Enter a valid time within this recording',
@@ -216,13 +214,12 @@ export const componentsEn: MessageSchema<typeof componentsZh> = {
 
 export const componentsJa: MessageSchema<typeof componentsZh> = {
   targets: {
-    "description": "配信者やルームを検索するか、ルーム番号を入力して録画対象に追加します。",
     "automaticSearch": "自動検索",
     "manualAdd": "手動追加",
     "searchLabel": "ニックネーム、UID、ルーム番号",
     "search": "検索",
     "searchHint": "空欄で検索すると、選択したアカウントがフォロー中の配信者のライブ一覧を表示します。",
-    "manualHint": "通常のルーム番号と短縮番号に対応しています。追加時に配信者情報を取得します。",
+    "manualHint": "通常のルーム番号・短縮番号に対応",
     "searchFailed": "検索に失敗しました。しばらくしてから再試行してください。",
     "noResults": "追加できるルームが見つかりません",
     "add": "追加",
@@ -290,7 +287,7 @@ export const componentsJa: MessageSchema<typeof componentsZh> = {
     setClipStart: 'クリップの開始に設定', setClipEnd: 'クリップの終了に設定', clearClipSelection: 'クリップの範囲をクリア', selectedClipRange: 'クリップの範囲',
   },
   bookmarks: {
-    title: 'マイブックマーク', description: '自分だけに表示されます。再生位置への移動やクリップの範囲指定に利用できます。', empty: '再生中にブックマークを追加して、見返したい場面を保存できます。',
+    title: 'マイブックマーク', empty: 'ブックマークはありません',
     add: 'ブックマークを追加', create: 'ブックマークを作成', edit: 'ブックマークを編集', delete: 'ブックマークを削除', deleteConfirm: 'ブックマーク「{title}」を削除しますか？',
     save: 'ブックマークを保存', name: 'ブックマーク名', time: '時間', defaultTitle: 'ブックマーク {time}',
     invalidTitle: 'ブックマーク名を 1～180 文字で入力してください', invalidTime: '録画の範囲内の有効な時間を入力してください',

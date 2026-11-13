@@ -2,8 +2,7 @@
   <v-dialog :model-value="open" max-width="760" scrollable :persistent="saveBusy" :aria-labelledby="titleId" @update:model-value="updateOpen">
     <v-card>
       <v-card-text class="pa-6">
-        <h2 :id="titleId" class="text-h6 mb-2">{{ t('views.targets.add') }}</h2>
-        <p class="text-body-2 muted mb-6">{{ t('components.targets.description') }}</p>
+        <h2 :id="titleId" class="text-h6 mb-4">{{ t('views.targets.add') }}</h2>
         <div class="target-add-options mb-5">
           <v-select v-model="accountId" :label="t('views.targets.bilibiliAccount')" :items="accountOptions" :disabled="saveBusy" hide-details />
           <v-switch v-model="enabled" :label="t('views.targets.enableRecording')" :disabled="saveBusy" hide-details />

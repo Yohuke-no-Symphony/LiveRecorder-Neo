@@ -1,9 +1,9 @@
 <template>
   <v-card class="session-bookmarks" variant="flat">
-    <div class="bookmark-heading">
-      <div><h2 class="text-subtitle-1 font-weight-medium">{{ t('components.bookmarks.title') }} <span v-if="bookmarks.length" class="bookmark-count mono">{{ formatNumber(bookmarks.length) }}</span></h2><p class="text-caption muted">{{ t('components.bookmarks.description') }}</p></div>
-      <v-btn icon="mdi-refresh" variant="text" size="small" :loading="loading" :disabled="saving" :aria-label="t('components.bookmarks.refresh')" @click="emit('refresh')" />
-    </div>
+    <CardHeader :title="t('components.bookmarks.title')">
+      <template #suffix><span v-if="bookmarks.length" class="bookmark-count mono">{{ formatNumber(bookmarks.length) }}</span></template>
+      <template #actions><v-btn icon="mdi-refresh" variant="text" size="small" :loading="loading" :disabled="saving" :aria-label="t('components.bookmarks.refresh')" @click="emit('refresh')" /></template>
+    </CardHeader>
     <v-progress-linear v-if="loading" indeterminate color="primary" :aria-label="t('components.bookmarks.loading')" />
     <v-alert v-if="error" type="error" variant="tonal" density="compact" class="ma-4">{{ error }}</v-alert>
     <ul v-if="bookmarks.length" class="bookmark-rows">
@@ -33,6 +33,7 @@
 import { useI18n } from 'vue-i18n'
 import type { SessionBookmark } from '@/models/sessionBookmark'
 import { formatNumber, formatTimecode } from '@/utilities/format'
+import CardHeader from '@/components/common/CardHeader.vue'
 
 withDefaults(defineProps<{ bookmarks: SessionBookmark[]; loading: boolean; saving: boolean; error: string; editable?: boolean }>(), { editable: true })
 const emit = defineEmits<{ seek: [offsetMs: number]; start: [offsetMs: number]; end: [offsetMs: number]; edit: [bookmark: SessionBookmark]; delete: [bookmark: SessionBookmark]; refresh: [] }>()
@@ -41,8 +42,7 @@ const { t } = useI18n()
 
 <style scoped>
 .session-bookmarks { border: 1px solid rgba(var(--v-theme-on-surface), .09); border-radius: 14px; }
-.bookmark-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 15px 18px; }
-.bookmark-count { margin-left: 5px; color: rgba(var(--v-theme-on-surface), .45); font-size: .72rem; }
+.bookmark-count { color: rgba(var(--v-theme-on-surface), .45); font-size: .72rem; }
 .bookmark-rows { list-style: none; margin: 0; padding: 0 16px 4px; max-height: 365px; overflow-y: auto; }
 .bookmark-row { display: flex; align-items: center; gap: 8px; min-height: 64px; border-top: 1px solid rgba(var(--v-theme-on-surface), .07); }
 .bookmark-target { display: flex; flex: 1; align-items: center; gap: 12px; min-width: 0; padding: 10px 2px; border: 0; border-radius: 5px; background: none; text-align: left; color: inherit; cursor: pointer; }
@@ -53,6 +53,6 @@ const { t } = useI18n()
 .bookmark-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .86rem; }
 .bookmark-time { color: rgba(var(--v-theme-on-surface), .5); font-size: .7rem; }
 .bookmark-row-actions { display: flex; flex-shrink: 0; align-items: center; gap: 2px; }
-.bookmark-empty { padding: 10px 18px 24px; }
-@media (max-width: 650px) { .bookmark-row { flex-wrap: wrap; gap: 0; padding: 6px 0; }.bookmark-target { flex-basis: 100%; }.bookmark-row-actions { margin-left: 26px; }.bookmark-heading { padding-inline: 15px; } }
+.bookmark-empty { margin: 0; padding: 0 16px 12px; }
+@media (max-width: 650px) { .bookmark-row { flex-wrap: wrap; gap: 0; padding: 6px 0; }.bookmark-target { flex-basis: 100%; }.bookmark-row-actions { margin-left: 26px; } }
 </style>
