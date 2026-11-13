@@ -10,7 +10,44 @@
         </MediaPlayer>
         <div class="session-meta">
           <h1>{{ detail.session.title }}</h1>
-          <div class="d-flex align-center flex-wrap ga-3 mt-3"><span class="text-caption muted">{{ formatDate(detail.session.startedAtUtc) }}</span><span class="text-caption mono muted">{{ formatDuration(detail.durationMs, true) }}</span><span class="text-caption muted">{{ formatBytes(detail.session.totalBytes) }}</span><v-chip v-if="detail.session.isPermanent" color="primary" size="small" prepend-icon="mdi-shield-check-outline">{{ t('shell.retention.permanent') }}</v-chip><v-spacer /><v-btn v-if="auth.canManageRecordings" variant="text" prepend-icon="mdi-shield-check-outline" :loading="retentionBusy" @click="setPermanent">{{ t(detail.session.isPermanent ? 'shell.retention.cancelPermanent' : 'shell.retention.keepPermanent') }}</v-btn><v-btn color="primary" prepend-icon="mdi-content-cut" :disabled="detail.durationMs <= 0 || clipSelectionInvalid" @click="clipOpen = true">{{ t('views.session.createClip') }}</v-btn><v-menu v-if="auth.isAdmin && isFinished"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-horizontal" variant="text" :aria-label="t('views.session.actions')" /></template><v-list density="compact"><v-list-item :title="t('views.session.group')" prepend-icon="mdi-folder-multiple-outline" @click="groupOpen = true" /><v-list-item :title="t('views.session.split')" prepend-icon="mdi-call-split" :disabled="detail.segments.length < 2" @click="splitOpen = true" /><v-divider /><v-list-item :title="t('views.session.repair')" prepend-icon="mdi-wrench-outline" @click="openMaintenance('Repair')" /><v-list-item :title="t('views.session.merge')" prepend-icon="mdi-call-merge" @click="openMaintenance('Merge')" /></v-list></v-menu></div>
+          <div class="d-flex align-center flex-wrap ga-3 mt-3">
+            <span class="text-caption muted">{{ formatDate(detail.session.startedAtUtc) }}</span>
+            <span class="text-caption mono muted">{{ formatDuration(detail.durationMs, true) }}</span>
+            <span class="text-caption muted">{{ formatBytes(detail.session.totalBytes) }}</span>
+            <v-chip v-if="detail.session.isPermanent" color="primary" size="small" prepend-icon="mdi-shield-check-outline">{{ t('shell.retention.permanent') }}</v-chip>
+            <v-spacer />
+            <v-tooltip v-if="auth.canManageRecordings" :text="t(detail.session.isPermanent ? 'shell.retention.cancelPermanent' : 'shell.retention.keepPermanent')" location="top">
+              <template #activator="{ props: tooltipProps }">
+                <v-btn v-bind="tooltipProps" icon="mdi-shield-check-outline" size="small" variant="text" :aria-label="t(detail.session.isPermanent ? 'shell.retention.cancelPermanent' : 'shell.retention.keepPermanent')" :loading="retentionBusy" @click="setPermanent" />
+              </template>
+            </v-tooltip>
+            <v-tooltip :text="t('components.download.open')" location="top">
+              <template #activator="{ props: tooltipProps }">
+                <v-btn v-bind="tooltipProps" icon="mdi-download" size="small" variant="tonal" :aria-label="t('components.download.open')" @click="downloadOpen = true" />
+              </template>
+            </v-tooltip>
+            <v-tooltip :text="t('views.session.createClip')" location="top">
+              <template #activator="{ props: tooltipProps }">
+                <v-btn v-bind="tooltipProps" icon="mdi-content-cut" size="small" color="primary" :aria-label="t('views.session.createClip')" :disabled="detail.durationMs <= 0 || clipSelectionInvalid" @click="clipOpen = true" />
+              </template>
+            </v-tooltip>
+            <v-menu v-if="auth.isAdmin && isFinished">
+              <template #activator="{ props: menuProps }">
+                <v-tooltip :text="t('views.session.actions')" location="top">
+                  <template #activator="{ props: tooltipProps }">
+                    <v-btn v-bind="mergeProps(menuProps, tooltipProps)" icon="mdi-dots-horizontal" size="small" variant="text" :aria-label="t('views.session.actions')" />
+                  </template>
+                </v-tooltip>
+              </template>
+              <v-list density="compact">
+                <v-list-item :title="t('views.session.group')" prepend-icon="mdi-folder-multiple-outline" @click="groupOpen = true" />
+                <v-list-item :title="t('views.session.split')" prepend-icon="mdi-call-split" :disabled="detail.segments.length < 2" @click="splitOpen = true" />
+                <v-divider />
+                <v-list-item :title="t('views.session.repair')" prepend-icon="mdi-wrench-outline" @click="openMaintenance('Repair')" />
+                <v-list-item :title="t('views.session.merge')" prepend-icon="mdi-call-merge" @click="openMaintenance('Merge')" />
+              </v-list>
+            </v-menu>
+          </div>
         </div>
         <SessionBookmarkList class="mt-6" :bookmarks="bookmarks" :loading="bookmarksLoading" :saving="bookmarkSaving" :error="bookmarksError" :editable="bookmarksEditable" @seek="player?.seek($event)" @start="setClipStart" @end="setClipEnd" @edit="editBookmark" @delete="confirmBookmarkDelete" @refresh="refreshBookmarks" />
         <v-expansion-panels v-if="detail.segments.length" variant="accordion" class="mt-6"><v-expansion-panel :title="t('views.session.segments', { count: formatNumber(detail.segments.length) })"><v-expansion-panel-text><v-table density="comfortable"><thead><tr><th>{{ t('views.session.segment') }}</th><th>{{ t('views.session.start') }}</th><th>{{ t('views.session.duration') }}</th><th>{{ t('views.common.size') }}</th><th>{{ t('views.common.status') }}</th></tr></thead><tbody><tr v-for="(segment, index) in detail.segments" :key="segment.id" class="clickable-row" @click="player?.seek(segment.startOffsetMs)"><td>{{ String(index + 1).padStart(2, '0') }}</td><td class="mono text-caption">{{ formatDuration(segment.startOffsetMs, true) }}</td><td class="mono text-caption">{{ formatDuration(segment.durationMs) }}</td><td class="mono text-caption">{{ formatBytes(segment.committedBytes) }}</td><td><StatusChip :status="segment.isClosed ? 'completed' : 'recording'" /></td></tr></tbody></v-table></v-expansion-panel-text></v-expansion-panel></v-expansion-panels>
@@ -18,6 +55,7 @@
       <EventFeed class="playback-feed" :navigation-revision="feedNavigationRevision" :session-id="id" :offset-ms="offsetMs" :enabled="detail.session.hasDanmu" :is-live="isLive" @seek="player?.seek($event)" />
     </div>
     <ClipDialog v-model="clipOpen" :session-id="id" :session-title="detail.session.title" :current-ms="offsetMs" :duration-ms="detail.durationMs" :selection="clipSelection" :bookmarks="bookmarks" @created="onClipCreated" />
+    <SessionDownloadDialog v-model="downloadOpen" :session-id="id" :session-title="detail.session.title" :segments="detail.segments" />
     <SessionBookmarkDialog v-model="bookmarkOpen" :bookmark="editingBookmark" :offset-ms="bookmarkOffsetMs" :duration-ms="detail.durationMs" :busy="bookmarkSaving" :error="bookmarksError" @save="saveBookmark" />
     <ConfirmDialog :model-value="!!deletingBookmark" :title="t('components.bookmarks.delete')" :message="t('components.bookmarks.deleteConfirm', { title: deletingBookmark?.title ?? '' })" :action-label="t('components.bookmarks.delete')" :busy="bookmarkSaving" :error="bookmarksError" danger @update:model-value="!$event && (deletingBookmark = undefined)" @confirm="deleteBookmark" />
     <SessionGroupDialog v-if="groupOpen && auth.isAdmin && isFinished" v-model="groupOpen" :session="detail.session" @grouped="router.replace(`/sessions/${$event.id}`)" />
@@ -29,7 +67,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, ref } from 'vue'
+import { computed, mergeProps, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MediaAPI } from '@/apis/MediaAPI'
 import { useAuthStore } from '@/stores/auth'
@@ -46,6 +84,7 @@ import { formatBytes, formatDate, formatDuration, formatNumber } from '@/utiliti
 import MediaPlayer from '@/components/player/MediaPlayer.vue'
 import EventFeed from '@/components/player/EventFeed.vue'
 import ClipDialog from '@/components/player/ClipDialog.vue'
+import SessionDownloadDialog from '@/components/player/SessionDownloadDialog.vue'
 import PlaybackBookmarkActions from '@/components/player/PlaybackBookmarkActions.vue'
 import SessionBookmarkList from '@/components/player/SessionBookmarkList.vue'
 import SessionBookmarkDialog from '@/components/player/SessionBookmarkDialog.vue'
@@ -69,6 +108,7 @@ const feedNavigationRevision = ref(0)
 const initialOffset = Math.max(0, Number(route.query.at) || 0)
 const player = ref<InstanceType<typeof MediaPlayer>>()
 const clipOpen = ref(false)
+const downloadOpen = ref(false)
 const clipSelection = ref<ClipSelection>({})
 const clipSelectionInvalid = computed(() =>
 {

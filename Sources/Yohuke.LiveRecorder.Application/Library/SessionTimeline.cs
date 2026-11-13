@@ -7,15 +7,16 @@ namespace Yohuke.LiveRecorder.Application.Library;
 /// <summary>播放、弹幕和导出共用的真实时间轴运算。</summary>
 public static class SessionTimeline
 {
-    /// <summary>构建覆盖范围与空档，不推断采集前的时间。</summary>
+    /// <summary>构建覆盖范围与空档，已结束场次的播放范围截至最后有效媒体。</summary>
     public static SessionDetail Build(BroadcastSession session, IEnumerable<RecordingSegment> segments, DateTime nowUtc)
     {
         var ordered = segments.OrderBy(x => x.StartOffsetMs).ToList();
-        var duration = Math.Max(0, ((session.EndedAtUtc ?? nowUtc) - session.StartedAtUtc).TotalMilliseconds);
-        duration = Math.Max(duration, ordered.Select(x => x.StartOffsetMs + x.DurationMs).DefaultIfEmpty(0).Max());
+        var coverage = session.EndedAtUtc is null ? ordered : ordered.Where(segment => segment.DurationMs > 0).ToList();
+        var duration = session.EndedAtUtc is null ? Math.Max(0, (nowUtc - session.StartedAtUtc).TotalMilliseconds) : 0;
+        duration = Math.Max(duration, coverage.Select(segment => segment.StartOffsetMs + segment.DurationMs).DefaultIfEmpty(0).Max());
         var result = new SessionDetail { Session = session, Segments = ordered, DurationMs = duration };
         var cursor = 0d;
-        foreach (var segment in ordered)
+        foreach (var segment in coverage)
         {
             if (segment.StartOffsetMs > cursor + 100)
             {

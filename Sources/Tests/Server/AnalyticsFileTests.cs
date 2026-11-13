@@ -263,6 +263,79 @@ public sealed class AnalyticsFileTests : IDisposable
         Assert.Equal(0.001m, saved!.ObservedAmount);
     }
 
+    /// <summary>完成场次的播放终点在统计聚合前生效，并使已包含尾部续报的缓存失效。</summary>
+    [Fact]
+    public async Task CompletedPlaybackBoundaryExcludesTailFinancialUpdatesAndRebuildsCache()
+    {
+        var first = new RecordedEventEnvelope
+        {
+            EventId = "same-sc", Kind = "SuperChat", UserId = "payer", OffsetMs = 1000,
+            PriceSource = "ProtocolPaid", Amount = 30m
+        };
+        var repeated = new RecordedEventEnvelope
+        {
+            EventId = "same-sc", Kind = "SuperChat", UserId = "payer", OffsetMs = 1600,
+            PriceSource = "ProtocolPaid", Amount = 300m
+        };
+        var gift = AnalyticsFinancialTests.Gift("first", "gift", 1m, combo: "combo", cumulative: 4);
+        gift.OffsetMs = 1200;
+        var tailGift = AnalyticsFinancialTests.Gift("tail", "gift", 1m, combo: "combo", cumulative: 20);
+        tailGift.OffsetMs = 1700;
+        await WriteAsync("source", first, gift,
+            new() { EventId = "before", Kind = "Danmu", UserId = "viewer", OffsetMs = 1499 },
+            new() { EventId = "boundary", Kind = "Danmu", UserId = "tail-viewer", OffsetMs = 1500 },
+            repeated, tailGift);
+        var start = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var session = new BroadcastSession { DirectoryPath = "source", StartedAtUtc = start, EndedAtUtc = start.AddSeconds(10) };
+        var service = new AnalyticsService(new());
+        var previous = await service.GetAsync(session, directory);
+
+        var bounded = await service.GetAsync(session, directory, 1500);
+
+        Assert.NotEqual(previous.SourceIdentity, bounded.SourceIdentity);
+        Assert.Equal(30m, bounded.ProtocolPaidAmount);
+        Assert.Equal(4, bounded.GiftQuantity);
+        Assert.Equal(34m, bounded.ObservedAmount);
+        Assert.Equal(1, bounded.DanmuCount);
+        Assert.Equal(1, bounded.SuperChatCount);
+        Assert.Equal(start.AddSeconds(10), session.EndedAtUtc);
+    }
+
+    /// <summary>没有有效媒体的已结束场次不显示零时刻及之后的互动。</summary>
+    [Fact]
+    public async Task CompletedSessionWithoutPlayableMediaHasNoEventStatistics()
+    {
+        await WriteAsync("source",
+            new() { EventId = "zero", Kind = "Danmu", UserId = "viewer", OffsetMs = 0 },
+            AnalyticsFinancialTests.Gift("tail", "gift", 3m));
+        var start = DateTime.UtcNow;
+        var session = new BroadcastSession { DirectoryPath = "source", StartedAtUtc = start, EndedAtUtc = start.AddSeconds(10) };
+
+        var report = await new AnalyticsService(new()).GetAsync(session, directory, 0);
+
+        Assert.Equal(0, report.DanmuCount);
+        Assert.Equal(0, report.GiftCount);
+        Assert.Equal(0m, report.ObservedAmount);
+        Assert.Empty(report.Buckets);
+        Assert.Empty(report.TopUsers);
+    }
+
+    /// <summary>正在录制的场次即使传入已提交媒体终点，也保留实时互动和缓存增量语义。</summary>
+    [Fact]
+    public async Task ActiveSessionKeepsEventsBeyondCommittedMedia()
+    {
+        await WriteAsync("source",
+            new RecordedEventEnvelope { EventId = "pending", Kind = "Danmu", UserId = "viewer", OffsetMs = 5000 });
+        var session = new BroadcastSession { DirectoryPath = "source", StartedAtUtc = DateTime.UtcNow };
+        var service = new AnalyticsService(new());
+        var original = await service.GetAsync(session, directory);
+
+        var bounded = await service.GetAsync(session, directory, 1000);
+
+        Assert.Equal(original.SourceIdentity, bounded.SourceIdentity);
+        Assert.Equal(1, bounded.DanmuCount);
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {

@@ -75,6 +75,8 @@
   <data name="LIBRARY_OUTPUT_NOT_READY" xml:space="preserve"><value>产物尚未完成或不存在。</value></data>
   <data name="LIBRARY_CLIP_EXPIRED" xml:space="preserve"><value>切片已过期或进入回收站。</value></data>
   <data name="LIBRARY_FILE_NOT_FOUND" xml:space="preserve"><value>文件不存在。</value></data>
+  <data name="LIBRARY_SEGMENT_NOT_FOUND" xml:space="preserve"><value>所选录制分段不存在。</value></data>
+  <data name="LIBRARY_SEGMENT_NOT_READY" xml:space="preserve"><value>所选录制分段尚未完成或没有有效媒体。</value></data>
   <data name="LIBRARY_ROOM_ID_REQUIRED" xml:space="preserve"><value>请输入直播间号。</value></data>
   <data name="LIBRARY_ROOM_ALREADY_EXISTS" xml:space="preserve"><value>直播间已存在。</value></data>
   <data name="LIBRARY_RECORDING_PARAMETERS_INVALID" xml:space="preserve"><value>录制参数无效。</value></data>

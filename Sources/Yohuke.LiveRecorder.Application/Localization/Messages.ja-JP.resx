@@ -75,6 +75,8 @@
   <data name="LIBRARY_OUTPUT_NOT_READY" xml:space="preserve"><value>出力が未完了、または存在しません。</value></data>
   <data name="LIBRARY_CLIP_EXPIRED" xml:space="preserve"><value>クリップが期限切れ、またはごみ箱に移動されています。</value></data>
   <data name="LIBRARY_FILE_NOT_FOUND" xml:space="preserve"><value>ファイルが存在しません。</value></data>
+  <data name="LIBRARY_SEGMENT_NOT_FOUND" xml:space="preserve"><value>選択した録画セグメントが存在しません。</value></data>
+  <data name="LIBRARY_SEGMENT_NOT_READY" xml:space="preserve"><value>選択した録画セグメントは未完了、または有効なメディアがありません。</value></data>
   <data name="LIBRARY_ROOM_ID_REQUIRED" xml:space="preserve"><value>配信ルーム ID を入力してください。</value></data>
   <data name="LIBRARY_ROOM_ALREADY_EXISTS" xml:space="preserve"><value>この配信ルームは既に存在します。</value></data>
   <data name="LIBRARY_RECORDING_PARAMETERS_INVALID" xml:space="preserve"><value>録画パラメーターが無効です。</value></data>

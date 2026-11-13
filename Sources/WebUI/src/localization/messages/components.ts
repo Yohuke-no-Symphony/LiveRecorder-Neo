@@ -1,6 +1,15 @@
 import type { MessageSchema } from '@/localization/types'
 
 export const componentsZh = {
+  download: {
+    open: '下载全片', title: '下载录播', close: '关闭下载弹窗',
+    description: '选择需要的录制分段，分别下载原始文件。',
+    selectAll: '全选可下载片段', selected: '已选 {count} 个片段 · {size}',
+    segment: '片段 {number}', selectSegment: '选择片段 {number}', downloadSegment: '下载片段 {number}',
+    timeRange: '{start} 起 · 时长 {duration}', single: '下载', selectedAction: '下载所选',
+    recording: '录制中，完成后可下载', unavailable: '暂无有效媒体', empty: '暂无可下载分段',
+    requested: '已请求下载 {count} 个片段',
+  },
   targets: {
     "automaticSearch": "自动搜索",
     "manualAdd": "手动添加",
@@ -108,6 +117,15 @@ export const componentsZh = {
 } as const
 
 export const componentsEn: MessageSchema<typeof componentsZh> = {
+  download: {
+    open: 'Download recording', title: 'Download recording', close: 'Close downloads',
+    description: 'Select recording segments to download as separate original files.',
+    selectAll: 'Select all available segments', selected: '{count} segments selected · {size}',
+    segment: 'Segment {number}', selectSegment: 'Select segment {number}', downloadSegment: 'Download segment {number}',
+    timeRange: 'From {start} · Duration {duration}', single: 'Download', selectedAction: 'Download selected',
+    recording: 'Recording; available when completed', unavailable: 'No recorded media yet', empty: 'No segments available to download',
+    requested: 'Downloads requested for {count} segments',
+  },
   targets: {
     "automaticSearch": "Search",
     "manualAdd": "Manual entry",
@@ -217,6 +235,15 @@ export const componentsEn: MessageSchema<typeof componentsZh> = {
 }
 
 export const componentsJa: MessageSchema<typeof componentsZh> = {
+  download: {
+    open: '録画をダウンロード', title: '録画をダウンロード', close: 'ダウンロードを閉じる',
+    description: '必要な録画セグメントを選び、元のファイルを個別にダウンロードします。',
+    selectAll: 'ダウンロード可能なセグメントをすべて選択', selected: '{count} 件を選択 · {size}',
+    segment: 'セグメント {number}', selectSegment: 'セグメント {number} を選択', downloadSegment: 'セグメント {number} をダウンロード',
+    timeRange: '開始 {start} · 長さ {duration}', single: 'ダウンロード', selectedAction: '選択したセグメントをダウンロード',
+    recording: '録画中・完了後にダウンロードできます', unavailable: '録画データがありません', empty: 'ダウンロード可能なセグメントはありません',
+    requested: '{count} 件のダウンロードをリクエストしました',
+  },
   targets: {
     "automaticSearch": "自動検索",
     "manualAdd": "手動追加",

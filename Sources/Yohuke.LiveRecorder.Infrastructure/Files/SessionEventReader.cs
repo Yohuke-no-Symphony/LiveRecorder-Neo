@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Library;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Library;
 
@@ -9,15 +10,35 @@ public sealed class SessionEventReader(EventArchiveReader reader)
     private const long SOURCE_SEQUENCE_STRIDE = 1_000_000_000_000;
 
     /// <summary>将来源文件序号投影为稳定的场次游标。</summary>
-    public async Task<EventPage> ReadAsync(BroadcastSession session, string storageRoot, double fromMs, double toMs, string? kind, long? cursor, int limit, CancellationToken cancellationToken = default)
+    public Task<EventPage> ReadAsync(BroadcastSession session, string storageRoot, double fromMs, double toMs, string? kind, long? cursor, int limit, CancellationToken cancellationToken = default)
     {
+        return ReadCoreAsync(session, storageRoot, fromMs, toMs, kind, cursor, limit, null, cancellationToken);
+    }
+
+    /// <summary>按有效播放终点读取事件，在原始来源坐标上排除已结束场次的尾部。</summary>
+    public Task<EventPage> ReadAsync(SessionDetail detail, string storageRoot, double fromMs, double toMs, string? kind, long? cursor, int limit, CancellationToken cancellationToken = default)
+    {
+        var playbackEnd = detail.Session.EndedAtUtc is null ? (double?)null : detail.DurationMs;
+        return ReadCoreAsync(detail.Session, storageRoot, fromMs, toMs, kind, cursor, limit, playbackEnd, cancellationToken);
+    }
+
+    private async Task<EventPage> ReadCoreAsync(BroadcastSession session, string storageRoot, double fromMs, double toMs, string? kind, long? cursor, int limit, double? playbackEndMs, CancellationToken cancellationToken)
+    {
+        if (playbackEndMs is { } playbackEnd)
+        {
+            if (fromMs >= playbackEnd)
+            {
+                return new();
+            }
+            toMs = Math.Min(toMs, Math.BitDecrement(playbackEnd));
+        }
         if (session.EventSources.Count == 0)
         {
             return await reader.ReadAsync(Path.Combine(MediaPaths.Resolve(storageRoot, session.DirectoryPath), "弹幕"), fromMs, toMs, kind, cursor, limit, cancellationToken);
         }
         limit = Math.Clamp(limit, 1, 1000);
         var items = new List<RecordedEventEnvelope>();
-        var sources = SessionGroupingService.Sources(session);
+        var sources = SessionGroupingService.Sources(session, playbackEndMs);
         for (var index = 0; index < sources.Count; index++)
         {
             var source = sources[index];

@@ -24,7 +24,7 @@ public sealed class SessionTimelineService : IDisposable
         await gate.WaitAsync(cancellationToken);
         try
         {
-            var sources = SessionGroupingService.Sources(session);
+            var sources = SessionGroupingService.Sources(session, durationMs);
             var paths = sources.Select(source => MediaPaths.Resolve(storageRoot, Path.Combine(source.DirectoryPath, "弹幕", "事件.jsonl"))).ToArray();
             var identity = Hash(JsonSerializer.Serialize(sources.Select((source, index) => new { Path = paths[index], source.StartOffsetMs, source.FromMs, source.ToMs }), JsonFiles.Options));
             var saved = await ReadAsync(output, cancellationToken);

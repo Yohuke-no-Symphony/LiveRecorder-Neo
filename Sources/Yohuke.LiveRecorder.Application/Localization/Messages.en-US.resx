@@ -75,6 +75,8 @@
   <data name="LIBRARY_OUTPUT_NOT_READY" xml:space="preserve"><value>The output is not complete or does not exist.</value></data>
   <data name="LIBRARY_CLIP_EXPIRED" xml:space="preserve"><value>The clip has expired or was moved to the trash.</value></data>
   <data name="LIBRARY_FILE_NOT_FOUND" xml:space="preserve"><value>The file does not exist.</value></data>
+  <data name="LIBRARY_SEGMENT_NOT_FOUND" xml:space="preserve"><value>The selected recording segment does not exist.</value></data>
+  <data name="LIBRARY_SEGMENT_NOT_READY" xml:space="preserve"><value>The selected recording segment is not complete or has no valid media.</value></data>
   <data name="LIBRARY_ROOM_ID_REQUIRED" xml:space="preserve"><value>Enter a live room ID.</value></data>
   <data name="LIBRARY_ROOM_ALREADY_EXISTS" xml:space="preserve"><value>This live room already exists.</value></data>
   <data name="LIBRARY_RECORDING_PARAMETERS_INVALID" xml:space="preserve"><value>The recording parameters are invalid.</value></data>

@@ -21,6 +21,7 @@ export const MediaAPI = {
   groupSessions: (id: string, sessionIds: string[], title?: string) => post<BroadcastSession>(`sessions/${encodeURIComponent(id)}/group`, { sessionIds, title }),
   splitSession: (id: string, beforeSegmentId: string) => post<{ sessions: BroadcastSession[] }>(`sessions/${encodeURIComponent(id)}/split`, { beforeSegmentId }),
   cover: (id: string) => getServerUrl(`/api/sessions/${encodeURIComponent(id)}/cover`),
+  downloadSegment: (id: string, segmentId: string) => getServerUrl(`/api/sessions/${encodeURIComponent(id)}/segments/${encodeURIComponent(segmentId)}/download`),
   playback: (id: string, offsetMs: number) => post<PlaybackWindow>(`sessions/${encodeURIComponent(id)}/playback`, { offsetMs }),
   bookmarks: (id: string, signal?: AbortSignal) => request<SessionBookmark[]>(`sessions/${encodeURIComponent(id)}/bookmarks`, { signal }),
   createBookmark: (id: string, body: { title: string; offsetMs: number }) => post<SessionBookmark>(`sessions/${encodeURIComponent(id)}/bookmarks`, body),

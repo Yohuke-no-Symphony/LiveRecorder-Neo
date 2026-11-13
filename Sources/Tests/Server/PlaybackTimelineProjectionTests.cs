@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Xunit;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Files;
+using Yohuke.LiveRecorder.Infrastructure.Library;
 using Yohuke.LiveRecorder.Infrastructure.Playback;
 
 namespace Yohuke.LiveRecorder.Tests;
@@ -11,6 +12,125 @@ namespace Yohuke.LiveRecorder.Tests;
 public sealed class PlaybackTimelineProjectionTests : IDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "live-recorder-timeline-" + Guid.NewGuid().ToString("N"));
+
+    /// <summary>尾部记录在聚合前排除，不能污染最后一秒热度、已出现的 SC 或礼物连击。</summary>
+    [Fact]
+    public async Task CompletedPlaybackExcludesTailEventsBeforeAggregating()
+    {
+        var sc = Item(1, "SuperChat", 1000, 30);
+        sc.EventId = "same-sc";
+        var repeatedSc = Item(5, "SuperChat", 1600, 300);
+        repeatedSc.EventId = sc.EventId;
+        await AppendAsync("source", sc, Gift(2, 900, 1, 1, 1), Item(3, "Danmu", 1200),
+            Item(4, "Danmu", 1499), repeatedSc, Gift(6, 1700, 9, 10, 20),
+            Item(7, "Danmu", 1500), Item(8, "Danmu", 1800),
+            Item(9, "Guard", 1800, 138), Item(10, "RedPocket", 1900, 100), Item(11, "Gap", 2000));
+        var session = CompletedSession();
+        using var service = new SessionTimelineService();
+
+        var result = await service.GetAsync(session, root, 1500);
+
+        Assert.Equal(2, Assert.Single(result.Heat).Count);
+        Assert.Equal(2, result.Markers.Count);
+        Assert.Equal(30m, result.Markers.Single(marker => marker.Kind == "SuperChat").Amount);
+        var gift = result.Markers.Single(marker => marker.Kind == "Gift");
+        Assert.Equal(1, gift.Quantity);
+        Assert.Equal(1m, gift.Amount);
+    }
+
+    /// <summary>仅播放终点变化也重建旧缓存，原事件文件不被裁写。</summary>
+    [Fact]
+    public async Task FinalPlaybackBoundaryInvalidatesPreviouslyAggregatedTail()
+    {
+        var sc = Item(1, "SuperChat", 1000, 30);
+        sc.EventId = "same-sc";
+        var tail = Item(2, "SuperChat", 1800, 300);
+        tail.EventId = sc.EventId;
+        await AppendAsync("source", sc, tail, Item(3, "Danmu", 1200), Item(4, "Danmu", 1800));
+        var originalArchive = await File.ReadAllTextAsync(ArchivePath("source"));
+        var session = CompletedSession();
+        using var service = new SessionTimelineService();
+        var original = await service.GetAsync(session, root, 10000);
+        Assert.Equal(300m, Assert.Single(original.Markers).Amount);
+
+        var trimmed = await service.GetAsync(session, root, 1500);
+        using var restarted = new SessionTimelineService();
+        var repeated = await restarted.GetAsync(session, root, 1500);
+
+        Assert.Equal(30m, Assert.Single(trimmed.Markers).Amount);
+        Assert.Equal(1, Assert.Single(trimmed.Heat).Count);
+        Assert.Equal(trimmed.Revision, repeated.Revision);
+        Assert.Equal(30m, Assert.Single(repeated.Markers).Amount);
+        Assert.Equal(originalArchive, await File.ReadAllTextAsync(ArchivePath("source")));
+    }
+
+    /// <summary>归组尾部裁剪保留所有来源的顺序和序号前缀，且不修改来源定义。</summary>
+    [Fact]
+    public async Task CompletedGroupedPlaybackKeepsSourceSequencePrefixesAfterClipping()
+    {
+        await AppendAsync("outside", Item(1, "Gift", 1200, 10));
+        await AppendAsync("second", Item(1, "Gift", 1000, 2), Item(2, "Guard", 1500, 138));
+        await AppendAsync("third", Item(1, "SuperChat", 1000, 30), Item(2, "RedPocket", 3500, 100));
+        var session = CompletedSession();
+        session.DirectoryPath = "projection";
+        session.EventSources =
+        [
+            new() { DirectoryPath = "outside", StartOffsetMs = 60000, FromMs = 1000, ToMs = 2000 },
+            new() { DirectoryPath = "second", StartOffsetMs = 1000, FromMs = 0, ToMs = 5000 },
+            new() { DirectoryPath = "third", StartOffsetMs = -1000, FromMs = 1000, ToMs = 5000 }
+        ];
+        using var service = new SessionTimelineService();
+
+        var result = await service.GetAsync(session, root, 2500);
+
+        Assert.Equal(new[] { 0d, 2000d }, result.Markers.Select(marker => marker.OffsetMs));
+        Assert.Equal(new[] { 3_000_000_000_001L, 2_000_000_000_001L }, result.Markers.Select(marker => marker.Sequence));
+        Assert.Equal(new double?[] { 2000, 5000, 5000 }, session.EventSources.Select(source => source.ToMs));
+    }
+
+    /// <summary>裁剪复制来源边界且保留空来源索引，未提供终点或直播时维持原定义。</summary>
+    [Fact]
+    public void CompletedSourceClippingCopiesRangesWithoutRemovingSources()
+    {
+        var session = CompletedSession();
+        session.EventSources =
+        [
+            new() { DirectoryPath = "outside", StartOffsetMs = 60000, FromMs = 1000, ToMs = 2000 },
+            new() { DirectoryPath = "second", StartOffsetMs = 1000, FromMs = 0, ToMs = 1000 },
+            new() { DirectoryPath = "third", StartOffsetMs = -1000, FromMs = 1000, ToMs = 5000 }
+        ];
+
+        var clipped = SessionGroupingService.Sources(session, 2500);
+
+        Assert.Equal(3, clipped.Count);
+        Assert.Equal(new[] { "outside", "second", "third" }, clipped.Select(source => source.DirectoryPath));
+        Assert.Equal(new double?[] { -57500, 1000, 3500 }, clipped.Select(source => source.ToMs));
+        Assert.All(Enumerable.Range(0, clipped.Count), index => Assert.NotSame(session.EventSources[index], clipped[index]));
+        Assert.Equal(new double?[] { 2000, 1000, 5000 }, session.EventSources.Select(source => source.ToMs));
+        Assert.Same(session.EventSources, SessionGroupingService.Sources(session));
+
+        session.EndedAtUtc = null;
+        Assert.Same(session.EventSources, SessionGroupingService.Sources(session, 2500));
+    }
+
+    /// <summary>实时录制保留现有增量投影，后续媒体覆盖的记录不会提前丢失。</summary>
+    [Fact]
+    public async Task ActivePlaybackKeepsItsUnboundedIncrementalProjection()
+    {
+        var sc = Item(1, "SuperChat", 1200, 30);
+        sc.EventId = "same-sc";
+        var tail = Item(2, "SuperChat", 1800, 300);
+        tail.EventId = sc.EventId;
+        await AppendAsync("source", sc, tail, Item(3, "Danmu", 1200), Item(4, "Danmu", 1800));
+        using var service = new SessionTimelineService();
+
+        var initial = await service.GetAsync(Session(), root, 1500);
+        var extended = await service.GetAsync(Session(), root, 2500);
+
+        Assert.Equal(300m, Assert.Single(initial.Markers).Amount);
+        Assert.Equal(2, Assert.Single(extended.Heat).Count);
+        Assert.Equal(300m, Assert.Single(extended.Markers).Amount);
+    }
 
     /// <summary>热度只统计弹幕，四类记录分别聚合，协议包及空档不进入热度。</summary>
     [Fact]
@@ -285,6 +405,11 @@ public sealed class PlaybackTimelineProjectionTests : IDisposable
     }
 
     private static BroadcastSession Session() => new() { DirectoryPath = "source" };
+    private static BroadcastSession CompletedSession()
+    {
+        var start = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        return new() { DirectoryPath = "source", StartedAtUtc = start, EndedAtUtc = start.AddMinutes(1) };
+    }
     private string ArchivePath(string directory) => Path.Combine(root, directory, "弹幕", "事件.jsonl");
     private string CachePath(string directory) => Path.Combine(root, directory, "分析", "timeline.json");
     private async Task<JsonObject> CacheAsync() => JsonNode.Parse(await File.ReadAllTextAsync(CachePath("source")))!.AsObject();

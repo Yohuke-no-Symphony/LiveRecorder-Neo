@@ -169,13 +169,25 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
         }
     }
 
-    /// <summary>返回原场次或已经投影的事件来源。</summary>
-    public static IReadOnlyList<EventArchiveSource> Sources(BroadcastSession session)
+    /// <summary>返回原场次或已经投影的事件来源，可按已结束场次的播放终点裁剪尾部。</summary>
+    public static IReadOnlyList<EventArchiveSource> Sources(BroadcastSession session, double? playbackEndMs = null)
     {
-        return session.EventSources.Count > 0 ? session.EventSources : new[]
+        IReadOnlyList<EventArchiveSource> sources = session.EventSources.Count > 0 ? session.EventSources : new[]
         {
             new EventArchiveSource { DirectoryPath = session.DirectoryPath, FromMs = 0, ToMs = session.EndedAtUtc is { } end ? (end - session.StartedAtUtc).TotalMilliseconds : null }
         };
+        if (session.EndedAtUtc is null || playbackEndMs is null)
+        {
+            return sources;
+        }
+        var playbackEnd = double.IsFinite(playbackEndMs.Value) ? Math.Max(0, playbackEndMs.Value) : 0;
+        return sources.Select(source => new EventArchiveSource
+        {
+            DirectoryPath = source.DirectoryPath,
+            StartOffsetMs = source.StartOffsetMs,
+            FromMs = source.FromMs,
+            ToMs = Math.Min(source.ToMs ?? double.MaxValue, playbackEnd - source.StartOffsetMs)
+        }).ToList();
     }
 
     private async Task<SessionDetail> RequireEditableAsync(string id, CancellationToken cancellationToken)

@@ -63,6 +63,18 @@ public static class LibraryEndpoints
             return Results.Ok((await collection.Find(filter).Sort(Builders<BroadcastSession>.Sort.Descending(x => x.CreatedAtUtc).Descending(x => x.Id)).Limit(Math.Clamp(take ?? 50, 1, 200)).ToListAsync(ct)).Select(LocalizedState.ForResponse));
         });
         api.MapGet("/sessions/{id}", async (string id, LibraryService library, CancellationToken ct) => Results.Ok(LocalizedState.ForResponse(await library.GetAsync(id, ct))));
+        api.MapGet("/sessions/{id}/segments/{segmentId}/download", async (string id, string segmentId, LibraryService library, IAppPaths paths, CancellationToken ct) =>
+        {
+            var detail = await library.GetAsync(id, ct);
+            var segment = detail.Segments.FirstOrDefault(item => item.Id == segmentId)
+                          ?? throw new InfrastructureException(MessageCode.LIBRARY_SEGMENT_NOT_FOUND, 404);
+            if (!segment.IsClosed || segment.DurationMs <= 0 || segment.CommittedBytes < 13)
+            {
+                throw new InfrastructureException(MessageCode.LIBRARY_SEGMENT_NOT_READY, 409);
+            }
+            var path = MediaPaths.ResolveSegment(paths.RecordsDirectory, detail.Session.DirectoryPath, segment);
+            return Download(path, Path.GetFileName(path));
+        });
         api.MapGet("/sessions/{id}/cover", async (string id, LibraryService library, ArtworkCache artwork, IAppPaths paths, CancellationToken ct) =>
         {
             var session = (await library.GetAsync(id, ct)).Session;
@@ -86,12 +98,12 @@ public static class LibraryEndpoints
             {
                 throw new InfrastructureException(MessageCode.LIBRARY_EVENT_RANGE_INVALID);
             }
-            return Results.Ok(LocalizedState.ForResponse(await reader.ReadAsync(detail.Session, paths.RecordsDirectory, from, Math.Min(until, detail.DurationMs), kind, cursor, limit ?? 300, ct)));
+            return Results.Ok(LocalizedState.ForResponse(await reader.ReadAsync(detail, paths.RecordsDirectory, from, Math.Min(until, detail.DurationMs), kind, cursor, limit ?? 300, ct)));
         });
         api.MapGet("/sessions/{id}/analytics", async (string id, LibraryService library, IAppPaths paths, AnalyticsService analytics, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
-            var report = await analytics.GetAsync(detail.Session, paths.RecordsDirectory, ct);
+            var report = await analytics.GetAsync(detail.Session, paths.RecordsDirectory, detail.DurationMs, ct);
             report.CoverageGaps = Math.Max(report.CoverageGaps, detail.Gaps.Count);
             return Results.Ok(report);
         }).RequireAuthorization(UserPermissionNames.VIEW_ANALYTICS);

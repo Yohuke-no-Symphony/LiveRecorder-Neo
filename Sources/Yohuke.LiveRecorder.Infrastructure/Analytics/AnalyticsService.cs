@@ -16,7 +16,20 @@ public sealed class AnalyticsService(EventArchiveReader reader)
     public Task<AnalyticsReport> GetAsync(BroadcastSession session, string storageRoot,
         CancellationToken cancellationToken = default)
     {
-        var sources = SessionGroupingService.Sources(session).Select(source =>
+        return GetSessionAsync(session, storageRoot, null, cancellationToken);
+    }
+
+    /// <summary>按统一播放终点排除已结束场次的尾部互动，再计算金融去重和用户统计。</summary>
+    public Task<AnalyticsReport> GetAsync(BroadcastSession session, string storageRoot, double playbackEndMs,
+        CancellationToken cancellationToken = default)
+    {
+        return GetSessionAsync(session, storageRoot, playbackEndMs, cancellationToken);
+    }
+
+    private Task<AnalyticsReport> GetSessionAsync(BroadcastSession session, string storageRoot, double? playbackEndMs,
+        CancellationToken cancellationToken)
+    {
+        var sources = SessionGroupingService.Sources(session, playbackEndMs).Select(source =>
             (Path: Path.Combine(MediaPaths.Resolve(storageRoot, source.DirectoryPath), "弹幕", "事件.jsonl"),
                 Offset: source.StartOffsetMs, From: source.FromMs, To: source.ToMs)).ToList();
         var output = Path.Combine(MediaPaths.Resolve(storageRoot, session.DirectoryPath), "分析", "summary.json");
