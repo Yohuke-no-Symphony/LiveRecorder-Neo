@@ -84,15 +84,20 @@ public sealed class MediaProcessRunner : IDisposable
         {
             Kill(process);
             await process.WaitForExitAsync(CancellationToken.None);
+            cancellationToken.ThrowIfCancellationRequested();
             throw;
         }
     }
 
     private static async Task WriteInputAsync(Process process, Func<Stream, CancellationToken, Task> input, CancellationToken cancellationToken)
     {
+        using var stream = new MediaProcessInputStream(process.StandardInput.BaseStream);
         try
         {
-            await input(process.StandardInput.BaseStream, cancellationToken);
+            await input(stream, cancellationToken);
+        }
+        catch (Exception exception) when (ReferenceEquals(exception, stream.WriteFailure))
+        {
         }
         catch
         {
@@ -101,7 +106,13 @@ public sealed class MediaProcessRunner : IDisposable
         }
         finally
         {
-            process.StandardInput.Close();
+            try
+            {
+                process.StandardInput.Close();
+            }
+            catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+            {
+            }
         }
     }
 
