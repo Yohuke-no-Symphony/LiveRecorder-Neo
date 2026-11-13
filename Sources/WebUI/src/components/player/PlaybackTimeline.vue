@@ -1,20 +1,27 @@
 <template>
   <div class="playback-timeline">
-    <div v-if="timeline || loading || error" class="timeline-legend">
+    <div v-if="timeline || bookmarks?.length || loading || error" class="timeline-legend">
       <template v-if="timeline">
         <button class="timeline-filter heat-filter" type="button" :aria-pressed="showHeat" @click="showHeat = !showHeat"><span />{{ t('components.player.danmuHeat') }}</button>
         <button v-for="kind in markerKinds" :key="kind" class="timeline-filter" :data-kind="kind" type="button" :aria-pressed="enabledKinds.has(kind)" :style="{ '--marker-color': colors[kind] }" @click="toggleKind(kind)"><span />{{ kindName(kind) }}</button>
       </template>
+      <button v-if="bookmarks?.length" class="timeline-filter" type="button" data-kind="Bookmark" :aria-pressed="showBookmarks" :style="{ '--marker-color': BOOKMARK_COLOR }" @click="showBookmarks = !showBookmarks"><span />{{ t('components.bookmarks.title') }}</button>
       <span v-if="loading" class="timeline-loading" :aria-label="t('components.player.timelineLoading')">···</span>
       <button v-if="error" type="button" class="timeline-retry" :title="error" @click="emit('retry')">{{ t('components.common.retry') }}</button>
     </div>
-    <div v-if="timeline" ref="plot" class="timeline-plot">
-      <svg v-if="showHeat" class="timeline-heat" viewBox="0 0 1000 28" preserveAspectRatio="none" role="img" :aria-label="t('components.player.danmuHeat')" @mouseleave="hoveredHeat = undefined">
+    <div v-if="timeline || bookmarks?.length" ref="plot" class="timeline-plot">
+      <svg v-if="timeline && showHeat" class="timeline-heat" viewBox="0 0 1000 28" preserveAspectRatio="none" role="img" :aria-label="t('components.player.danmuHeat')" @mouseleave="hoveredHeat = undefined">
         <rect v-for="column in heatColumns" :key="column.offsetMs" :x="column.left * 10" :width="Math.max(.2, column.width * 10 - .5)" :y="28 - column.strength * 26" :height="column.strength * 26" :aria-label="t('components.player.heatSummary', { time: formatDuration(column.offsetMs), count: formatNumber(column.count) })" @mouseenter="showHeatDetail(column)" @click.stop="emit('seek', column.offsetMs)" />
       </svg>
       <button v-for="marker in markers" :key="marker.key" type="button" class="timeline-marker" :data-kind="marker.kind" :style="markerStyle(marker)" :aria-label="markerLabel(marker)" @mouseenter="showMarkerDetail(marker)" @mouseleave="hoveredMarker = undefined" @focus="showMarkerDetail(marker)" @blur="hoveredMarker = undefined" @click.stop="emit('seek', marker.offsetMs)"><span v-if="marker.count > 1" class="marker-stack" /></button>
-      <div v-if="hoveredMarker || hoveredHeat" class="timeline-tooltip" role="tooltip" :style="{ left: `${tooltipLeft}px` }">
-        <template v-if="hoveredMarker">
+      <button v-for="bookmark in visibleBookmarks" :key="bookmark.id" type="button" class="timeline-marker" data-kind="Bookmark" :style="bookmarkStyle(bookmark)" :aria-label="bookmarkLabel(bookmark)" @mouseenter="showBookmarkDetail(bookmark)" @mouseleave="hoveredBookmark = undefined" @focus="showBookmarkDetail(bookmark)" @blur="hoveredBookmark = undefined" @click.stop="emit('seek', bookmark.offsetMs)" />
+      <div v-if="hoveredMarker || hoveredHeat || hoveredBookmark" class="timeline-tooltip" role="tooltip" :style="{ left: `${tooltipLeft}px` }">
+        <template v-if="hoveredBookmark">
+          <div class="tooltip-heading"><strong>{{ t('components.bookmarks.title') }}</strong></div>
+          <div class="tooltip-time mono">{{ formatTimecode(hoveredBookmark.offsetMs) }}</div>
+          <div class="tooltip-text">{{ hoveredBookmark.title }}</div>
+        </template>
+        <template v-else-if="hoveredMarker">
           <div class="tooltip-heading"><strong>{{ kindName(hoveredMarker.kind) }}</strong><span>{{ t('components.player.eventCount', { count: formatNumber(hoveredMarker.count) }) }}</span></div>
           <div class="tooltip-time mono">{{ formatDuration(hoveredMarker.offsetMs) }}<template v-if="hoveredMarker.endOffsetMs > hoveredMarker.offsetMs"> – {{ formatDuration(hoveredMarker.endOffsetMs) }}</template></div>
           <div class="tooltip-text"><b v-if="hoveredMarker.userName">{{ hoveredMarker.userName }} · </b>{{ hoveredMarker.text }}</div>
@@ -23,9 +30,6 @@
         </template>
         <template v-else-if="hoveredHeat"><strong>{{ t('components.player.danmuHeat') }}</strong><div class="tooltip-time mono">{{ formatDuration(hoveredHeat.offsetMs) }}</div><div>{{ t('components.events.messageCount', { count: formatNumber(hoveredHeat.count) }) }}</div></template>
       </div>
-    </div>
-    <div v-if="bookmarks?.length" class="bookmark-track">
-      <button v-for="bookmark in bookmarks" :key="bookmark.id" type="button" class="bookmark-point" :style="{ left: `${clampOffset(bookmark.offsetMs, durationMs) / Math.max(1, durationMs) * 100}%` }" :title="bookmarkLabel(bookmark)" :aria-label="bookmarkLabel(bookmark)" @click.stop="emit('seek', bookmark.offsetMs)"><v-icon icon="mdi-bookmark" size="16" /></button>
     </div>
     <div class="timeline-track">
       <div v-if="selectedRange" class="timeline-selected-range" aria-hidden="true"><span :style="{ left: `${selectedRange[0] / Math.max(1, durationMs) * 100}%`, width: `${(selectedRange[1] - selectedRange[0]) / Math.max(1, durationMs) * 100}%` }" /></div>
@@ -50,17 +54,22 @@ const props = withDefaults(defineProps<{ modelValue: number; durationMs: number;
 const emit = defineEmits<{ 'update:modelValue': [value: number]; start: []; end: []; seek: [offsetMs: number]; retry: [] }>()
 const { t } = useI18n()
 const markerKinds = TIMELINE_MARKER_KINDS
+const MARKER_LANE_HEIGHT = 8
+const BOOKMARK_COLOR = '#f5c974'
 const colors: Record<TimelineMarkerKind, string> = { Gift: '#f39473', SuperChat: '#7ebcf1', RedPocket: '#f07c9d', Guard: '#b5a0f2' }
 const enabledKinds = ref(new Set(markerKinds))
 const showHeat = ref(true)
+const showBookmarks = ref(true)
 const plot = ref<HTMLElement>()
 const plotWidth = ref(600)
 const hoveredMarker = ref<DisplayTimelineMarker>()
 const hoveredHeat = ref<DanmuHeatBucket>()
+const hoveredBookmark = ref<SessionBookmark>()
 const normalizedGaps = computed(() => normalizeTimelineGaps(props.gaps, props.durationMs))
 const heatColumns = computed(() => timelineHeatColumns(props.timeline?.heat ?? [], props.timeline?.bucketWidthMs ?? 0, props.durationMs))
 const markers = computed(() => groupTimelineMarkers((props.timeline?.markers ?? []).filter(item => enabledKinds.value.has(item.kind)), props.durationMs, Math.max(1, Math.floor(plotWidth.value / 14))))
-const hoverOffset = computed(() => hoveredMarker.value?.offsetMs ?? hoveredHeat.value?.offsetMs ?? 0)
+const visibleBookmarks = computed(() => showBookmarks.value ? props.bookmarks ?? [] : [])
+const hoverOffset = computed(() => hoveredBookmark.value?.offsetMs ?? hoveredMarker.value?.offsetMs ?? hoveredHeat.value?.offsetMs ?? 0)
 const tooltipLeft = computed(() => Math.max(0, Math.min(props.durationMs > 0 ? hoverOffset.value / props.durationMs * plotWidth.value - 130 : 0, Math.max(0, plotWidth.value - 260))))
 const selectedRange = computed(() =>
 {
@@ -75,6 +84,11 @@ const selectedRange = computed(() =>
 function bookmarkLabel(bookmark: SessionBookmark): string
 {
   return t('components.bookmarks.jump', { title: bookmark.title, time: formatTimecode(bookmark.offsetMs) })
+}
+
+function bookmarkStyle(bookmark: SessionBookmark)
+{
+  return { left: `${clampOffset(bookmark.offsetMs, props.durationMs) / Math.max(1, props.durationMs) * 100}%`, bottom: `${markerKinds.length * MARKER_LANE_HEIGHT}px`, '--marker-color': BOOKMARK_COLOR }
 }
 
 watch(plot, (element, _previous, onCleanup) =>
@@ -102,6 +116,7 @@ watch(plot, (element, _previous, onCleanup) =>
 watch(markers, () => { hoveredMarker.value = undefined })
 watch(heatColumns, () => { hoveredHeat.value = undefined })
 watch(showHeat, () => { hoveredHeat.value = undefined })
+watch(visibleBookmarks, () => { hoveredBookmark.value = undefined })
 
 function kindName(kind: TimelineMarkerKind): string
 {
@@ -123,7 +138,7 @@ function toggleKind(kind: TimelineMarkerKind): void
 }
 function markerStyle(marker: DisplayTimelineMarker)
 {
-  return { left: `${marker.offsetMs / props.durationMs * 100}%`, bottom: `${markerKinds.indexOf(marker.kind) * 7}px`, '--marker-color': colors[marker.kind] }
+  return { left: `${marker.offsetMs / props.durationMs * 100}%`, bottom: `${markerKinds.indexOf(marker.kind) * MARKER_LANE_HEIGHT}px`, '--marker-color': colors[marker.kind] }
 }
 function markerLabel(marker: DisplayTimelineMarker): string
 {
@@ -131,21 +146,26 @@ function markerLabel(marker: DisplayTimelineMarker): string
 }
 function showMarkerDetail(marker: DisplayTimelineMarker): void
 {
+  hoveredBookmark.value = undefined
   hoveredHeat.value = undefined
   hoveredMarker.value = marker
 }
 function showHeatDetail(bucket: DanmuHeatBucket): void
 {
+  hoveredBookmark.value = undefined
   hoveredMarker.value = undefined
   hoveredHeat.value = bucket
+}
+function showBookmarkDetail(bookmark: SessionBookmark): void
+{
+  hoveredMarker.value = undefined
+  hoveredHeat.value = undefined
+  hoveredBookmark.value = bookmark
 }
 </script>
 
 <style scoped>
 .playback-timeline { min-width: 0; }
-.bookmark-track { position: relative; height: 22px; margin: 0 8px; }
-.bookmark-point { position: absolute; top: 2px; transform: translateX(-50%); display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; color: #f5c974; background: transparent; cursor: pointer; }
-.bookmark-point:hover, .bookmark-point:focus-visible { background: #ffffff25; outline: 1px solid #f5c974; z-index: 3; }
 .timeline-selected-range { position: absolute; left: 8px; right: 8px; top: 50%; height: 12px; transform: translateY(-50%); pointer-events: none; }
 .timeline-selected-range span { position: absolute; height: 12px; border-radius: 3px; background: #f3947350; }
 .timeline-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 11px; min-height: 20px; margin: 2px 8px 3px; }
@@ -153,8 +173,8 @@ function showHeatDetail(bucket: DanmuHeatBucket): void
 .timeline-filter > span { width: 5px; height: 5px; border-radius: 50%; background: var(--marker-color); }
 .heat-filter > span { background: #7ac9b8; }.timeline-filter[aria-pressed="false"] { opacity: .35; }.timeline-filter:hover { color: #fff; }
 .timeline-loading { margin-left: auto; color: #a8adb8; font-size: .7rem; }.timeline-retry { color: #f39473; margin-left: auto; }
-.timeline-plot { position: relative; height: 32px; margin: 0 8px -3px; }
-.timeline-heat { position: absolute; inset: 0; height: 28px; width: 100%; fill: #7ac9b8; opacity: .4; overflow: visible; }
+.timeline-plot { position: relative; height: 48px; margin: 0 8px -3px; }
+.timeline-heat { position: absolute; inset: 0; height: 44px; width: 100%; fill: #7ac9b8; opacity: .4; overflow: visible; }
 .timeline-heat rect { cursor: pointer; }.timeline-heat rect:hover { opacity: .6; }
 .timeline-marker { position: absolute; transform: translateX(-50%); width: 10px; height: 7px; padding: 0; border: 1px solid #0d1017; border-radius: 2px; background: var(--marker-color); cursor: pointer; z-index: 1; }
 .timeline-marker:hover, .timeline-marker:focus-visible { outline: 1px solid #fff; z-index: 2; }
