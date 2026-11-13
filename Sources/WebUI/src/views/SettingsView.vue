@@ -25,7 +25,7 @@
       <v-card class="form-section"><h2>{{ t('shell.settings.retention') }}</h2><div class="form-stack"><v-text-field v-model.number="settings.clipRetentionDays" :label="t('shell.settings.clipRetention')" type="number" min="1" /><v-text-field v-model.number="settings.trashRetentionDays" :label="t('shell.settings.trashRetention')" type="number" min="1" /><v-text-field v-model.number="settings.cacheRetentionMinutes" :label="t('shell.settings.cacheRetention')" type="number" min="1" /></div></v-card>
       <v-card class="form-section"><h2>{{ t('shell.settings.resourceLimits') }}</h2><div class="form-stack"><v-text-field v-model.number="cacheGiB" :label="t('shell.settings.cacheLimit')" type="number" min="1" /><v-text-field v-model.number="minimumFreeGiB" :label="t('shell.settings.minimumFree')" type="number" min="1" /><v-text-field v-model.number="settings.mediaConcurrency" :label="t('shell.settings.mediaConcurrency')" type="number" min="1" max="32" /><v-text-field v-model.number="settings.playbackConcurrency" :label="t('shell.settings.playbackConcurrency')" type="number" min="1" max="32" /></div></v-card>
     </div>
-    <v-card v-else-if="tab === 'registration'" class="form-section" style="max-width: 660px"><h2>{{ t('shell.settings.registrationSettings') }}</h2><v-switch v-model="settings.registrationEnabled" :label="t('shell.settings.registrationEnabled')" /><v-divider class="my-6" /><v-btn variant="tonal" prepend-icon="mdi-account-group-outline" to="/admin/users">{{ t('shell.settings.manageUsers') }}</v-btn></v-card>
+    <RegistrationSettings v-else-if="tab === 'registration'" v-model="settings" :disabled="saving" />
     <v-card v-else-if="tab === 'smtp'" class="form-section" style="max-width: 800px">
       <h2>{{ t('shell.settings.smtp') }}</h2>
       <div class="form-stack">
@@ -64,6 +64,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import LanguageSelect from '@/components/common/LanguageSelect.vue'
 import DataDirectorySettings from '@/components/common/DataDirectorySettings.vue'
+import RegistrationSettings from '@/components/common/RegistrationSettings.vue'
 
 const { t } = useI18n()
 const preferences = usePreferencesStore()

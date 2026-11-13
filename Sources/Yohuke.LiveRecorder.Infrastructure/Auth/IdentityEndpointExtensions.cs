@@ -52,6 +52,12 @@ public static class IdentityEndpointExtensions
             await identity.SendEmailCodeAsync(request, ct);
             return Results.NoContent();
         });
+        auth.MapGet("/registration-options", async (HttpContext http, ISettingsStore settingsStore, CancellationToken ct) =>
+        {
+            var settings = await settingsStore.GetAsync(ct);
+            http.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(new RegistrationOptions(settings.RegistrationEnabled, settings.RegistrationApprovalRequired, settings.RegistrationInvitationRequired, settings.RegistrationEmailVerificationRequired));
+        });
         auth.MapPost("/register", async (RegisterRequest request, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.RegisterAsync(request, ct)));
         auth.MapGet("/identities", async (HttpContext http, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.ListExternalProvidersAsync(http.User.FindFirstValue(ClaimTypes.NameIdentifier)!, ct))).RequireAuthorization();
         auth.MapGet("/oauth/providers", async (ISettingsStore settings, CancellationToken ct) => Results.Ok((await settings.GetAsync(ct)).OAuthProviders.Where(x => x.Enabled).Select(x => new { x.Id, x.Name })));

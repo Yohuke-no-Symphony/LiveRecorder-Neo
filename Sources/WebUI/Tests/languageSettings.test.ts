@@ -93,6 +93,7 @@ function settings(defaultLanguage: AppLanguage): ServerSettings
     cacheLimitBytes: 1024 ** 3, cacheRetentionMinutes: 30, minimumFreeBytes: 1024 ** 3,
     mediaConcurrency: 2, playbackConcurrency: 2, monitorIntervalSeconds: 15, sessionGraceMinutes: 5,
     registrationEnabled: true, ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe',
+    registrationApprovalRequired: true, registrationInvitationRequired: true, registrationEmailVerificationRequired: true,
     smtp: { host: '', port: 587, useSsl: true, checkCertificateRevocation: true, userName: '', password: '', fromAddress: '', fromName: '' },
     oauthProviders: [],
   }

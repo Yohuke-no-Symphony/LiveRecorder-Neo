@@ -13,11 +13,11 @@ public interface IIdentityService
     Task<UserProfile?> ValidateSessionAsync(string id, CancellationToken cancellationToken = default);
     /// <summary>列出网站用户。</summary>
     Task<IReadOnlyList<UserProfile>> ListUsersAsync(CancellationToken cancellationToken = default);
-    /// <summary>通过配置的邮件服务器发送单次验证码。</summary>
+    /// <summary>启用邮箱验证时，通过配置的邮件服务器发送单次验证码。</summary>
     Task SendEmailCodeAsync(EmailCodeRequest request, CancellationToken cancellationToken = default);
-    /// <summary>完成三项注册门禁，创建待审核用户。</summary>
+    /// <summary>按服务器配置校验注册要求并创建用户。</summary>
     Task<UserProfile> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default);
-    /// <summary>将已验证外部身份注册为待审核本地用户。</summary>
+    /// <summary>将已验证外部身份按相同注册要求创建为本地用户。</summary>
     Task<UserProfile> CompleteOAuthRegistrationAsync(string ticket, OAuthRegistrationRequest request, CancellationToken cancellationToken = default);
     /// <summary>批准或拒绝用户。</summary>
     Task<UserProfile> SetApprovalAsync(string id, bool approved, CancellationToken cancellationToken = default);

@@ -10,8 +10,8 @@ export const viewsZh = {
     play: '播放', download: '下载', remove: '移除', moveToTrash: '移入回收站', recordCount: '{count} 条', giftCount: '{count} 个',
     danmu: '弹幕', superChat: 'SC', gifts: '礼物', guard: '大航海', redPocket: '红包',
   },
-  login: { title: '登录', registered: '注册成功，等待管理员审核', providerLogin: '{provider} 登录', register: '注册账号' },
-  register: { title: '注册', complete: '完成注册', displayName: '显示名称', invitationCode: '邀请码', submit: '提交注册' },
+  login: { title: '登录', registered: '注册成功，等待管理员审核', approved: '注册成功，请登录', providerLogin: '{provider} 登录', register: '注册账号' },
+  register: { title: '注册', complete: '完成注册', displayName: '显示名称', invitationCode: '邀请码', submit: '提交注册', closed: '暂未开放注册' },
   setup: {
     title: '初次安装', adminStep: '管理员', storageStep: '存储', databaseStep: '数据库', step: '{number} · {name}',
     token: '安装令牌', adminName: '管理员名称', adminEmail: '管理员邮箱', confirmPassword: '确认密码',
@@ -84,8 +84,8 @@ export const viewsEn: MessageSchema<typeof viewsZh> = {
     play: 'Play', download: 'Download', remove: 'Remove', moveToTrash: 'Move to trash', recordCount: '{count} records', giftCount: '{count} gifts',
     danmu: 'Chat', superChat: 'Super Chat', gifts: 'Gifts', guard: 'Memberships', redPocket: 'Red packets',
   },
-  login: { title: 'Sign in', registered: 'Registration complete. Awaiting administrator approval.', providerLogin: 'Sign in with {provider}', register: 'Create an account' },
-  register: { title: 'Register', complete: 'Complete registration', displayName: 'Display name', invitationCode: 'Invitation code', submit: 'Submit registration' },
+  login: { title: 'Sign in', registered: 'Registration complete. Awaiting administrator approval.', approved: 'Registration complete. Please sign in.', providerLogin: 'Sign in with {provider}', register: 'Create an account' },
+  register: { title: 'Register', complete: 'Complete registration', displayName: 'Display name', invitationCode: 'Invitation code', submit: 'Submit registration', closed: 'Registration is currently closed.' },
   setup: {
     title: 'Initial setup', adminStep: 'Administrator', storageStep: 'Storage', databaseStep: 'Database', step: '{number} · {name}',
     token: 'Installation token', adminName: 'Administrator name', adminEmail: 'Administrator email', confirmPassword: 'Confirm password',
@@ -158,8 +158,8 @@ export const viewsJa: MessageSchema<typeof viewsZh> = {
     play: '再生', download: 'ダウンロード', remove: '削除', moveToTrash: 'ゴミ箱に移動', recordCount: '{count} 件', giftCount: '{count} 個',
     danmu: 'コメント', superChat: 'スーパーチャット', gifts: 'ギフト', guard: '大航海', redPocket: 'お年玉',
   },
-  login: { title: 'ログイン', registered: '登録が完了しました。管理者の承認をお待ちください。', providerLogin: '{provider} でログイン', register: 'アカウントを登録' },
-  register: { title: '新規登録', complete: '登録を完了', displayName: '表示名', invitationCode: '招待コード', submit: '登録を申請' },
+  login: { title: 'ログイン', registered: '登録が完了しました。管理者の承認をお待ちください。', approved: '登録が完了しました。ログインしてください。', providerLogin: '{provider} でログイン', register: 'アカウントを登録' },
+  register: { title: '新規登録', complete: '登録を完了', displayName: '表示名', invitationCode: '招待コード', submit: '登録を申請', closed: '現在、新規登録は受け付けていません。' },
   setup: {
     title: '初期設定', adminStep: '管理者', storageStep: 'ストレージ', databaseStep: 'データベース', step: '{number} · {name}',
     token: 'インストールトークン', adminName: '管理者名', adminEmail: '管理者メールアドレス', confirmPassword: 'パスワードの確認',

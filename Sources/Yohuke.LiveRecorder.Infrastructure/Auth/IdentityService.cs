@@ -15,7 +15,7 @@ using Yohuke.LiveRecorder.Infrastructure.Persistence;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Auth;
 
-/// <summary>以 MongoDB 保存账号与单次身份流程，所有新用户统一进入人工审核。</summary>
+/// <summary>以 MongoDB 保存账号与单次身份流程，统一执行普通注册与外部注册要求。</summary>
 public sealed class IdentityService(IMongoContext context, ISettingsStore settingsStore, IEmailSender emailSender, ISecretProtector protector, IPasswordHasher<UserAccount> passwordHasher, IHttpClientFactory httpClientFactory) : IIdentityService
 {
     private readonly SemaphoreSlim gate = new(1, 1);
@@ -82,7 +82,11 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         {
             throw new InfrastructureException(MessageCode.AUTH_EMAIL_PURPOSE_UNSUPPORTED);
         }
-        await EnsureRegistrationEnabledAsync(cancellationToken);
+        var settings = await EnsureRegistrationEnabledAsync(cancellationToken);
+        if (!settings.RegistrationEmailVerificationRequired)
+        {
+            return;
+        }
         await EnsureIndexesAsync(cancellationToken);
         EmailVerificationCode record;
         string code;
@@ -121,7 +125,7 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         var email = IdentityValidation.NormalizeEmail(request.Email);
         var name = IdentityValidation.NormalizeDisplayName(request.DisplayName);
         IdentityValidation.ValidatePassword(request.Password);
-        var user = new UserAccount { Email = email, NormalizedEmail = email, DisplayName = name, EmailVerified = true };
+        var user = new UserAccount { Email = email, NormalizedEmail = email, DisplayName = name };
         user.PasswordHash = passwordHasher.HashPassword(user, request.Password);
         return await RegisterCoreAsync(user, request.EmailCode, request.InvitationCode, null, cancellationToken);
     }
@@ -138,7 +142,7 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         var registration = await registrations.Find(x => x.Id == id && x.ExpiresAtUtc > DateTime.UtcNow).FirstOrDefaultAsync(cancellationToken)
                            ?? throw new InfrastructureException(MessageCode.AUTH_OAUTH_REGISTRATION_EXPIRED);
         var email = IdentityValidation.NormalizeEmail(request.Email);
-        var user = new UserAccount { Email = email, NormalizedEmail = email, DisplayName = IdentityValidation.NormalizeDisplayName(request.DisplayName), AvatarUrl = registration.AvatarUrl, EmailVerified = true };
+        var user = new UserAccount { Email = email, NormalizedEmail = email, DisplayName = IdentityValidation.NormalizeDisplayName(request.DisplayName), AvatarUrl = registration.AvatarUrl };
         var external = new ExternalLogin { Id = ExternalId(registration.ProviderId, registration.Subject), ProviderId = registration.ProviderId, Subject = registration.Subject, UserId = user.Id };
         var result = await RegisterCoreAsync(user, request.EmailCode, request.InvitationCode, external, cancellationToken);
         await registrations.DeleteOneAsync(x => x.Id == id, cancellationToken);
@@ -370,13 +374,17 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         }
     }
 
-    private async Task<UserProfile> RegisterCoreAsync(UserAccount user, string code, string invitationCode, ExternalLogin? external, CancellationToken cancellationToken)
+    private async Task<UserProfile> RegisterCoreAsync(UserAccount user, string? code, string? invitationCode, ExternalLogin? external, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(code) || code.Length != 6 || !code.All(char.IsAsciiDigit) || string.IsNullOrWhiteSpace(invitationCode) || invitationCode.Length > 128)
+        var settings = await EnsureRegistrationEnabledAsync(cancellationToken);
+        if (settings.RegistrationEmailVerificationRequired && (string.IsNullOrWhiteSpace(code) || code.Length != 6 || !code.All(char.IsAsciiDigit)))
         {
-            throw new InfrastructureException(MessageCode.AUTH_REGISTRATION_CODES_REQUIRED);
+            throw new InfrastructureException(MessageCode.AUTH_EMAIL_CODE_INVALID);
         }
-        await EnsureRegistrationEnabledAsync(cancellationToken);
+        if (settings.RegistrationInvitationRequired && (string.IsNullOrWhiteSpace(invitationCode) || invitationCode.Length > 128))
+        {
+            throw new InfrastructureException(MessageCode.AUTH_INVITATION_INVALID);
+        }
         await EnsureIndexesAsync(cancellationToken);
         await gate.WaitAsync(cancellationToken);
         Invitation? reserved = null;
@@ -391,30 +399,42 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
             {
                 throw new InfrastructureException(MessageCode.AUTH_OAUTH_ALREADY_REGISTERED, 409);
             }
-            var codeId = IdentityToken.Hash($"register:{user.NormalizedEmail}");
-            var verification = await Codes.FindOneAndUpdateAsync(x => x.Id == codeId && !x.Consumed && x.ExpiresAtUtc > DateTime.UtcNow && x.Attempts < 5, Builders<EmailVerificationCode>.Update.Inc(x => x.Attempts, 1), cancellationToken: cancellationToken);
-            if (verification is null || !IdentityToken.EqualsHash(verification.CodeHash, IdentityToken.CodeHash(user.NormalizedEmail, code, verification.Salt)))
+            EmailVerificationCode? verification = null;
+            if (settings.RegistrationEmailVerificationRequired)
             {
-                throw new InfrastructureException(MessageCode.AUTH_EMAIL_CODE_INVALID);
+                var codeId = IdentityToken.Hash($"register:{user.NormalizedEmail}");
+                verification = await Codes.FindOneAndUpdateAsync(x => x.Id == codeId && !x.Consumed && x.ExpiresAtUtc > DateTime.UtcNow && x.Attempts < 5, Builders<EmailVerificationCode>.Update.Inc(x => x.Attempts, 1), cancellationToken: cancellationToken);
+                if (verification is null || !IdentityToken.EqualsHash(verification.CodeHash, IdentityToken.CodeHash(user.NormalizedEmail, code!, verification.Salt)))
+                {
+                    throw new InfrastructureException(MessageCode.AUTH_EMAIL_CODE_INVALID);
+                }
             }
-            var invitationHash = IdentityToken.Hash(invitationCode.Trim().ToUpperInvariant());
-            var invitation = await Invitations.Find(x => x.CodeHash == invitationHash && !x.Revoked && (x.ExpiresAtUtc == null || x.ExpiresAtUtc > DateTime.UtcNow)).FirstOrDefaultAsync(cancellationToken);
-            if (invitation is null || invitation.UsedCount >= invitation.MaxUses)
+            if (settings.RegistrationInvitationRequired)
             {
-                throw new InfrastructureException(MessageCode.AUTH_INVITATION_INVALID);
+                var invitationHash = IdentityToken.Hash(invitationCode!.Trim().ToUpperInvariant());
+                var invitation = await Invitations.Find(x => x.CodeHash == invitationHash && !x.Revoked && (x.ExpiresAtUtc == null || x.ExpiresAtUtc > DateTime.UtcNow)).FirstOrDefaultAsync(cancellationToken);
+                if (invitation is null || invitation.UsedCount >= invitation.MaxUses)
+                {
+                    throw new InfrastructureException(MessageCode.AUTH_INVITATION_INVALID);
+                }
+                reserved = await Invitations.FindOneAndUpdateAsync(x => x.Id == invitation.Id && !x.Revoked && x.UsedCount == invitation.UsedCount, Builders<Invitation>.Update.Inc(x => x.UsedCount, 1), cancellationToken: cancellationToken);
+                if (reserved is null)
+                {
+                    throw new InfrastructureException(MessageCode.AUTH_INVITATION_CONFLICT, 409);
+                }
             }
-            reserved = await Invitations.FindOneAndUpdateAsync(x => x.Id == invitation.Id && !x.Revoked && x.UsedCount == invitation.UsedCount, Builders<Invitation>.Update.Inc(x => x.UsedCount, 1), cancellationToken: cancellationToken);
-            if (reserved is null)
-            {
-                throw new InfrastructureException(MessageCode.AUTH_INVITATION_CONFLICT, 409);
-            }
+            user.Status = settings.RegistrationApprovalRequired ? "Pending" : "Active";
+            user.EmailVerified = verification is not null;
             await Users.InsertOneAsync(user, cancellationToken: cancellationToken);
             insertedUser = true;
             if (external is not null)
             {
                 await context.Collection<ExternalLogin>("external_logins").InsertOneAsync(external, cancellationToken: cancellationToken);
             }
-            await Codes.UpdateOneAsync(x => x.Id == codeId && x.CodeHash == verification.CodeHash, Builders<EmailVerificationCode>.Update.Set(x => x.Consumed, true), cancellationToken: cancellationToken);
+            if (verification is not null)
+            {
+                await Codes.UpdateOneAsync(x => x.Id == verification.Id && x.CodeHash == verification.CodeHash, Builders<EmailVerificationCode>.Update.Set(x => x.Consumed, true), cancellationToken: cancellationToken);
+            }
             return Profile(user);
         }
         catch
@@ -439,12 +459,14 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         }
     }
 
-    private async Task EnsureRegistrationEnabledAsync(CancellationToken cancellationToken)
+    private async Task<ServerSettings> EnsureRegistrationEnabledAsync(CancellationToken cancellationToken)
     {
-        if (!(await settingsStore.GetAsync(cancellationToken)).RegistrationEnabled)
+        var settings = await settingsStore.GetAsync(cancellationToken);
+        if (!settings.RegistrationEnabled)
         {
             throw new InfrastructureException(MessageCode.AUTH_REGISTRATION_CLOSED, 403);
         }
+        return settings;
     }
 
     private async Task<OAuthProviderSettings> GetProviderAsync(string id, CancellationToken cancellationToken)

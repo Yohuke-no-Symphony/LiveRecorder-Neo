@@ -81,7 +81,7 @@ Windows PowerShell：
 ## 账号
 
 - 网站账号与 B站采集账号独立。B站扫码或短信登录由管理员操作，浏览器不提交 Cookie。
-- 本站注册必须同时通过邮件验证码、邀请码和管理员审核。首次 OAuth 建号执行相同条件。
+- 在「设置 → 注册」可独立控制管理员批准、邀请码和邮箱验证码，三项默认开启并兼容旧配置。关闭管理员批准后，新账号自动批准；关闭邀请码或邮箱验证码后，注册无需提供对应内容。普通注册与首次 OAuth 建号使用相同要求，注册完成均返回登录页；已绑定的 OAuth 账号仍按当前账号状态登录。
 - OAuth 为 Authorization Code + S256 PKCE，配置授权、token、userinfo 端点及字段映射。Yohuke.UserService 可使用 `/oauth2/authorize`、`/oauth2/token`、`/oauth2/userinfo`，scope 为 `profile email`，稳定身份字段为 `sub`。
 - 在提供方注册精确回调地址：`https://你的域名/oauth/callback/提供方标识`。
 - 已有账号需要显式绑定外部身份，不能依用户名或邮箱自动合并。

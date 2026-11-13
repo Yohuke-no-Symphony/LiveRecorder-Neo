@@ -3,7 +3,7 @@
     <v-card class="auth-card">
       <AppBrand />
       <h1 class="auth-title">{{ t('views.login.title') }}</h1>
-      <v-alert v-if="route.query.registered" type="success" class="mb-6">{{ t('views.login.registered') }}</v-alert>
+      <v-alert v-if="route.query.registered" type="success" class="mb-6">{{ t(route.query.registered === 'active' ? 'views.login.approved' : 'views.login.registered') }}</v-alert>
       <form class="form-stack" @submit.prevent="login">
         <v-text-field v-model="email" :label="t('views.common.email')" type="email" required autocomplete="email" />
         <v-text-field v-model="password" :label="t('views.common.password')" :type="showPassword ? 'text' : 'password'" required autocomplete="current-password" :append-inner-icon="showPassword ? 'mdi-eye-off-outline' : 'mdi-eye-outline'" @click:append-inner="showPassword = !showPassword" />

@@ -48,6 +48,9 @@ export interface ServerSettings
   monitorIntervalSeconds: number
   sessionGraceMinutes: number
   registrationEnabled: boolean
+  registrationApprovalRequired: boolean
+  registrationInvitationRequired: boolean
+  registrationEmailVerificationRequired: boolean
   ffmpegPath: string
   ffprobePath: string
   smtp: SmtpSettings

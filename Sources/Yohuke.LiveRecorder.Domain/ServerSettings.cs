@@ -23,6 +23,9 @@ public sealed class ServerSettings : Entity
     public int MonitorIntervalSeconds { get; set; } = 30;
     public int SessionGraceMinutes { get; set; } = 10;
     public bool RegistrationEnabled { get; set; }
+    public bool RegistrationApprovalRequired { get; set; } = true;
+    public bool RegistrationInvitationRequired { get; set; } = true;
+    public bool RegistrationEmailVerificationRequired { get; set; } = true;
     public string FfmpegPath { get; set; } = "ffmpeg";
     public string FfprobePath { get; set; } = "ffprobe";
     public SmtpSettings Smtp { get; set; } = new();

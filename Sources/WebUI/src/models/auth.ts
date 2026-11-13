@@ -22,8 +22,16 @@ export interface Registration
   email: string
   password: string
   displayName: string
-  emailCode: string
-  invitationCode: string
+  emailCode?: string
+  invitationCode?: string
+}
+
+export interface RegistrationOptions
+{
+  enabled: boolean
+  approvalRequired: boolean
+  invitationRequired: boolean
+  emailVerificationRequired: boolean
 }
 
 export interface OAuthExchange
