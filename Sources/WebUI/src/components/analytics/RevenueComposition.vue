@@ -1,6 +1,5 @@
 <template>
   <div class="revenue-composition">
-    <h2 class="section-heading">{{ t('views.analytics.revenueShare') }}</h2>
     <div v-if="total <= 0" class="empty-state py-10">{{ t('components.chart.empty') }}</div>
     <template v-else>
       <svg class="composition-chart" viewBox="0 0 200 200" role="img" :aria-label="t('views.analytics.revenueShare')">

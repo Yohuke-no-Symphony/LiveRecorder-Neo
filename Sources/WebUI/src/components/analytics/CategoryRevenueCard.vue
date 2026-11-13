@@ -1,5 +1,5 @@
 <template>
-  <v-card class="category-revenue-card pa-6" :data-kind="category.kind">
+  <v-card class="category-revenue-card card-content" :data-kind="category.kind">
     <div class="d-flex align-center ga-3 mb-4">
       <v-icon :icon="presentation.icon" :color="presentation.color" size="22" />
       <h3 class="category-title">{{ t(presentation.label) }}</h3>

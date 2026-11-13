@@ -7,7 +7,7 @@
     <p class="text-caption muted mb-5">{{ t('views.storage.scannedAt', { date: formatDate(report.scannedAtUtc) }) }}</p>
     <v-alert v-if="report.isPartial" type="warning" class="mb-6">{{ t('views.storage.partial') }}</v-alert>
     <div class="settings-grid mb-4">
-      <v-card v-for="volume in report.volumes" :key="volume.id" class="pa-6">
+      <v-card v-for="volume in report.volumes" :key="volume.id" class="card-content">
         <StorageBar :volume="volume" :title="t(volume.id === 'recordings' ? 'components.storage.recordingSpace' : 'components.storage.dataSpace')" detailed />
         <div class="storage-root text-caption muted mt-4">{{ volume.path }}</div>
       </v-card>

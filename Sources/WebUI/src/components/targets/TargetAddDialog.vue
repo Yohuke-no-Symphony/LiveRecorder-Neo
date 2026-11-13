@@ -1,52 +1,49 @@
 <template>
   <v-dialog :model-value="open" max-width="760" scrollable :persistent="saveBusy" :aria-labelledby="titleId" @update:model-value="updateOpen">
-    <v-card>
-      <v-card-text class="pa-6">
-        <h2 :id="titleId" class="text-h6 mb-4">{{ t('views.targets.add') }}</h2>
-        <div class="target-add-options mb-5">
-          <v-select v-model="accountId" :label="t('views.targets.bilibiliAccount')" :items="accountOptions" :disabled="saveBusy" hide-details />
-          <v-switch v-model="enabled" :label="t('views.targets.enableRecording')" :disabled="saveBusy" hide-details />
-        </div>
-        <v-tabs v-model="tab" color="primary" class="mb-5">
-          <v-tab value="search" :disabled="saveBusy">{{ t('components.targets.automaticSearch') }}</v-tab>
-          <v-tab value="manual" :disabled="saveBusy">{{ t('components.targets.manualAdd') }}</v-tab>
-        </v-tabs>
-        <v-window v-model="tab">
-          <v-window-item value="search" class="pt-3">
-            <form class="room-search-form" @submit.prevent="search">
-              <v-text-field name="roomSearch" :model-value="keyword" :label="t('components.targets.searchLabel')"
-                            :disabled="saveBusy" maxlength="200" clearable hide-details @update:model-value="keyword = $event ?? ''" />
-              <v-btn type="submit" color="primary" variant="tonal" :loading="loading" :disabled="saveBusy">{{ t('components.targets.search') }}</v-btn>
-            </form>
-            <p class="text-caption muted mt-3">{{ t('components.targets.searchHint') }}</p>
-            <v-alert v-if="searchError" type="error" variant="tonal" class="mt-4">{{ searchError }}</v-alert>
-            <v-alert v-for="(issue, index) in issues" :key="index" type="warning" variant="tonal" class="mt-4">{{ describeIssue(issue) }}</v-alert>
-            <RoomSearchResults :results="results" :monitored-room-ids="monitoredRoomIds" :busy="saveBusy" :saving-room-id="savingRoomId" @add="addRoom($event.roomId)" />
-            <p v-if="searched && !results.length && !issues.length && !searchError" class="text-body-2 muted text-center py-8">{{ t('components.targets.noResults') }}</p>
-            <div v-if="hasMore" class="d-flex justify-center mt-4">
-              <v-btn variant="text" :loading="loadingMore" :disabled="saveBusy || loading" @click="loadMore">{{ t('components.common.loadMore') }}</v-btn>
-            </div>
-          </v-window-item>
-          <v-window-item value="manual" class="pt-3">
-            <form :id="manualFormId" class="manual-room-form" @submit.prevent="addRoom(manualRoomId)">
-              <v-text-field v-model="manualRoomId" name="roomId" :label="t('views.targets.roomId')" inputmode="numeric"
-                            autocomplete="off" :disabled="saveBusy" :hint="t('components.targets.manualHint')" persistent-hint />
-            </form>
-          </v-window-item>
-        </v-window>
-        <v-alert v-if="saveError" type="error" variant="tonal" class="mt-4">{{ saveError }}</v-alert>
-      </v-card-text>
-      <v-card-actions class="px-6 pb-5">
-        <v-spacer />
+    <ContentCard :title="t('views.targets.add')" :title-id="titleId">
+      <div class="target-add-options mb-5">
+        <v-select v-model="accountId" :label="t('views.targets.bilibiliAccount')" :items="accountOptions" :disabled="saveBusy" hide-details />
+        <v-switch v-model="enabled" :label="t('views.targets.enableRecording')" :disabled="saveBusy" hide-details />
+      </div>
+      <v-tabs v-model="tab" color="primary" class="mb-5">
+        <v-tab value="search" :disabled="saveBusy">{{ t('components.targets.automaticSearch') }}</v-tab>
+        <v-tab value="manual" :disabled="saveBusy">{{ t('components.targets.manualAdd') }}</v-tab>
+      </v-tabs>
+      <v-window v-model="tab">
+        <v-window-item value="search" class="pt-3">
+          <form class="room-search-form" @submit.prevent="search">
+            <v-text-field name="roomSearch" :model-value="keyword" :label="t('components.targets.searchLabel')"
+                          :disabled="saveBusy" maxlength="200" clearable hide-details @update:model-value="keyword = $event ?? ''" />
+            <v-btn type="submit" color="primary" variant="tonal" :loading="loading" :disabled="saveBusy">{{ t('components.targets.search') }}</v-btn>
+          </form>
+          <p class="text-caption muted mt-3">{{ t('components.targets.searchHint') }}</p>
+          <v-alert v-if="searchError" type="error" variant="tonal" class="mt-4">{{ searchError }}</v-alert>
+          <v-alert v-for="(issue, index) in issues" :key="index" type="warning" variant="tonal" class="mt-4">{{ describeIssue(issue) }}</v-alert>
+          <RoomSearchResults :results="results" :monitored-room-ids="monitoredRoomIds" :busy="saveBusy" :saving-room-id="savingRoomId" @add="addRoom($event.roomId)" />
+          <p v-if="searched && !results.length && !issues.length && !searchError" class="text-body-2 muted text-center py-8">{{ t('components.targets.noResults') }}</p>
+          <div v-if="hasMore" class="d-flex justify-center mt-4">
+            <v-btn variant="text" :loading="loadingMore" :disabled="saveBusy || loading" @click="loadMore">{{ t('components.common.loadMore') }}</v-btn>
+          </div>
+        </v-window-item>
+        <v-window-item value="manual" class="pt-3">
+          <form :id="manualFormId" class="manual-room-form" @submit.prevent="addRoom(manualRoomId)">
+            <v-text-field v-model="manualRoomId" name="roomId" :label="t('views.targets.roomId')" inputmode="numeric"
+                          autocomplete="off" :disabled="saveBusy" :hint="t('components.targets.manualHint')" persistent-hint />
+          </form>
+        </v-window-item>
+      </v-window>
+      <v-alert v-if="saveError" type="error" variant="tonal" class="mt-4">{{ saveError }}</v-alert>
+      <template #actions>
         <v-btn variant="text" :disabled="saveBusy" @click="updateOpen(false)">{{ t('views.common.cancel') }}</v-btn>
         <v-btn v-if="tab === 'manual'" type="submit" :form="manualFormId" color="primary" variant="flat" :loading="saveBusy">{{ t('components.targets.add') }}</v-btn>
-      </v-card-actions>
-    </v-card>
+      </template>
+    </ContentCard>
   </v-dialog>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, useId, watch } from 'vue'
+import ContentCard from '@/components/common/ContentCard.vue'
 import { useI18n } from 'vue-i18n'
 import { MediaAPI } from '@/apis/MediaAPI'
 import { useAction } from '@/composables/useAction'

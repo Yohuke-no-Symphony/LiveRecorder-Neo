@@ -1,5 +1,5 @@
 <template>
-  <v-dialog v-model="opened" max-width="960">
+  <v-dialog v-model="opened" max-width="960" :aria-label="clip?.title">
     <v-card>
       <CardHeader :title="clip?.title ?? ''">
         <template #actions><v-btn icon="mdi-close" variant="text" size="small" :aria-label="t('components.player.closePreview')" @click="opened = false" /></template>

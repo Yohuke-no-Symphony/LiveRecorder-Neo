@@ -5,7 +5,7 @@
     <BilibiliAccountCard v-for="account in accounts" :key="account.id" :account="account" @remove="selected = $event" />
   </div>
   <EmptyState v-else-if="!busy" :title="t('views.accounts.empty')" icon="mdi-account-box-outline"><v-btn color="primary" @click="openLogin">{{ t('views.accounts.add') }}</v-btn></EmptyState>
-  <v-dialog v-model="loginOpen" max-width="440" @after-leave="resetLogin"><v-card class="pa-6"><h2 class="text-h6 mb-5">{{ t('views.accounts.addBilibili') }}</h2><v-tabs v-model="loginMethod" color="primary" grow class="mb-6"><v-tab value="qr">{{ t('views.accounts.qrLogin') }}</v-tab><v-tab value="sms">{{ t('views.accounts.smsLogin') }}</v-tab></v-tabs><v-alert v-if="loginError" type="error" class="mb-5">{{ loginError }}</v-alert>
+  <v-dialog v-model="loginOpen" max-width="440" :aria-label="t('views.accounts.addBilibili')" @after-leave="resetLogin"><ContentCard :title="t('views.accounts.addBilibili')"><v-tabs v-model="loginMethod" color="primary" grow class="mb-4"><v-tab value="qr">{{ t('views.accounts.qrLogin') }}</v-tab><v-tab value="sms">{{ t('views.accounts.smsLogin') }}</v-tab></v-tabs><v-alert v-if="loginError" type="error" class="mb-5">{{ loginError }}</v-alert>
     <div v-if="loginMethod === 'qr'" class="qr-login">
       <v-progress-circular v-if="loginBusy" indeterminate color="primary" class="my-10" />
       <img v-else-if="qrImage && !['Expired', 'Complete', 'Failed'].includes(loginSession?.status ?? '')" :src="qrImage" width="220" height="220" :alt="t('views.accounts.qrAlt')" />
@@ -20,13 +20,14 @@
       <template v-else-if="loginSession.status === 'SmsSent'"><v-text-field v-model="smsCode" :label="t('views.accounts.smsCode')" inputmode="numeric" autocomplete="one-time-code" required /><v-btn type="submit" color="primary" :loading="loginBusy" block>{{ t('views.common.login') }}</v-btn></template>
       <div v-else class="text-center py-6"><v-icon :icon="loginSession.status === 'Complete' ? 'mdi-check-circle-outline' : 'mdi-shield-check-outline'" color="primary" size="48" /><div class="mt-5">{{ loginStatusLabel }}</div><v-btn v-if="loginSession.verificationUrl" :href="loginSession.verificationUrl" target="_blank" rel="noopener noreferrer" color="primary" class="mt-5">{{ t('views.accounts.verifyBilibili') }}</v-btn></div>
     </form>
-    <div class="d-flex justify-end mt-6"><v-btn variant="text" @click="loginOpen = false">{{ loginSession?.status === 'Complete' ? t('views.common.done') : t('views.common.close') }}</v-btn></div>
-  </v-card></v-dialog>
+    <template #actions><v-btn variant="text" @click="loginOpen = false">{{ loginSession?.status === 'Complete' ? t('views.common.done') : t('views.common.close') }}</v-btn></template>
+  </ContentCard></v-dialog>
   <ConfirmDialog :model-value="!!selected" :title="t('views.accounts.removeConfirm')" :message="selected?.userName" :action-label="t('views.common.remove')" :busy="busy" :error="error" @update:model-value="!$event && (selected = undefined)" @confirm="removeAccount" />
 </template>
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import ContentCard from '@/components/common/ContentCard.vue'
 import QRCode from 'qrcode'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { AuthAPI } from '@/apis/AuthAPI'

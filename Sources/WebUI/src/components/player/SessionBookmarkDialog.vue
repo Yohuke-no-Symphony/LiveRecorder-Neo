@@ -1,22 +1,23 @@
 <template>
-  <v-dialog v-model="opened" max-width="500" :persistent="busy">
-    <v-card class="pa-6">
-      <h2 class="text-h6 mb-6">{{ bookmark ? t('components.bookmarks.edit') : t('components.bookmarks.create') }}</h2>
+  <v-dialog v-model="opened" max-width="500" :persistent="busy" :aria-label="bookmark ? t('components.bookmarks.edit') : t('components.bookmarks.create')">
+    <ContentCard :title="bookmark ? t('components.bookmarks.edit') : t('components.bookmarks.create')">
       <form class="form-stack" @submit.prevent="submit">
         <v-text-field v-model="title" :label="t('components.bookmarks.name')" :disabled="busy" maxlength="180" required autofocus />
         <v-text-field v-model="timeInput" :label="t('components.bookmarks.time')" :disabled="busy" class="mono" placeholder="00:00:00.000" required />
         <v-alert v-if="validationError || error" type="error">{{ validationError || error }}</v-alert>
-        <div class="d-flex justify-end ga-3 mt-2">
+        <CardActions embedded>
           <v-btn variant="text" :disabled="busy" @click="opened = false">{{ t('components.common.cancel') }}</v-btn>
           <v-btn type="submit" color="primary" :loading="busy" :disabled="busy">{{ t('components.bookmarks.save') }}</v-btn>
-        </div>
+        </CardActions>
       </form>
-    </v-card>
+    </ContentCard>
   </v-dialog>
 </template>
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import ContentCard from '@/components/common/ContentCard.vue'
+import CardActions from '@/components/common/CardActions.vue'
 import { useI18n } from 'vue-i18n'
 import type { SessionBookmark } from '@/models/sessionBookmark'
 import { formatTimecode } from '@/utilities/format'

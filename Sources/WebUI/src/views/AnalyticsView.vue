@@ -7,8 +7,8 @@
   <v-alert v-if="error || sessionError || streamerError" type="error" class="mb-6">{{ error || sessionError || streamerError }}</v-alert>
   <v-progress-linear v-if="busy" indeterminate color="primary" class="mb-6" />
   <template v-if="analytics && selectedId">
-    <div class="analytics-stats mb-6">
-      <v-card v-for="stat in stats" :key="stat.key" class="pa-6" :data-stat="stat.key">
+    <div class="analytics-stats summary-grid mb-6">
+      <v-card v-for="stat in stats" :key="stat.key" class="card-content" :data-stat="stat.key">
         <div class="stat-heading d-flex align-center ga-2">
           <div class="stat-label">{{ stat.label }}</div>
           <v-tooltip v-if="stat.description" :text="stat.description" location="top">
@@ -20,14 +20,13 @@
     </div>
     <h2 class="section-heading mb-4">{{ t('views.analytics.amountSources') }}</h2>
     <div class="category-grid mb-6"><CategoryRevenueCard v-for="category in analytics.categories" :key="category.kind" :category="category" /></div>
-    <v-card class="pa-6 mb-6"><ActivityChart :key="selectedId" :buckets="analytics.buckets" :duration-ms="durationMs" /></v-card>
+    <ContentCard class="mb-6"><ActivityChart :key="selectedId" :buckets="analytics.buckets" :duration-ms="durationMs" /></ContentCard>
     <div class="settings-grid mb-6">
-      <v-card class="pa-6"><RevenueComposition :categories="analytics.categories" /></v-card>
-      <v-card class="pa-6">
-        <h2 class="section-heading">{{ t('views.analytics.messageDistribution') }}</h2>
+      <ContentCard :title="t('views.analytics.revenueShare')"><RevenueComposition :categories="analytics.categories" /></ContentCard>
+      <ContentCard :title="t('views.analytics.messageDistribution')">
         <div v-for="item in distribution" :key="item.label" class="distribution-row"><span class="text-body-2">{{ item.label }}</span><div class="distribution-track"><div :style="{ width: `${item.count / maxCount * 100}%` }" :class="`bg-${item.color}`" /></div><span class="mono text-caption">{{ formatNumber(item.count) }}</span></div>
         <v-divider class="my-5" /><div class="text-caption muted">{{ t('views.analytics.coverageGaps', { count: formatNumber(analytics.coverageGaps) }) }}</div>
-      </v-card>
+      </ContentCard>
     </div>
     <UserRanking :key="selectedId" :rankings="analytics.userRankings" />
   </template>
@@ -36,6 +35,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import ContentCard from '@/components/common/ContentCard.vue'
 import { computed, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MediaAPI } from '@/apis/MediaAPI'
@@ -168,13 +168,12 @@ onScopeDispose(() => { generation++; disposed = true })
 
 <style scoped>
 .session-selector { min-width: 280px; max-width: 520px; }
-.analytics-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
 .stat-heading { min-height: 24px; }
 .category-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 20px; }
 .distribution-row { display: grid; grid-template-columns: minmax(0, 110px) minmax(30px, 1fr) auto; align-items: center; gap: 15px; margin: 22px 0; }
 .distribution-row > span:last-child { text-align: right; }
 .distribution-track { height: 5px; border-radius: 5px; background: rgba(var(--v-theme-on-surface), .04); overflow: hidden; }
 .distribution-track > div { height: 100%; border-radius: 5px; }
-@media (max-width: 960px) { .analytics-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; } .category-grid { gap: 12px; } }
+@media (max-width: 960px) { .category-grid { gap: 12px; } }
 @media (max-width: 600px) { .category-grid { grid-template-columns: 1fr; } .session-selector { min-width: 0; width: 100%; } .analytics-stats .stat-value { font-size: 1.5rem; } }
 </style>

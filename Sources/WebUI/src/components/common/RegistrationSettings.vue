@@ -1,23 +1,23 @@
 <template>
-  <v-card class="form-section" style="max-width: 660px">
-    <h2>{{ t('shell.settings.registrationSettings') }}</h2>
+  <ContentCard :title="t('shell.settings.registrationSettings')" style="max-width: 660px">
     <div class="form-stack">
       <v-switch v-model="settings.registrationEnabled" :disabled="disabled" :label="t('shell.settings.registrationEnabled')" />
       <v-switch v-model="settings.registrationApprovalRequired" :disabled="disabled" :label="t('shell.settings.registrationApprovalRequired')" :hint="t('shell.settings.registrationApprovalDescription')" persistent-hint />
       <v-switch v-model="settings.registrationInvitationRequired" :disabled="disabled" :label="t('shell.settings.registrationInvitationRequired')" :hint="t('shell.settings.registrationInvitationDescription')" persistent-hint />
       <v-switch v-model="settings.registrationEmailVerificationRequired" :disabled="disabled" :label="t('shell.settings.registrationEmailVerificationRequired')" :hint="t('shell.settings.registrationEmailVerificationDescription')" persistent-hint />
     </div>
-    <v-divider class="my-6" />
-    <h2>{{ t('shell.permissions.defaults') }}</h2>
+    <v-divider class="my-4" />
+    <h2 class="section-heading">{{ t('shell.permissions.defaults') }}</h2>
     <p class="text-body-2 muted mb-5">{{ t('shell.permissions.defaultsDescription') }}</p>
     <UserPermissionFields v-model="settings.defaultUserPermissions" :disabled="disabled" />
-    <v-divider class="my-6" />
+    <v-divider class="my-4" />
     <v-btn variant="tonal" prepend-icon="mdi-account-group-outline" to="/admin/users">{{ t('shell.settings.manageUsers') }}</v-btn>
-  </v-card>
+  </ContentCard>
 </template>
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import ContentCard from '@/components/common/ContentCard.vue'
 import type { ServerSettings } from '@/models/settings'
 import UserPermissionFields from './UserPermissionFields.vue'
 

@@ -1,13 +1,12 @@
 <template>
   <PageHeader :title="t('views.targets.title')"><v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">{{ t('views.targets.add') }}</v-btn></PageHeader>
   <v-alert v-if="error" type="error" class="mb-6">{{ error }}</v-alert>
-  <div class="d-flex ga-5 mb-7"><v-card class="pa-5 flex-grow-1"><div class="stat-label">{{ t('views.targets.recording') }}</div><div class="stat-value mt-2">{{ formatNumber(targets.filter(item => item.state === 'Recording').length) }}</div></v-card><v-card class="pa-5 flex-grow-1"><div class="stat-label">{{ t('views.targets.enabled') }}</div><div class="stat-value mt-2">{{ formatNumber(targets.filter(item => item.enabled).length) }}</div></v-card><v-card class="pa-5 flex-grow-1"><div class="stat-label">{{ t('views.targets.monitored') }}</div><div class="stat-value mt-2">{{ formatNumber(targets.length) }}</div></v-card></div>
+  <div class="summary-grid mb-6"><v-card class="card-content"><div class="stat-label">{{ t('views.targets.recording') }}</div><div class="stat-value mt-2">{{ formatNumber(targets.filter(item => item.state === 'Recording').length) }}</div></v-card><v-card class="card-content"><div class="stat-label">{{ t('views.targets.enabled') }}</div><div class="stat-value mt-2">{{ formatNumber(targets.filter(item => item.enabled).length) }}</div></v-card><v-card class="card-content"><div class="stat-label">{{ t('views.targets.monitored') }}</div><div class="stat-value mt-2">{{ formatNumber(targets.length) }}</div></v-card></div>
   <v-card v-if="targets.length"><v-table><thead><tr><th>{{ t('views.common.streamer') }}</th><th>{{ t('views.common.status') }}</th><th>{{ t('views.targets.account') }}</th><th>{{ t('views.common.quality') }}</th><th>{{ t('views.common.enabled') }}</th><th /></tr></thead><tbody><tr v-for="target in targets" :key="target.id"><td class="py-5"><div class="d-flex align-center ga-3"><v-avatar size="40" color="surface-variant"><v-img :src="MediaAPI.avatar(target.id)" /></v-avatar><div><router-link :to="`/streamers/${target.id}`" class="font-weight-medium">{{ target.name || target.roomId }}</router-link><div class="text-caption muted mt-1">{{ target.roomId }}</div><div v-if="target.error" class="text-caption text-error mt-2">{{ target.error }}</div></div></div></td><td><StatusChip :status="target.state" /></td><td class="text-body-2 muted">{{ accounts.find(account => account.id === target.accountId)?.userName || t('views.targets.default') }}</td><td class="text-body-2 muted">{{ qualityOptions.find(item => item.value === target.quality)?.title || t('views.common.globalSettings') }}</td><td><v-switch :model-value="target.enabled" :disabled="busy" density="compact" :aria-label="t('views.targets.enableTarget', { name: target.name })" @update:model-value="toggle(target, !!$event)" /></td><td><div class="action-buttons"><v-btn icon="mdi-pencil-outline" size="small" variant="text" :aria-label="t('views.targets.edit')" @click="openEdit(target)" /><v-btn icon="mdi-delete-outline" size="small" variant="text" :aria-label="t('views.targets.remove')" @click="deleteTarget = target" /></div></td></tr></tbody></v-table></v-card>
   <EmptyState v-else-if="!busy" :title="t('views.targets.empty')" icon="mdi-record-circle-outline"><v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">{{ t('views.targets.add') }}</v-btn></EmptyState>
   <TargetAddDialog v-if="createOpen" v-model="createOpen" :accounts="accounts" :monitored-room-ids="targets.map(target => String(target.roomId))" @added="onTargetAdded" />
-  <v-dialog v-model="editOpen" max-width="540">
-    <v-card class="pa-6">
-      <h2 class="text-h6 mb-6">{{ t('views.targets.edit') }}</h2>
+  <v-dialog v-model="editOpen" max-width="540" :aria-label="t('views.targets.edit')">
+    <ContentCard :title="t('views.targets.edit')">
       <form class="form-stack" @submit.prevent="saveEdit">
         <v-select v-model="form.accountId" :label="t('views.targets.bilibiliAccount')" :items="[{ title: t('views.targets.defaultAccount'), value: null }, ...accounts.map(account => ({ title: account.userName, value: account.id }))]" />
         <v-select v-model="form.quality" :label="t('views.common.quality')" :items="[{ title: t('views.common.globalSettings'), value: null }, ...qualityOptions]" />
@@ -15,18 +14,20 @@
         <v-text-field v-model.number="form.segmentGiB" :label="t('views.targets.segmentSize')" type="number" min="0" step="0.5" />
         <v-switch v-model="form.enabled" :label="t('views.targets.enableRecording')" />
         <v-alert v-if="saveError" type="error">{{ saveError }}</v-alert>
-        <div class="d-flex justify-end ga-3">
+        <CardActions embedded>
           <v-btn variant="text" @click="editOpen = false">{{ t('views.common.cancel') }}</v-btn>
           <v-btn color="primary" type="submit" :loading="saveBusy">{{ t('views.common.save') }}</v-btn>
-        </div>
+        </CardActions>
       </form>
-    </v-card>
+    </ContentCard>
   </v-dialog>
   <ConfirmDialog :model-value="!!deleteTarget" :title="t('views.targets.removeConfirm')" :message="deleteTarget?.name" :action-label="t('views.targets.remove')" :busy="busy" :error="error" @update:model-value="!$event && (deleteTarget = undefined)" @confirm="removeTarget" />
 </template>
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import ContentCard from '@/components/common/ContentCard.vue'
+import CardActions from '@/components/common/CardActions.vue'
 import { computed, reactive, ref } from 'vue'
 import { formatNumber } from '@/utilities/format'
 import { MediaAPI } from '@/apis/MediaAPI'

@@ -41,7 +41,6 @@ const { t } = useI18n()
 </script>
 
 <style scoped>
-.session-bookmarks { border: 1px solid rgba(var(--v-theme-on-surface), .09); border-radius: 14px; }
 .bookmark-count { color: rgba(var(--v-theme-on-surface), .45); font-size: .72rem; }
 .bookmark-rows { list-style: none; margin: 0; padding: 0 16px 4px; max-height: 365px; overflow-y: auto; }
 .bookmark-row { display: flex; align-items: center; gap: 8px; min-height: 64px; border-top: 1px solid rgba(var(--v-theme-on-surface), .07); }

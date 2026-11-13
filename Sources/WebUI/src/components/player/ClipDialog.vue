@@ -1,22 +1,23 @@
 <template>
-  <v-dialog v-model="opened" max-width="580">
-    <v-card class="pa-6">
-      <h2 class="text-h6 mb-6">{{ t('components.player.createClip') }}</h2>
+  <v-dialog v-model="opened" max-width="580" :aria-label="t('components.player.createClip')">
+    <ContentCard :title="t('components.player.createClip')">
       <form class="form-stack" @submit.prevent="submit">
         <v-text-field v-model="title" :label="t('components.player.name')" required maxlength="180" />
         <div v-if="bookmarks?.length" class="clip-bookmark-inputs"><v-select :model-value="startBookmarkId" :items="bookmarkItems" item-title="label" item-value="id" :label="t('components.bookmarks.startSelect')" clearable hide-details @update:model-value="applyBookmark('start', $event)" /><v-select :model-value="endBookmarkId" :items="bookmarkItems" item-title="label" item-value="id" :label="t('components.bookmarks.endSelect')" clearable hide-details @update:model-value="applyBookmark('end', $event)" /></div>
         <v-range-slider :model-value="sliderRange" :min="0" :max="Math.max(durationMs, 1)" :step="1" color="primary" hide-details :aria-label="t('components.player.clipRange')" @update:model-value="updateSlider" />
-        <div class="d-flex ga-4"><v-text-field v-model="startInput" :label="t('components.player.startTime')" class="mono" placeholder="00:00:00.000" required @blur="updateRange" /><v-text-field v-model="endInput" :label="t('components.player.endTime')" class="mono" placeholder="00:00:00.000" required @blur="updateRange" /></div>
+        <div class="form-row"><v-text-field v-model="startInput" :label="t('components.player.startTime')" class="mono" placeholder="00:00:00.000" required @blur="updateRange" /><v-text-field v-model="endInput" :label="t('components.player.endTime')" class="mono" placeholder="00:00:00.000" required @blur="updateRange" /></div>
         <div class="d-flex justify-space-between align-center"><v-btn-toggle v-model="mode" mandatory color="primary" variant="outlined" density="comfortable"><v-btn value="Exact">{{ t('components.player.exact') }}</v-btn><v-btn value="Fast">{{ t('components.player.fast') }}</v-btn></v-btn-toggle><span class="text-caption mono muted">{{ formatDuration(Math.max(0, range[1]! - range[0]!)) }}</span></div>
         <v-alert v-if="error" type="error">{{ error }}</v-alert>
-        <div class="d-flex justify-end ga-3 mt-2"><v-btn variant="text" :disabled="busy" @click="opened = false">{{ t('components.common.cancel') }}</v-btn><v-btn type="submit" color="primary" :loading="busy">{{ t('components.player.createJob') }}</v-btn></div>
+        <CardActions embedded><v-btn variant="text" :disabled="busy" @click="opened = false">{{ t('components.common.cancel') }}</v-btn><v-btn type="submit" color="primary" :loading="busy">{{ t('components.player.createJob') }}</v-btn></CardActions>
       </form>
-    </v-card>
+    </ContentCard>
   </v-dialog>
 </template>
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import ContentCard from '@/components/common/ContentCard.vue'
+import CardActions from '@/components/common/CardActions.vue'
 import { computed, ref, watch } from 'vue'
 import { MediaAPI } from '@/apis/MediaAPI'
 import { useAction } from '@/composables/useAction'
