@@ -68,7 +68,7 @@ const virtualScroll = defineComponent({
 const stubs = {
   VCard: container, VCardText: container, VDialog: dialog, VBtn: button, VAlert: container,
   VFileInput: fileInput, VTextField: textField, VSelect: select, VVirtualScroll: virtualScroll,
-  VIcon: true, VProgressLinear: true,
+  VIcon: true, VProgressLinear: true, VTooltip: { template: '<slot name="activator" :props="{}" />' },
 }
 
 function file(id: string, values: Partial<LiveMarkerFile> = {}): LiveMarkerFile
@@ -453,7 +453,8 @@ describe('直播记录面板', () =>
     const rows = wrapper.findAll<HTMLButtonElement>('.marker-entry')
     expect(rows.map(row => row.element.disabled)).toEqual([true, false, false, true, true])
     expect(wrapper.findAll('.marker-color').map(value => value.classes().find(value => value !== 'marker-color'))).toEqual(['marker-red', 'marker-orange', 'marker-green', 'marker-blue', 'marker-grey'])
-    expect(wrapper.text()).toContain('−00:00:00.001')
+    expect(rows[0]!.get('.marker-time').text()).toBe('−00:00')
+    expect(rows[0]!.get('.marker-time').attributes('aria-label')).toBe('录像 −00:00:00.001')
     expect(wrapper.text()).toContain('不在当前录像范围内')
     expect(wrapper.find('script').exists()).toBe(false)
     expect(rows[1]!.text()).toContain(text)

@@ -25,9 +25,26 @@
             <span class="marker-color" :class="`marker-${item.markerColor.toLowerCase()}`" :title="item.markerColor" />
             <span class="marker-entry-content">
               <span class="marker-message">{{ item.message }}</span>
-              <span class="marker-times mono"><span>{{ t('liveMarkers.recordingTime', { time: formatLiveMarkerOffset(item.offsetMs) }) }}</span><span>{{ t('liveMarkers.liveTime', { time: item.liveTime }) }}</span></span>
+              <span class="marker-times mono">
+                <v-tooltip :text="t('liveMarkers.recordingTime', { time: formatLiveMarkerOffset(item.offsetMs) })" location="top">
+                  <template #activator="{ props: tooltipProps }">
+                    <span v-bind="tooltipProps" class="marker-time" :aria-label="t('liveMarkers.recordingTime', { time: formatLiveMarkerOffset(item.offsetMs) })">
+                      <v-icon icon="mdi-video-outline" size="14" aria-hidden="true" />
+                      <span>{{ formatCompactLiveMarkerTime(formatLiveMarkerOffset(item.offsetMs)) }}</span>
+                    </span>
+                  </template>
+                </v-tooltip>
+                <v-tooltip :text="t('liveMarkers.liveTime', { time: item.liveTime })" location="top">
+                  <template #activator="{ props: tooltipProps }">
+                    <span v-bind="tooltipProps" class="marker-time" :aria-label="t('liveMarkers.liveTime', { time: item.liveTime })">
+                      <v-icon icon="mdi-broadcast" size="14" aria-hidden="true" />
+                      <span>{{ formatCompactLiveMarkerTime(item.liveTime) }}</span>
+                    </span>
+                  </template>
+                </v-tooltip>
+                <span v-if="canSeekLiveMarker(item.offsetMs, durationMs)" class="marker-real-time" :title="formatDate(item.realDateTime)">{{ formatDate(item.realDateTime) }}</span>
+              </span>
               <span v-if="!canSeekLiveMarker(item.offsetMs, durationMs)" class="marker-unavailable">{{ t('liveMarkers.outOfRange') }}</span>
-              <span v-else class="marker-real-time">{{ formatDate(item.realDateTime) }}</span>
             </span>
             <v-icon icon="mdi-play-outline" size="18" />
           </button>
@@ -50,7 +67,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useSessionLiveMarkers } from '@/composables/useSessionLiveMarkers'
 import type { LiveMarkerEntry, LiveMarkerFile, LiveMarkerUpload } from '@/models/liveMarkers'
 import { formatDate, formatNumber } from '@/utilities/format'
-import { canSeekLiveMarker, formatLiveMarkerOffset } from '@/utilities/liveMarkers'
+import { canSeekLiveMarker, formatCompactLiveMarkerTime, formatLiveMarkerOffset } from '@/utilities/liveMarkers'
 import CardHeader from '@/components/common/CardHeader.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import SessionLiveMarkerUploadDialog from './SessionLiveMarkerUploadDialog.vue'
@@ -130,7 +147,9 @@ async function deleteFile(): Promise<void>
 .marker-red { color: rgb(var(--v-theme-error)); }.marker-orange { color: #e89143; }.marker-yellow { color: rgb(var(--v-theme-warning)); }.marker-green { color: rgb(var(--v-theme-success)); }.marker-blue { color: rgb(var(--v-theme-info)); }.marker-magenta { color: #c967b4; }.marker-grey { color: rgba(var(--v-theme-on-surface), .45); }
 .marker-entry-content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .marker-message { font-size: .86rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
-.marker-times { display: flex; flex-wrap: wrap; gap: 3px 10px; font-size: .65rem; opacity: .65; }
-.marker-real-time, .marker-unavailable { font-size: .65rem; opacity: .65; }
+.marker-times { display: flex; align-items: center; gap: 8px; font-size: .65rem; opacity: .65; }
+.marker-time { display: inline-flex; flex-shrink: 0; align-items: center; gap: 4px; white-space: nowrap; }
+.marker-real-time { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.marker-unavailable { font-size: .65rem; opacity: .65; }
 .marker-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 32px 16px; color: rgba(var(--v-theme-on-surface), .45); font-size: .85rem; }
 </style>

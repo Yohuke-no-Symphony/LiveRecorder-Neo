@@ -10,6 +10,11 @@ export function formatLiveMarkerOffset(offsetMs: number): string
   return `${offsetMs < 0 ? '−' : ''}${formatTimecode(Math.abs(offsetMs))}`
 }
 
+export function formatCompactLiveMarkerTime(time: string): string
+{
+  return time.replace(/(:\d{2})\.\d+$/, '$1').replace(/^([−-]?)00:/, '$1')
+}
+
 export function parseLiveMarkerCalibration(seconds: number | string): number | undefined
 {
   const text = String(seconds).trim()
