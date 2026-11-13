@@ -38,7 +38,7 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
         }
         var settings = await settingsStore.GetAsync(cancellationToken);
         var windowStart = Math.Floor(Math.Max(0, offsetMs - segment.StartOffsetMs) / 120000) * 120000;
-        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sessionId + ":" + segment.Id + ":" + segment.Revision + ":avc-aac-v1:" + windowStart)))[..32].ToLowerInvariant();
+        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sessionId + ":" + segment.Id + ":" + segment.Revision + ":avc-aac-v2:" + windowStart)))[..32].ToLowerInvariant();
         var slot = (int)(Convert.ToUInt32(key[..8], 16) % gates.Length);
         await gates[slot].WaitAsync(cancellationToken);
         try
@@ -102,7 +102,7 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
                     Generation = generation,
                     SourceBytes = segment.CommittedBytes,
                     StartOffsetMs = segment.StartOffsetMs + result.SourceStartMs,
-                    EndOffsetMs = segment.StartOffsetMs + result.SourceStartMs + result.DurationMs,
+                    EndOffsetMs = segment.StartOffsetMs + (result.ReachesCommittedEnd ? segment.DurationMs : Math.Min(result.SourceEndMs, segment.DurationMs)),
                     BuiltAtUtc = DateTime.UtcNow
                 };
                 await JsonFiles.WriteAsync(Path.Combine(output, "window.json"), entry, cancellationToken);

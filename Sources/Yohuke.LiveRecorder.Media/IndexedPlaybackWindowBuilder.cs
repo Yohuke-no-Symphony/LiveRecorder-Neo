@@ -37,7 +37,7 @@ public sealed class IndexedPlaybackWindowBuilder : IPlaybackWindowBuilder
         var desiredEnd = Math.Min(request.SourceStartMs + Math.Min(request.DurationMs, options.PlaybackWindowDuration.TotalMilliseconds), index.DurationMs);
         var after = index.Keyframes.FirstOrDefault(frame => frame.TimestampMs >= desiredEnd && frame.Offset > first.Offset);
         var endOffset = after?.Offset ?? committed;
-        var expectedDuration = (after?.TimestampMs ?? index.DurationMs) - first.TimestampMs;
+        var sourceEndMs = after?.TimestampMs ?? index.DurationMs;
         var directory = Path.GetFullPath(request.OutputDirectory);
         var temporary = directory + ".building-" + Guid.NewGuid().ToString("N");
         Directory.CreateDirectory(temporary);
@@ -80,7 +80,9 @@ public sealed class IndexedPlaybackWindowBuilder : IPlaybackWindowBuilder
             {
                 PlaylistPath = Path.Combine(directory, "index.m3u8"),
                 SourceStartMs = first.TimestampMs,
-                DurationMs = Math.Min(duration, expectedDuration + 150)
+                SourceEndMs = sourceEndMs,
+                ReachesCommittedEnd = endOffset == committed,
+                DurationMs = duration
             };
         }
         finally
