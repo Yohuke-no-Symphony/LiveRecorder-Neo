@@ -8,11 +8,12 @@
       <div v-else-if="!playing" class="video-overlay play-overlay"><v-icon icon="mdi-play" size="60" /></div>
     </div>
     <div class="player-controls">
-      <PlaybackTimeline :model-value="sliderOffset" :duration-ms="durationMs" :gaps="gaps" :timeline="timeline" :loading="timelineLoading" :error="timelineError" @update:model-value="scrub" @start="startScrub" @end="finishScrub" @seek="navigate" @retry="emit('refreshTimeline')" />
-      <div class="d-flex align-center ga-1">
+      <PlaybackTimeline :model-value="sliderOffset" :duration-ms="durationMs" :gaps="gaps" :timeline="timeline" :bookmarks="bookmarks" :selection="selection" :loading="timelineLoading" :error="timelineError" @update:model-value="scrub" @start="startScrub" @end="finishScrub" @seek="navigate" @retry="emit('refreshTimeline')" />
+      <div class="player-toolbar d-flex align-center ga-1">
         <v-btn :icon="playing ? 'mdi-pause' : 'mdi-play'" :aria-label="playing ? t('components.player.pause') : t('components.player.play')" size="small" variant="text" color="white" @click="togglePlay" />
         <v-btn icon="mdi-rewind-10" size="small" variant="text" color="white" :aria-label="t('components.player.rewind')" @click="navigate(currentMs - 10000)" />
         <v-btn icon="mdi-fast-forward-10" size="small" variant="text" color="white" :aria-label="t('components.player.forward')" @click="navigate(currentMs + 10000)" />
+        <slot name="actions" :current-ms="currentMs" />
         <span class="player-time mono">{{ formatDuration(currentMs, true) }}<span class="time-divider"> / </span>{{ formatDuration(durationMs, true) }}</span>
         <v-spacer />
         <v-btn v-if="isLive" variant="text" size="small" color="primary" @click="navigate(Math.max(0, durationMs - 2000))"><span class="live-indicator" />{{ t('components.player.chaseLive') }}</v-btn>
@@ -33,13 +34,15 @@ import { ApiError } from '@/apis/APIBase'
 import { getServerUrl } from '@/apis/ServerURL'
 import PlaybackTimeline from '@/components/player/PlaybackTimeline.vue'
 import type { SessionTimeline } from '@/models/sessionTimeline'
+import type { SessionBookmark } from '@/models/sessionBookmark'
+import type { ClipSelection } from '@/models/clipSelection'
 import type { PlaybackWindow, TimelineGap } from '@/models/media'
 import { formatDuration, formatNumber } from '@/utilities/format'
 import { clampOffset, findGap, normalizeTimelineGaps, playbackPosition, windowPosition } from '@/utilities/timeline'
 
 const { t } = useI18n()
 
-const props = defineProps<{ durationMs: number; gaps: TimelineGap[]; isLive: boolean; initialOffsetMs?: number; loadWindow: (offsetMs: number) => Promise<PlaybackWindow>; timeline?: SessionTimeline; timelineLoading?: boolean; timelineError?: string }>()
+const props = defineProps<{ durationMs: number; gaps: TimelineGap[]; isLive: boolean; initialOffsetMs?: number; loadWindow: (offsetMs: number) => Promise<PlaybackWindow>; timeline?: SessionTimeline; bookmarks?: SessionBookmark[]; selection?: ClipSelection; timelineLoading?: boolean; timelineError?: string }>()
 const emit = defineEmits<{ navigate: []; refreshTimeline: [] }>()
 const currentMs = defineModel<number>({ required: true })
 const player = ref<HTMLElement>()
@@ -351,6 +354,7 @@ video { display: block; width: 100%; height: 100%; object-fit: contain; }
 .error-overlay { font-size: .88rem; background: #101216; }
 .play-overlay { background: #0002; }
 .player-controls { padding: 5px 12px 9px; }
+.player-toolbar { flex-wrap: wrap; }
 .player-time { font-size: .72rem; padding: 0 5px; white-space: nowrap; color: #c8ccd5; }
 .time-divider { color: #697181; padding: 0 3px; }
 .volume-slider { max-width: 70px; min-width: 45px; margin: 0 7px; }

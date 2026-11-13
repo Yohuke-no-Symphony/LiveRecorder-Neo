@@ -1,6 +1,7 @@
 import { post, put, query, remove, request } from './APIBase'
 import { getServerUrl } from './ServerURL'
 import type { SessionTimeline } from '@/models/sessionTimeline'
+import type { SessionBookmark } from '@/models/sessionBookmark'
 import type { Analytics, BroadcastSession, Clip, CreateJob, EventKind, EventPage, MediaJob, PlaybackWindow, SessionDetail, StorageVolume, Streamer, TrashEntry } from '@/models/media'
 import type { ServerPaths, ServerSettings } from '@/models/settings'
 
@@ -16,6 +17,10 @@ export const MediaAPI = {
   splitSession: (id: string, beforeSegmentId: string) => post<{ sessions: BroadcastSession[] }>(`sessions/${encodeURIComponent(id)}/split`, { beforeSegmentId }),
   cover: (id: string) => getServerUrl(`/api/sessions/${encodeURIComponent(id)}/cover`),
   playback: (id: string, offsetMs: number) => post<PlaybackWindow>(`sessions/${encodeURIComponent(id)}/playback`, { offsetMs }),
+  bookmarks: (id: string, signal?: AbortSignal) => request<SessionBookmark[]>(`sessions/${encodeURIComponent(id)}/bookmarks`, { signal }),
+  createBookmark: (id: string, body: { title: string; offsetMs: number }) => post<SessionBookmark>(`sessions/${encodeURIComponent(id)}/bookmarks`, body),
+  updateBookmark: (id: string, bookmarkId: string, body: { title: string; offsetMs: number }) => put<SessionBookmark>(`sessions/${encodeURIComponent(id)}/bookmarks/${encodeURIComponent(bookmarkId)}`, body),
+  deleteBookmark: (id: string, bookmarkId: string) => remove(`sessions/${encodeURIComponent(id)}/bookmarks/${encodeURIComponent(bookmarkId)}`),
   events: (id: string, options: { fromMs: number; toMs: number; kind?: EventKind; cursor?: number; limit?: number }, signal?: AbortSignal) => request<EventPage>(`sessions/${encodeURIComponent(id)}/events${query(options)}`, { signal }),
   jobs: () => request<MediaJob[]>('jobs'),
   createJob: (body: CreateJob) => post<MediaJob>('jobs', body),

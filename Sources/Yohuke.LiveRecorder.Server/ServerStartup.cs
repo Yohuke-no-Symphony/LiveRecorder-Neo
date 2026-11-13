@@ -94,6 +94,7 @@ public static class ServerStartup
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<EventArchiveReader>();
         builder.Services.AddSingleton<LibraryService>();
+        builder.Services.AddSingleton<SessionBookmarkService>();
         builder.Services.AddSingleton<SessionGroupingService>();
         builder.Services.AddSingleton<SessionEventReader>();
         builder.Services.AddSingleton<StorageService>();
@@ -277,6 +278,7 @@ public static class ServerStartup
         app.MapIdentityEndpoints(developmentOrigins);
         app.MapBilibiliEndpoints();
         app.MapLibraryEndpoints();
+        app.MapSessionBookmarkEndpoints();
         app.MapEventArtworkEndpoints();
         app.MapSessionTimelineEndpoints();
         app.MapManagementEndpoints();

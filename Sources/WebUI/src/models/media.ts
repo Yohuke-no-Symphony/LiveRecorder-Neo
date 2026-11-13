@@ -38,6 +38,7 @@ export interface BroadcastSession extends Entity
   error?: string | null
   isTrashed: boolean
   mediaRevision: number
+  isHidden?: boolean
 }
 
 export interface RecordingSegment extends Entity

@@ -169,4 +169,8 @@
   <data name="STARTUP_CONFIGURATION_PATH_CONFLICT" xml:space="preserve"><value>録画ディレクトリに設定、キー、キャッシュを含めることはできません。設定ファイルでインストール状態やトークンを上書きすることもできません。保存先を変更してください。</value></data>
   <data name="BILIBILI_SEARCH_INVALID" xml:space="preserve"><value>検索語は200文字以内、ページ番号は1以上で指定してください。</value></data>
   <data name="BILIBILI_SEARCH_UNAVAILABLE" xml:space="preserve"><value>ライブ配信ルームを検索できません。しばらくしてから再試行してください。</value></data>
+  <data name="BOOKMARK_TITLE_INVALID" xml:space="preserve"><value>ブックマーク名を 1～180 文字で入力してください。</value></data>
+  <data name="BOOKMARK_TIME_INVALID" xml:space="preserve"><value>配信の時間範囲内で有効なブックマーク時刻を指定してください。</value></data>
+  <data name="BOOKMARK_NOT_FOUND" xml:space="preserve"><value>ブックマークが見つかりません。</value></data>
+  <data name="BOOKMARK_SESSION_NOT_EDITABLE" xml:space="preserve"><value>この録画はグループ化中か非表示のため、現在ブックマークを変更できません。</value></data>
 </root>

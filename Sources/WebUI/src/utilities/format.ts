@@ -25,6 +25,12 @@ export function formatDuration(milliseconds: number, includeHours = false): stri
   return hours > 0 || includeHours ? `${String(hours).padStart(2, '0')}:${minutes}:${seconds}` : `${minutes}:${seconds}`
 }
 
+export function formatTimecode(milliseconds: number): string
+{
+  const offset = Math.max(0, Math.floor(milliseconds))
+  return `${formatDuration(offset, true)}.${String(offset % 1000).padStart(3, '0')}`
+}
+
 export function formatDate(value?: string | null): string
 {
   if (!value)

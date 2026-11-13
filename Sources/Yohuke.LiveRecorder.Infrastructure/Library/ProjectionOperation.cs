@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Library;
@@ -7,4 +8,5 @@ public sealed class ProjectionOperation
 {
     public List<SessionManifest> Outputs { get; set; } = [];
     public List<string> SourceIds { get; set; } = [];
+    public List<SessionBookmark> Bookmarks { get; set; } = [];
 }

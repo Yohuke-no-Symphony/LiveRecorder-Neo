@@ -4,7 +4,8 @@
       <h2 class="text-h6 mb-6">{{ t('components.player.createClip') }}</h2>
       <form class="form-stack" @submit.prevent="submit">
         <v-text-field v-model="title" :label="t('components.player.name')" required maxlength="180" />
-        <v-range-slider v-model="range" :min="0" :max="Math.max(durationMs, 1)" :step="1000" color="primary" hide-details :aria-label="t('components.player.clipRange')" @update:model-value="syncInputs" />
+        <div v-if="bookmarks?.length" class="clip-bookmark-inputs"><v-select :model-value="startBookmarkId" :items="bookmarkItems" item-title="label" item-value="id" :label="t('components.bookmarks.startSelect')" clearable hide-details @update:model-value="applyBookmark('start', $event)" /><v-select :model-value="endBookmarkId" :items="bookmarkItems" item-title="label" item-value="id" :label="t('components.bookmarks.endSelect')" clearable hide-details @update:model-value="applyBookmark('end', $event)" /></div>
+        <v-range-slider :model-value="sliderRange" :min="0" :max="Math.max(durationMs, 1)" :step="1" color="primary" hide-details :aria-label="t('components.player.clipRange')" @update:model-value="updateSlider" />
         <div class="d-flex ga-4"><v-text-field v-model="startInput" :label="t('components.player.startTime')" class="mono" placeholder="00:00:00.000" required @blur="updateRange" /><v-text-field v-model="endInput" :label="t('components.player.endTime')" class="mono" placeholder="00:00:00.000" required @blur="updateRange" /></div>
         <div class="d-flex justify-space-between align-center"><v-btn-toggle v-model="mode" mandatory color="primary" variant="outlined" density="comfortable"><v-btn value="Exact">{{ t('components.player.exact') }}</v-btn><v-btn value="Fast">{{ t('components.player.fast') }}</v-btn></v-btn-toggle><span class="text-caption mono muted">{{ formatDuration(Math.max(0, range[1]! - range[0]!)) }}</span></div>
         <v-alert v-if="error" type="error">{{ error }}</v-alert>
@@ -16,53 +17,81 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { MediaAPI } from '@/apis/MediaAPI'
 import { useAction } from '@/composables/useAction'
-import { formatDuration } from '@/utilities/format'
+import type { ClipSelection } from '@/models/clipSelection'
+import type { SessionBookmark } from '@/models/sessionBookmark'
+import { formatDuration, formatTimecode } from '@/utilities/format'
 import { parseTimecode } from '@/utilities/timeline'
+import { resolveClipRange } from '@/utilities/clipSelection'
 
 const { t } = useI18n()
 
 const opened = defineModel<boolean>({ required: true })
-const props = defineProps<{ sessionId: string; sessionTitle: string; currentMs: number; durationMs: number }>()
+const props = defineProps<{ sessionId: string; sessionTitle: string; currentMs: number; durationMs: number; selection?: ClipSelection; bookmarks?: SessionBookmark[] }>()
 const emit = defineEmits<{ created: [] }>()
 const title = ref('')
 const range = ref([0, 30000])
 const mode = ref<'Exact' | 'Fast'>('Exact')
 const startInput = ref('')
 const endInput = ref('')
+const startBookmarkId = ref<string>()
+const endBookmarkId = ref<string>()
+const bookmarkItems = computed(() => (props.bookmarks ?? []).map(bookmark => ({ id: bookmark.id, label: `${formatTimecode(bookmark.offsetMs)} · ${bookmark.title}` })))
+const sliderRange = computed(() => [Math.min(range.value[0] ?? 0, range.value[1] ?? 0), Math.max(range.value[0] ?? 0, range.value[1] ?? 0)])
+let suggestedTitle = ''
 const { busy, error, run } = useAction()
-function inputTime(value: number): string
-{
-  return `${formatDuration(value, true)}.${String(Math.floor(value % 1000)).padStart(3, '0')}`
-}
 function syncInputs(): void
 {
-  startInput.value = inputTime(range.value[0] ?? 0)
-  endInput.value = inputTime(range.value[1] ?? 0)
+  startInput.value = formatTimecode(range.value[0] ?? 0)
+  endInput.value = formatTimecode(range.value[1] ?? 0)
+  if (props.bookmarks?.find(item => item.id === startBookmarkId.value)?.offsetMs !== range.value[0]) { startBookmarkId.value = undefined }
+  if (props.bookmarks?.find(item => item.id === endBookmarkId.value)?.offsetMs !== range.value[1]) { endBookmarkId.value = undefined }
+}
+function updateSlider(value: number[]): void
+{
+  range.value = value
+  syncInputs()
+}
+function applyBookmark(boundary: 'start' | 'end', id: string | null): void
+{
+  if (boundary === 'start') { startBookmarkId.value = id ?? undefined }
+  else { endBookmarkId.value = id ?? undefined }
+  const bookmark = props.bookmarks?.find(item => item.id === id)
+  if (!bookmark) { return }
+  range.value = boundary === 'start' ? [bookmark.offsetMs, parseTimecode(endInput.value) ?? range.value[1] ?? 0] : [parseTimecode(startInput.value) ?? range.value[0] ?? 0, bookmark.offsetMs]
+  if (boundary === 'start' && title.value === suggestedTitle)
+  {
+    suggestedTitle = bookmark.title
+    title.value = suggestedTitle
+  }
+  syncInputs()
 }
 function updateRange(): void
 {
   const start = parseTimecode(startInput.value)
   const end = parseTimecode(endInput.value)
-  if (start !== undefined && end !== undefined)
+  if (start !== undefined && end !== undefined && start <= end && end <= props.durationMs)
   {
     range.value = [start, end]
+    syncInputs()
   }
 }
 watch(opened, value =>
 {
   if (value)
   {
-    const start = Math.min(Math.max(0, props.currentMs), Math.max(0, props.durationMs - 30000))
-    range.value = [start, Math.min(props.durationMs, start + 30000)]
+    range.value = resolveClipRange(props.selection, props.currentMs, props.durationMs)
+    startBookmarkId.value = undefined
+    endBookmarkId.value = undefined
+    suggestedTitle = props.sessionTitle
     title.value = props.sessionTitle
     mode.value = 'Exact'
     error.value = ''
     syncInputs()
   }
-})
+}, { immediate: true })
 async function submit(): Promise<void>
 {
   const startMs = parseTimecode(startInput.value)
@@ -80,3 +109,8 @@ async function submit(): Promise<void>
   })
 }
 </script>
+
+<style scoped>
+.clip-bookmark-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 480px) { .clip-bookmark-inputs { grid-template-columns: minmax(0, 1fr); } }
+</style>

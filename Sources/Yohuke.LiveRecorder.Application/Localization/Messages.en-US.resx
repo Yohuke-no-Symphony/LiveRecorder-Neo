@@ -169,4 +169,8 @@ This code is valid for 10 minutes. Do not share it. If you did not request it, i
   <data name="STARTUP_CONFIGURATION_PATH_CONFLICT" xml:space="preserve"><value>The recordings directory must not contain configuration, keys, or cache. The settings file must not overwrite installation state or tokens. Choose other locations.</value></data>
   <data name="BILIBILI_SEARCH_INVALID" xml:space="preserve"><value>Search keywords must be 200 characters or fewer and the page must be greater than zero.</value></data>
   <data name="BILIBILI_SEARCH_UNAVAILABLE" xml:space="preserve"><value>Unable to search live rooms. Please try again later.</value></data>
+  <data name="BOOKMARK_TITLE_INVALID" xml:space="preserve"><value>Enter a bookmark name between 1 and 180 characters.</value></data>
+  <data name="BOOKMARK_TIME_INVALID" xml:space="preserve"><value>Provide a valid bookmark time within the session.</value></data>
+  <data name="BOOKMARK_NOT_FOUND" xml:space="preserve"><value>The bookmark does not exist.</value></data>
+  <data name="BOOKMARK_SESSION_NOT_EDITABLE" xml:space="preserve"><value>This recording is being grouped or has been hidden. Bookmarks cannot be changed right now.</value></data>
 </root>

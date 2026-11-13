@@ -72,6 +72,15 @@ export const componentsZh = {
     unsupported: '当前浏览器无法播放此录播', createClip: '创建切片', name: '名称', clipRange: '切片范围',
     startTime: '开始时间', endTime: '结束时间', exact: '精确', fast: '快速', createJob: '创建任务',
     invalidClipRange: '请输入有效的切片起止时间',
+    setClipStart: '设为切片开始', setClipEnd: '设为切片结束', clearClipSelection: '清除切片选区', selectedClipRange: '切片选区',
+  },
+  bookmarks: {
+    title: '我的标记', description: '仅自己可见，可用于跳转和设置切片起止。', empty: '播放时添加标记，记录想回看的时间点。',
+    add: '添加标记', create: '新建标记', edit: '编辑标记', delete: '删除标记', deleteConfirm: '删除“{title}”标记？',
+    save: '保存标记', name: '标记名称', time: '时间点', defaultTitle: '标记 {time}',
+    invalidTitle: '请输入 1 至 180 个字符的标记名称', invalidTime: '请输入录像范围内的有效时间点',
+    loading: '正在加载标记', loadFailed: '标记加载失败', jump: '跳转至 {title} · {time}', actions: '{title} 的标记操作',
+    applyStart: '设为开始', applyEnd: '设为结束', startSelect: '套用开始标记', endSelect: '套用结束标记', refresh: '刷新标记',
   },
   library: {
     loadFailed: '录播加载失败', invalidPage: '录播分页响应无效', refreshFailed: '录播刷新失败',
@@ -164,6 +173,15 @@ export const componentsEn: MessageSchema<typeof componentsZh> = {
     noVideo: 'No playable video in this period', loadFailed: 'Failed to load video', unsupported: 'This browser cannot play this recording',
     createClip: 'Create clip', name: 'Name', clipRange: 'Clip range', startTime: 'Start time', endTime: 'End time',
     exact: 'Exact', fast: 'Fast', createJob: 'Create task', invalidClipRange: 'Enter valid clip start and end times',
+    setClipStart: 'Set clip start', setClipEnd: 'Set clip end', clearClipSelection: 'Clear clip selection', selectedClipRange: 'Clip selection',
+  },
+  bookmarks: {
+    title: 'My bookmarks', description: 'Private to you. Jump to a moment or use it as a clip boundary.', empty: 'Add bookmarks during playback to save moments for later.',
+    add: 'Add bookmark', create: 'New bookmark', edit: 'Edit bookmark', delete: 'Delete bookmark', deleteConfirm: 'Delete the bookmark “{title}”?',
+    save: 'Save bookmark', name: 'Bookmark name', time: 'Time', defaultTitle: 'Bookmark {time}',
+    invalidTitle: 'Enter a bookmark name with 1 to 180 characters', invalidTime: 'Enter a valid time within this recording',
+    loading: 'Loading bookmarks', loadFailed: 'Failed to load bookmarks', jump: 'Jump to {title} · {time}', actions: 'Bookmark actions for {title}',
+    applyStart: 'Use as start', applyEnd: 'Use as end', startSelect: 'Use a start bookmark', endSelect: 'Use an end bookmark', refresh: 'Refresh bookmarks',
   },
   library: {
     loadFailed: 'Failed to load recordings', invalidPage: 'Invalid recording page response', refreshFailed: 'Failed to refresh recordings',
@@ -257,6 +275,15 @@ export const componentsJa: MessageSchema<typeof componentsZh> = {
     loadFailed: '動画を読み込めませんでした', unsupported: 'このブラウザーでは録画を再生できません',
     createClip: 'クリップを作成', name: '名前', clipRange: 'クリップの範囲', startTime: '開始時間', endTime: '終了時間',
     exact: '正確', fast: '高速', createJob: 'タスクを作成', invalidClipRange: '有効なクリップの開始・終了時間を入力してください',
+    setClipStart: 'クリップの開始に設定', setClipEnd: 'クリップの終了に設定', clearClipSelection: 'クリップの範囲をクリア', selectedClipRange: 'クリップの範囲',
+  },
+  bookmarks: {
+    title: 'マイブックマーク', description: '自分だけに表示されます。再生位置への移動やクリップの範囲指定に利用できます。', empty: '再生中にブックマークを追加して、見返したい場面を保存できます。',
+    add: 'ブックマークを追加', create: 'ブックマークを作成', edit: 'ブックマークを編集', delete: 'ブックマークを削除', deleteConfirm: 'ブックマーク「{title}」を削除しますか？',
+    save: 'ブックマークを保存', name: 'ブックマーク名', time: '時間', defaultTitle: 'ブックマーク {time}',
+    invalidTitle: 'ブックマーク名を 1～180 文字で入力してください', invalidTime: '録画の範囲内の有効な時間を入力してください',
+    loading: 'ブックマークを読み込み中', loadFailed: 'ブックマークを読み込めませんでした', jump: '{title} · {time} に移動', actions: '{title} のブックマーク操作',
+    applyStart: '開始に設定', applyEnd: '終了に設定', startSelect: '開始のブックマークを適用', endSelect: '終了のブックマークを適用', refresh: 'ブックマークを更新',
   },
   library: {
     loadFailed: '録画を読み込めませんでした', invalidPage: '録画のページ応答が無効です', refreshFailed: '録画を更新できませんでした',

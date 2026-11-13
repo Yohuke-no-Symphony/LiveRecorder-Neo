@@ -23,6 +23,7 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
         await gate.WaitAsync(cancellationToken);
         try
         {
+            await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
             var ids = otherIds.Append(id).Distinct().ToList();
             if (ids.Count is < 2 or > 100)
             {
@@ -49,11 +50,16 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
             var first = details[0].Session;
             var result = Projection(first, string.IsNullOrWhiteSpace(title) ? first.Title : title.Trim(), first.StartedAtUtc, details.Max(x => x.Session.EndedAtUtc!.Value), ids);
             result.HasDanmu = details.Any(x => x.Session.HasDanmu);
+            var sourceBookmarks = await context.Collection<SessionBookmark>("sessionBookmarks")
+                .Find(Builders<SessionBookmark>.Filter.In(x => x.SessionId, ids)).ToListAsync(cancellationToken);
+            var bookmarksBySession = sourceBookmarks.ToLookup(x => x.SessionId);
+            var bookmarks = new List<SessionBookmark>();
             var segments = new List<RecordingSegment>();
             foreach (var detail in details)
             {
                 var offset = (detail.Session.StartedAtUtc - result.StartedAtUtc).TotalMilliseconds;
                 segments.AddRange(detail.Segments.Select(x => ProjectSegment(x, detail.Session, result, offset)));
+                bookmarks.AddRange(bookmarksBySession[detail.Session.Id].Select(x => ProjectBookmark(x, result, offset)));
                 result.EventSources.AddRange(Sources(detail.Session).Select(x => new EventArchiveSource
                 {
                     DirectoryPath = x.DirectoryPath,
@@ -67,7 +73,12 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
             {
                 throw new InfrastructureException(MessageCode.GROUPING_TOO_MANY_ARCHIVES);
             }
-            await PublishBatchAsync(new ProjectionOperation { Outputs = [new SessionManifest { Session = result, Segments = segments }], SourceIds = ids }, cancellationToken);
+            await PublishBatchAsync(new ProjectionOperation
+            {
+                Outputs = [new SessionManifest { Session = result, Segments = segments }],
+                SourceIds = ids,
+                Bookmarks = bookmarks
+            }, cancellationToken);
             return result;
         }
         finally
@@ -82,6 +93,7 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
         await gate.WaitAsync(cancellationToken);
         try
         {
+            await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
             var detail = await RequireEditableAsync(id, cancellationToken);
             var boundary = detail.Segments.FirstOrDefault(x => x.Id == beforeSegmentId) ?? throw new InfrastructureException(MessageCode.GROUPING_BOUNDARY_NOT_FOUND);
             var point = boundary.StartOffsetMs;
@@ -92,6 +104,11 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
             var original = detail.Session;
             var left = Projection(original, original.Title + "_上", original.StartedAtUtc, original.StartedAtUtc.AddMilliseconds(point), [id]);
             var right = Projection(original, original.Title + "_下", original.StartedAtUtc.AddMilliseconds(point), original.EndedAtUtc!.Value, [id]);
+            var sourceBookmarks = await context.Collection<SessionBookmark>("sessionBookmarks")
+                .Find(x => x.SessionId == id).ToListAsync(cancellationToken);
+            var bookmarks = sourceBookmarks.Select(bookmark => bookmark.OffsetMs < point
+                ? ProjectBookmark(bookmark, left, 0)
+                : ProjectBookmark(bookmark, right, -point)).ToList();
             var leftSegments = detail.Segments.Where(x => x.StartOffsetMs < point).Select(x => ProjectSegment(x, original, left, 0)).ToList();
             var rightSegments = detail.Segments.Where(x => x.StartOffsetMs >= point).Select(x => ProjectSegment(x, original, right, -point)).ToList();
             if (leftSegments.Count == 0 || rightSegments.Count == 0)
@@ -113,7 +130,8 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
             await PublishBatchAsync(new ProjectionOperation
             {
                 Outputs = [new SessionManifest { Session = left, Segments = leftSegments }, new SessionManifest { Session = right, Segments = rightSegments }],
-                SourceIds = [id]
+                SourceIds = [id],
+                Bookmarks = bookmarks
             }, cancellationToken);
             return new[] { left, right };
         }
@@ -208,6 +226,16 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
         Codec = source.Codec
     };
 
+    private static SessionBookmark ProjectBookmark(SessionBookmark source, BroadcastSession target, double offset) => new()
+    {
+        Id = target.Id + "_" + source.Id,
+        CreatedAtUtc = source.CreatedAtUtc,
+        SessionId = target.Id,
+        OwnerId = source.OwnerId,
+        Title = source.Title,
+        OffsetMs = source.OffsetMs + offset
+    };
+
     private async Task PrepareAsync(BroadcastSession session, List<RecordingSegment> segments, ServerSettings settings, CancellationToken cancellationToken)
     {
         var streamer = await context.Collection<Streamer>("streamers").Find(x => x.Id == session.StreamerId).FirstOrDefaultAsync(cancellationToken);
@@ -248,6 +276,10 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
             foreach (var segment in output.Segments)
             {
                 await context.Collection<RecordingSegment>("segments").ReplaceOneAsync(x => x.Id == segment.Id, segment, new ReplaceOptions { IsUpsert = true }, cancellationToken);
+            }
+            foreach (var bookmark in operation.Bookmarks.Where(x => x.SessionId == output.Session.Id))
+            {
+                await context.Collection<SessionBookmark>("sessionBookmarks").ReplaceOneAsync(x => x.Id == bookmark.Id, bookmark, new ReplaceOptions { IsUpsert = true }, cancellationToken);
             }
             await JsonFiles.WriteAsync(Path.Combine(MediaPaths.Resolve(paths.RecordsDirectory, output.Session.DirectoryPath), "场次.json"), output, cancellationToken);
             await context.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == output.Session.Id, output.Session, new ReplaceOptions { IsUpsert = true }, cancellationToken);
