@@ -22,6 +22,10 @@ public sealed class ReadonlyFileKeyRepository(DirectoryInfo directory) : IXmlRep
         var elements = new List<XElement>();
         foreach (var file in files)
         {
+            if (Path.GetFileName(file).StartsWith("._", StringComparison.Ordinal))
+            {
+                continue;
+            }
             try
             {
                 using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);

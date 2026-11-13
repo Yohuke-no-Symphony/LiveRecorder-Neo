@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Configuration;
@@ -57,13 +58,19 @@ public sealed class InstanceStorageFactory
 
     private static IDataProtectionProvider CreateProvider(AppPaths paths, bool writable)
     {
-        return DataProtectionProvider.Create(new DirectoryInfo(paths.KeysDirectory), builder =>
+        var directory = new DirectoryInfo(paths.KeysDirectory);
+        return DataProtectionProvider.Create(directory, builder =>
         {
             builder.SetApplicationName(APPLICATION_NAME);
+            builder.AddKeyManagementOptions(options =>
+            {
+                options.XmlRepository = writable
+                    ? new FileKeyRepository(directory, NullLoggerFactory.Instance)
+                    : new ReadonlyFileKeyRepository(directory);
+            });
             if (!writable)
             {
                 builder.DisableAutomaticKeyGeneration();
-                builder.AddKeyManagementOptions(options => options.XmlRepository = new ReadonlyFileKeyRepository(new DirectoryInfo(paths.KeysDirectory)));
             }
             if (OperatingSystem.IsWindows())
             {
