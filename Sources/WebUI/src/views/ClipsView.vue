@@ -2,10 +2,7 @@
   <PageHeader :title="auth.isAdmin ? t('views.common.clips') : t('views.clips.mine')"><v-btn variant="outlined" to="/jobs" prepend-icon="mdi-progress-clock">{{ t('views.common.jobs') }}</v-btn></PageHeader>
   <v-alert v-if="error" type="error" class="mb-6">{{ error }}</v-alert>
   <div v-if="clips.length" class="media-grid">
-    <v-card v-for="clip in clips" :key="clip.id" class="clip-card">
-      <router-link :to="`/sessions/${clip.sessionId}?at=${clip.startMs}`"><v-img :src="MediaAPI.cover(clip.sessionId)" :aspect-ratio="16 / 9" cover><div class="clip-length mono">{{ formatDuration(clip.endMs - clip.startMs) }}</div></v-img></router-link>
-      <div class="pa-5"><h2 class="text-body-1 font-weight-medium text-truncate mb-2">{{ clip.title }}</h2><div class="text-caption muted">{{ formatDuration(clip.startMs, true) }} — {{ formatDuration(clip.endMs, true) }} · {{ formatBytes(clip.bytes) }}</div><div class="text-caption muted mt-3 mb-5">{{ t('views.clips.expires', { date: formatDate(clip.expiresAtUtc) }) }}</div><div class="d-flex ga-2"><v-btn color="primary" size="small" prepend-icon="mdi-play" :disabled="clip.isTrashed || new Date(clip.expiresAtUtc).getTime() <= Date.now()" @click="preview(clip)">{{ t('views.common.play') }}</v-btn><v-btn :href="MediaAPI.downloadClip(clip.id)" variant="tonal" size="small" prepend-icon="mdi-download" :disabled="clip.isTrashed || new Date(clip.expiresAtUtc).getTime() <= Date.now()">{{ t('views.common.download') }}</v-btn><v-spacer /><v-btn icon="mdi-delete-outline" size="small" variant="text" :aria-label="t('views.common.moveToTrash')" @click="selected = clip" /></div></div>
-    </v-card>
+    <ClipCard v-for="clip in clips" :key="clip.id" :clip="clip" @preview="preview(clip)" @trash="selected = clip" />
   </div>
   <EmptyState v-else-if="!busy" :title="t('views.clips.empty')" icon="mdi-content-cut"><v-btn color="primary" to="/">{{ t('views.clips.browse') }}</v-btn></EmptyState>
   <ConfirmDialog :model-value="!!selected" :title="t('views.clips.trashConfirm')" :message="selected?.title" :action-label="t('views.common.moveToTrash')" :busy="busy" :error="error" @update:model-value="!$event && (selected = undefined)" @confirm="deleteClip" />
@@ -20,7 +17,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useAction } from '@/composables/useAction'
 import { usePolling } from '@/composables/usePolling'
 import type { Clip } from '@/models/media'
-import { formatBytes, formatDate, formatDuration } from '@/utilities/format'
+import ClipCard from '@/components/clips/ClipCard.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -56,5 +53,3 @@ function preview(clip: Clip): void
 }
 usePolling(load, 10000)
 </script>
-
-<style scoped>.clip-card { overflow: hidden; }.clip-length { position: absolute; right: 12px; bottom: 12px; background: #000b; color: white; font-size: .75rem; padding: 3px 6px; border-radius: 5px; }</style>
