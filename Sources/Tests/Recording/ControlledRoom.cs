@@ -9,6 +9,7 @@ internal sealed class ControlledRoom(long roomId)
     private int connections;
     private int activeSubscriptions;
     private int blockNextQuery;
+    private int queries;
     private Exception? queryFailure;
     private long events;
     internal long RoomId { get; } = roomId;
@@ -22,6 +23,7 @@ internal sealed class ControlledRoom(long roomId)
     internal int ActiveStreams => Volatile.Read(ref activeStreams);
     internal int Connections => Volatile.Read(ref connections);
     internal int ActiveSubscriptions => Volatile.Read(ref activeSubscriptions);
+    internal int Queries => Volatile.Read(ref queries);
     internal TaskCompletionSource QueryEntered { get; private set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     internal TaskCompletionSource ReleaseQuery { get; private set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -34,6 +36,7 @@ internal sealed class ControlledRoom(long roomId)
 
     internal async Task BeforeQueryAsync(CancellationToken cancellationToken)
     {
+        Interlocked.Increment(ref queries);
         if (Interlocked.Exchange(ref blockNextQuery, 0) == 1)
         {
             QueryEntered.TrySetResult();

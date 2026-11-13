@@ -31,7 +31,7 @@ internal sealed class RecordingFixture : IAsyncDisposable
     internal string DatabaseName { get; } = "recording_tests_" + Guid.NewGuid().ToString("N");
     internal string ConnectionString { get; } = Environment.GetEnvironmentVariable("LIVE_RECORDER_TEST_MONGO")!;
     internal ControlledBilibiliService Bilibili { get; } = new();
-    internal IStatusPublisher Publisher { get; } = new NullRecordingPublisher();
+    internal IStatusPublisher Publisher { get; private set; } = new NullRecordingPublisher();
     internal BootstrapStore Bootstrap { get; private set; } = null!;
     internal MongoContext Context { get; private set; } = null!;
     internal ISettingsStore Settings { get; private set; } = null!;
@@ -44,9 +44,9 @@ internal sealed class RecordingFixture : IAsyncDisposable
     internal MediaJobService Jobs { get; private set; } = null!;
     internal long SampleBytes { get; private set; }
 
-    internal static async Task<RecordingFixture> CreateAsync(double durationSeconds = 3, string size = "160x90", int fps = 10)
+    internal static async Task<RecordingFixture> CreateAsync(double durationSeconds = 3, string size = "160x90", int fps = 10, IStatusPublisher? publisher = null)
     {
-        var fixture = new RecordingFixture();
+        var fixture = new RecordingFixture { Publisher = publisher ?? new NullRecordingPublisher() };
         try
         {
             fixture.Paths = new(Path.Combine(fixture.DirectoryPath, "data"), Path.Combine(fixture.DirectoryPath, "records"));
