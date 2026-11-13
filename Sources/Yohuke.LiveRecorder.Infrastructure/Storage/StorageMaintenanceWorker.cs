@@ -6,7 +6,7 @@ using Yohuke.LiveRecorder.Infrastructure.Playback;
 namespace Yohuke.LiveRecorder.Infrastructure.Storage;
 
 /// <summary>周期处理保留期限与可回收播放缓存。</summary>
-public sealed class StorageMaintenanceWorker(IBootstrapStore bootstrap, StorageService storage, PlaybackService playback, ILogger<StorageMaintenanceWorker> logger) : BackgroundService
+public sealed class StorageMaintenanceWorker(IBootstrapStore bootstrap, StorageService storage, SessionTrashService sessionTrash, PlaybackService playback, ILogger<StorageMaintenanceWorker> logger) : BackgroundService
 {
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -18,6 +18,7 @@ public sealed class StorageMaintenanceWorker(IBootstrapStore bootstrap, StorageS
                 if (bootstrap.IsInstalled)
                 {
                     await storage.MaintainAsync(stoppingToken);
+                    await sessionTrash.MaintainAsync(stoppingToken);
                     await playback.MaintainAsync(stoppingToken);
                 }
             }

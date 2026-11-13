@@ -13,7 +13,8 @@ public sealed class AnalyticsService(EventArchiveReader reader)
     private readonly SemaphoreSlim gate = new(1, 1);
 
     /// <summary>按来源区间投影统计，恢复裁切范围之前的金融去重基线。</summary>
-    public Task<AnalyticsReport> GetAsync(BroadcastSession session, string storageRoot, CancellationToken cancellationToken = default)
+    public Task<AnalyticsReport> GetAsync(BroadcastSession session, string storageRoot,
+        CancellationToken cancellationToken = default)
     {
         var sources = SessionGroupingService.Sources(session).Select(source =>
             (Path: Path.Combine(MediaPaths.Resolve(storageRoot, source.DirectoryPath), "弹幕", "事件.jsonl"),
@@ -29,25 +30,33 @@ public sealed class AnalyticsService(EventArchiveReader reader)
             Path.Combine(sessionDirectory, "分析", "summary.json"), cancellationToken);
     }
 
-    private async Task<AnalyticsReport> ReadAsync(IReadOnlyList<(string Path, double Offset, double From, double? To)> sources, string output, CancellationToken cancellationToken)
+    private async Task<AnalyticsReport> ReadAsync(
+        IReadOnlyList<(string Path, double Offset, double From, double? To)> sources, string output,
+        CancellationToken cancellationToken)
     {
         await gate.WaitAsync(cancellationToken);
         try
         {
-            var identity = Hash(JsonSerializer.Serialize(sources.Select(source => new { source.Path, source.Offset, source.From, source.To }), JsonFiles.Options));
+            var identity = Hash(JsonSerializer.Serialize(
+                sources.Select(source => new { source.Path, source.Offset, source.From, source.To }),
+                JsonFiles.Options));
             var files = sources.Select(source => new FileInfo(source.Path)).ToArray();
             var length = files.Where(file => file.Exists).Sum(file => file.Length);
             var fingerprint = Hash(JsonSerializer.Serialize(files.Select(file => new
             {
-                file.FullName, Length = file.Exists ? file.Length : 0, Modified = file.Exists ? file.LastWriteTimeUtc.Ticks : 0
+                file.FullName, Length = file.Exists ? file.Length : 0,
+                Modified = file.Exists ? file.LastWriteTimeUtc.Ticks : 0
             }), JsonFiles.Options));
             var saved = await ReadCacheAsync(output, cancellationToken);
             var now = DateTime.UtcNow;
-            if (saved is not null && saved.SchemaVersion == AnalyticsReport.CURRENT_SCHEMA_VERSION && saved.SourceIdentity == identity
-                && (saved.SourceFingerprint == fingerprint || saved.BuiltAtUtc <= now && now - saved.BuiltAtUtc < TimeSpan.FromSeconds(30)))
+            if (saved is not null && saved.SchemaVersion == AnalyticsReport.CURRENT_SCHEMA_VERSION &&
+                AnalyticsCacheValidator.IsComplete(saved) && saved.SourceIdentity == identity
+                && (saved.SourceFingerprint == fingerprint ||
+                    saved.BuiltAtUtc <= now && now - saved.BuiltAtUtc < TimeSpan.FromSeconds(30)))
             {
                 return saved;
             }
+
             var accumulator = new AnalyticsAccumulator();
             foreach (var source in sources)
             {
@@ -61,16 +70,19 @@ public sealed class AnalyticsService(EventArchiveReader reader)
                         }
                     }
                 }
+
                 await foreach (var item in reader.EnumerateAsync(source.Path, cancellationToken))
                 {
                     if (item.OffsetMs < source.From || source.To is { } end && item.OffsetMs >= end)
                     {
                         continue;
                     }
+
                     item.OffsetMs += source.Offset;
                     accumulator.Add(item);
                 }
             }
+
             var result = accumulator.Build();
             result.SourceBytes = length;
             result.SourceIdentity = identity;

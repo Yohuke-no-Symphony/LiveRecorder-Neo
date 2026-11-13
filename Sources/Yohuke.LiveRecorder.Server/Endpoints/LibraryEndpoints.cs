@@ -178,22 +178,72 @@ public static class LibraryEndpoints
         });
         api.MapGet("/trash", async (HttpContext http, IMongoContext context, CancellationToken ct) =>
         {
-            var filter = http.User.IsInRole("Admin") ? FilterDefinition<TrashEntry>.Empty : Builders<TrashEntry>.Filter.Eq(x => x.OwnerId, Owner(http));
+            var filter = http.User.IsInRole("Admin") ? FilterDefinition<TrashEntry>.Empty : Builders<TrashEntry>.Filter.Where(x => x.OwnerId == Owner(http) && x.Kind != "Session");
             return Results.Ok(await context.Collection<TrashEntry>("trash").Find(filter).SortByDescending(x => x.CreatedAtUtc).ToListAsync(ct));
         });
-        api.MapPost("/trash/{id}/restore", async (string id, HttpContext http, IMongoContext context, StorageService storage, CancellationToken ct) =>
+        api.MapPost("/trash/{id}/restore", async (string id, HttpContext http, IMongoContext context, StorageService storage, SessionTrashService sessionTrash, CancellationToken ct) =>
         {
-            await storage.RestoreAsync(await GetTrashAsync(id, http, context, ct), ct);
+            var entry = await GetTrashAsync(id, http, context, ct);
+            if (entry.Kind == "Session")
+            {
+                await sessionTrash.RestoreAsync(entry, ct);
+            }
+            else
+            {
+                await storage.RestoreAsync(entry, ct);
+            }
             return Results.NoContent();
         });
-        api.MapDelete("/trash/{id}", async (string id, HttpContext http, IMongoContext context, StorageService storage, CancellationToken ct) =>
+        api.MapDelete("/trash/{id}", async (string id, HttpContext http, IMongoContext context, StorageService storage, SessionTrashService sessionTrash, CancellationToken ct) =>
         {
-            await storage.PurgeAsync(await GetTrashAsync(id, http, context, ct), ct);
+            var entry = await GetTrashAsync(id, http, context, ct);
+            if (entry.Kind == "Session")
+            {
+                await sessionTrash.PurgeAsync(entry, ct);
+            }
+            else
+            {
+                await storage.PurgeAsync(entry, ct);
+            }
             return Results.NoContent();
         });
         api.MapGet("/storage", async (StorageService storage, CancellationToken ct) => Results.Ok(await storage.GetVolumesAsync(ct)));
 
         var admin = api.MapGroup("").RequireAuthorization(policy => policy.RequireRole("Admin"));
+        admin.MapDelete("/sessions/{id}", async (string id, HttpContext http, SessionTrashService sessionTrash, CancellationToken ct) =>
+        {
+            await sessionTrash.TrashAsync(id, Owner(http), ct);
+            return Results.NoContent();
+        });
+        admin.MapPost("/sessions/trash", async (SessionTrashRequest request, HttpContext http, SessionTrashService sessionTrash, CancellationToken ct) =>
+        {
+            if (request.SessionIds is null || request.SessionIds.Count is < 1 or > 200 || request.SessionIds.Any(string.IsNullOrWhiteSpace))
+            {
+                throw new InfrastructureException(MessageCode.LIBRARY_DELETE_COUNT_INVALID);
+            }
+            var results = new List<SessionTrashResult>();
+            foreach (var id in request.SessionIds.Distinct(StringComparer.Ordinal))
+            {
+                try
+                {
+                    await sessionTrash.TrashAsync(id, Owner(http), ct);
+                    results.Add(new() { SessionId = id, Success = true });
+                }
+                catch (InfrastructureException error)
+                {
+                    results.Add(new() { SessionId = id, Error = LocalizedText.Format(error.Code, error.Message, error.Arguments) });
+                }
+                catch (IOException)
+                {
+                    results.Add(new() { SessionId = id, Error = LocalizedText.Get(MessageCode.LIBRARY_DELETE_FILES_FAILED) });
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    results.Add(new() { SessionId = id, Error = LocalizedText.Get(MessageCode.LIBRARY_DELETE_FILES_FAILED) });
+                }
+            }
+            return Results.Ok(results);
+        });
         admin.MapPost("/sessions/{id}/group", async (string id, SessionGroupRequest request, SessionGroupingService grouping, CancellationToken ct) => Results.Ok(await grouping.GroupAsync(id, request.SessionIds, request.Title, ct)));
         admin.MapPost("/sessions/{id}/split", async (string id, SessionSplitRequest request, SessionGroupingService grouping, CancellationToken ct) => Results.Ok(new { sessions = await grouping.SplitAsync(id, request.BeforeSegmentId, ct) }));
         admin.MapPost("/streamers", async (TargetRequest request, IMongoContext context, IBilibiliService bilibili, CancellationToken ct) =>
@@ -267,6 +317,10 @@ public static class LibraryEndpoints
     private static async Task<TrashEntry> GetTrashAsync(string id, HttpContext http, IMongoContext context, CancellationToken ct)
     {
         var item = await context.Collection<TrashEntry>("trash").Find(x => x.Id == id).FirstOrDefaultAsync(ct) ?? throw new InfrastructureException(MessageCode.LIBRARY_TRASH_NOT_FOUND, 404);
+        if (item.Kind == "Session" && !http.User.IsInRole("Admin"))
+        {
+            throw new InfrastructureException(MessageCode.LIBRARY_ACCESS_DENIED, 403);
+        }
         RequireOwner(http, item.OwnerId);
         return item;
     }

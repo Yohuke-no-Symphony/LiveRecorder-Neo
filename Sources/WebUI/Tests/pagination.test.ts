@@ -101,4 +101,32 @@ describe('录播服务端分页', () =>
     expect(fetchSessions.mock.calls[2]?.[2]).toBe('51')
     expect(state.error.value).toBe('')
   })
+
+  it('删除成功立即移除，删除前已发出的轮询响应不能重新加入该项', async () =>
+  {
+    let finishRefresh: ((value: BroadcastSession[]) => void) | undefined
+    fetchSessions.mockResolvedValueOnce(page(100)).mockReturnValueOnce(new Promise<BroadcastSession[]>(resolve => { finishRefresh = resolve }))
+    const state = start()
+    await vi.waitFor(() => expect(state.loading.value).toBe(false))
+    const refreshing = state.refresh()
+    state.removeSessions(['99'])
+    expect(state.sessions.value.some(item => item.id === '99')).toBe(false)
+    finishRefresh?.(page(100))
+    await refreshing
+    expect(state.sessions.value.some(item => item.id === '99')).toBe(false)
+    expect(state.sessions.value).toHaveLength(49)
+  })
+
+  it('删除当前分页游标项不丢失下一页位置，重新加载可显示恢复的录播', async () =>
+  {
+    fetchSessions.mockResolvedValueOnce(page(100)).mockResolvedValueOnce(page(50, 1)).mockResolvedValueOnce(page(100))
+    const state = start()
+    await vi.waitFor(() => expect(state.loading.value).toBe(false))
+    state.removeSessions(['51'])
+    await state.loadMore()
+    expect(fetchSessions.mock.calls[1]).toEqual([undefined, undefined, '51', 50])
+    expect(state.sessions.value.at(-1)?.id).toBe('50')
+    await state.reload()
+    expect(state.sessions.value.some(item => item.id === '51')).toBe(true)
+  })
 })

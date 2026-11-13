@@ -5,9 +5,12 @@
     <v-btn variant="outlined" prepend-icon="mdi-arrow-left" to="/">{{ t('views.common.library') }}</v-btn>
   </PageHeader>
   <v-alert v-if="sessionError || error" type="error" class="mb-6">{{ sessionError || error }}</v-alert>
-  <div class="filter-bar"><v-text-field v-model="search" :label="t('views.streamer.search')" prepend-inner-icon="mdi-magnify" clearable density="compact" style="max-width: 360px" @keydown.enter="applySearch" /></div>
+  <SessionLibrary :sessions="sessions" @removed="removeSessions">
+    <template #filters>
+      <v-text-field v-model="search" class="session-search" :label="t('views.streamer.search')" prepend-inner-icon="mdi-magnify" clearable hide-details density="compact" @keydown.enter="applySearch" />
+    </template>
+  </SessionLibrary>
   <v-progress-linear v-if="loading && !sessions.length" indeterminate color="primary" />
-  <div v-if="sessions.length" class="media-grid"><SessionCard v-for="session in sessions" :key="session.id" :session="session" /></div>
   <LoadMoreButton :has-more="hasMore" :loading="loadingMore" @load="loadMore" />
   <EmptyState v-if="!sessions.length && !loading" :title="searchQuery ? t('views.common.noMatchingRecordings') : t('views.common.noRecordings')" />
 </template>
@@ -25,7 +28,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import LoadMoreButton from '@/components/common/LoadMoreButton.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
-import SessionCard from '@/components/library/SessionCard.vue'
+import SessionLibrary from '@/components/library/SessionLibrary.vue'
 
 const { t } = useI18n()
 
@@ -34,7 +37,7 @@ const streamer = ref<Streamer>()
 const search = ref<string | null>('')
 const searchQuery = ref('')
 const { error, run } = useAction()
-const { sessions, loading, loadingMore, hasMore, error: sessionError, loadMore } = useSessionPages(() => ({ streamerId: String(route.params.id), search: searchQuery.value }))
+const { sessions, loading, loadingMore, hasMore, error: sessionError, loadMore, removeSessions } = useSessionPages(() => ({ streamerId: String(route.params.id), search: searchQuery.value }))
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 function applySearch(): void
 {
@@ -52,3 +55,7 @@ usePolling(async () =>
 }, 15000)
 onBeforeUnmount(() => { clearTimeout(searchTimer) })
 </script>
+
+<style scoped>
+.session-search { flex: 1 1 180px; min-width: 160px; max-width: 360px; }
+</style>

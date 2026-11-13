@@ -5,17 +5,19 @@ using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Library;
 using Yohuke.LiveRecorder.Application.Media;
 using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Library;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Jobs;
 
 /// <summary>校验任务输入并以持久快照入队。</summary>
-public sealed class MediaJobService(IMongoContext context, LibraryService library, IStatusPublisher publisher)
+public sealed class MediaJobService(IMongoContext context, LibraryService library, IStatusPublisher publisher, IAppPaths paths)
 {
     /// <summary>创建不会随浏览器断开而取消的作业。</summary>
     public async Task<MediaJob> CreateAsync(CreateMediaJobRequest request, string ownerId, bool isAdmin, CancellationToken cancellationToken = default)
     {
+        await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
         if (request.Kind is not ("Clip" or "Repair" or "Merge") || request.Mode is not ("Exact" or "Fast"))
         {
             throw new InfrastructureException(MessageCode.JOB_KIND_INVALID);
@@ -104,6 +106,7 @@ public sealed class MediaJobService(IMongoContext context, LibraryService librar
     /// <summary>基于当前终态重新入队，并重新取得场次修复互斥键。</summary>
     public async Task RetryAsync(MediaJob job, CancellationToken cancellationToken = default)
     {
+        await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
         await EnsureMutationIndexAsync(cancellationToken);
         var current = await context.Collection<MediaJob>("jobs").Find(x => x.Id == job.Id).FirstOrDefaultAsync(cancellationToken)
                       ?? throw new InfrastructureException(MessageCode.JOB_NOT_FOUND, 404);
@@ -111,9 +114,9 @@ public sealed class MediaJobService(IMongoContext context, LibraryService librar
         {
             throw new InfrastructureException(MessageCode.JOB_RETRY_STATE_INVALID, 409);
         }
+        var detail = await library.GetAsync(current.SessionId, cancellationToken);
         if (current.Kind == "Repair")
         {
-            var detail = await library.GetAsync(current.SessionId, cancellationToken);
             if (detail.Session.MediaRevision != current.SourceRevision
                 && !(detail.Session.MediaRevision == current.SourceRevision + 1 && detail.Session.MediaRevisionJobId == current.Id))
             {

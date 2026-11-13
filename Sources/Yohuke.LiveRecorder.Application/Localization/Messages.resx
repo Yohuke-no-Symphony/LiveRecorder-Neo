@@ -169,6 +169,11 @@
   <data name="STARTUP_CONFIGURATION_PATH_CONFLICT" xml:space="preserve"><value>录像目录不能包含配置文件、密钥或缓存，配置文件也不能覆盖安装状态或令牌。请调整目录位置。</value></data>
   <data name="BILIBILI_SEARCH_INVALID" xml:space="preserve"><value>搜索关键词最多 200 个字符，页码必须大于零。</value></data>
   <data name="BILIBILI_SEARCH_UNAVAILABLE" xml:space="preserve"><value>无法搜索直播间，请稍后重试。</value></data>
+  <data name="LIBRARY_DELETE_COUNT_INVALID" xml:space="preserve"><value>请选择 1 至 200 场录播。</value></data>
+  <data name="LIBRARY_DELETE_RECORDING_ACTIVE" xml:space="preserve"><value>录播仍在录制，请在录制结束后删除。</value></data>
+  <data name="LIBRARY_DELETE_JOB_ACTIVE" xml:space="preserve"><value>录播仍有进行中的媒体任务，请等待任务结束。</value></data>
+  <data name="LIBRARY_DELETE_FILES_FAILED" xml:space="preserve"><value>录播文件暂时无法移入回收站，请稍后重试。</value></data>
+  <data name="LIBRARY_DELETE_NOT_EDITABLE" xml:space="preserve"><value>此场录播正在归组或已被隐藏，请刷新录播库。</value></data>
   <data name="BOOKMARK_TITLE_INVALID" xml:space="preserve"><value>请填写 1 至 180 个字符的标记名称。</value></data>
   <data name="BOOKMARK_TIME_INVALID" xml:space="preserve"><value>请提供场次范围内的有效标记时间。</value></data>
   <data name="BOOKMARK_NOT_FOUND" xml:space="preserve"><value>标记不存在。</value></data>

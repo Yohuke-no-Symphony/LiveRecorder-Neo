@@ -12,6 +12,7 @@ using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Infrastructure.Library;
+using Yohuke.LiveRecorder.Infrastructure.Storage;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Recording;
 
@@ -428,8 +429,13 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
     private async Task ReconcileAsync(CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(paths.RecordsDirectory);
+        await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
         foreach (var path in Directory.EnumerateFiles(paths.RecordsDirectory, "场次.json", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint }))
         {
+            if (!SessionTrashService.CanReconcile(paths.RecordsDirectory, path))
+            {
+                continue;
+            }
             try
             {
                 await using var file = File.OpenRead(path);

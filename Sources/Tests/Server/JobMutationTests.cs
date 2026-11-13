@@ -6,6 +6,7 @@ using Yohuke.LiveRecorder.Application.Media;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Jobs;
 using Yohuke.LiveRecorder.Infrastructure.Library;
+using Yohuke.LiveRecorder.Infrastructure.Storage;
 
 namespace Yohuke.LiveRecorder.Tests;
 
@@ -18,7 +19,7 @@ public sealed class JobMutationTests
     {
         await using var fixture = await JobTestContext.CreateAsync();
         var (session, _) = await fixture.SeedSessionAsync();
-        var service = new MediaJobService(fixture.Mongo, new LibraryService(fixture.Mongo, TimeProvider.System), fixture.Publisher);
+        var service = new MediaJobService(fixture.Mongo, new LibraryService(fixture.Mongo, TimeProvider.System), fixture.Publisher, fixture.Paths);
         var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(async _ =>
         {
             try
@@ -40,7 +41,7 @@ public sealed class JobMutationTests
     {
         await using var fixture = await JobTestContext.CreateAsync();
         var (session, _) = await fixture.SeedSessionAsync();
-        var service = new MediaJobService(fixture.Mongo, new LibraryService(fixture.Mongo, TimeProvider.System), fixture.Publisher);
+        var service = new MediaJobService(fixture.Mongo, new LibraryService(fixture.Mongo, TimeProvider.System), fixture.Publisher, fixture.Paths);
         var failed = await service.CreateAsync(new CreateMediaJobRequest { SessionId = session.Id, Kind = "Repair" }, "admin", true);
         await fixture.Mongo.Collection<MediaJob>("jobs").UpdateOneAsync(job => job.Id == failed.Id, Builders<MediaJob>.Update.Set(job => job.State, "Failed").Set(job => job.MutationKey, null));
         var active = await service.CreateAsync(new CreateMediaJobRequest { SessionId = session.Id, Kind = "Repair" }, "admin", true);
@@ -59,7 +60,7 @@ public sealed class JobMutationTests
         await using var fixture = await JobTestContext.CreateAsync();
         var job = new MediaJob { State = "Completed", Progress = 100 };
         await fixture.Mongo.Collection<MediaJob>("jobs").InsertOneAsync(job);
-        var service = new MediaJobService(fixture.Mongo, new LibraryService(fixture.Mongo, TimeProvider.System), fixture.Publisher);
+        var service = new MediaJobService(fixture.Mongo, new LibraryService(fixture.Mongo, TimeProvider.System), fixture.Publisher, fixture.Paths);
         await service.CancelAsync(new MediaJob { Id = job.Id, State = "Queued" });
         var current = await fixture.Mongo.Collection<MediaJob>("jobs").Find(item => item.Id == job.Id).SingleAsync();
         Assert.Equal("Completed", current.State);
@@ -72,12 +73,13 @@ public sealed class JobMutationTests
     public async Task RetryAndQueuedCancellationClearLocalizedFailure()
     {
         await using var fixture = await JobTestContext.CreateAsync();
+        var (session, _) = await fixture.SeedSessionAsync();
         var job = new MediaJob
         {
-            State = "Failed", Error = "failure", ErrorCode = nameof(MessageCode.JOB_PROCESSING_FAILED), ErrorArguments = ["diagnostic"]
+            SessionId = session.Id, State = "Failed", Error = "failure", ErrorCode = nameof(MessageCode.JOB_PROCESSING_FAILED), ErrorArguments = ["diagnostic"]
         };
         await fixture.Mongo.Collection<MediaJob>("jobs").InsertOneAsync(job);
-        var service = new MediaJobService(fixture.Mongo, new LibraryService(fixture.Mongo, TimeProvider.System), fixture.Publisher);
+        var service = new MediaJobService(fixture.Mongo, new LibraryService(fixture.Mongo, TimeProvider.System), fixture.Publisher, fixture.Paths);
         await service.RetryAsync(job);
         var retried = await fixture.Mongo.Collection<MediaJob>("jobs").Find(item => item.Id == job.Id).SingleAsync();
         Assert.Equal("Queued", retried.State);
@@ -92,6 +94,23 @@ public sealed class JobMutationTests
         Assert.Null(cancelled.Error);
         Assert.Null(cancelled.ErrorCode);
         Assert.Empty(cancelled.ErrorArguments);
+    }
+
+    /// <summary>已移入回收站的录播不能通过重试再次创建读取源文件的作业。</summary>
+    [Fact]
+    public async Task RetryOfTrashedSessionDoesNotRequeueJob()
+    {
+        await using var fixture = await JobTestContext.CreateAsync();
+        var (session, segments) = await fixture.SeedSessionAsync();
+        var job = JobTestContext.CreateJob(session, segments);
+        job.State = "Failed";
+        await fixture.Mongo.Collection<MediaJob>("jobs").InsertOneAsync(job);
+        var trash = new SessionTrashService(fixture.Mongo, fixture.Settings, fixture.Paths);
+        await trash.TrashAsync(session.Id, "admin");
+        var service = new MediaJobService(fixture.Mongo, new LibraryService(fixture.Mongo, TimeProvider.System), fixture.Publisher, fixture.Paths);
+        var error = await Assert.ThrowsAsync<InfrastructureException>(() => service.RetryAsync(job));
+        Assert.Equal(nameof(MessageCode.LIBRARY_SESSION_NOT_FOUND), error.Code);
+        Assert.Equal("Failed", (await fixture.Mongo.Collection<MediaJob>("jobs").Find(x => x.Id == job.Id).SingleAsync()).State);
     }
 
     /// <summary>过期执行者的取消收尾不能保留之前失败的本地化错误。</summary>

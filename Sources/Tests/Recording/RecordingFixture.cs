@@ -70,7 +70,7 @@ internal sealed class RecordingFixture : IAsyncDisposable
             fixture.Playback = new(fixture.Processes, options);
             fixture.Library = new(fixture.Context, TimeProvider.System);
             fixture.Grouping = new(fixture.Context, fixture.Library, fixture.Settings, fixture.Publisher, fixture.Paths);
-            fixture.Jobs = new(fixture.Context, fixture.Library, fixture.Publisher);
+            fixture.Jobs = new(fixture.Context, fixture.Library, fixture.Publisher, fixture.Paths);
             return fixture;
         }
         catch

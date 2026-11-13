@@ -2,6 +2,7 @@ import { post, put, query, remove, request } from './APIBase'
 import { getServerUrl } from './ServerURL'
 import type { SessionTimeline } from '@/models/sessionTimeline'
 import type { SessionBookmark } from '@/models/sessionBookmark'
+import type { SessionTrashResult } from '@/models/sessionLibrary'
 import type { Analytics, BroadcastSession, Clip, CreateJob, EventKind, EventPage, MediaJob, PlaybackWindow, SessionDetail, StorageVolume, Streamer, TrashEntry } from '@/models/media'
 import type { ServerPaths, ServerSettings } from '@/models/settings'
 
@@ -13,6 +14,8 @@ export const MediaAPI = {
   avatar: (id: string) => getServerUrl(`/api/streamers/${encodeURIComponent(id)}/avatar`),
   sessions: (streamerId?: string, search?: string, before?: string, take = 50) => request<BroadcastSession[]>(`sessions${query({ streamerId, search, before, take })}`),
   session: (id: string) => request<SessionDetail>(`sessions/${encodeURIComponent(id)}`),
+  deleteSession: (id: string) => remove(`sessions/${encodeURIComponent(id)}`),
+  trashSessions: (sessionIds: string[]) => post<SessionTrashResult[]>('sessions/trash', { sessionIds }),
   groupSessions: (id: string, sessionIds: string[], title?: string) => post<BroadcastSession>(`sessions/${encodeURIComponent(id)}/group`, { sessionIds, title }),
   splitSession: (id: string, beforeSegmentId: string) => post<{ sessions: BroadcastSession[] }>(`sessions/${encodeURIComponent(id)}/split`, { beforeSegmentId }),
   cover: (id: string) => getServerUrl(`/api/sessions/${encodeURIComponent(id)}/cover`),

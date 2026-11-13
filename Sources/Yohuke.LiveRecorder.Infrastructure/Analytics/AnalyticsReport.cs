@@ -3,7 +3,7 @@ namespace Yohuke.LiveRecorder.Infrastructure.Analytics;
 /// <summary>从文件计算的协议支付与金币面值观察，不代表用户实际花费或主播结算收入。</summary>
 public sealed class AnalyticsReport
 {
-    public const int CURRENT_SCHEMA_VERSION = 2;
+    public const int CURRENT_SCHEMA_VERSION = 4;
     public int SchemaVersion { get; set; }
     public long SourceBytes { get; set; }
     public string SourceIdentity { get; set; } = "";
@@ -20,6 +20,8 @@ public sealed class AnalyticsReport
     public int UnidentifiedFinancialEvents { get; set; }
     public long GiftQuantity { get; set; }
     public int ActiveUsers { get; set; }
+    public int PayingUsers { get; set; }
+    public int DanmuUsers { get; set; }
     public int DanmuCount { get; set; }
     public int GiftCount { get; set; }
     public int SuperChatCount { get; set; }
@@ -27,5 +29,7 @@ public sealed class AnalyticsReport
     public int RedPocketCount { get; set; }
     public int CoverageGaps { get; set; }
     public List<AnalyticsUser> TopUsers { get; set; } = [];
+    public Dictionary<string, List<AnalyticsUser>> UserRankings { get; set; } = new(StringComparer.Ordinal);
+    public List<AnalyticsCategorySummary> Categories { get; set; } = [];
     public List<AnalyticsBucket> Buckets { get; set; } = [];
 }

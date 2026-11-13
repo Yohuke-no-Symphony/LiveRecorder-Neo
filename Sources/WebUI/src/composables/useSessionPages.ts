@@ -13,6 +13,7 @@ export function useSessionPages(parameters: () => { streamerId?: string; search?
   const loadingMore = ref(false)
   const hasMore = ref(false)
   const error = ref('')
+  const removedIds = new Set<string>()
   let cursor: string | undefined
   let generation = 0
   let refreshing = false
@@ -22,7 +23,7 @@ export function useSessionPages(parameters: () => { streamerId?: string; search?
     const ids = new Set<string>()
     return [...first, ...second].filter(session =>
     {
-      if (ids.has(session.id)) { return false }
+      if (ids.has(session.id) || removedIds.has(session.id)) { return false }
       ids.add(session.id)
       return true
     })
@@ -37,6 +38,7 @@ export function useSessionPages(parameters: () => { streamerId?: string; search?
   async function reload(): Promise<void>
   {
     const operation = ++generation
+    removedIds.clear()
     sessions.value = []
     cursor = undefined
     hasMore.value = false
@@ -129,8 +131,14 @@ export function useSessionPages(parameters: () => { streamerId?: string; search?
     }
   }
 
+  function removeSessions(ids: readonly string[]): void
+  {
+    ids.forEach(id => removedIds.add(id))
+    sessions.value = sessions.value.filter(session => !removedIds.has(session.id))
+  }
+
   watch(() => [parameters().streamerId, parameters().search], () => { void reload() }, { immediate: true })
   usePolling(refresh, 15000, false)
   onScopeDispose(() => { generation++ })
-  return { sessions, loading, loadingMore, hasMore, error, reload, loadMore, refresh }
+  return { sessions, loading, loadingMore, hasMore, error, reload, loadMore, refresh, removeSessions }
 }

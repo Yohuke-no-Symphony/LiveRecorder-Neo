@@ -8,20 +8,14 @@ namespace Yohuke.LiveRecorder.Infrastructure.Analytics;
 /// <summary>按协议行身份、连击数量差值及报价来源计算可重放的观测流水。</summary>
 public sealed class AnalyticsAccumulator
 {
-    private const string GOLD = "GoldGift";
-    private const string PAID = "ProtocolPaid";
-    private const string QUOTE = "Quote";
-    private const string UNKNOWN = "Unknown";
-    private const string NON_MONETARY = "NonMonetary";
-    private readonly Dictionary<string, AnalyticsUser> users = new(StringComparer.Ordinal);
-    private readonly Dictionary<long, AnalyticsBucket> buckets = new();
+    private readonly Dictionary<string, AnalyticsInteractionObservation> interactions = new(StringComparer.Ordinal);
     private readonly HashSet<string> events = new(StringComparer.Ordinal);
     private readonly HashSet<string> giftRows = new(StringComparer.Ordinal);
     private readonly HashSet<string> baselineRows = new(StringComparer.Ordinal);
     private readonly Dictionary<string, AnalyticsGiftCombo> combos = new(StringComparer.Ordinal);
     private readonly Dictionary<string, AnalyticsMoneyObservation> money = new(StringComparer.Ordinal);
-    private readonly HashSet<string> redPockets = new(StringComparer.Ordinal);
-    private readonly AnalyticsReport counts = new();
+    private readonly HashSet<string> baselineRedPockets = new(StringComparer.Ordinal);
+    private int coverageGaps;
     private long anonymous;
 
     /// <summary>累计事件互动；相同身份的价格补齐仍可更新金额，而不重复增加互动数。</summary>
@@ -31,13 +25,12 @@ public sealed class AnalyticsAccumulator
         {
             return;
         }
-        var interactionKey = InteractionKey(item);
-        var newInteraction = interactionKey.Length == 0 || events.Add(interactionKey);
         if (item.Kind is "Gap" or "Error")
         {
-            if (newInteraction)
+            var key = InteractionKey(item);
+            if (key.Length == 0 || events.Add(key))
             {
-                counts.CoverageGaps++;
+                coverageGaps++;
             }
             return;
         }
@@ -45,10 +38,7 @@ public sealed class AnalyticsAccumulator
         {
             return;
         }
-        if (newInteraction)
-        {
-            CountInteraction(item);
-        }
+        CountInteraction(item);
         switch (item.Kind)
         {
             case "Gift":
@@ -64,6 +54,10 @@ public sealed class AnalyticsAccumulator
     /// <summary>建立投影范围之前的连击及支付去重基线，不给当前统计增加金额或互动。</summary>
     public void SeedBaseline(RecordedEventEnvelope item)
     {
+        if (!double.IsFinite(item.OffsetMs))
+        {
+            return;
+        }
         if (item.Kind == "Gift")
         {
             AddGift(item, true);
@@ -72,49 +66,36 @@ public sealed class AnalyticsAccumulator
         {
             AddPayment(item, true);
         }
+        else if (item.Kind == "RedPocket" && InteractionKey(item) is { Length: > 0 } key)
+        {
+            baselineRedPockets.Add(key);
+        }
     }
 
     private void CountInteraction(RecordedEventEnvelope item)
     {
-        var bucketKey = Bucket(item);
-        if (!buckets.TryGetValue(bucketKey, out var bucket))
+        var key = InteractionKey(item);
+        if (item.Kind == "RedPocket" && baselineRedPockets.Contains(key))
         {
-            bucket = new() { OffsetMs = bucketKey * 60000 };
-            buckets.Add(bucketKey, bucket);
+            return;
         }
-        bucket.Messages++;
+        key = key.Length > 0 ? key : Anonymous();
+        if (!interactions.TryGetValue(key, out var interaction))
+        {
+            interaction = new() { Kind = item.Kind, BucketKey = Bucket(item) };
+            interactions.Add(key, interaction);
+        }
         if (ValidUser(item.UserId))
         {
-            if (!users.TryGetValue(item.UserId, out var user))
-            {
-                user = new() { UserId = item.UserId };
-                users.Add(item.UserId, user);
-            }
-            user.UserName = item.UserName;
-            user.Messages++;
+            interaction.UserId = item.UserId;
         }
-        switch (item.Kind)
+        if (!string.IsNullOrWhiteSpace(item.UserName))
         {
-            case "Danmu":
-                counts.DanmuCount++;
-                break;
-            case "Gift":
-                counts.GiftCount++;
-                break;
-            case "SuperChat":
-                counts.SuperChatCount++;
-                break;
-            case "Guard":
-                counts.GuardCount++;
-                break;
-            case "RedPocket":
-                var identity = !string.IsNullOrWhiteSpace(item.TransactionId) ? Key("pocket", Room(item), item.TransactionId)
-                    : item.EventId.Length > 0 ? Key("pocket-event", item.EventId) : Anonymous();
-                if (redPockets.Add(identity))
-                {
-                    counts.RedPocketCount++;
-                }
-                break;
+            interaction.UserName = item.UserName;
+        }
+        if (item.Kind == "RedPocket" && item.Amount is >= 0 && item.PriceSource == "ProtocolPaid")
+        {
+            interaction.RedPocketAmount = Math.Max(interaction.RedPocketAmount ?? 0, item.Amount.Value);
         }
     }
 
@@ -124,16 +105,13 @@ public sealed class AnalyticsAccumulator
         var giftName = Text(item.Payload, "giftName");
         var gift = giftId.Length > 0 ? giftId : giftName;
         var coin = item.CoinType?.Trim().ToLowerInvariant() ?? "";
-        var nativeId = item.EventId.Length > 0 ? item.EventId : Text(item.Payload, "messageId");
-        var transaction = !string.IsNullOrWhiteSpace(item.TransactionId) ? item.TransactionId : Text(item.Payload, "transactionId");
         var comboId = Text(item.Payload, "batchComboId");
         var quantity = ReadCount(item.Payload, "quantity");
         quantity = quantity > 0 ? quantity : Math.Max(0, item.Quantity);
         var cumulative = ReadCount(item.Payload, "batchComboCount");
-        var identified = nativeId.Length > 0 || !string.IsNullOrWhiteSpace(transaction) || comboId.Length > 0 && cumulative > 0;
-        var key = nativeId.Length > 0 ? Key("gift-row", Room(item), item.UserId, gift, coin, nativeId)
-            : !string.IsNullOrWhiteSpace(transaction) ? Key("gift-transaction", Room(item), item.UserId, gift, coin, transaction)
-            : Anonymous();
+        var identity = GiftIdentity(item);
+        var identified = identity.Length > 0 || comboId.Length > 0 && cumulative > 0;
+        var key = identity.Length > 0 ? identity : Anonymous();
         var firstRow = giftRows.Add(key);
         money.TryGetValue(key, out var entry);
         long delta;
@@ -166,19 +144,20 @@ public sealed class AnalyticsAccumulator
         {
             return;
         }
-        var category = coin == "gold" ? GOLD : coin == "silver" ? NON_MONETARY : UNKNOWN;
+        var category = coin == "gold" ? AnalyticsMoneyCategory.GoldGift : coin == "silver" ? AnalyticsMoneyCategory.NonMonetary : AnalyticsMoneyCategory.Unknown;
         if (entry is null)
         {
-            entry = CreateObservation(item, category, !identified);
+            entry = CreateObservation(item, category, !identified, key);
             money.Add(key, entry);
         }
+        EnrichUser(entry, item);
         entry.GiftQuantity = checked(entry.GiftQuantity + delta);
-        if (category == NON_MONETARY)
+        if (category == AnalyticsMoneyCategory.NonMonetary)
         {
             return;
         }
         var unitPrice = GiftUnitValue(item, quantity);
-        if (category != GOLD || unitPrice is null)
+        if (category != AnalyticsMoneyCategory.GoldGift || unitPrice is null)
         {
             entry.UnknownGiftQuantity = checked(entry.UnknownGiftQuantity + delta);
             entry.UnknownAmount = entry.UnknownGiftQuantity > 0;
@@ -202,20 +181,11 @@ public sealed class AnalyticsAccumulator
         var command = item.Command.Split(':', 2)[0];
         var quote = item.Kind == "Guard" && (item.PriceSource == "ProtocolQuote" || command == "GUARD_BUY");
         var paid = item.Kind == "SuperChat" || item.PriceSource == "ProtocolPaid" || command.StartsWith("USER_TOAST_MSG", StringComparison.Ordinal);
-        var category = quote ? QUOTE : paid ? PAID : UNKNOWN;
-        var serverId = Text(item.Payload, "messageId");
-        var identity = serverId.Length > 0 ? Key("server", Room(item), serverId)
-            : Text(item.Payload, "identity");
-        if (identity.Length == 0)
-        {
-            identity = item.EventId;
-        }
-        var identified = identity.Length > 0 || !string.IsNullOrWhiteSpace(item.TransactionId);
-        if (identity.Length == 0)
-        {
-            identity = !string.IsNullOrWhiteSpace(item.TransactionId) ? Key("transaction", Room(item), item.TransactionId) : Anonymous();
-        }
-        var key = Key(item.Kind, category, identity);
+        var category = quote ? AnalyticsMoneyCategory.Quote : paid ? AnalyticsMoneyCategory.ProtocolPaid : AnalyticsMoneyCategory.Unknown;
+        var identity = PaymentIdentity(item);
+        var identified = identity.Length > 0;
+        identity = identified ? identity : Anonymous();
+        var key = Key(item.Kind, category.ToString(), identity);
         if (baseline)
         {
             if (!money.ContainsKey(key))
@@ -230,11 +200,14 @@ public sealed class AnalyticsAccumulator
         }
         if (!money.TryGetValue(key, out var entry))
         {
-            entry = CreateObservation(item, category, !identified);
+            entry = CreateObservation(item, category, !identified, identity);
             money.Add(key, entry);
             entry.UnknownAmount = true;
         }
-        if (item.Amount is >= 0 && item.PriceSource != "Unknown" && category != UNKNOWN)
+        EnrichUser(entry, item);
+        var quantity = ReadCount(item.Payload, "quantity");
+        entry.Quantity = Math.Max(entry.Quantity, quantity > 0 ? quantity : Math.Max(1, item.Quantity));
+        if (item.Amount is >= 0 && item.PriceSource != "Unknown" && category != AnalyticsMoneyCategory.Unknown)
         {
             entry.Amount = Math.Max(entry.Amount, item.Amount.Value);
             entry.UnknownAmount = false;
@@ -244,67 +217,84 @@ public sealed class AnalyticsAccumulator
     /// <summary>生成独立快照，将协议报价、金币面值、支付观测和未知价格分别列示。</summary>
     public AnalyticsReport Build()
     {
-        var result = new AnalyticsReport
-        {
-            SchemaVersion = AnalyticsReport.CURRENT_SCHEMA_VERSION,
-            BuiltAtUtc = DateTime.UtcNow,
-            DanmuCount = counts.DanmuCount,
-            GiftCount = counts.GiftCount,
-            GuardCount = counts.GuardCount,
-            SuperChatCount = counts.SuperChatCount,
-            RedPocketCount = counts.RedPocketCount,
-            CoverageGaps = counts.CoverageGaps,
-            GoldGiftValue = money.Values.Where(entry => entry.Category == GOLD).Sum(entry => entry.Amount),
-            ProtocolPaidAmount = money.Values.Where(entry => entry.Category == PAID).Sum(entry => entry.Amount),
-            QuotedAmount = money.Values.Where(entry => entry.Category == QUOTE).Sum(entry => entry.Amount),
-            UnknownAmountCount = money.Values.Count(entry => entry.UnknownAmount),
-            UnknownGiftQuantity = money.Values.Sum(entry => entry.UnknownGiftQuantity),
-            GiftQuantity = money.Values.Sum(entry => entry.GiftQuantity),
-            UnidentifiedFinancialEvents = money.Values.Count(entry => entry.Unidentified && entry.Category != NON_MONETARY)
-        };
-        result.ObservedAmount = result.GoldGiftValue + result.ProtocolPaidAmount;
-        var userRows = users.ToDictionary(pair => pair.Key, pair => new AnalyticsUser
-        {
-            UserId = pair.Value.UserId, UserName = pair.Value.UserName, Messages = pair.Value.Messages
-        }, StringComparer.Ordinal);
-        var bucketRows = buckets.ToDictionary(pair => pair.Key, pair => new AnalyticsBucket { OffsetMs = pair.Value.OffsetMs, Messages = pair.Value.Messages });
-        foreach (var entry in money.Values.Where(entry => entry.Category is GOLD or PAID))
-        {
-            if (ValidUser(entry.UserId))
-            {
-                if (!userRows.TryGetValue(entry.UserId, out var user))
-                {
-                    user = new() { UserId = entry.UserId, UserName = entry.UserName };
-                    userRows.Add(entry.UserId, user);
-                }
-                user.PaidAmount += entry.Amount;
-            }
-            if (!bucketRows.TryGetValue(entry.BucketKey, out var bucket))
-            {
-                bucket = new() { OffsetMs = entry.BucketKey * 60000 };
-                bucketRows.Add(entry.BucketKey, bucket);
-            }
-            bucket.PaidAmount += entry.Amount;
-        }
-        result.ActiveUsers = userRows.Count;
-        result.TopUsers = userRows.Values.OrderByDescending(user => user.Messages).ThenByDescending(user => user.PaidAmount).ThenBy(user => user.UserId, StringComparer.Ordinal).Take(100).ToList();
-        result.Buckets = bucketRows.OrderBy(pair => pair.Key).Select(pair => pair.Value).ToList();
-        return result;
+        return new AnalyticsReportBuilder().Build(interactions.Values, money.Values, coverageGaps);
     }
 
-    private static AnalyticsMoneyObservation CreateObservation(RecordedEventEnvelope item, string category, bool unidentified) => new()
+    private static AnalyticsMoneyObservation CreateObservation(RecordedEventEnvelope item, AnalyticsMoneyCategory category, bool unidentified, string identity) => new()
     {
-        Category = category, UserId = item.UserId, UserName = item.UserName, BucketKey = Bucket(item), Unidentified = unidentified
+        Kind = item.Kind, Identity = identity, Category = category, UserId = item.UserId, UserName = item.UserName,
+        BucketKey = Bucket(item), Unidentified = unidentified
     };
 
     private static string InteractionKey(RecordedEventEnvelope item)
     {
+        if (item.Kind == "Gift")
+        {
+            return GiftIdentity(item);
+        }
+        if (item.Kind is "Guard" or "SuperChat")
+        {
+            var identity = PaymentIdentity(item);
+            return identity.Length > 0 ? Key(item.Kind, identity) : "";
+        }
+        if (item.Kind == "RedPocket")
+        {
+            var lotId = !string.IsNullOrWhiteSpace(item.TransactionId) ? item.TransactionId : Text(item.Payload?["redPocket"] as JsonObject, "lotId");
+            if (!string.IsNullOrWhiteSpace(lotId) && lotId != "0")
+            {
+                return Key("pocket", Room(item), lotId);
+            }
+        }
         if (item.EventId.Length == 0)
         {
             return "";
         }
-        return item.Kind == "Gift" ? Key(item.Kind, item.EventId, Text(item.Payload, "giftId"), Text(item.Payload, "giftName"), item.CoinType)
-            : Key(item.Kind, item.EventId);
+        return Key(item.Kind, item.EventId);
+    }
+
+    private static string GiftIdentity(RecordedEventEnvelope item)
+    {
+        var nativeId = item.EventId.Length > 0 ? item.EventId : Text(item.Payload, "messageId");
+        var transaction = !string.IsNullOrWhiteSpace(item.TransactionId) ? item.TransactionId : Text(item.Payload, "transactionId");
+        var giftId = Text(item.Payload, "giftId");
+        var gift = giftId.Length > 0 ? giftId : Text(item.Payload, "giftName");
+        var coin = item.CoinType?.Trim().ToLowerInvariant() ?? "";
+        if (nativeId.Length > 0)
+        {
+            return Key("gift-row", Room(item), item.UserId, gift, coin, nativeId);
+        }
+        return !string.IsNullOrWhiteSpace(transaction) ? Key("gift-transaction", Room(item), item.UserId, gift, coin, transaction) : "";
+    }
+
+    private static string PaymentIdentity(RecordedEventEnvelope item)
+    {
+        var serverId = Text(item.Payload, "messageId");
+        if (serverId.Length > 0)
+        {
+            return Key("server", Room(item), serverId);
+        }
+        var identity = Text(item.Payload, "identity");
+        if (identity.Length > 0)
+        {
+            return identity;
+        }
+        if (item.EventId.Length > 0)
+        {
+            return item.EventId;
+        }
+        return !string.IsNullOrWhiteSpace(item.TransactionId) ? Key("transaction", Room(item), item.TransactionId) : "";
+    }
+
+    private static void EnrichUser(AnalyticsMoneyObservation entry, RecordedEventEnvelope item)
+    {
+        if (ValidUser(item.UserId))
+        {
+            entry.UserId = item.UserId;
+        }
+        if (!string.IsNullOrWhiteSpace(item.UserName))
+        {
+            entry.UserName = item.UserName;
+        }
     }
 
     private string Anonymous() => Key("unidentified", checked(++anonymous).ToString(CultureInfo.InvariantCulture));

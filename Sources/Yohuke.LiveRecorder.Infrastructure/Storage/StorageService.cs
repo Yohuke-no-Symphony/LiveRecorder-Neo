@@ -7,6 +7,7 @@ using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
+using Yohuke.LiveRecorder.Infrastructure.Library;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Storage;
@@ -81,6 +82,7 @@ public sealed class StorageService(IMongoContext context, ISettingsStore setting
         await operations.WaitAsync(cancellationToken);
         try
         {
+            await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
             var settings = await settingsStore.GetAsync(cancellationToken);
             await using var fileLock = AcquireFileLock(paths.RecordsDirectory, clipId);
             await context.Collection<TrashEntry>("trash").Indexes.CreateOneAsync(new CreateIndexModel<TrashEntry>(
@@ -166,7 +168,7 @@ public sealed class StorageService(IMongoContext context, ISettingsStore setting
     /// <summary>恢复未完成操作，并基于最新记录处理到期切片及回收条目。</summary>
     public async Task MaintainAsync(CancellationToken cancellationToken = default)
     {
-        var pending = await context.Collection<TrashEntry>("trash").Find(x => x.State != "Active").ToListAsync(cancellationToken);
+        var pending = await context.Collection<TrashEntry>("trash").Find(x => x.Kind == "Clip" && x.State != "Active").ToListAsync(cancellationToken);
         foreach (var entry in pending)
         {
             try
@@ -205,7 +207,7 @@ public sealed class StorageService(IMongoContext context, ISettingsStore setting
             {
             }
         }
-        var purge = await context.Collection<TrashEntry>("trash").Find(x => x.PurgeAtUtc <= DateTime.UtcNow).ToListAsync(cancellationToken);
+        var purge = await context.Collection<TrashEntry>("trash").Find(x => x.Kind == "Clip" && x.PurgeAtUtc <= DateTime.UtcNow).ToListAsync(cancellationToken);
         foreach (var entry in purge)
         {
             try
@@ -223,6 +225,7 @@ public sealed class StorageService(IMongoContext context, ISettingsStore setting
         await operations.WaitAsync(cancellationToken);
         try
         {
+            await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
             var initial = await context.Collection<TrashEntry>("trash").Find(x => x.Id == id).FirstOrDefaultAsync(cancellationToken);
             if (initial is null)
             {

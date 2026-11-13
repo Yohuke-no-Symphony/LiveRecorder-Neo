@@ -14,3 +14,8 @@
 <script setup lang="ts">
 defineProps<{ title: string; eyebrow?: string }>()
 </script>
+
+<style scoped>
+.page-eyebrow { margin-bottom: 4px; line-height: 1.4; }
+.page-title { margin: 0; }
+</style>

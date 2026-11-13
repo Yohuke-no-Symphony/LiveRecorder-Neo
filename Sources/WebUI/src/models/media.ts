@@ -186,12 +186,47 @@ export interface Analytics
   unidentifiedFinancialEvents: number
   giftQuantity: number
   activeUsers: number
+  payingUsers: number
+  danmuUsers: number
   danmuCount: number
   giftCount: number
   superChatCount: number
   guardCount: number
   redPocketCount: number
   coverageGaps: number
-  topUsers: { userId: string; userName: string; messages: number; paidAmount: number }[]
-  buckets: { offsetMs: number; messages: number; paidAmount: number }[]
+  topUsers: AnalyticsUser[]
+  userRankings: Record<string, AnalyticsUser[]>
+  categories: { kind: 'SuperChat' | 'Gift' | 'Guard'; amount: number; count: number; quantity: number; users: number }[]
+  buckets: AnalyticsBucket[]
+}
+
+export interface AnalyticsUser
+{
+  userId: string
+  userName: string
+  messages: number
+  paidAmount: number
+  danmuCount: number
+  superChatAmount: number
+  superChatCount: number
+  giftAmount: number
+  giftQuantity: number
+  guardAmount: number
+  guardQuantity: number
+  redPocketAmount: number | null
+  redPocketCount: number
+}
+
+export interface AnalyticsBucket
+{
+  offsetMs: number
+  messages: number
+  paidAmount: number
+  danmuCount: number
+  activeUsers: number
+  danmuUsers: number
+  payingUsers: number
+  superChatAmount: number
+  giftAmount: number
+  guardAmount: number
 }

@@ -4,7 +4,7 @@
     <v-chip-group v-model="kind" mandatory class="feed-tabs px-4" color="primary"><v-chip value="all" size="small">{{ t('components.events.all') }}</v-chip><v-chip v-for="item in kinds" :key="item.value" :value="item.value" size="small">{{ item.title }}</v-chip></v-chip-group>
     <v-alert v-if="error" type="error" class="mx-4 my-3" density="compact">{{ error }}</v-alert>
     <v-progress-linear v-if="loading" color="primary" height="2" indeterminate />
-    <div v-if="visibleEvents.length" ref="feedViewport" class="event-scroll" tabindex="0" @scroll.passive="onScroll" @wheel.passive="onWheel" @touchstart.passive="onTouchStart" @touchmove.passive="onTouchMove" @pointerdown="onPointerDown" @keydown="onKeydown">
+    <div v-if="visibleEvents.length" ref="feedViewport" class="event-scroll" :class="{ 'is-following': follow }" tabindex="0" @scroll.passive="onScroll" @wheel.passive="onWheel" @touchstart.passive="onTouchStart" @touchmove.passive="onTouchMove" @pointerdown="onPointerDown" @keydown="onKeydown">
       <div ref="feedContent" class="event-list">
         <v-virtual-scroll ref="feed" :items="visibleEvents" :item-height="78" item-key="sequence" renderless>
           <template #default="{ item, itemRef }">
@@ -163,6 +163,7 @@ watch([() => visibleEvents.value.length, () => visibleEvents.value.at(-1)?.seque
   if (follow.value && visibleEvents.value.length)
   {
     feed.value?.scrollToIndex(visibleEvents.value.length - 1, 'end')
+    scheduleFollowToBottom()
   }
 }, { flush: 'post' })
 watch([feedViewport, feedContent], ([viewport, content], _previous, onCleanup) =>
@@ -171,29 +172,39 @@ watch([feedViewport, feedContent], ([viewport, content], _previous, onCleanup) =
   {
     return
   }
-  const observer = new ResizeObserver(() =>
-  {
-    if (!follow.value || !visibleEvents.value.length || followFrame || viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 1)
-    {
-      return
-    }
-    followFrame = requestAnimationFrame(() =>
-    {
-      followFrame = 0
-      if (follow.value && visibleEvents.value.length)
-      {
-        feed.value?.scrollToIndex(visibleEvents.value.length - 1, 'end')
-      }
-    })
-  })
+  const observer = new ResizeObserver(scheduleFollowToBottom)
   observer.observe(content)
   observer.observe(viewport)
   onCleanup(() => observer.disconnect())
 }, { flush: 'post' })
+function scheduleFollowToBottom(): void
+{
+  if (!follow.value || !visibleEvents.value.length || followFrame)
+  {
+    return
+  }
+  followFrame = requestAnimationFrame(() =>
+  {
+    followFrame = 0
+    const viewport = feedViewport.value
+    if (follow.value && visibleEvents.value.length && viewport)
+    {
+      viewport.scrollTop = viewport.scrollHeight
+    }
+  })
+}
 function onScroll(event: Event): void
 {
   const element = event.target as HTMLElement
-  if (!follow.value && resumeOnScroll && element.scrollHeight - element.scrollTop - element.clientHeight <= 1)
+  const distance = element.scrollHeight - element.scrollTop - element.clientHeight
+  if (follow.value)
+  {
+    if (Math.abs(distance) > 1)
+    {
+      scheduleFollowToBottom()
+    }
+  }
+  else if (resumeOnScroll && distance <= 1)
   {
     follow.value = true
   }
@@ -270,6 +281,7 @@ onBeforeUnmount(() =>
 .feed-heading { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px 5px 20px; }.feed-heading h2 { font-size: .94rem; font-weight: 600; }
 .feed-tabs :deep(.v-slide-group__content) { gap: 4px; }.feed-tabs :deep(.v-chip) { font-size: .7rem; margin-inline: 0; }
 .event-scroll { flex: 1; min-height: 0; position: relative; overflow-y: auto; overscroll-behavior-y: contain; }
+.event-scroll.is-following { overflow-anchor: none; }
 .event-list { min-height: 100%; }.event-row { padding: 13px 16px; border-bottom: 1px solid rgba(var(--v-theme-on-surface), .045); }
 .event-empty { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 15px; align-items: center; justify-content: center; font-size: .8rem; color: rgba(var(--v-theme-on-surface), .3); }
 .feed-footer { display: flex; justify-content: space-between; padding: 12px 18px; font-size: .65rem; color: rgba(var(--v-theme-on-surface), .32); border-top: 1px solid rgba(var(--v-theme-on-surface), .06); }
