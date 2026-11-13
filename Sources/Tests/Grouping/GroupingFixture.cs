@@ -16,7 +16,9 @@ namespace Yohuke.LiveRecorder.Grouping.Tests;
 internal sealed class GroupingFixture : IAsyncDisposable
 {
     internal static DateTime Origin { get; } = new(2026, 11, 12, 0, 0, 0, DateTimeKind.Utc);
-    internal string Root { get; } = Path.Combine(Path.GetTempPath(), "live-recorder-grouping-tests", Guid.NewGuid().ToString("N"));
+    internal string DirectoryPath { get; } = Path.Combine(Path.GetTempPath(), "live-recorder-grouping-tests", Guid.NewGuid().ToString("N"));
+    internal AppPaths Paths { get; }
+    internal string Root => Paths.RecordsDirectory;
     internal string DatabaseName { get; } = "grouping_tests_" + Guid.NewGuid().ToString("N");
     internal MongoContext Mongo { get; }
     internal GroupingSettingsStore Settings { get; }
@@ -29,10 +31,12 @@ internal sealed class GroupingFixture : IAsyncDisposable
 
     private GroupingFixture()
     {
+        Paths = new(Path.Combine(DirectoryPath, "data"), Path.Combine(DirectoryPath, "records"));
+        Paths.EnsureDirectories();
         Directory.CreateDirectory(Root);
-        Bootstrap = new(new AppPaths(Path.Combine(Root, ".config")), new GroupingSecretProtector());
+        Bootstrap = new(Paths, new GroupingSecretProtector());
         Mongo = new(Bootstrap);
-        Settings = new(Root);
+        Settings = new();
         Library = new(Mongo, TimeProvider.System);
         Processes = new(Options.Create(new MediaToolOptions()), Settings);
         Processor = new(Processes);
@@ -43,14 +47,14 @@ internal sealed class GroupingFixture : IAsyncDisposable
         var fixture = new GroupingFixture();
         await fixture.Bootstrap.SaveAsync(new()
         {
-            Installed = true, MongoConnectionString = fixture.Connection, DatabaseName = fixture.DatabaseName, StoragePath = fixture.Root
+            Installed = true, MongoConnectionString = fixture.Connection, DatabaseName = fixture.DatabaseName
         });
         await fixture.Mongo.Database.RunCommandAsync<MongoDB.Bson.BsonDocument>(new MongoDB.Bson.BsonDocument("ping", 1));
         await fixture.Mongo.Collection<Streamer>("streamers").InsertOneAsync(new Streamer { Id = "streamer", Uid = 42, RoomId = 42, Name = "主播", DirectoryName = "主播_42" });
         return fixture;
     }
 
-    internal SessionGroupingService Service() => new(Mongo, new LibraryService(Mongo, TimeProvider.System), Settings, Publisher);
+    internal SessionGroupingService Service() => new(Mongo, new LibraryService(Mongo, TimeProvider.System), Settings, Publisher, Paths);
 
     internal async Task<SessionManifest> SeedAsync(double startMs = 0, IReadOnlyList<(double Offset, double Duration)>? spans = null, string streamerId = "streamer")
     {
@@ -188,7 +192,7 @@ internal sealed class GroupingFixture : IAsyncDisposable
         }
         finally
         {
-            Directory.Delete(Root, true);
+            Directory.Delete(DirectoryPath, true);
         }
     }
 }

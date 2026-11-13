@@ -1,10 +1,11 @@
 import { post, put, remove, request } from './APIBase'
 import type { AppLanguage } from '@/localization/types'
+import type { SetupRequest, SetupStatus } from '@/models/setup'
 import type { BilibiliAccount, BilibiliLoginSession, Invitation, OAuthExchange, Registration, SmsChallengeAnswer, UserProfile, UserSession } from '@/models/auth'
 
 export const AuthAPI = {
-  setupStatus: () => request<{ installed: boolean; requiresToken: boolean }>('setup/status'),
-  setup: (body: { token: string; mongoConnectionString: string; databaseName: string; storagePath: string; userName: string; email: string; password: string; ffmpegPath?: string; ffprobePath?: string }) => post<void>('setup', body),
+  setupStatus: () => request<SetupStatus>('setup/status'),
+  setup: (body: SetupRequest) => post<void>('setup', body),
   me: () => request<UserSession>('auth/me'),
   setLanguage: (language: AppLanguage | null) => put<UserProfile>('auth/language', { language }),
   login: (email: string, password: string) => post<UserSession>('auth/login', { email, password }),

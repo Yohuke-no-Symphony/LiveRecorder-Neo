@@ -18,7 +18,7 @@ public sealed class StorageReliabilityTests
         await fixture.Storage.TrashClipAsync(clip);
         var stale = await fixture.Mongo.Collection<TrashEntry>("trash").Find(entry => entry.EntityId == clip.Id).SingleAsync();
         await fixture.Storage.RestoreAsync(stale);
-        await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => new StorageService(fixture.Mongo, fixture.Settings).PurgeAsync(stale)));
+        await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => new StorageService(fixture.Mongo, fixture.Settings, fixture.Paths).PurgeAsync(stale)));
         await fixture.Storage.RestoreAsync(stale);
         Assert.Equal("original", await File.ReadAllTextAsync(Path.Combine(fixture.Root, clip.RelativePath)));
         var current = await fixture.Mongo.Collection<Clip>("clips").Find(item => item.Id == clip.Id).SingleAsync();
@@ -38,7 +38,7 @@ public sealed class StorageReliabilityTests
         await fixture.Mongo.Collection<TrashEntry>("trash").UpdateOneAsync(entry => entry.Id == stale.Id, Builders<TrashEntry>.Update
             .Set(entry => entry.State, "Restoring").Set(entry => entry.OperationOwner, "crashed").Set(entry => entry.OperationLeaseUntilUtc, DateTime.UtcNow.AddMinutes(-1)));
         File.Move(Path.Combine(fixture.Root, stale.TrashRelativePath), Path.Combine(fixture.Root, stale.OriginalRelativePath));
-        await new StorageService(fixture.Mongo, fixture.Settings).PurgeAsync(stale);
+        await new StorageService(fixture.Mongo, fixture.Settings, fixture.Paths).PurgeAsync(stale);
         Assert.True(File.Exists(Path.Combine(fixture.Root, clip.RelativePath)));
         Assert.False((await fixture.Mongo.Collection<Clip>("clips").Find(item => item.Id == clip.Id).SingleAsync()).IsTrashed);
         Assert.Equal(0, await fixture.Mongo.Collection<TrashEntry>("trash").CountDocumentsAsync(_ => true));
@@ -69,7 +69,7 @@ public sealed class StorageReliabilityTests
         {
             try
             {
-                await new StorageService(fixture.Mongo, fixture.Settings).TrashClipAsync(clip);
+                await new StorageService(fixture.Mongo, fixture.Settings, fixture.Paths).TrashClipAsync(clip);
             }
             catch (InfrastructureException error) when (error.StatusCode == 409)
             {

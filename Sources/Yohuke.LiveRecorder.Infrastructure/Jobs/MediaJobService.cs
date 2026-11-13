@@ -11,7 +11,7 @@ using Yohuke.LiveRecorder.Infrastructure.Persistence;
 namespace Yohuke.LiveRecorder.Infrastructure.Jobs;
 
 /// <summary>校验任务输入并以持久快照入队。</summary>
-public sealed class MediaJobService(MongoContext context, LibraryService library, IStatusPublisher publisher)
+public sealed class MediaJobService(IMongoContext context, LibraryService library, IStatusPublisher publisher)
 {
     /// <summary>创建不会随浏览器断开而取消的作业。</summary>
     public async Task<MediaJob> CreateAsync(CreateMediaJobRequest request, string ownerId, bool isAdmin, CancellationToken cancellationToken = default)

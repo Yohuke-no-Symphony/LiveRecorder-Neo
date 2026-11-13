@@ -15,7 +15,7 @@ public sealed class RecordingProgressSink : IProgress<MediaRecordingUpdate>, IAs
     private readonly BroadcastSession session;
     private readonly string attemptId;
     private readonly string directory;
-    private readonly MongoContext context;
+    private readonly IMongoContext context;
     private readonly IStatusPublisher publisher;
     private readonly ILogger logger;
     private readonly Dictionary<string, RecordingSegment> segments;
@@ -25,7 +25,7 @@ public sealed class RecordingProgressSink : IProgress<MediaRecordingUpdate>, IAs
     private readonly HashSet<string> dirtySegments = [];
 
     /// <summary>从已有分段恢复同一场次的进度。</summary>
-    public RecordingProgressSink(BroadcastSession session, IEnumerable<RecordingSegment> existing, string attemptId, string directory, MongoContext context, IStatusPublisher publisher, ILogger logger)
+    public RecordingProgressSink(BroadcastSession session, IEnumerable<RecordingSegment> existing, string attemptId, string directory, IMongoContext context, IStatusPublisher publisher, ILogger logger)
     {
         this.session = session;
         this.attemptId = attemptId;

@@ -13,6 +13,8 @@ export const useAuthStore = defineStore('auth', () =>
   watch(user, value => preferences.setSession(value), { immediate: true, flush: 'sync' })
   const installed = ref(true)
   const requiresToken = ref(true)
+  const dataDirectory = ref('')
+  const recordsDirectory = ref('')
   const ready = ref(false)
   const providers = ref<{ id: string; name: string }[]>([])
   const oauthDraft = ref<{ email: string; displayName: string } | null>(null)
@@ -36,6 +38,8 @@ export const useAuthStore = defineStore('auth', () =>
         const status = await AuthAPI.setupStatus()
         installed.value = status.installed
         requiresToken.value = status.requiresToken
+        dataDirectory.value = status.installed ? '' : status.dataDirectory ?? ''
+        recordsDirectory.value = status.installed ? '' : status.recordsDirectory ?? ''
         await preferences.refreshDefaults()
         await refresh()
         if (installed.value)
@@ -73,5 +77,5 @@ export const useAuthStore = defineStore('auth', () =>
     await refresh()
   }
 
-  return { user, installed, requiresToken, ready, providers, oauthDraft, isAdmin, hasAccess, bootstrap, refresh, login, logout, setLanguage }
+  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, bootstrap, refresh, login, logout, setLanguage }
 })

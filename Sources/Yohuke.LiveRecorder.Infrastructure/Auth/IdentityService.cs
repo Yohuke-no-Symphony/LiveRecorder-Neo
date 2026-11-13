@@ -16,7 +16,7 @@ using Yohuke.LiveRecorder.Infrastructure.Persistence;
 namespace Yohuke.LiveRecorder.Infrastructure.Auth;
 
 /// <summary>以 MongoDB 保存账号与单次身份流程，所有新用户统一进入人工审核。</summary>
-public sealed class IdentityService(MongoContext context, ISettingsStore settingsStore, IEmailSender emailSender, ISecretProtector protector, IPasswordHasher<UserAccount> passwordHasher, IHttpClientFactory httpClientFactory) : IIdentityService
+public sealed class IdentityService(IMongoContext context, ISettingsStore settingsStore, IEmailSender emailSender, ISecretProtector protector, IPasswordHasher<UserAccount> passwordHasher, IHttpClientFactory httpClientFactory) : IIdentityService
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly SemaphoreSlim indexGate = new(1, 1);

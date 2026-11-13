@@ -8,7 +8,7 @@ using Yohuke.LiveRecorder.Infrastructure.Persistence;
 namespace Yohuke.LiveRecorder.Infrastructure.Library;
 
 /// <summary>读取当前媒体版本并构建共用时间轴。</summary>
-public sealed class LibraryService(MongoContext context, TimeProvider timeProvider)
+public sealed class LibraryService(IMongoContext context, TimeProvider timeProvider)
 {
     /// <summary>读取可访问的场次及当前媒体分段。</summary>
     public async Task<SessionDetail> GetAsync(string id, CancellationToken cancellationToken = default)

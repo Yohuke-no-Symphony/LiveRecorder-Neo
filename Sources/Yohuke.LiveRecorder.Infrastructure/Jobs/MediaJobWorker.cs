@@ -17,7 +17,7 @@ using Yohuke.LiveRecorder.Infrastructure.Storage;
 namespace Yohuke.LiveRecorder.Infrastructure.Jobs;
 
 /// <summary>以有效租约、不可变完成清单和有身份的媒体版本执行后台作业。</summary>
-public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstrap, ISettingsStore settingsStore, IMediaProcessor processor, IStatusPublisher publisher, StorageService storage, ILogger<MediaJobWorker> logger) : BackgroundService
+public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootstrap, ISettingsStore settingsStore, IMediaProcessor processor, IStatusPublisher publisher, StorageService storage, ILogger<MediaJobWorker> logger, IAppPaths paths) : BackgroundService
 {
     private readonly string workerId = Guid.NewGuid().ToString("N");
     private readonly List<Task> running = [];
@@ -36,7 +36,7 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
                     var settings = await settingsStore.GetAsync(stoppingToken);
                     if (DateTime.UtcNow - lastWorkSweepUtc > TimeSpan.FromSeconds(30))
                     {
-                        await CleanupTerminalWorkAsync(settings, stoppingToken);
+                        await CleanupTerminalWorkAsync(stoppingToken);
                         lastWorkSweepUtc = DateTime.UtcNow;
                     }
                     await FinalizeExpiredCancellationsAsync(stoppingToken);
@@ -79,7 +79,6 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         var heartbeat = HeartbeatAsync(job, cancellation);
         string? jobRoot = null;
-        ServerSettings? settings = null;
         BroadcastSession? session = null;
         var completed = false;
         try
@@ -93,13 +92,13 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
                 }
                 job.MutationKey = job.SessionId;
             }
-            settings = await settingsStore.GetAsync(cancellation.Token);
+            var settings = await settingsStore.GetAsync(cancellation.Token);
             session = await context.Collection<BroadcastSession>("sessions").Find(x => x.Id == job.SessionId).FirstOrDefaultAsync(cancellation.Token)
                       ?? throw new InfrastructureException(MessageCode.JOB_SOURCE_SESSION_NOT_FOUND, 404);
-            jobRoot = MediaPaths.Resolve(settings.StoragePath, Path.Combine(".work", "jobs", job.Id));
+            jobRoot = MediaPaths.Resolve(paths.RecordsDirectory, Path.Combine(".work", "jobs", job.Id));
             Directory.CreateDirectory(jobRoot);
-            var manifest = await RecoverOutputAsync(job, session, jobRoot, settings.StoragePath, cancellation.Token)
-                           ?? await ProcessAsync(job, session, settings, jobRoot, cancellation.Token);
+            var manifest = await RecoverOutputAsync(job, session, jobRoot, paths.RecordsDirectory, cancellation.Token)
+                           ?? await ProcessAsync(job, session, jobRoot, cancellation.Token);
             var publishing = await context.Collection<MediaJob>("jobs").UpdateOneAsync(Fence(job), Builders<MediaJob>.Update.Set(x => x.State, "Publishing"), cancellationToken: cancellation.Token);
             if (publishing.MatchedCount == 0)
             {
@@ -153,7 +152,7 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
             {
                 try
                 {
-                    await CleanupWorkAsync(job, session, settings, jobRoot, completed);
+                    await CleanupWorkAsync(job, session, jobRoot, completed);
                 }
                 catch (Exception error)
                 {
@@ -163,13 +162,13 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
         }
     }
 
-    private async Task<JobOutputManifest> ProcessAsync(MediaJob job, BroadcastSession session, ServerSettings settings, string jobRoot, CancellationToken cancellationToken)
+    private async Task<JobOutputManifest> ProcessAsync(MediaJob job, BroadcastSession session, string jobRoot, CancellationToken cancellationToken)
     {
         var attemptDirectory = Path.Combine(jobRoot, job.Attempt.ToString());
         Directory.CreateDirectory(attemptDirectory);
         var manifest = JobOutputManifest.Create(job);
-        var sessionDirectory = MediaPaths.Resolve(settings.StoragePath, session.DirectoryPath);
-        var outputDirectory = OutputDirectory(job, session, settings.StoragePath, job.Attempt);
+        var sessionDirectory = MediaPaths.Resolve(paths.RecordsDirectory, session.DirectoryPath);
+        var outputDirectory = OutputDirectory(job, session, paths.RecordsDirectory, job.Attempt);
         Directory.CreateDirectory(outputDirectory);
         var progress = new JobProgressReporter(context, publisher, job, workerId);
         if (job.Kind == "Repair")
@@ -177,7 +176,7 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
             for (var index = 0; index < job.SourceSegments.Count; index++)
             {
                 var segment = job.SourceSegments[index];
-                var source = MediaPaths.ResolveSegment(settings.StoragePath, session.DirectoryPath, segment);
+                var source = MediaPaths.ResolveSegment(paths.RecordsDirectory, session.DirectoryPath, segment);
                 var destination = Path.Combine(outputDirectory, MediaPaths.SafeName(job.Title, 40) + "_" + (index + 1).ToString("D3") + ".flv");
                 var segmentProgress = new JobProgressReporter(context, publisher, job, workerId, (double)index / job.SourceSegments.Count, (double)(index + 1) / job.SourceSegments.Count);
                 var repaired = await processor.RepairAsync(source, destination, segmentProgress, cancellationToken);
@@ -203,10 +202,10 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
                     {
                         throw new InvalidDataException("修复产物缺少有效索引。");
                     }
-                    var relative = Path.GetRelativePath(settings.StoragePath, path);
+                    var relative = Path.GetRelativePath(paths.RecordsDirectory, path);
                     manifest.Paths.Add(relative);
                     manifest.ArtifactLengths.Add(relative, new FileInfo(path).Length);
-                    manifest.ArtifactLengths.Add(Path.GetRelativePath(settings.StoragePath, output.IndexPath), new FileInfo(output.IndexPath).Length);
+                    manifest.ArtifactLengths.Add(Path.GetRelativePath(paths.RecordsDirectory, output.IndexPath), new FileInfo(output.IndexPath).Length);
                     manifest.RepairedSegments.Add(new()
                     {
                         Id = job.Id + "_v" + manifest.Attempt + "_" + manifest.RepairedSegments.Count,
@@ -229,12 +228,12 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
         {
             var output = Path.Combine(outputDirectory, MediaPaths.SafeName(job.Title, 40) + ".mp4");
             var temporary = Path.Combine(attemptDirectory, "output.mp4");
-            var inputs = SessionTimeline.ExportSegmentSpans(job.SourceSegments, job.StartMs, job.EndMs, segment => MediaPaths.ResolveSegment(settings.StoragePath, session.DirectoryPath, segment));
+            var inputs = SessionTimeline.ExportSegmentSpans(job.SourceSegments, job.StartMs, job.EndMs, segment => MediaPaths.ResolveSegment(paths.RecordsDirectory, session.DirectoryPath, segment));
             var result = await processor.ExportAsync(new() { Inputs = inputs, OutputPath = temporary, Mode = job.Mode, StartMs = job.StartMs, DurationMs = job.EndMs - job.StartMs }, progress, cancellationToken);
             await ValidateMediaAsync(temporary, cancellationToken);
             await RequireLeaseAsync(job, cancellationToken);
             File.Move(temporary, output, false);
-            var relative = Path.GetRelativePath(settings.StoragePath, output);
+            var relative = Path.GetRelativePath(paths.RecordsDirectory, output);
             manifest.Paths.Add(relative);
             manifest.ArtifactLengths.Add(relative, new FileInfo(output).Length);
             manifest.ActualStartMs = result.ActualStartMs;
@@ -248,7 +247,7 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
 
     private async Task PublishAsync(MediaJob job, BroadcastSession session, JobOutputManifest manifest, ServerSettings settings, CancellationToken cancellationToken)
     {
-        var sessionDirectory = MediaPaths.Resolve(settings.StoragePath, session.DirectoryPath);
+        var sessionDirectory = MediaPaths.Resolve(paths.RecordsDirectory, session.DirectoryPath);
         await using var publicationLock = await AcquirePublicationLockAsync(sessionDirectory, cancellationToken);
         var lease = await RequireLeaseAsync(job, cancellationToken);
         if (job.Kind == "Clip")
@@ -270,7 +269,7 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
                 JobId = job.Id,
                 Title = job.Title,
                 RelativePath = manifest.Paths.Single(),
-                Bytes = new FileInfo(MediaPaths.Resolve(settings.StoragePath, manifest.Paths.Single())).Length,
+                Bytes = new FileInfo(MediaPaths.Resolve(paths.RecordsDirectory, manifest.Paths.Single())).Length,
                 StartMs = manifest.ActualStartMs,
                 EndMs = manifest.ActualEndMs,
                 ExpiresAtUtc = DateTime.UtcNow.AddDays(settings.ClipRetentionDays),
@@ -544,9 +543,9 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
         }
     }
 
-    private async Task CleanupTerminalWorkAsync(ServerSettings settings, CancellationToken cancellationToken)
+    private async Task CleanupTerminalWorkAsync(CancellationToken cancellationToken)
     {
-        var root = MediaPaths.Resolve(settings.StoragePath, Path.Combine(".work", "jobs"));
+        var root = MediaPaths.Resolve(paths.RecordsDirectory, Path.Combine(".work", "jobs"));
         if (!Directory.Exists(root))
         {
             return;
@@ -563,12 +562,12 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
             var session = await context.Collection<BroadcastSession>("sessions").Find(x => x.Id == job.SessionId).FirstOrDefaultAsync(cancellationToken);
             if (session is not null)
             {
-                await CleanupWorkAsync(job, session, settings, directory, job.State == "Completed");
+                await CleanupWorkAsync(job, session, directory, job.State == "Completed");
             }
         }
     }
 
-    private async Task CleanupWorkAsync(MediaJob job, BroadcastSession? session, ServerSettings? settings, string directory, bool completed)
+    private async Task CleanupWorkAsync(MediaJob job, BroadcastSession? session, string directory, bool completed)
     {
         var current = await context.Collection<MediaJob>("jobs").Find(x => x.Id == job.Id).FirstOrDefaultAsync();
         if (current is null || current.Attempt != job.Attempt || current.LeaseOwner is not null || current.State is "Running" or "Publishing" or "Queued")
@@ -579,10 +578,10 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
         {
             return;
         }
-        if (session is not null && settings is not null)
+        if (session is not null)
         {
             var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-            if (job.SourceSegments.Any(segment => MediaPaths.ResolveSegment(settings.StoragePath, session.DirectoryPath, segment)
+            if (job.SourceSegments.Any(segment => MediaPaths.ResolveSegment(paths.RecordsDirectory, session.DirectoryPath, segment)
                     .StartsWith(Path.TrimEndingDirectorySeparator(directory) + Path.DirectorySeparatorChar, comparison)))
             {
                 return;
@@ -614,10 +613,10 @@ public sealed class MediaJobWorker(MongoContext context, BootstrapStore bootstra
                 Directory.Delete(attemptDirectory);
             }
         }
-        if (session is not null && settings is not null && !File.Exists(Path.Combine(directory, job.Attempt.ToString(), "completed.json")))
+        if (session is not null && !File.Exists(Path.Combine(directory, job.Attempt.ToString(), "completed.json")))
         {
-            var output = OutputDirectory(job, session, settings.StoragePath, job.Attempt);
-            var sourcePaths = job.SourceSegments.Select(segment => MediaPaths.ResolveSegment(settings.StoragePath, session.DirectoryPath, segment));
+            var output = OutputDirectory(job, session, paths.RecordsDirectory, job.Attempt);
+            var sourcePaths = job.SourceSegments.Select(segment => MediaPaths.ResolveSegment(paths.RecordsDirectory, session.DirectoryPath, segment));
             var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
             if (Directory.Exists(output) && !sourcePaths.Any(path => path.StartsWith(Path.TrimEndingDirectorySeparator(output) + Path.DirectorySeparatorChar, comparison)))
             {

@@ -1,4 +1,6 @@
 using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json.Nodes;
 using Xunit;
 
 namespace Yohuke.LiveRecorder.Http.Tests;
@@ -36,16 +38,19 @@ public sealed class DevelopmentCorsHttpTests
     }
 
     [Fact]
-    public async Task ConfiguredFrontEndCanReadCsrfAndSubmitCookieWithoutBypassingValidation()
+    public async Task ConfiguredFrontEndCanReadCsrfAndSubmitSetupWithoutBypassingValidation()
     {
         await using var fixture = await HttpServerFixture.CreateAsync("Development", "--WebUI:DevelopmentOrigins:0", CUSTOM_ORIGIN);
         fixture.Admin.Client.DefaultRequestHeaders.Add("Origin", CUSTOM_ORIGIN);
         await fixture.Admin.RefreshCsrfAsync();
-        using var invalid = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/auth/logout", includeCsrf: false);
+        var request = fixture.SetupRequest() with { Email = "invalid" };
+        using var invalid = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/setup", request, includeCsrf: false);
         Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
         Assert.Equal(CUSTOM_ORIGIN, Assert.Single(invalid.Headers.GetValues("Access-Control-Allow-Origin")));
-        using var valid = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/auth/logout");
-        Assert.Equal(HttpStatusCode.NoContent, valid.StatusCode);
+        using var valid = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/setup", request);
+        Assert.Equal(HttpStatusCode.BadRequest, valid.StatusCode);
+        var problem = await valid.Content.ReadFromJsonAsync<JsonObject>();
+        Assert.Equal("AUTH_EMAIL_INVALID", problem!["code"]!.GetValue<string>());
         Assert.Equal(CUSTOM_ORIGIN, Assert.Single(valid.Headers.GetValues("Access-Control-Allow-Origin")));
         Assert.Equal("true", Assert.Single(valid.Headers.GetValues("Access-Control-Allow-Credentials")));
     }

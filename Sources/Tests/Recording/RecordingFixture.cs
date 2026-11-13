@@ -26,7 +26,8 @@ internal sealed class RecordingFixture : IAsyncDisposable
     private RecordingSupervisor? supervisor;
     private MediaJobWorker? jobWorker;
     internal string DirectoryPath { get; } = Path.Combine(Path.GetTempPath(), "live-recorder-recording-tests", Guid.NewGuid().ToString("N"));
-    internal string StoragePath => Path.Combine(DirectoryPath, "recordings");
+    internal AppPaths Paths { get; private set; } = null!;
+    internal string StoragePath => Paths.RecordsDirectory;
     internal string DatabaseName { get; } = "recording_tests_" + Guid.NewGuid().ToString("N");
     internal string ConnectionString { get; } = Environment.GetEnvironmentVariable("LIVE_RECORDER_TEST_MONGO")!;
     internal ControlledBilibiliService Bilibili { get; } = new();
@@ -48,13 +49,16 @@ internal sealed class RecordingFixture : IAsyncDisposable
         var fixture = new RecordingFixture();
         try
         {
+            fixture.Paths = new(Path.Combine(fixture.DirectoryPath, "data"), Path.Combine(fixture.DirectoryPath, "records"));
+            fixture.Paths.EnsureDirectories();
             Directory.CreateDirectory(fixture.StoragePath);
-            var paths = new AppPaths(Path.Combine(fixture.DirectoryPath, "data"));
-            fixture.Bootstrap = new(paths, new DataProtectionSecretProtector(new EphemeralDataProtectionProvider()));
-            await fixture.Bootstrap.SaveAsync(new() { Installed = true, StoragePath = fixture.StoragePath, DatabaseName = fixture.DatabaseName, MongoConnectionString = fixture.ConnectionString });
+            var startup = new StartupConfigurationStore(Path.Combine(fixture.DirectoryPath, "startup.json"));
+            await startup.SaveAsync(fixture.Paths.DataDirectory, fixture.Paths.RecordsDirectory);
+            fixture.Bootstrap = new(fixture.Paths, new DataProtectionSecretProtector(new EphemeralDataProtectionProvider()));
+            await fixture.Bootstrap.SaveAsync(new() { Installed = true, DatabaseName = fixture.DatabaseName, MongoConnectionString = fixture.ConnectionString });
             fixture.Context = new(fixture.Bootstrap);
-            fixture.Settings = new SettingsStore(fixture.Context, fixture.Bootstrap);
-            await fixture.Settings.SaveAsync(new ServerSettings { StoragePath = fixture.StoragePath, MinimumFreeBytes = 0, SegmentBytes = 0, MonitorIntervalSeconds = 1, SessionGraceMinutes = 10, PlaybackConcurrency = 4, MediaConcurrency = 1 });
+            fixture.Settings = new SettingsStore(startup, fixture.Bootstrap, fixture.Context, fixture.Paths);
+            await fixture.Settings.SaveAsync(new ServerSettings { MinimumFreeBytes = 0, SegmentBytes = 0, MonitorIntervalSeconds = 1, SessionGraceMinutes = 10, PlaybackConcurrency = 4, MediaConcurrency = 1 });
             var data = await fixture.CreateSampleAsync(durationSeconds, size, fps);
             fixture.SampleBytes = data.Length;
             var chunks = ParseChunks(data);
@@ -65,7 +69,7 @@ internal sealed class RecordingFixture : IAsyncDisposable
             fixture.Processor = new(fixture.Processes);
             fixture.Playback = new(fixture.Processes, options);
             fixture.Library = new(fixture.Context, TimeProvider.System);
-            fixture.Grouping = new(fixture.Context, fixture.Library, fixture.Settings, fixture.Publisher);
+            fixture.Grouping = new(fixture.Context, fixture.Library, fixture.Settings, fixture.Publisher, fixture.Paths);
             fixture.Jobs = new(fixture.Context, fixture.Library, fixture.Publisher);
             return fixture;
         }
@@ -88,7 +92,7 @@ internal sealed class RecordingFixture : IAsyncDisposable
     internal async Task StartSupervisorAsync()
     {
         Assert.Null(supervisor);
-        supervisor = new(Context, Bootstrap, Settings, Bilibili, Recorder, Publisher, NullLogger<RecordingSupervisor>.Instance, Grouping);
+        supervisor = new(Context, Bootstrap, Settings, Bilibili, Recorder, Publisher, NullLogger<RecordingSupervisor>.Instance, Grouping, Paths);
         await supervisor.StartAsync(CancellationToken.None);
     }
 
@@ -105,7 +109,7 @@ internal sealed class RecordingFixture : IAsyncDisposable
 
     internal async Task StartJobWorkerAsync()
     {
-        jobWorker = new(Context, Bootstrap, Settings, Processor, Publisher, new StorageService(Context, Settings), NullLogger<MediaJobWorker>.Instance);
+        jobWorker = new(Context, Bootstrap, Settings, Processor, Publisher, new StorageService(Context, Settings, Paths), NullLogger<MediaJobWorker>.Instance, Paths);
         await jobWorker.StartAsync(CancellationToken.None);
     }
 

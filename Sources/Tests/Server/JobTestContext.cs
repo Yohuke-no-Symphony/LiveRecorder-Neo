@@ -11,7 +11,10 @@ namespace Yohuke.LiveRecorder.Tests;
 
 internal sealed class JobTestContext : IAsyncDisposable
 {
-    internal string Root { get; } = Path.Combine(Path.GetTempPath(), "live-recorder-job-tests", Guid.NewGuid().ToString("N"));
+    internal string DirectoryPath { get; } = Path.Combine(Path.GetTempPath(), "live-recorder-job-tests", Guid.NewGuid().ToString("N"));
+    internal AppPaths Paths { get; }
+    internal string Root => Paths.RecordsDirectory;
+    internal string ConnectionString { get; } = Environment.GetEnvironmentVariable("LIVE_RECORDER_TEST_MONGO") ?? "mongodb://127.0.0.1:34784";
     internal string DatabaseName { get; } = "media_jobs_tests_" + Guid.NewGuid().ToString("N");
     internal BootstrapStore Bootstrap { get; }
     internal MongoContext Mongo { get; }
@@ -23,11 +26,13 @@ internal sealed class JobTestContext : IAsyncDisposable
 
     private JobTestContext()
     {
+        Paths = new(Path.Combine(DirectoryPath, "data"), Path.Combine(DirectoryPath, "records"));
+        Paths.EnsureDirectories();
         Directory.CreateDirectory(Root);
-        Bootstrap = new(new AppPaths(Path.Combine(Root, ".config")), new JobTestSecretProtector());
+        Bootstrap = new(Paths, new JobTestSecretProtector());
         Mongo = new(Bootstrap);
-        Settings = new(Root);
-        Storage = new(Mongo, Settings);
+        Settings = new();
+        Storage = new(Mongo, Settings, Paths);
     }
 
     internal static async Task<JobTestContext> CreateAsync()
@@ -36,9 +41,8 @@ internal sealed class JobTestContext : IAsyncDisposable
         await fixture.Bootstrap.SaveAsync(new()
         {
             Installed = true,
-            MongoConnectionString = "mongodb://127.0.0.1:34784",
-            DatabaseName = fixture.DatabaseName,
-            StoragePath = fixture.Root
+            MongoConnectionString = fixture.ConnectionString,
+            DatabaseName = fixture.DatabaseName
         });
         await fixture.Mongo.Database.RunCommandAsync<MongoDB.Bson.BsonDocument>(new MongoDB.Bson.BsonDocument("ping", 1));
         return fixture;
@@ -97,7 +101,7 @@ internal sealed class JobTestContext : IAsyncDisposable
 
     internal MediaJobWorker CreateWorker()
     {
-        var worker = new MediaJobWorker(Mongo, Bootstrap, Settings, Processor, Publisher, Storage, NullLogger<MediaJobWorker>.Instance);
+        var worker = new MediaJobWorker(Mongo, Bootstrap, Settings, Processor, Publisher, Storage, NullLogger<MediaJobWorker>.Instance, Paths);
         workers.Add(worker);
         return worker;
     }
@@ -122,7 +126,13 @@ internal sealed class JobTestContext : IAsyncDisposable
             await worker.StopAsync(CancellationToken.None);
             worker.Dispose();
         }
-        await new MongoClient("mongodb://127.0.0.1:34784").DropDatabaseAsync(DatabaseName);
-        Directory.Delete(Root, true);
+        try
+        {
+            await new MongoClient(ConnectionString).DropDatabaseAsync(DatabaseName);
+        }
+        finally
+        {
+            Directory.Delete(DirectoryPath, true);
+        }
     }
 }

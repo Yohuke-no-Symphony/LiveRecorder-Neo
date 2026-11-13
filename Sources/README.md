@@ -31,9 +31,30 @@ VITE_API_BASE_URL=http://127.0.0.1:4884
 
 后端使用 `Development` 环境启动，允许 `appsettings.Development.json` 中 `WebUI:DevelopmentOrigins` 指定的前端携带 Cookie 与 CSRF 令牌访问。更换前端端口时同步修改该列表。前后端使用相同主机名与协议，例如均使用 `http://127.0.0.1`，保证登录 Cookie 可用。开发时 OAuth 回调到前端端口，提供方应登记 `http://127.0.0.1:5784/oauth/callback/提供方标识`。
 
-首次启动会输出安装令牌。打开页面后填写令牌、管理员邮箱与密码、录播目录及 MongoDB 连接。安装后在设置中配置 SMTP、邀请码、注册开关和 OAuth。
+首次启动会输出内存中的安装令牌。打开页面后选择「全新安装」或「恢复实例」，填写令牌、管理员邮箱与密码、数据目录、录像目录及 MongoDB 连接。向导和校验阶段不创建 Data、录像目录、密钥或安装文件；验证通过并提交完成安装时才创建，不存在的目录会自动建立。安装直接在所选目录完成，无需重启。安装后在设置中配置 SMTP、邀请码、注册开关和 OAuth。
 
-`LIVE_RECORDER_DATA_DIR` 或 `--DataDirectory` 指定服务数据目录。默认位于程序旁的 `data/`，保存保护后的安装配置和 Data Protection 密钥。备份时需要同时保存该目录、MongoDB 与录播目录。Windows 密钥使用运行账户的 DPAPI，恢复时需要保留对应账户的密钥环境。已安装实例的数据库故障不会重新开放安装。
+使用 `--config /持久目录/settings.json` 指定唯一设置文件；省略参数时读取可执行文件旁的 `settings.json`。找不到配置文件时进入未安装状态，成功安装或恢复后写入完整设置。开发时建议将该文件放在编译输出目录之外。
+
+同一个 JSON 直接保存数据目录、录像目录和全部后台设置，例如：
+
+```json
+{
+  "DataDirectory": "Data",
+  "RecordsDirectory": "Data/records",
+  "quality": 10000,
+  "defaultLanguage": "zh-CN"
+}
+```
+
+两条目录都以设置文件所在目录为相对路径基准，不受工作目录影响，也可以使用绝对路径。默认数据目录为该文件旁的 `Data/`，录像目录默认 `Data/records/`，也可放到其他磁盘。原 `--DataDirectory` 参数和 `LIVE_RECORDER_DATA_DIR` 环境变量已由此 JSON 取代。
+
+数据目录只保存受保护的安装状态和数据库连接 `bootstrap.json`、安装令牌、`keys/` 密钥及 `cache/` 缓存。全局参数全部保存在可执行文件旁或 `--config` 选定的同一个 `settings.json`，不再新建 Data 内的第二份 settings；SMTP 密码和 OAuth 密钥仍受数据目录中的密钥保护。录像及其档案保存在独立的录像目录，媒体相对路径不包含主机上的绝对目录。
+
+在后台「设置 → 常规 → 存储目录」可以修改两条目录并保存到同一个 settings.json，安装完成后的路径修改需重启生效，不会自动移动文件。重启前应停止录制并手动复制对应目录；迁移实例还需保留该设置文件。有效的安装状态会自动识别；设置文件丢失时需在安装页选择「恢复实例」。网站账号、B站账号、直播间和录像索引仍在 MongoDB 中，目标实例应连接原数据库，或同时恢复数据库备份。Windows 密钥使用运行账户的 DPAPI，恢复时需要保留对应账户的密钥环境。设置文件存在时，已安装实例的数据库故障、安装配置损坏或密钥缺失不会重新开放安装。
+
+安装页的「全新安装」只接受空数据库；「恢复实例」要求原实例的有效管理员邮箱和密码，不会创建新管理员或重置配置。恢复优先使用唯一设置文件；旧实例的 Data/settings.json 或 MongoDB 全局设置可一次性导入该文件，之后不再读取第二份 settings。需要原密钥的凭据无法解密时会拒绝完成恢复，应补齐所选数据目录的 `keys/` 后重试。恢复模式的 FFmpeg、ffprobe 路径留空会沿用原设置，也可以填写目标机器上的新路径。
+
+从旧版本升级时，先备份设置文件、数据目录、录像目录及 MongoDB。在唯一设置文件中填入两条真实目录，保持主播、场次、`.work/` 和 `.trash/` 内部结构不变，不必为独立录像目录重写数据库媒体索引。原 `.cache/` 可合并到数据目录的 `cache/`，也可重新生成。旧 `bootstrap.json`、`installation-token` 和全部 `keys/` 保留在数据目录。程序不会在启动时自动搬动已有录像。
 
 ## 发布
 
@@ -52,7 +73,7 @@ Windows PowerShell：
 运行发布产物：
 
 ```sh
-./Yohuke.LiveRecorder.Server --urls http://127.0.0.1:4784 --DataDirectory /var/lib/live-recorder
+./Yohuke.LiveRecorder.Server --urls http://127.0.0.1:4784 --config /var/lib/live-recorder/settings.json
 ```
 
 反向代理应提供 HTTPS 并保留正确 Host。代理身份来源需要按部署环境配置可信代理，避免信任外部任意转发头。Linux 服务示例见 `deploy/live-recorder.service`。
@@ -74,21 +95,28 @@ Windows PowerShell：
 ## 文件与媒体
 
 ```text
-录播根/
-  主播名称_UID/
-    主播信息.json
-    日期_时间_直播标题_场次短ID/
-      场次.json
-      录像/
-      弹幕/事件.jsonl
-      弹幕/事件.index.jsonl
-      分析/
-      切片/
-      修复/
-      合并/
-  .cache/
-  .work/
-  .trash/
+settings.json
+Data/
+  bootstrap.json
+  installation-token
+  keys/
+  cache/
+    artwork/
+    playback/
+  records/
+    主播名称_UID/
+      主播信息.json
+      日期_时间_直播标题_场次短ID/
+        场次.json
+        录像/
+        弹幕/事件.jsonl
+        弹幕/事件.index.jsonl
+        分析/
+        切片/
+        修复/
+        合并/
+    .work/
+    .trash/
 ```
 
 目录与文件名保留中文；管理索引使用稳定 ID。逐条事件、文件侧索引和用户互动分析不写 MongoDB。

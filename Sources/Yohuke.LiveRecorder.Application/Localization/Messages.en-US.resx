@@ -43,7 +43,12 @@
   <data name="SMTP_CONFIGURATION_INVALID" xml:space="preserve"><value>The administrator has not configured a valid outgoing mail server.</value></data>
   <data name="SMTP_TLS_REQUIRED" xml:space="preserve"><value>TLS is required when using SMTP authentication.</value></data>
   <data name="SETUP_TOKEN_INVALID" xml:space="preserve"><value>The installation token is incorrect.</value></data>
-  <data name="SETUP_CONFIGURATION_INVALID" xml:space="preserve"><value>The recording directory must be an absolute path and the database name must be valid.</value></data>
+  <data name="SETUP_CONFIGURATION_INVALID" xml:space="preserve"><value>The installation mode and database name must be valid.</value></data>
+  <data name="SETUP_DATABASE_NOT_EMPTY" xml:space="preserve"><value>The database already contains data. Choose Restore instance or use an empty database.</value></data>
+  <data name="SETUP_RESTORE_ADMIN_INVALID" xml:space="preserve"><value>The original administrator email or password is incorrect. The instance was not restored.</value></data>
+  <data name="SETUP_RESTORE_SETTINGS_MISSING" xml:space="preserve"><value>The original instance settings were not found. Restore the selected settings.json or choose the data directory containing its legacy settings.</value></data>
+  <data name="SETUP_RESTORE_KEYS_MISSING" xml:space="preserve"><value>Original keys are missing or credentials are damaged. Merge the original keys into this data directory, restart, and try again.</value></data>
+  <data name="SETUP_EXISTING_CONFIGURATION" xml:space="preserve"><value>The selected directories contain instance configuration or recordings. Choose Restore instance or use empty directories.</value></data>
   <data name="SETUP_ALREADY_INSTALLED" xml:space="preserve"><value>Installation is complete. Administrator and database settings cannot be overwritten.</value></data>
   <data name="SETUP_EXISTING_ADMIN" xml:space="preserve"><value>An administrator already exists in the unfinished installation. Retry with the original settings.</value></data>
   <data name="SETUP_EXISTING_ADMIN_PASSWORD_MISMATCH" xml:space="preserve"><value>The existing administrator password does not match. Overwriting is not allowed.</value></data>
@@ -160,4 +165,6 @@ This code is valid for 10 minutes. Do not share it. If you did not request it, i
   <data name="JOB_OUTPUT_INVALID" xml:space="preserve"><value>Media output validation failed.</value></data>
   <data name="JOB_PROCESSING_FAILED" xml:space="preserve"><value>Media processing failed: {0}</value></data>
   <data name="RECORDING_CAPTURE_FAILED" xml:space="preserve"><value>Recording was interrupted: {0}</value></data>
+  <data name="SETTINGS_DATA_DIRECTORY_INVALID" xml:space="preserve"><value>Enter valid data and recordings directories. Neither destination nor its parent paths may be regular files.</value></data>
+  <data name="STARTUP_CONFIGURATION_PATH_CONFLICT" xml:space="preserve"><value>The recordings directory must not contain configuration, keys, or cache. The settings file must not overwrite installation state or tokens. Choose other locations.</value></data>
 </root>

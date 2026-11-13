@@ -14,7 +14,7 @@ using Yohuke.LiveRecorder.Infrastructure.Persistence;
 namespace Yohuke.LiveRecorder.Infrastructure.Bilibili;
 
 /// <summary>隔离后台采集身份，并将 Core 接入录制和文件事件流。</summary>
-public sealed class BilibiliService(MongoContext context, ISecretProtector protector, IHttpClientFactory httpClientFactory, ILogger<BilibiliService> logger) : IBilibiliService, IDisposable
+public sealed class BilibiliService(IMongoContext context, ISecretProtector protector, IHttpClientFactory httpClientFactory, ILogger<BilibiliService> logger) : IBilibiliService, IDisposable
 {
     private readonly ConcurrentDictionary<string, BilibiliBindingSession> sessions = new();
     private readonly ConcurrentDictionary<string, CancellationTokenSource> credentialLifetimes = new();

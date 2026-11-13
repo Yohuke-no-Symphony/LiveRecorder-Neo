@@ -12,6 +12,29 @@ namespace Yohuke.LiveRecorder.Http.Tests;
 public sealed class MediaAuthorizationHttpTests
 {
     [MongoHttpFact]
+    public async Task MediaRecordsCannotResolvePrivateConfigurationOrKeysBesideTheRecordingDirectory()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+        var admin = await fixture.Context.Collection<UserAccount>("users").Find(x => x.Role == "Admin").SingleAsync();
+        var media = await HttpMediaFixtureData.CreateAsync(fixture, admin.Id);
+        foreach (var relative in new[] { "../settings.json", "../bootstrap.json", "../keys/key.xml" })
+        {
+            await fixture.Context.Collection<Clip>("clips").UpdateOneAsync(x => x.Id == media.Clip.Id, Builders<Clip>.Update.Set(x => x.RelativePath, relative));
+            await fixture.Context.Collection<MediaJob>("jobs").UpdateOneAsync(x => x.Id == media.Job.Id, Builders<MediaJob>.Update.Set(x => x.OutputRelativePaths, [relative]));
+            await fixture.Context.Collection<BroadcastSession>("sessions").UpdateOneAsync(x => x.Id == media.Session.Id, Builders<BroadcastSession>.Update.Set(x => x.CoverRelativePath, relative));
+            foreach (var path in new[] { $"/api/clips/{media.Clip.Id}/download", $"/api/jobs/{media.Job.Id}/outputs/0", $"/api/sessions/{media.Session.Id}/cover" })
+            {
+                using var response = await fixture.Admin.Client.GetAsync(path);
+                Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+                var problem = await response.Content.ReadFromJsonAsync<JsonObject>();
+                Assert.Equal("PATH_MEDIA_OUTSIDE_STORAGE", problem!["code"]!.GetValue<string>());
+            }
+        }
+    }
+
+    [MongoHttpFact]
     public async Task OnlyClipOwnerOrAdminCanDownloadAndExpiryAlsoBlocksJobOutputAlias()
     {
         await using var fixture = await HttpServerFixture.CreateAsync();

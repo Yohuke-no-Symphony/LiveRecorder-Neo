@@ -43,7 +43,12 @@
   <data name="SMTP_CONFIGURATION_INVALID" xml:space="preserve"><value>管理者が有効な送信メールサーバーを設定していません。</value></data>
   <data name="SMTP_TLS_REQUIRED" xml:space="preserve"><value>SMTP 認証を使用する場合は TLS を有効にしてください。</value></data>
   <data name="SETUP_TOKEN_INVALID" xml:space="preserve"><value>インストールトークンが正しくありません。</value></data>
-  <data name="SETUP_CONFIGURATION_INVALID" xml:space="preserve"><value>録画ディレクトリには絶対パスを、有効なデータベース名を指定してください。</value></data>
+  <data name="SETUP_CONFIGURATION_INVALID" xml:space="preserve"><value>インストール方法とデータベース名には有効な値を指定してください。</value></data>
+  <data name="SETUP_DATABASE_NOT_EMPTY" xml:space="preserve"><value>データベースに既存のデータがあります。「既存のインスタンスを復元」を選択するか、空のデータベースを使用してください。</value></data>
+  <data name="SETUP_RESTORE_ADMIN_INVALID" xml:space="preserve"><value>元の管理者のメールアドレスまたはパスワードが正しくないため、復元できません。</value></data>
+  <data name="SETUP_RESTORE_SETTINGS_MISSING" xml:space="preserve"><value>元の全体設定が見つかりません。選択した settings.json を復元するか、旧設定を含むデータディレクトリを指定してください。</value></data>
+  <data name="SETUP_RESTORE_KEYS_MISSING" xml:space="preserve"><value>元のキーがないか認証情報が破損しています。元の keys を現在のデータディレクトリに統合し、再起動して再試行してください。</value></data>
+  <data name="SETUP_EXISTING_CONFIGURATION" xml:space="preserve"><value>選択したディレクトリに既存の設定または録画があります。復元を選択するか、空のディレクトリを使用してください。</value></data>
   <data name="SETUP_ALREADY_INSTALLED" xml:space="preserve"><value>インストールは完了しています。管理者やデータベースの設定は上書きできません。</value></data>
   <data name="SETUP_EXISTING_ADMIN" xml:space="preserve"><value>未完了のインストールに別の管理者が存在します。元の設定で再試行してください。</value></data>
   <data name="SETUP_EXISTING_ADMIN_PASSWORD_MISMATCH" xml:space="preserve"><value>既存の管理者パスワードが一致しないため、上書きできません。</value></data>
@@ -160,4 +165,6 @@
   <data name="JOB_OUTPUT_INVALID" xml:space="preserve"><value>メディアの出力検証に失敗しました。</value></data>
   <data name="JOB_PROCESSING_FAILED" xml:space="preserve"><value>メディア処理に失敗しました：{0}</value></data>
   <data name="RECORDING_CAPTURE_FAILED" xml:space="preserve"><value>録画が中断されました：{0}</value></data>
+  <data name="SETTINGS_DATA_DIRECTORY_INVALID" xml:space="preserve"><value>有効なデータおよび録画ディレクトリを入力してください。保存先とその親パスに通常のファイルは指定できません。</value></data>
+  <data name="STARTUP_CONFIGURATION_PATH_CONFLICT" xml:space="preserve"><value>録画ディレクトリに設定、キー、キャッシュを含めることはできません。設定ファイルでインストール状態やトークンを上書きすることもできません。保存先を変更してください。</value></data>
 </root>

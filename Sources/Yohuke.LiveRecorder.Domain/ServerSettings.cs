@@ -8,7 +8,6 @@ public sealed class ServerSettings : Entity
         Id = "server";
     }
 
-    public string StoragePath { get; set; } = "";
     public string DefaultLanguage { get; set; } = Localization.SupportedLanguages.DEFAULT;
     public string TimeZone { get; set; } = "Asia/Shanghai";
     public int Quality { get; set; } = 10000;

@@ -29,8 +29,8 @@ public sealed class InstallationHttpTests
         await fixture.InstallAsync();
         await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
         var cookies = fixture.Admin.Cookies;
-        var bootstrap = fixture.App.Services.GetRequiredService<BootstrapStore>();
-        await bootstrap.SaveAsync(new BootstrapConfiguration { Installed = true, StoragePath = fixture.StoragePath, DatabaseName = fixture.DatabaseName, MongoConnectionString = "mongodb://127.0.0.1:1" });
+        var bootstrap = fixture.App.Services.GetRequiredService<IBootstrapStore>();
+        await bootstrap.SaveAsync(new BootstrapConfiguration { Installed = true, DatabaseName = fixture.DatabaseName, MongoConnectionString = "mongodb://127.0.0.1:1" });
         await fixture.RestartAsync();
         var anonymous = fixture.NewBrowser();
         var state = await anonymous.Client.GetFromJsonAsync<JsonObject>("/api/setup/status");
@@ -42,6 +42,6 @@ public sealed class InstallationHttpTests
         var authenticated = fixture.NewBrowser(cookies);
         using var unavailable = await authenticated.Client.GetAsync("/api/sessions");
         Assert.Equal(HttpStatusCode.ServiceUnavailable, unavailable.StatusCode);
-        Assert.True(fixture.App.Services.GetRequiredService<BootstrapStore>().IsInstalled);
+        Assert.True(fixture.App.Services.GetRequiredService<IBootstrapStore>().IsInstalled);
     }
 }

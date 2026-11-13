@@ -14,7 +14,7 @@ public sealed class WebUiLocation(string path)
             throw new Yohuke.LiveRecorder.Application.InfrastructureException(MessageCode.PATH_ABSOLUTE_REQUIRED);
         }
         var candidate = System.IO.Path.GetFullPath(privatePath);
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var comparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         var root = System.IO.Path.TrimEndingDirectorySeparator(Path);
         if (candidate.Equals(root, comparison) || candidate.StartsWith(root + System.IO.Path.DirectorySeparatorChar, comparison))
         {

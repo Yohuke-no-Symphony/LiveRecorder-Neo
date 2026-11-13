@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
@@ -19,7 +18,8 @@ internal sealed class IdentityFixture : IAsyncDisposable
     internal string ConnectionString { get; } = Environment.GetEnvironmentVariable("LIVE_RECORDER_TEST_MONGO")!;
     internal CapturingEmailSender Email { get; } = new();
     internal TestHttpClientFactory Http { get; } = new();
-    internal ISecretProtector Protector { get; } = new DataProtectionSecretProtector(new EphemeralDataProtectionProvider());
+    internal ISecretProtector Protector { get; private set; } = null!;
+    internal AppPaths Paths { get; private set; } = null!;
     internal BootstrapStore Bootstrap { get; private set; } = null!;
     internal MongoContext Context { get; private set; } = null!;
     internal ISettingsStore Settings { get; private set; } = null!;
@@ -31,13 +31,22 @@ internal sealed class IdentityFixture : IAsyncDisposable
         var fixture = new IdentityFixture();
         try
         {
-            var paths = new AppPaths(Path.Combine(fixture.DirectoryPath, "data"));
-            fixture.Bootstrap = new(paths, fixture.Protector);
-            fixture.Context = new(fixture.Bootstrap);
-            fixture.Settings = new SettingsStore(fixture.Context, fixture.Bootstrap);
+            var factory = new InstanceStorageFactory();
+            var initial = factory.CreateInitial(Path.Combine(fixture.DirectoryPath, "data"), Path.Combine(fixture.DirectoryPath, "records"), false);
+            var current = new CurrentInstanceStorage(initial);
+            fixture.Paths = initial.Paths;
+            var startup = new StartupConfigurationStore(Path.Combine(fixture.DirectoryPath, "startup.json"));
+            fixture.Bootstrap = initial.Bootstrap;
+            fixture.Context = initial.Mongo;
+            fixture.Protector = initial.SecretProtector;
+            fixture.Settings = new SettingsStore(startup, new CurrentBootstrapStore(current), new CurrentMongoContext(current), new CurrentAppPaths(current));
             var hasher = new PasswordHasher<UserAccount>();
-            fixture.Installation = new(fixture.Bootstrap, fixture.Settings, hasher);
+            fixture.Installation = new(current, factory, startup, fixture.Settings, hasher);
             await fixture.Installation.InstallAsync(fixture.InstallRequest());
+            fixture.Paths = current.Current.Paths;
+            fixture.Bootstrap = current.Current.Bootstrap;
+            fixture.Context = current.Current.Mongo;
+            fixture.Protector = current.Current.SecretProtector;
             fixture.Identity = new(fixture.Context, fixture.Settings, fixture.Email, fixture.Protector, hasher, fixture.Http);
             return fixture;
         }
@@ -48,7 +57,7 @@ internal sealed class IdentityFixture : IAsyncDisposable
         }
     }
 
-    internal InstallRequest InstallRequest() => new(Bootstrap.InstallationToken, "admin@example.test", ADMIN_PASSWORD, "管理员", Path.Combine(DirectoryPath, "recordings"), ConnectionString, DatabaseName);
+    internal InstallRequest InstallRequest() => new(Bootstrap.InstallationToken, "admin@example.test", ADMIN_PASSWORD, "管理员", ConnectionString, DatabaseName, Paths.DataDirectory, Paths.RecordsDirectory);
 
     internal async Task EnableRegistrationAsync()
     {

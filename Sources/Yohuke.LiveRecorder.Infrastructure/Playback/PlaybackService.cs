@@ -6,13 +6,14 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Media;
+using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Library;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Playback;
 
 /// <summary>按目标窗口共享封装任务，并保护正在使用的缓存。</summary>
-public sealed class PlaybackService(LibraryService library, ISettingsStore settingsStore, IPlaybackWindowBuilder builder)
+public sealed class PlaybackService(LibraryService library, ISettingsStore settingsStore, IPlaybackWindowBuilder builder, IAppPaths paths)
 {
     private readonly SemaphoreSlim[] gates = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
     private readonly ConcurrentDictionary<string, DateTime> active = new();
@@ -42,7 +43,7 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
         await gates[slot].WaitAsync(cancellationToken);
         try
         {
-            var cacheRoot = MediaPaths.Resolve(settings.StoragePath, Path.Combine(".cache", "playback", key));
+            var cacheRoot = MediaPaths.Resolve(paths.CacheDirectory, Path.Combine("playback", key));
             var latestPath = Path.Combine(cacheRoot, "latest.json");
             PlaybackCacheEntry? entry = null;
             if (File.Exists(latestPath))
@@ -64,11 +65,11 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
                     throw new InfrastructureException(MessageCode.PLAYBACK_WINDOW_NOT_READY, 425);
                 }
                 var estimatedBytes = segment.CommittedBytes * (duration / Math.Max(1, segment.DurationMs)) * 2;
-                var freeBytes = new DriveInfo(settings.StoragePath).AvailableFreeSpace;
+                var freeBytes = new DriveInfo(paths.CacheDirectory).AvailableFreeSpace;
                 if (freeBytes - estimatedBytes <= Storage.StorageService.MediaThreshold(settings))
                 {
                     await MaintainAsync(cancellationToken);
-                    freeBytes = new DriveInfo(settings.StoragePath).AvailableFreeSpace;
+                    freeBytes = new DriveInfo(paths.CacheDirectory).AvailableFreeSpace;
                     if (freeBytes - estimatedBytes <= Storage.StorageService.MediaThreshold(settings))
                     {
                         throw new InfrastructureException(MessageCode.PLAYBACK_CACHE_SPACE_INSUFFICIENT, 507);
@@ -77,8 +78,8 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
                 Touch(key + "/" + generation);
                 var result = await builder.BuildAsync(new PlaybackWindowRequest
                 {
-                    SourcePath = MediaPaths.ResolveSegment(settings.StoragePath, detail.Session.DirectoryPath, segment),
-                    IndexPath = MediaPaths.ResolveSegmentIndex(settings.StoragePath, detail.Session.DirectoryPath, segment),
+                    SourcePath = MediaPaths.ResolveSegment(paths.RecordsDirectory, detail.Session.DirectoryPath, segment),
+                    IndexPath = MediaPaths.ResolveSegmentIndex(paths.RecordsDirectory, detail.Session.DirectoryPath, segment),
                     SourceStartMs = windowStart,
                     DurationMs = duration,
                     CommittedBytes = segment.CommittedBytes,
@@ -130,8 +131,7 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
         {
             throw new InfrastructureException(MessageCode.PLAYBACK_RESOURCE_NOT_FOUND, 404);
         }
-        var settings = await settingsStore.GetAsync(cancellationToken);
-        var directory = MediaPaths.Resolve(settings.StoragePath, Path.Combine(".cache", "playback", key, generation));
+        var directory = MediaPaths.Resolve(paths.CacheDirectory, Path.Combine("playback", key, generation));
         var manifest = Path.Combine(directory, "window.json");
         if (!File.Exists(manifest))
         {
@@ -154,7 +154,7 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
     public async Task MaintainAsync(CancellationToken cancellationToken = default)
     {
         var settings = await settingsStore.GetAsync(cancellationToken);
-        var root = Path.Combine(settings.StoragePath, ".cache", "playback");
+        var root = Path.Combine(paths.CacheDirectory, "playback");
         if (!Directory.Exists(root))
         {
             return;

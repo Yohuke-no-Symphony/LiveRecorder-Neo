@@ -8,7 +8,7 @@ using Yohuke.LiveRecorder.Infrastructure.Configuration;
 namespace Yohuke.LiveRecorder.Infrastructure.Persistence;
 
 /// <summary>幂等建立管理集合索引，不为弹幕创建数据库集合。</summary>
-public sealed class DatabaseIndexWorker(MongoContext context, BootstrapStore bootstrap, ILogger<DatabaseIndexWorker> logger) : BackgroundService
+public sealed class DatabaseIndexWorker(IMongoContext context, IBootstrapStore bootstrap, ILogger<DatabaseIndexWorker> logger) : BackgroundService
 {
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

@@ -9,7 +9,7 @@ import { i18n } from '../src/plugins/i18n'
 import { useAuthStore } from '../src/stores/auth'
 import { usePreferencesStore } from '../src/stores/preferences'
 import type { UserProfile } from '../src/models/auth'
-import type { ServerSettings } from '../src/models/settings'
+import type { ServerPaths, ServerSettings } from '../src/models/settings'
 import type { AppLanguage } from '../src/localization/types'
 import AccountView from '../src/views/AccountView.vue'
 import SettingsView from '../src/views/SettingsView.vue'
@@ -41,10 +41,29 @@ const snackbar = defineComponent({
     return () => props.modelValue ? h('div', { role: 'status' }, slots.default?.()) : null
   },
 })
+const tabs = defineComponent({
+  props: ['modelValue'],
+  emits: ['update:modelValue'],
+  setup(_, { slots })
+  {
+    return () => h('div', slots.default?.())
+  },
+})
+const textField = defineComponent({
+  props: ['modelValue', 'label', 'readonly', 'disabled'],
+  emits: ['update:modelValue'],
+  setup(props, { emit })
+  {
+    return () => h('label', [props.label, h('input', {
+      value: props.modelValue, 'aria-label': props.label, readonly: props.readonly, disabled: props.disabled,
+      onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value),
+    })])
+  },
+})
 const stubs = {
   VSelect: select, VBtn: button, VCard: container, VList: container, VListItem: container,
-  VTabs: container, VTab: container, VSnackbar: snackbar,
-  VAlert: { template: '<div role="alert"><slot /></div>' }, VProgressLinear: true, VIcon: true,
+  VTabs: tabs, VTab: container, VSnackbar: snackbar, VTextField: textField, VSwitch: true,
+  VAlert: { template: '<div role="alert"><slot /></div>' }, VProgressLinear: true, VIcon: true, VDivider: true,
 }
 const mounted: VueWrapper[] = []
 let pinia: Pinia
@@ -69,7 +88,7 @@ function user(language: AppLanguage | null): UserProfile
 function settings(defaultLanguage: AppLanguage): ServerSettings
 {
   return {
-    id: 'server', defaultLanguage, storagePath: '/srv/recordings', timeZone: 'Asia/Shanghai', quality: 10000,
+    id: 'server', defaultLanguage, timeZone: 'Asia/Shanghai', quality: 10000,
     recordDanmu: true, segmentBytes: 1024 ** 3, clipRetentionDays: 7, trashRetentionDays: 7,
     cacheLimitBytes: 1024 ** 3, cacheRetentionMinutes: 30, minimumFreeBytes: 1024 ** 3,
     mediaConcurrency: 2, playbackConcurrency: 2, monitorIntervalSeconds: 15, sessionGraceMinutes: 5,
@@ -77,6 +96,10 @@ function settings(defaultLanguage: AppLanguage): ServerSettings
     smtp: { host: '', port: 587, useSsl: true, checkCertificateRevocation: true, userName: '', password: '', fromAddress: '', fromName: '' },
     oauthProviders: [],
   }
+}
+const paths: ServerPaths = {
+  dataDirectory: '/srv/Data', recordsDirectory: '/srv/Data/records', cacheDirectory: '/srv/Data/cache',
+  configFile: '/srv/settings.json', configuredDataDirectory: 'Data', configuredRecordsDirectory: 'Data/records', restartRequired: false,
 }
 
 beforeEach(() =>
@@ -87,6 +110,8 @@ beforeEach(() =>
   i18n.global.locale.value = 'zh-CN'
   vi.spyOn(AuthAPI, 'providers').mockResolvedValue([])
   vi.spyOn(AuthAPI, 'identities').mockResolvedValue([])
+  vi.spyOn(MediaAPI, 'settingsPaths').mockResolvedValue(paths)
+  vi.spyOn(MediaAPI, 'updateSettingsPaths').mockResolvedValue(paths)
 })
 
 afterEach(() =>
@@ -175,6 +200,126 @@ describe('账户语言设置', () =>
 
 describe('管理员默认语言', () =>
 {
+  it('常规页编辑配置目录并展示当前目录，录制页不提供目录配置，全局设置不提交路径', async () =>
+  {
+    vi.spyOn(MediaAPI, 'settings').mockResolvedValue(settings('zh-CN'))
+    const update = vi.spyOn(MediaAPI, 'updateSettings').mockResolvedValue(settings('zh-CN'))
+    const wrapper = mount(SettingsView, { global: { plugins: [pinia, i18n], stubs } })
+    mounted.push(wrapper)
+    await flushPromises()
+    expect(MediaAPI.settingsPaths).toHaveBeenCalledOnce()
+    expect(wrapper.findComponent(tabs).props('modelValue')).toBe('general')
+    const dataDirectory = wrapper.get<HTMLInputElement>('input[aria-label="数据目录"]')
+    expect(dataDirectory.element.value).toBe('Data')
+    expect(dataDirectory.element.readOnly).toBe(false)
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="当前数据目录"]').element.value).toBe('/srv/Data')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="当前数据目录"]').element.readOnly).toBe(true)
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="配置文件"]').element.value).toBe('/srv/settings.json')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="录像目录"]').element.value).toBe('Data/records')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="录像目录"]').element.readOnly).toBe(false)
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="当前录像目录"]').element.value).toBe('/srv/Data/records')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="当前录像目录"]').element.readOnly).toBe(true)
+    wrapper.findComponent(tabs).vm.$emit('update:modelValue', 'recording')
+    await nextTick()
+    expect(wrapper.find('input[aria-label="数据目录"]').exists()).toBe(false)
+    expect(wrapper.find('input[aria-label="录像目录"]').exists()).toBe(false)
+    expect(wrapper.find('input[aria-label="录播目录"]').exists()).toBe(false)
+    await wrapper.get('header button').trigger('click')
+    await flushPromises()
+    expect(update).toHaveBeenCalledOnce()
+    const submitted = update.mock.calls[0]![0]
+    expect(submitted).not.toHaveProperty('storagePath')
+    expect(submitted).not.toHaveProperty('dataDirectory')
+    expect(submitted).not.toHaveProperty('recordsDirectory')
+    expect(MediaAPI.updateSettingsPaths).not.toHaveBeenCalled()
+  })
+
+  it('单独保存数据与录像目录，保留当前运行目录并根据服务器返回提示重启，其他无效设置不影响保存', async () =>
+  {
+    const invalidSettings = settings('zh-CN')
+    invalidSettings.segmentBytes = 0
+    vi.spyOn(MediaAPI, 'settings').mockResolvedValue(invalidSettings)
+    const globalSave = vi.spyOn(MediaAPI, 'updateSettings')
+    const pending = deferred<ServerPaths>()
+    vi.mocked(MediaAPI.updateSettingsPaths).mockReturnValue(pending.promise)
+    const wrapper = mount(SettingsView, { global: { plugins: [pinia, i18n], stubs } })
+    mounted.push(wrapper)
+    await flushPromises()
+    await wrapper.get('input[aria-label="数据目录"]').setValue('../MovedData')
+    await wrapper.get('input[aria-label="录像目录"]').setValue('/mnt/MovedRecords')
+    const save = wrapper.findAll('button').find(item => item.text() === '保存目录配置')!
+    expect(save.attributes('type')).toBe('submit')
+    await wrapper.get('form').trigger('submit')
+    expect(MediaAPI.updateSettingsPaths).toHaveBeenCalledExactlyOnceWith({ dataDirectory: '../MovedData', recordsDirectory: '/mnt/MovedRecords' })
+    expect(globalSave).not.toHaveBeenCalled()
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="当前数据目录"]').element.value).toBe('/srv/Data')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="当前录像目录"]').element.value).toBe('/srv/Data/records')
+    expect(wrapper.text()).not.toContain('目录配置已保存')
+    pending.resolve({ ...paths, configuredDataDirectory: '../MovedData', configuredRecordsDirectory: '/mnt/MovedRecords', restartRequired: true })
+    await flushPromises()
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="当前数据目录"]').element.value).toBe('/srv/Data')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="数据目录"]').element.value).toBe('../MovedData')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="录像目录"]').element.value).toBe('/mnt/MovedRecords')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="当前录像目录"]').element.value).toBe('/srv/Data/records')
+    expect(wrapper.text()).toContain('目录配置已保存')
+    expect(wrapper.text()).toContain('目录变更待重启后生效')
+    expect(globalSave).not.toHaveBeenCalled()
+  })
+
+  it('重新读取服务器配置后保留待重启提示，不把已配置目录当成当前目录', async () =>
+  {
+    vi.spyOn(MediaAPI, 'settings').mockResolvedValue(settings('zh-CN'))
+    vi.mocked(MediaAPI.settingsPaths).mockResolvedValue({ ...paths, configuredDataDirectory: '../MovedData', configuredRecordsDirectory: '/mnt/MovedRecords', restartRequired: true })
+    const wrapper = mount(SettingsView, { global: { plugins: [pinia, i18n], stubs } })
+    mounted.push(wrapper)
+    await flushPromises()
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="数据目录"]').element.value).toBe('../MovedData')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="当前数据目录"]').element.value).toBe('/srv/Data')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="录像目录"]').element.value).toBe('/mnt/MovedRecords')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="当前录像目录"]').element.value).toBe('/srv/Data/records')
+    expect(wrapper.text()).toContain('目录变更待重启后生效')
+    expect(wrapper.text()).not.toContain('目录配置已保存')
+  })
+
+  it('数据目录保存失败保留编辑值和当前目录，不显示成功', async () =>
+  {
+    vi.spyOn(MediaAPI, 'settings').mockResolvedValue(settings('zh-CN'))
+    vi.mocked(MediaAPI.updateSettingsPaths).mockRejectedValue(new Error('配置文件不可写'))
+    const wrapper = mount(SettingsView, { global: { plugins: [pinia, i18n], stubs } })
+    mounted.push(wrapper)
+    await flushPromises()
+    await wrapper.get('input[aria-label="数据目录"]').setValue('/srv/NextData')
+    await wrapper.get('input[aria-label="录像目录"]').setValue('/mnt/NextRecords')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="数据目录"]').element.value).toBe('/srv/NextData')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="当前数据目录"]').element.value).toBe('/srv/Data')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="录像目录"]').element.value).toBe('/mnt/NextRecords')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="当前录像目录"]').element.value).toBe('/srv/Data/records')
+    expect(wrapper.text()).toContain('配置文件不可写')
+    expect(wrapper.text()).not.toContain('目录配置已保存')
+    expect(wrapper.text()).not.toContain('目录变更待重启后生效')
+  })
+
+  it('可以只修改录像目录，不会派生或改写数据目录', async () =>
+  {
+    vi.spyOn(MediaAPI, 'settings').mockResolvedValue(settings('zh-CN'))
+    vi.mocked(MediaAPI.updateSettingsPaths).mockResolvedValue({ ...paths, configuredRecordsDirectory: '../SeparateRecords', restartRequired: true })
+    const wrapper = mount(SettingsView, { global: { plugins: [pinia, i18n], stubs } })
+    mounted.push(wrapper)
+    await flushPromises()
+    await wrapper.get('input[aria-label="录像目录"]').setValue('../SeparateRecords')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="数据目录"]').element.value).toBe('Data')
+    const save = wrapper.findAll('button').find(item => item.text() === '保存目录配置')!
+    expect(save.attributes('disabled')).toBeUndefined()
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(MediaAPI.updateSettingsPaths).toHaveBeenCalledExactlyOnceWith({ dataDirectory: 'Data', recordsDirectory: '../SeparateRecords' })
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="当前数据目录"]').element.value).toBe('/srv/Data')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="当前录像目录"]').element.value).toBe('/srv/Data/records')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="数据目录"]').element.value).toBe('Data')
+  })
+
   it('通过保存全局设置同步 preferences，并更新跟随全局的账户', async () =>
   {
     const auth = useAuthStore()

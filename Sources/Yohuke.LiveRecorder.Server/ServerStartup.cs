@@ -38,7 +38,16 @@ public static class ServerStartup
     /// <summary>构建安装、鉴权、后台录制与媒体交付管线。</summary>
     public static WebApplication CreateApplication(string[] args)
     {
+        if (Environment.GetEnvironmentVariable("LIVE_RECORDER_DATA_DIR") is not null
+            || args.Any(value => value.Equals("--DataDirectory", StringComparison.OrdinalIgnoreCase) || value.StartsWith("--DataDirectory=", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("不再支持 --DataDirectory 或 LIVE_RECORDER_DATA_DIR。请使用 --config 指定启动 JSON，并在其中配置 DataDirectory。");
+        }
         var builder = WebApplication.CreateBuilder(args);
+        if (builder.Configuration["DataDirectory"] is not null)
+        {
+            throw new InvalidOperationException("不再支持独立的 DataDirectory 启动配置。请使用 --config 指定启动 JSON，并在其中配置 DataDirectory。");
+        }
         if (builder.Environment.IsDevelopment() && string.IsNullOrEmpty(builder.Configuration["urls"]))
         {
             builder.WebHost.UseUrls("http://127.0.0.1:4784");
@@ -54,24 +63,32 @@ public static class ServerStartup
                 .AllowAnyMethod()
                 .AllowCredentials()));
         }
-        var paths = new AppPaths(builder.Configuration["DataDirectory"]);
+        var startupConfiguration = new StartupConfigurationStore(builder.Configuration["config"]);
         var webRoot = Path.Combine(AppContext.BaseDirectory, "webui");
         if (!Directory.Exists(webRoot) && builder.Environment.IsDevelopment())
         {
             webRoot = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "WebUI", "dist"));
         }
         var webUi = new WebUiLocation(webRoot);
-        webUi.EnsurePrivate(paths.DataDirectory);
+        webUi.EnsurePrivate(startupConfiguration.ConfigFile);
+        webUi.EnsurePrivate(startupConfiguration.ResolvedDataDirectory);
+        webUi.EnsurePrivate(startupConfiguration.ResolvedRecordsDirectory);
+        var storageFactory = new InstanceStorageFactory();
+        var initialStorage = storageFactory.CreateInitial(startupConfiguration.ResolvedDataDirectory, startupConfiguration.ResolvedRecordsDirectory, startupConfiguration.IsConfigured);
+        var currentStorage = new CurrentInstanceStorage(initialStorage);
+        var paths = initialStorage.Paths;
         builder.Services.AddSingleton(webUi);
-        builder.Services.AddSingleton(paths);
-        var dataProtection = builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(paths.DataDirectory, "keys"))).SetApplicationName("Yohuke.LiveRecorder");
-        if (OperatingSystem.IsWindows())
-        {
-            dataProtection.ProtectKeysWithDpapi();
-        }
-        builder.Services.AddSingleton<ISecretProtector, DataProtectionSecretProtector>();
-        builder.Services.AddSingleton<BootstrapStore>();
-        builder.Services.AddSingleton<MongoContext>();
+        builder.Services.AddSingleton(startupConfiguration);
+        builder.Services.AddSingleton(storageFactory);
+        builder.Services.AddSingleton(currentStorage);
+        builder.Services.AddSingleton<IAppPaths, CurrentAppPaths>();
+        builder.Services.AddDataProtection()
+            .SetApplicationName("Yohuke.LiveRecorder")
+            .AddKeyManagementOptions(options => options.XmlRepository = new InMemoryKeyRepository());
+        builder.Services.AddSingleton<IDataProtectionProvider, CurrentDataProtectionProvider>();
+        builder.Services.AddSingleton<ISecretProtector, CurrentSecretProtector>();
+        builder.Services.AddSingleton<IBootstrapStore, CurrentBootstrapStore>();
+        builder.Services.AddSingleton<IMongoContext, CurrentMongoContext>();
         builder.Services.AddSingleton<ISettingsStore, SettingsStore>();
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<EventArchiveReader>();
@@ -95,10 +112,11 @@ public static class ServerStartup
         builder.Services.AddHostedService<ArtworkMaintenanceWorker>();
         builder.Services.AddSignalR();
         builder.Services.AddOpenApi();
+        var antiforgeryCookieName = currentStorage.IsInstalled ? "lr.csrf" : "lr.setup.csrf." + Guid.NewGuid().ToString("N");
         builder.Services.AddAntiforgery(options =>
         {
             options.HeaderName = "X-CSRF-TOKEN";
-            options.Cookie.Name = "lr.csrf";
+            options.Cookie.Name = antiforgeryCookieName;
             options.Cookie.SameSite = SameSiteMode.Strict;
         });
         builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(options =>
@@ -118,6 +136,12 @@ public static class ServerStartup
             };
             options.Events.OnValidatePrincipal = async context =>
             {
+                if (!currentStorage.IsInstalled)
+                {
+                    context.RejectPrincipal();
+                    await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                    return;
+                }
                 var id = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
                 var identity = context.HttpContext.RequestServices.GetRequiredService<IIdentityService>();
                 var user = id is null ? null : await identity.ValidateSessionAsync(id, context.HttpContext.RequestAborted);
@@ -137,6 +161,7 @@ public static class ServerStartup
                 }
             };
         });
+        builder.Services.AddSingleton<IAuthenticationSchemeProvider, InstanceAuthenticationSchemeProvider>();
         builder.Services.AddAuthorization();
         builder.Services.Configure<ForwardedHeadersOptions>(options =>
         {
@@ -220,6 +245,17 @@ public static class ServerStartup
         {
             app.UseCors();
         }
+        app.Use(async (http, next) =>
+        {
+            if (!currentStorage.IsInstalled && http.Request.Path.StartsWithSegments("/api")
+                && http.Request.Path != "/api/setup" && http.Request.Path != "/api/setup/status"
+                && http.Request.Path != "/api/auth/me" && http.Request.Path != "/api/ui-settings")
+            {
+                await LocalizedProblem.Create(MessageCode.SETUP_REQUIRED, 503).ExecuteAsync(http);
+                return;
+            }
+            await next();
+        });
         app.UseAuthentication();
         app.UseRateLimiter();
         app.UseAuthorization();
@@ -264,7 +300,7 @@ public static class ServerStartup
             http.Response.Headers.CacheControl = "no-store";
             await http.Response.SendFileAsync(index);
         });
-        var bootstrap = app.Services.GetRequiredService<BootstrapStore>();
+        var bootstrap = app.Services.GetRequiredService<IBootstrapStore>();
         if (!bootstrap.IsInstalled)
         {
             app.Logger.LogWarning("首次安装令牌：{InstallationToken}", bootstrap.InstallationToken);

@@ -1,72 +1,44 @@
-using Yohuke.LiveRecorder.Application.Localization;
-using System.Diagnostics;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.Extensions.Options;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
+using Yohuke.LiveRecorder.Application.Localization;
+using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Server.Contracts;
 using Yohuke.LiveRecorder.Server.Configuration;
 
 namespace Yohuke.LiveRecorder.Server.Endpoints;
 
-/// <summary>映射首次安装，安装后不可重新初始化。</summary>
+/// <summary>映射新实例安装和已有实例恢复，安装完成后封闭入口。</summary>
 public static class SetupEndpoints
 {
-    /// <summary>注册安装端点。</summary>
+    /// <summary>注册安装状态与受令牌保护的安装端点。</summary>
     public static IEndpointRouteBuilder MapSetupEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/api/setup/status", (IInstallationService installation) => Results.Ok(new { installed = installation.IsInstalled, requiresToken = !installation.IsInstalled }));
-        endpoints.MapPost("/api/setup", async (SetupRequest request, IInstallationService installation, ISettingsStore settingsStore, WebUiLocation webUi, CancellationToken cancellationToken) =>
+        endpoints.MapGet("/api/setup/status", (IInstallationService installation, IAppPaths paths, StartupConfigurationStore configuration) => installation.IsInstalled
+            ? Results.Ok((object)new { installed = true, requiresToken = false })
+            : Results.Ok((object)new { installed = false, requiresToken = true, dataDirectory = paths.DataDirectory, recordsDirectory = paths.RecordsDirectory, configFile = configuration.ConfigFile }));
+        endpoints.MapPost("/api/setup", async (SetupRequest request, IInstallationService installation, StartupConfigurationStore configuration, WebUiLocation webUi, IOptionsMonitor<CookieAuthenticationOptions> authenticationOptions, IOptions<AntiforgeryOptions> antiforgeryOptions, HttpContext http, CancellationToken cancellationToken) =>
         {
             if (installation.IsInstalled)
             {
                 throw new InfrastructureException(MessageCode.SETUP_COMPLETED, 409);
             }
-            webUi.EnsurePrivate(request.StoragePath);
-            var ffmpeg = string.IsNullOrWhiteSpace(request.FfmpegPath) ? "ffmpeg" : request.FfmpegPath;
-            var ffprobe = string.IsNullOrWhiteSpace(request.FfprobePath) ? "ffprobe" : request.FfprobePath;
-            await VerifyToolAsync(ffmpeg, cancellationToken);
-            await VerifyToolAsync(ffprobe, cancellationToken);
-            await installation.InstallAsync(new InstallRequest(request.Token, request.Email, request.Password, request.UserName, request.StoragePath, request.MongoConnectionString, request.DatabaseName), cancellationToken);
-            var settings = await settingsStore.GetAsync(cancellationToken);
-            settings.FfmpegPath = ffmpeg;
-            settings.FfprobePath = ffprobe;
-            await settingsStore.SaveAsync(settings, cancellationToken);
+            configuration.ValidatePaths(request.DataDirectory, request.RecordsDirectory);
+            webUi.EnsurePrivate(configuration.ResolveDataDirectory(request.DataDirectory));
+            webUi.EnsurePrivate(configuration.ResolveRecordsDirectory(request.RecordsDirectory));
+            await installation.InstallAsync(new InstallRequest(request.Token, request.Email, request.Password, request.UserName, request.MongoConnectionString, request.DatabaseName, request.DataDirectory, request.RecordsDirectory, request.Mode, request.FfmpegPath, request.FfprobePath), cancellationToken);
+            var authentication = authenticationOptions.Get(CookieAuthenticationDefaults.AuthenticationScheme);
+            authentication.CookieManager.DeleteCookie(http, authentication.Cookie.Name!, authentication.Cookie.Build(http));
+            var antiforgery = antiforgeryOptions.Value.Cookie;
+            http.Response.Cookies.Delete(antiforgery.Name!, antiforgery.Build(http));
+            if (antiforgery.Name != "lr.csrf")
+            {
+                http.Response.Cookies.Delete("lr.csrf", antiforgery.Build(http));
+            }
             return Results.Ok(new { installed = true });
         });
         return endpoints;
-    }
-
-    private static async Task VerifyToolAsync(string path, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var start = new ProcessStartInfo(path) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
-            start.ArgumentList.Add("-version");
-            using var process = Process.Start(start) ?? throw new InfrastructureException(MessageCode.SETUP_MEDIA_TOOL_START_FAILED);
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            deadline.CancelAfter(TimeSpan.FromSeconds(10));
-            var output = process.StandardOutput.ReadToEndAsync(deadline.Token);
-            var error = process.StandardError.ReadToEndAsync(deadline.Token);
-            try
-            {
-                await process.WaitForExitAsync(deadline.Token);
-            }
-            catch
-            {
-                if (!process.HasExited)
-                {
-                    process.Kill(true);
-                }
-                throw;
-            }
-            await Task.WhenAll(output, error);
-            if (process.ExitCode != 0)
-            {
-                throw new InfrastructureException(MessageCode.SETUP_MEDIA_TOOL_VERIFICATION_FAILED);
-            }
-        }
-        catch (Exception error) when (error is not InfrastructureException && error is not OperationCanceledException)
-        {
-            throw new InfrastructureException(MessageCode.SETUP_MEDIA_TOOL_NOT_FOUND);
-        }
     }
 }

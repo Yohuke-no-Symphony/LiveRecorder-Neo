@@ -20,7 +20,7 @@ public sealed class LocalizedResponseHttpTests
         var browser = fixture.NewBrowser();
         browser.Client.DefaultRequestHeaders.AcceptLanguage.ParseAdd(language);
         await browser.RefreshCsrfAsync();
-        using var response = await browser.SendAsync(HttpMethod.Post, "/api/auth/login", new { email = "invalid", password = "unused" });
+        using var response = await browser.SendAsync(HttpMethod.Post, "/api/setup", fixture.SetupRequest() with { Email = "invalid" });
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var problem = await response.Content.ReadFromJsonAsync<JsonObject>();
         Assert.Equal("AUTH_EMAIL_INVALID", problem!["code"]!.GetValue<string>());
@@ -40,13 +40,13 @@ public sealed class LocalizedResponseHttpTests
         var responses = await Task.WhenAll(english.Client.GetAsync("/api/streamers"), japanese.Client.GetAsync("/api/streamers"));
         using var englishResponse = responses[0];
         using var japaneseResponse = responses[1];
-        Assert.Equal(HttpStatusCode.Unauthorized, englishResponse.StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, japaneseResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, englishResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, japaneseResponse.StatusCode);
         var englishProblem = await englishResponse.Content.ReadFromJsonAsync<JsonObject>();
         var japaneseProblem = await japaneseResponse.Content.ReadFromJsonAsync<JsonObject>();
-        Assert.Equal("Sign in to continue.", englishProblem!["detail"]!.GetValue<string>());
-        Assert.Equal("ログインしてください。", japaneseProblem!["detail"]!.GetValue<string>());
-        using var csrfResponse = await japanese.SendAsync(HttpMethod.Post, "/api/auth/login", new { email = "test@example.test", password = "unused" }, includeCsrf: false);
+        Assert.Equal("Complete installation first.", englishProblem!["detail"]!.GetValue<string>());
+        Assert.Equal("先にインストールを完了してください。", japaneseProblem!["detail"]!.GetValue<string>());
+        using var csrfResponse = await japanese.SendAsync(HttpMethod.Post, "/api/setup", fixture.SetupRequest(), includeCsrf: false);
         var csrfProblem = await csrfResponse.Content.ReadFromJsonAsync<JsonObject>();
         Assert.Equal(HttpStatusCode.BadRequest, csrfResponse.StatusCode);
         Assert.Equal("REQUEST_CSRF_EXPIRED", csrfProblem!["code"]!.GetValue<string>());

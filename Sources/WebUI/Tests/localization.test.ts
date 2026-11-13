@@ -8,6 +8,7 @@ import ConfirmDialog from '../src/components/common/ConfirmDialog.vue'
 import StatusChip from '../src/components/common/StatusChip.vue'
 import DanmuContent from '../src/components/events/DanmuContent.vue'
 import CaptchaChallenge from '../src/components/accounts/CaptchaChallenge.vue'
+import DataDirectoryInfo from '../src/components/common/DataDirectoryInfo.vue'
 import type { RecordedEvent } from '../src/models/media'
 
 const mounted: VueWrapper[] = []
@@ -23,6 +24,23 @@ afterEach(() =>
 
 describe('运行时界面语言', () =>
 {
+  it('数据目录组件切换三语标签，同时保留服务器路径', async () =>
+  {
+    const wrapper = mount(DataDirectoryInfo, {
+      props: { dataDirectory: '/srv/Data', recordsDirectory: '/srv/Data/records' },
+      global: { plugins: [i18n], stubs: { VTextField: { props: ['modelValue', 'label'], template: '<label>{{ label }}<input :value="modelValue" readonly /></label>' } } },
+    })
+    mounted.push(wrapper)
+    for (const [language, dataLabel, recordsLabel] of [['zh-CN', '数据目录', '录像目录'], ['en-US', 'Data directory', 'Recordings directory'], ['ja-JP', 'データディレクトリ', '録画ディレクトリ']] as const)
+    {
+      i18n.global.locale.value = language
+      await nextTick()
+      expect(wrapper.text()).toContain(dataLabel)
+      expect(wrapper.text()).toContain(recordsLabel)
+      expect(wrapper.findAll('input').map(input => input.element.value)).toEqual(['/srv/Data', '/srv/Data/records'])
+    }
+  })
+
   it('已打开的确认对话框和状态在切换语言后立即更新', async () =>
   {
     const confirm = mount(ConfirmDialog, {

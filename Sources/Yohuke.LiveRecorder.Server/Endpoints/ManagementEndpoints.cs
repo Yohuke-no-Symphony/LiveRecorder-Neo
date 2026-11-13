@@ -1,12 +1,12 @@
 using System.Text.Json;
-using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Domain.Localization;
 using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Infrastructure.Files;
-using Yohuke.LiveRecorder.Infrastructure.Persistence;
+using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Server.Configuration;
+using Yohuke.LiveRecorder.Server.Contracts;
 
 namespace Yohuke.LiveRecorder.Server.Endpoints;
 
@@ -18,15 +18,19 @@ public static class ManagementEndpoints
     {
         var admin = endpoints.MapGroup("/api/settings").RequireAuthorization(policy => policy.RequireRole("Admin"));
         admin.MapGet("", async (ISettingsStore settingsStore, CancellationToken ct) => Results.Ok(Redact(await settingsStore.GetAsync(ct))));
-        admin.MapPut("", async (ServerSettings request, ISettingsStore settingsStore, ISecretProtector protector, MongoContext context, WebUiLocation webUi, CancellationToken ct) =>
+        admin.MapGet("/paths", (IAppPaths paths, StartupConfigurationStore startupConfiguration) => Results.Ok(GetPaths(paths, startupConfiguration)));
+        admin.MapPut("/paths", async (SettingsPathsRequest request, IAppPaths paths, StartupConfigurationStore startupConfiguration, WebUiLocation webUi, CancellationToken ct) =>
+        {
+            startupConfiguration.ValidatePaths(request.DataDirectory, request.RecordsDirectory);
+            webUi.EnsurePrivate(startupConfiguration.ResolveDataDirectory(request.DataDirectory));
+            webUi.EnsurePrivate(startupConfiguration.ResolveRecordsDirectory(request.RecordsDirectory));
+            await startupConfiguration.SaveAsync(request.DataDirectory, request.RecordsDirectory, ct);
+            return Results.Ok(GetPaths(paths, startupConfiguration));
+        });
+        admin.MapPut("", async (ServerSettings request, ISettingsStore settingsStore, ISecretProtector protector, CancellationToken ct) =>
         {
             Validate(request);
-            webUi.EnsurePrivate(request.StoragePath);
             var previous = await settingsStore.GetAsync(ct);
-            if (Path.GetFullPath(request.StoragePath) != Path.GetFullPath(previous.StoragePath) && await context.Collection<BroadcastSession>("sessions").Find(FilterDefinition<BroadcastSession>.Empty).AnyAsync(ct))
-            {
-                throw new InfrastructureException(MessageCode.SETTINGS_STORAGE_PATH_LOCKED, 409);
-            }
             request.Smtp.Password = string.IsNullOrEmpty(request.Smtp.Password) ? previous.Smtp.Password : protector.Protect(request.Smtp.Password);
             foreach (var provider in request.OAuthProviders)
             {
@@ -37,6 +41,16 @@ public static class ManagementEndpoints
             return Results.Ok(Redact(request));
         });
         return endpoints;
+    }
+
+    private static SettingsPathsResponse GetPaths(IAppPaths paths, StartupConfigurationStore startupConfiguration)
+    {
+        var configured = startupConfiguration.GetSnapshot();
+        var comparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var records = configured.RecordsDirectory!;
+        var restartRequired = !string.Equals(Path.TrimEndingDirectorySeparator(paths.DataDirectory), Path.TrimEndingDirectorySeparator(startupConfiguration.ResolveDataDirectory(configured.DataDirectory)), comparison)
+                              || !string.Equals(Path.TrimEndingDirectorySeparator(paths.RecordsDirectory), Path.TrimEndingDirectorySeparator(startupConfiguration.ResolveRecordsDirectory(records)), comparison);
+        return new(paths.DataDirectory, paths.RecordsDirectory, paths.CacheDirectory, startupConfiguration.ConfigFile, configured.DataDirectory, records, restartRequired);
     }
 
     private static ServerSettings Redact(ServerSettings value)
@@ -56,7 +70,7 @@ public static class ManagementEndpoints
         {
             throw new InfrastructureException(MessageCode.LANGUAGE_UNSUPPORTED);
         }
-        if (string.IsNullOrWhiteSpace(settings.StoragePath) || !Path.IsPathRooted(settings.StoragePath) || settings.Quality <= 0 || settings.SegmentBytes < 0 || settings.ClipRetentionDays is < 1 or > 3650 || settings.TrashRetentionDays is < 1 or > 3650 || settings.MediaConcurrency is < 1 or > 16 || settings.PlaybackConcurrency is < 1 or > 32 || settings.MonitorIntervalSeconds is < 5 or > 600 || settings.SessionGraceMinutes is < 0 or > 120 || settings.MinimumFreeBytes < 0 || settings.CacheLimitBytes < 64 * 1024 * 1024 || settings.CacheRetentionMinutes < 1 || string.IsNullOrWhiteSpace(settings.FfmpegPath) || string.IsNullOrWhiteSpace(settings.FfprobePath))
+        if (settings.Quality <= 0 || settings.SegmentBytes < 0 || settings.ClipRetentionDays is < 1 or > 3650 || settings.TrashRetentionDays is < 1 or > 3650 || settings.MediaConcurrency is < 1 or > 16 || settings.PlaybackConcurrency is < 1 or > 32 || settings.MonitorIntervalSeconds is < 5 or > 600 || settings.SessionGraceMinutes is < 0 or > 120 || settings.MinimumFreeBytes < 0 || settings.CacheLimitBytes < 64 * 1024 * 1024 || settings.CacheRetentionMinutes < 1 || string.IsNullOrWhiteSpace(settings.FfmpegPath) || string.IsNullOrWhiteSpace(settings.FfprobePath))
         {
             throw new InfrastructureException(MessageCode.SETTINGS_INVALID);
         }

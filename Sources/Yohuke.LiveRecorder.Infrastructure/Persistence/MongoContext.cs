@@ -6,7 +6,7 @@ using Yohuke.LiveRecorder.Infrastructure.Configuration;
 namespace Yohuke.LiveRecorder.Infrastructure.Persistence;
 
 /// <summary>按安装配置复用 MongoDB 客户端。</summary>
-public sealed class MongoContext(BootstrapStore bootstrap)
+public sealed class MongoContext(IBootstrapStore bootstrap) : IMongoContext
 {
     private readonly object gate = new();
     private MongoClient? client;

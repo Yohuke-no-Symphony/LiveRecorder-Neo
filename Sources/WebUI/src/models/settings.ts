@@ -34,7 +34,6 @@ export interface ServerSettings
 {
   defaultLanguage: AppLanguage
   id: string
-  storagePath: string
   timeZone: string
   quality: number
   recordDanmu: boolean
@@ -53,6 +52,17 @@ export interface ServerSettings
   ffprobePath: string
   smtp: SmtpSettings
   oauthProviders: OAuthProviderSettings[]
+}
+
+export interface ServerPaths
+{
+  dataDirectory: string
+  recordsDirectory: string
+  cacheDirectory: string
+  configFile: string
+  configuredDataDirectory: string
+  configuredRecordsDirectory: string
+  restartRequired: boolean
 }
 
 export const QUALITY_OPTIONS = [

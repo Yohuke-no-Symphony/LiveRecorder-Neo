@@ -8,6 +8,7 @@ using Yohuke.LiveRecorder.Application.Bilibili;
 using Yohuke.LiveRecorder.Application.Media;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Analytics;
+using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Jobs;
 using Yohuke.LiveRecorder.Infrastructure.Library;
@@ -26,14 +27,13 @@ public static class LibraryEndpoints
     public static IEndpointRouteBuilder MapLibraryEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var api = endpoints.MapGroup("/api").RequireAuthorization();
-        api.MapGet("/streamers", async (MongoContext context, CancellationToken ct) => Results.Ok((await context.Collection<Streamer>("streamers").Find(FilterDefinition<Streamer>.Empty).SortBy(x => x.Name).ToListAsync(ct)).Select(LocalizedState.ForResponse)));
-        api.MapGet("/streamers/{id}/avatar", async (string id, MongoContext context, ArtworkCache artwork, ISettingsStore settingsStore, CancellationToken ct) =>
+        api.MapGet("/streamers", async (IMongoContext context, CancellationToken ct) => Results.Ok((await context.Collection<Streamer>("streamers").Find(FilterDefinition<Streamer>.Empty).SortBy(x => x.Name).ToListAsync(ct)).Select(LocalizedState.ForResponse)));
+        api.MapGet("/streamers/{id}/avatar", async (string id, IMongoContext context, ArtworkCache artwork, IAppPaths paths, CancellationToken ct) =>
         {
             var streamer = await context.Collection<Streamer>("streamers").Find(x => x.Id == id).FirstOrDefaultAsync(ct);
             if (streamer?.AvatarRelativePath is { } relative)
             {
-                var settings = await settingsStore.GetAsync(ct);
-                var path = MediaPaths.Resolve(settings.StoragePath, relative);
+                var path = MediaPaths.Resolve(paths.RecordsDirectory, relative);
                 if (File.Exists(path))
                 {
                     return Results.File(path, ImageType(path));
@@ -41,7 +41,7 @@ public static class LibraryEndpoints
             }
             return await ImageAsync(streamer?.AvatarUrl, artwork, ct);
         });
-        api.MapGet("/sessions", async (string? streamerId, string? search, string? before, int? take, MongoContext context, CancellationToken ct) =>
+        api.MapGet("/sessions", async (string? streamerId, string? search, string? before, int? take, IMongoContext context, CancellationToken ct) =>
         {
             var collection = context.Collection<BroadcastSession>("sessions");
             var filter = Builders<BroadcastSession>.Filter.Where(x => !x.IsTrashed && !x.IsHidden && x.ProjectionReady);
@@ -62,13 +62,12 @@ public static class LibraryEndpoints
             return Results.Ok((await collection.Find(filter).Sort(Builders<BroadcastSession>.Sort.Descending(x => x.CreatedAtUtc).Descending(x => x.Id)).Limit(Math.Clamp(take ?? 50, 1, 200)).ToListAsync(ct)).Select(LocalizedState.ForResponse));
         });
         api.MapGet("/sessions/{id}", async (string id, LibraryService library, CancellationToken ct) => Results.Ok(LocalizedState.ForResponse(await library.GetAsync(id, ct))));
-        api.MapGet("/sessions/{id}/cover", async (string id, LibraryService library, ArtworkCache artwork, ISettingsStore settingsStore, CancellationToken ct) =>
+        api.MapGet("/sessions/{id}/cover", async (string id, LibraryService library, ArtworkCache artwork, IAppPaths paths, CancellationToken ct) =>
         {
             var session = (await library.GetAsync(id, ct)).Session;
             if (session.CoverRelativePath is { } relative)
             {
-                var settings = await settingsStore.GetAsync(ct);
-                var path = MediaPaths.Resolve(settings.StoragePath, relative);
+                var path = MediaPaths.Resolve(paths.RecordsDirectory, relative);
                 if (File.Exists(path))
                 {
                     return Results.File(path, ImageType(path));
@@ -77,7 +76,7 @@ public static class LibraryEndpoints
             return await ImageAsync(session.CoverUrl, artwork, ct);
         });
         api.MapPost("/sessions/{id}/playback", async (string id, PlaybackRequest request, PlaybackService playback, CancellationToken ct) => Results.Ok(await playback.OpenAsync(id, request.OffsetMs, ct)));
-        api.MapGet("/sessions/{id}/events", async (string id, double? fromMs, double? toMs, string? kind, long? cursor, int? limit, LibraryService library, ISettingsStore settingsStore, SessionEventReader reader, CancellationToken ct) =>
+        api.MapGet("/sessions/{id}/events", async (string id, double? fromMs, double? toMs, string? kind, long? cursor, int? limit, LibraryService library, IAppPaths paths, SessionEventReader reader, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
             var from = fromMs ?? 0;
@@ -86,14 +85,12 @@ public static class LibraryEndpoints
             {
                 throw new InfrastructureException(MessageCode.LIBRARY_EVENT_RANGE_INVALID);
             }
-            var settings = await settingsStore.GetAsync(ct);
-            return Results.Ok(LocalizedState.ForResponse(await reader.ReadAsync(detail.Session, settings.StoragePath, from, Math.Min(until, detail.DurationMs), kind, cursor, limit ?? 300, ct)));
+            return Results.Ok(LocalizedState.ForResponse(await reader.ReadAsync(detail.Session, paths.RecordsDirectory, from, Math.Min(until, detail.DurationMs), kind, cursor, limit ?? 300, ct)));
         });
-        api.MapGet("/sessions/{id}/analytics", async (string id, LibraryService library, ISettingsStore settingsStore, AnalyticsService analytics, CancellationToken ct) =>
+        api.MapGet("/sessions/{id}/analytics", async (string id, LibraryService library, IAppPaths paths, AnalyticsService analytics, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
-            var settings = await settingsStore.GetAsync(ct);
-            var report = await analytics.GetAsync(detail.Session, settings.StoragePath, ct);
+            var report = await analytics.GetAsync(detail.Session, paths.RecordsDirectory, ct);
             report.CoverageGaps = Math.Max(report.CoverageGaps, detail.Gaps.Count);
             return Results.Ok(report);
         }).RequireAuthorization(policy => policy.RequireRole("Admin"));
@@ -103,7 +100,7 @@ public static class LibraryEndpoints
             var type = Path.GetExtension(path) switch { ".m3u8" => "application/vnd.apple.mpegurl", ".m4s" => "video/iso.segment", ".mp4" => "video/mp4", ".ts" => "video/mp2t", _ => "application/octet-stream" };
             return Results.File(path, type, enableRangeProcessing: true);
         });
-        api.MapGet("/jobs", async (HttpContext http, MongoContext context, CancellationToken ct) =>
+        api.MapGet("/jobs", async (HttpContext http, IMongoContext context, CancellationToken ct) =>
         {
             var filter = http.User.IsInRole("Admin") ? FilterDefinition<MediaJob>.Empty : Builders<MediaJob>.Filter.Eq(x => x.OwnerId, Owner(http));
             return Results.Ok((await context.Collection<MediaJob>("jobs").Find(filter).SortByDescending(x => x.CreatedAtUtc).Limit(200).ToListAsync(ct)).Select(LocalizedState.ForResponse));
@@ -113,18 +110,18 @@ public static class LibraryEndpoints
             var job = await jobs.CreateAsync(request, Owner(http), http.User.IsInRole("Admin"), ct);
             return Results.Accepted("/api/jobs/" + job.Id, job);
         });
-        api.MapGet("/jobs/{id}", async (string id, HttpContext http, MongoContext context, CancellationToken ct) => Results.Ok(LocalizedState.ForResponse(await GetJobAsync(id, http, context, ct))));
-        api.MapPost("/jobs/{id}/cancel", async (string id, HttpContext http, MongoContext context, MediaJobService jobs, CancellationToken ct) =>
+        api.MapGet("/jobs/{id}", async (string id, HttpContext http, IMongoContext context, CancellationToken ct) => Results.Ok(LocalizedState.ForResponse(await GetJobAsync(id, http, context, ct))));
+        api.MapPost("/jobs/{id}/cancel", async (string id, HttpContext http, IMongoContext context, MediaJobService jobs, CancellationToken ct) =>
         {
             await jobs.CancelAsync(await GetJobAsync(id, http, context, ct), ct);
             return Results.NoContent();
         });
-        api.MapPost("/jobs/{id}/retry", async (string id, HttpContext http, MongoContext context, MediaJobService jobs, CancellationToken ct) =>
+        api.MapPost("/jobs/{id}/retry", async (string id, HttpContext http, IMongoContext context, MediaJobService jobs, CancellationToken ct) =>
         {
             await jobs.RetryAsync(await GetJobAsync(id, http, context, ct), ct);
             return Results.NoContent();
         });
-        api.MapGet("/jobs/{id}/outputs/{index:int}", async (string id, int index, HttpContext http, MongoContext context, ISettingsStore settingsStore, CancellationToken ct) =>
+        api.MapGet("/jobs/{id}/outputs/{index:int}", async (string id, int index, HttpContext http, IMongoContext context, IAppPaths paths, CancellationToken ct) =>
         {
             var job = await GetJobAsync(id, http, context, ct);
             if (job.State != "Completed" || index < 0 || index >= job.OutputRelativePaths.Count)
@@ -139,11 +136,10 @@ public static class LibraryEndpoints
                     throw new InfrastructureException(MessageCode.LIBRARY_CLIP_EXPIRED, 410);
                 }
             }
-            var settings = await settingsStore.GetAsync(ct);
-            var path = MediaPaths.Resolve(settings.StoragePath, job.OutputRelativePaths[index]);
+            var path = MediaPaths.Resolve(paths.RecordsDirectory, job.OutputRelativePaths[index]);
             return Download(path, Path.GetFileName(path));
         });
-        api.MapGet("/clips", async (HttpContext http, MongoContext context, CancellationToken ct) =>
+        api.MapGet("/clips", async (HttpContext http, IMongoContext context, CancellationToken ct) =>
         {
             var filter = Builders<Clip>.Filter.Where(x => !x.IsTrashed && x.ExpiresAtUtc > DateTime.UtcNow);
             if (!http.User.IsInRole("Admin"))
@@ -152,57 +148,55 @@ public static class LibraryEndpoints
             }
             return Results.Ok(await context.Collection<Clip>("clips").Find(filter).SortByDescending(x => x.CreatedAtUtc).ToListAsync(ct));
         });
-        api.MapGet("/clips/{id}/download", async (string id, HttpContext http, MongoContext context, ISettingsStore settingsStore, CancellationToken ct) =>
+        api.MapGet("/clips/{id}/download", async (string id, HttpContext http, IMongoContext context, IAppPaths paths, CancellationToken ct) =>
         {
             var clip = await GetClipAsync(id, http, context, ct);
             if (clip.IsTrashed || clip.ExpiresAtUtc <= DateTime.UtcNow)
             {
                 throw new InfrastructureException(MessageCode.LIBRARY_CLIP_EXPIRED, 410);
             }
-            var settings = await settingsStore.GetAsync(ct);
-            return Download(MediaPaths.Resolve(settings.StoragePath, clip.RelativePath), MediaPaths.SafeName(clip.Title) + ".mp4");
+            return Download(MediaPaths.Resolve(paths.RecordsDirectory, clip.RelativePath), MediaPaths.SafeName(clip.Title) + ".mp4");
         });
-        api.MapGet("/clips/{id}/media", async (string id, HttpContext http, MongoContext context, ISettingsStore settingsStore, CancellationToken ct) =>
+        api.MapGet("/clips/{id}/media", async (string id, HttpContext http, IMongoContext context, IAppPaths paths, CancellationToken ct) =>
         {
             var clip = await GetClipAsync(id, http, context, ct);
             if (clip.IsTrashed || clip.ExpiresAtUtc <= DateTime.UtcNow)
             {
                 throw new InfrastructureException(MessageCode.LIBRARY_CLIP_EXPIRED, 410);
             }
-            var settings = await settingsStore.GetAsync(ct);
-            var path = MediaPaths.Resolve(settings.StoragePath, clip.RelativePath);
+            var path = MediaPaths.Resolve(paths.RecordsDirectory, clip.RelativePath);
             if (!File.Exists(path))
             {
                 throw new InfrastructureException(MessageCode.LIBRARY_FILE_NOT_FOUND, 410);
             }
             return Results.File(path, "video/mp4", enableRangeProcessing: true);
         });
-        api.MapDelete("/clips/{id}", async (string id, HttpContext http, MongoContext context, StorageService storage, CancellationToken ct) =>
+        api.MapDelete("/clips/{id}", async (string id, HttpContext http, IMongoContext context, StorageService storage, CancellationToken ct) =>
         {
             await storage.TrashClipAsync(await GetClipAsync(id, http, context, ct), ct);
             return Results.NoContent();
         });
-        api.MapGet("/trash", async (HttpContext http, MongoContext context, CancellationToken ct) =>
+        api.MapGet("/trash", async (HttpContext http, IMongoContext context, CancellationToken ct) =>
         {
             var filter = http.User.IsInRole("Admin") ? FilterDefinition<TrashEntry>.Empty : Builders<TrashEntry>.Filter.Eq(x => x.OwnerId, Owner(http));
             return Results.Ok(await context.Collection<TrashEntry>("trash").Find(filter).SortByDescending(x => x.CreatedAtUtc).ToListAsync(ct));
         });
-        api.MapPost("/trash/{id}/restore", async (string id, HttpContext http, MongoContext context, StorageService storage, CancellationToken ct) =>
+        api.MapPost("/trash/{id}/restore", async (string id, HttpContext http, IMongoContext context, StorageService storage, CancellationToken ct) =>
         {
             await storage.RestoreAsync(await GetTrashAsync(id, http, context, ct), ct);
             return Results.NoContent();
         });
-        api.MapDelete("/trash/{id}", async (string id, HttpContext http, MongoContext context, StorageService storage, CancellationToken ct) =>
+        api.MapDelete("/trash/{id}", async (string id, HttpContext http, IMongoContext context, StorageService storage, CancellationToken ct) =>
         {
             await storage.PurgeAsync(await GetTrashAsync(id, http, context, ct), ct);
             return Results.NoContent();
         });
-        api.MapGet("/storage", async (StorageService storage, CancellationToken ct) => Results.Ok(new[] { await storage.GetVolumeAsync(ct) }));
+        api.MapGet("/storage", async (StorageService storage, CancellationToken ct) => Results.Ok(await storage.GetVolumesAsync(ct)));
 
         var admin = api.MapGroup("").RequireAuthorization(policy => policy.RequireRole("Admin"));
         admin.MapPost("/sessions/{id}/group", async (string id, SessionGroupRequest request, SessionGroupingService grouping, CancellationToken ct) => Results.Ok(await grouping.GroupAsync(id, request.SessionIds, request.Title, ct)));
         admin.MapPost("/sessions/{id}/split", async (string id, SessionSplitRequest request, SessionGroupingService grouping, CancellationToken ct) => Results.Ok(new { sessions = await grouping.SplitAsync(id, request.BeforeSegmentId, ct) }));
-        admin.MapPost("/streamers", async (TargetRequest request, MongoContext context, IBilibiliService bilibili, CancellationToken ct) =>
+        admin.MapPost("/streamers", async (TargetRequest request, IMongoContext context, IBilibiliService bilibili, CancellationToken ct) =>
         {
             if (request.RoomId <= 0)
             {
@@ -228,7 +222,7 @@ public static class LibraryEndpoints
             }
             return Results.Ok(target);
         });
-        admin.MapPut("/streamers/{id}", async (string id, Streamer request, MongoContext context, CancellationToken ct) =>
+        admin.MapPut("/streamers/{id}", async (string id, Streamer request, IMongoContext context, CancellationToken ct) =>
         {
             if (request.Quality is <= 0 || request.SegmentBytes is < 0)
             {
@@ -237,7 +231,7 @@ public static class LibraryEndpoints
             var result = await context.Collection<Streamer>("streamers").FindOneAndUpdateAsync(x => x.Id == id, Builders<Streamer>.Update.Set(x => x.Enabled, request.Enabled).Set(x => x.AccountId, request.AccountId).Set(x => x.Quality, request.Quality).Set(x => x.RecordDanmu, request.RecordDanmu).Set(x => x.SegmentBytes, request.SegmentBytes), new FindOneAndUpdateOptions<Streamer> { ReturnDocument = ReturnDocument.After }, ct);
             return result is null ? Results.NotFound() : Results.Ok(result);
         });
-        admin.MapDelete("/streamers/{id}", async (string id, MongoContext context, CancellationToken ct) =>
+        admin.MapDelete("/streamers/{id}", async (string id, IMongoContext context, CancellationToken ct) =>
         {
             await context.Collection<Streamer>("streamers").UpdateOneAsync(x => x.Id == id,
                 Builders<Streamer>.Update.Set(x => x.Enabled, false).Set(x => x.IsMonitored, false), cancellationToken: ct);
@@ -256,21 +250,21 @@ public static class LibraryEndpoints
         }
     }
 
-    private static async Task<MediaJob> GetJobAsync(string id, HttpContext http, MongoContext context, CancellationToken ct)
+    private static async Task<MediaJob> GetJobAsync(string id, HttpContext http, IMongoContext context, CancellationToken ct)
     {
         var job = await context.Collection<MediaJob>("jobs").Find(x => x.Id == id).FirstOrDefaultAsync(ct) ?? throw new InfrastructureException(MessageCode.JOB_NOT_FOUND, 404);
         RequireOwner(http, job.OwnerId);
         return job;
     }
 
-    private static async Task<Clip> GetClipAsync(string id, HttpContext http, MongoContext context, CancellationToken ct)
+    private static async Task<Clip> GetClipAsync(string id, HttpContext http, IMongoContext context, CancellationToken ct)
     {
         var clip = await context.Collection<Clip>("clips").Find(x => x.Id == id).FirstOrDefaultAsync(ct) ?? throw new InfrastructureException(MessageCode.LIBRARY_CLIP_NOT_FOUND, 404);
         RequireOwner(http, clip.OwnerId);
         return clip;
     }
 
-    private static async Task<TrashEntry> GetTrashAsync(string id, HttpContext http, MongoContext context, CancellationToken ct)
+    private static async Task<TrashEntry> GetTrashAsync(string id, HttpContext http, IMongoContext context, CancellationToken ct)
     {
         var item = await context.Collection<TrashEntry>("trash").Find(x => x.Id == id).FirstOrDefaultAsync(ct) ?? throw new InfrastructureException(MessageCode.LIBRARY_TRASH_NOT_FOUND, 404);
         RequireOwner(http, item.OwnerId);

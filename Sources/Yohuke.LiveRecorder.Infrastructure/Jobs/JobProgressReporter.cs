@@ -7,7 +7,7 @@ using Yohuke.LiveRecorder.Infrastructure.Persistence;
 namespace Yohuke.LiveRecorder.Infrastructure.Jobs;
 
 /// <summary>合并单调媒体进度，完成或失去租约后到达的回调不能改写作业。</summary>
-public sealed class JobProgressReporter(MongoContext context, IStatusPublisher publisher, MediaJob job, string workerId, double rangeStart = 0, double rangeEnd = 1) : IProgress<double>
+public sealed class JobProgressReporter(IMongoContext context, IStatusPublisher publisher, MediaJob job, string workerId, double rangeStart = 0, double rangeEnd = 1) : IProgress<double>
 {
     private readonly object gate = new();
     private double current;

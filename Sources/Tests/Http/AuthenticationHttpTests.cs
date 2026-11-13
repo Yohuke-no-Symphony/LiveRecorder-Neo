@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Xunit;
 
 namespace Yohuke.LiveRecorder.Http.Tests;
@@ -20,6 +21,10 @@ public sealed class AuthenticationHttpTests
         var anonymousToken = fixture.Admin.CsrfToken;
         await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
         Assert.NotEqual(anonymousToken, fixture.Admin.CsrfToken);
+        var paths = await fixture.Admin.Client.GetFromJsonAsync<JsonObject>("/api/settings/paths");
+        Assert.Equal(fixture.DataDirectory, paths!["dataDirectory"]!.GetValue<string>());
+        Assert.Equal(fixture.StoragePath, paths["recordsDirectory"]!.GetValue<string>());
+        Assert.Equal(fixture.CachePath, paths["cacheDirectory"]!.GetValue<string>());
         var settings = await fixture.Admin.Client.GetFromJsonAsync<ServerSettings>("/api/settings") ?? throw new InvalidDataException("Missing settings.");
         settings.RegistrationEnabled = true;
         settings.Smtp.Password = "test-smtp-secret";
@@ -36,9 +41,14 @@ public sealed class AuthenticationHttpTests
         using var preserve = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/settings", saved);
         Assert.Equal(HttpStatusCode.OK, preserve.StatusCode);
         var protector = fixture.App.Services.GetRequiredService<ISecretProtector>();
-        var stored = await fixture.Context.Collection<ServerSettings>("settings").Find(x => x.Id == "server").SingleAsync();
+        var stored = await fixture.App.Services.GetRequiredService<ISettingsStore>().GetAsync();
         Assert.Equal("test-smtp-secret", protector.Unprotect(stored.Smtp.Password));
         Assert.Equal("test-oauth-secret", protector.Unprotect(Assert.Single(stored.OAuthProviders).ClientSecret));
+        var settingsFile = fixture.ConfigFile;
+        var persisted = await File.ReadAllTextAsync(settingsFile);
+        Assert.DoesNotContain("test-smtp-secret", persisted);
+        Assert.DoesNotContain("test-oauth-secret", persisted);
+        Assert.False(await fixture.Context.Collection<ServerSettings>("settings").Find(x => x.Id == "server").AnyAsync());
         using var missingCsrf = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/settings", saved, includeCsrf: false);
         Assert.Equal(HttpStatusCode.BadRequest, missingCsrf.StatusCode);
     }
@@ -56,7 +66,7 @@ public sealed class AuthenticationHttpTests
             "/api/playback/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/index.m3u8",
             "/api/playback/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/segment0.ts",
             "/api/jobs", "/api/jobs/example", "/api/jobs/example/outputs/0", "/api/clips", "/api/clips/example/download", "/api/clips/example/media", "/api/auth/identities",
-            "/api/trash", "/api/storage", "/api/settings", "/api/admin/users", "/api/admin/bilibili/accounts"
+            "/api/trash", "/api/storage", "/api/settings", "/api/settings/paths", "/api/admin/users", "/api/admin/bilibili/accounts"
         })
         {
             using var response = await anonymous.Client.GetAsync(path);
@@ -109,10 +119,11 @@ public sealed class AuthenticationHttpTests
         Assert.Equal(HttpStatusCode.Unauthorized, forbiddenRead.StatusCode);
     }
 
-    [Fact]
+    [MongoHttpFact]
     public async Task UnknownApiReturnsProblem404InsteadOfHtmlFallback()
     {
         await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/not-a-real-endpoint");
         request.Headers.Accept.ParseAdd("text/html");
         using var response = await fixture.Admin.Client.SendAsync(request);

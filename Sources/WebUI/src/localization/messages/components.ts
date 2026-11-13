@@ -16,6 +16,14 @@ export const componentsZh = {
     disk: '磁盘', usedPercent: '磁盘已用 {percent}%', freeBytes: '{bytes} 空余', used: '占用 {bytes}',
     trash: '回收站 {bytes}', free: '空余 {bytes}',
   },
+  dataDirectories: {
+    title: '存储目录', data: '数据目录', records: '录像目录',
+    description: '所有后台配置保存在同一个 JSON 配置文件中。数据目录保存密钥、缓存和安装状态，录像目录可独立设置。安装时会创建缺少的目录。',
+    active: '当前数据目录', activeRecords: '当前录像目录', configFile: '配置文件', save: '保存目录配置', saved: '目录配置已保存',
+    relativePath: '两个目录的相对路径均以配置文件所在目录为基准。',
+    migration: '保存操作只更新配置，不会移动文件。请手动迁移相关数据和录像，目录变更将在重启后生效。',
+    restartRequired: '目录变更待重启后生效，服务继续使用上方显示的当前目录。',
+  },
   events: {
     title: '直播消息', follow: '跟随', all: '全部', danmu: '弹幕', superChat: 'SC', gift: '礼物', guard: '舰长',
     redPocket: '红包', gap: '录制中断', guest: '访客', empty: '当前时段暂无消息', notRecorded: '此场录播未保存弹幕',
@@ -65,6 +73,14 @@ export const componentsEn: MessageSchema<typeof componentsZh> = {
   storage: {
     disk: 'Disk', usedPercent: 'Disk {percent}% used', freeBytes: '{bytes} free', used: 'Used {bytes}',
     trash: 'Trash {bytes}', free: 'Free {bytes}',
+  },
+  dataDirectories: {
+    title: 'Storage directories', data: 'Data directory', records: 'Recordings directory',
+    description: 'All server configuration is stored in one JSON file. The data directory stores keys, cache, and installation state. Recordings can use a separate directory. Setup creates missing directories.',
+    active: 'Current data directory', activeRecords: 'Current recordings directory', configFile: 'Configuration file', save: 'Save directory configuration', saved: 'Directory configuration saved',
+    relativePath: 'Relative paths for both directories are resolved from the directory containing the configuration file.',
+    migration: 'Saving updates the configuration and does not move files. Move the data and recordings manually; directory changes take effect after a restart.',
+    restartRequired: 'A restart is required to apply the directory changes. The server still uses the current directories shown above.',
   },
   events: {
     title: 'Live messages', follow: 'Follow', all: 'All', danmu: 'Chat', superChat: 'SC', gift: 'Gifts', guard: 'Memberships',
@@ -117,6 +133,14 @@ export const componentsJa: MessageSchema<typeof componentsZh> = {
   storage: {
     disk: 'ディスク', usedPercent: 'ディスク使用率 {percent}%', freeBytes: '空き {bytes}', used: '使用中 {bytes}',
     trash: 'ゴミ箱 {bytes}', free: '空き {bytes}',
+  },
+  dataDirectories: {
+    title: '保存ディレクトリ', data: 'データディレクトリ', records: '録画ディレクトリ',
+    description: 'すべてのサーバー設定を1つの JSON ファイルに保存します。データディレクトリには鍵、キャッシュ、インストール状態を保存し、録画は別のディレクトリを指定できます。インストール時に存在しないディレクトリを作成します。',
+    active: '現在のデータディレクトリ', activeRecords: '現在の録画ディレクトリ', configFile: '設定ファイル', save: 'ディレクトリ設定を保存', saved: 'ディレクトリ設定を保存しました',
+    relativePath: '両方のディレクトリの相対パスは、設定ファイルがあるディレクトリを基準に解決します。',
+    migration: '保存では設定だけを更新し、ファイルは移動しません。データと録画を手動で移行してください。ディレクトリの変更は再起動後に反映されます。',
+    restartRequired: 'ディレクトリの変更には再起動が必要です。現在は上に表示されているディレクトリを使用しています。',
   },
   events: {
     title: '配信メッセージ', follow: '追従', all: 'すべて', danmu: 'コメント', superChat: 'SC', gift: 'ギフト', guard: 'メンバーシップ',

@@ -13,7 +13,7 @@ vi.mock('../src/apis/MediaAPI', () => ({
   MediaAPI: {
     settings: vi.fn(),
     updateSettings: vi.fn(),
-    settingsPaths: vi.fn(async () => ({ dataDirectory: '/srv/Data', recordsDirectory: '/srv/Data/records', cacheDirectory: '/srv/Data/cache' })),
+    settingsPaths: vi.fn(async () => ({ dataDirectory: '/srv/Data', recordsDirectory: '/srv/Data/records', cacheDirectory: '/srv/Data/cache', configFile: '/srv/settings.json', configuredDataDirectory: 'Data', configuredRecordsDirectory: 'Data/records', restartRequired: false })),
   },
 }))
 

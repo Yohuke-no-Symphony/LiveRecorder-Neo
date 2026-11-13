@@ -1,16 +1,19 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using MongoDB.Driver;
+using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Auth;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Server;
+using Yohuke.LiveRecorder.Server.Contracts;
 using Xunit;
 
 namespace Yohuke.LiveRecorder.Http.Tests;
@@ -24,20 +27,36 @@ internal sealed class HttpServerFixture : IAsyncDisposable
     private bool databaseTouched;
     private string HostEnvironment { get; init; } = "Production";
     private string[] AdditionalArguments { get; init; } = [];
+    private string? dataDirectory;
+    private string? recordsDirectory;
+    private IAppPaths? activePaths;
     internal string DirectoryPath { get; } = Path.Combine(Path.GetTempPath(), "live-recorder-http-tests", Guid.NewGuid().ToString("N"));
     internal string DatabaseName { get; } = "http_tests_" + Guid.NewGuid().ToString("N");
     internal string MongoConnectionString { get; } = Environment.GetEnvironmentVariable("LIVE_RECORDER_TEST_MONGO") ?? "mongodb://127.0.0.1:34784";
-    internal string StoragePath => Path.Combine(DirectoryPath, "recordings");
+    internal string ConfigFile => Path.Combine(DirectoryPath, "startup.json");
+    internal string DataDirectory => activePaths?.DataDirectory ?? dataDirectory ?? Path.Combine(DirectoryPath, "Data");
+    internal string StoragePath => activePaths?.RecordsDirectory ?? recordsDirectory ?? Path.Combine(DataDirectory, "records");
+    internal string CachePath => Path.Combine(DataDirectory, "cache");
     internal WebApplication App { get; private set; } = null!;
     internal HttpBrowser Admin { get; private set; } = null!;
     internal Uri Address { get; private set; } = null!;
-    internal MongoContext Context => App.Services.GetRequiredService<MongoContext>();
+    internal IMongoContext Context => App.Services.GetRequiredService<IMongoContext>();
 
-    internal static async Task<HttpServerFixture> CreateAsync(string environment = "Production", params string[] additionalArguments)
+    internal static Task<HttpServerFixture> CreateAsync(string environment = "Production", params string[] additionalArguments) =>
+        CreateFixtureAsync(new HttpServerFixture { HostEnvironment = environment, AdditionalArguments = additionalArguments }, true);
+
+    internal static Task<HttpServerFixture> CreateWithoutConfigurationAsync() =>
+        CreateFixtureAsync(new HttpServerFixture(), false);
+
+    private static async Task<HttpServerFixture> CreateFixtureAsync(HttpServerFixture fixture, bool configure)
     {
-        var fixture = new HttpServerFixture { HostEnvironment = environment, AdditionalArguments = additionalArguments };
         try
         {
+            if (configure)
+            {
+                Directory.CreateDirectory(fixture.DirectoryPath);
+                await File.WriteAllTextAsync(fixture.ConfigFile, JsonSerializer.Serialize(new { DataDirectory = fixture.DataDirectory, RecordsDirectory = fixture.StoragePath }));
+            }
             await fixture.StartAsync();
             fixture.Admin = fixture.NewBrowser();
             return fixture;
@@ -56,42 +75,132 @@ internal sealed class HttpServerFixture : IAsyncDisposable
         return browser;
     }
 
-    internal async Task RestartAsync()
+    internal async Task RestartAsync(bool removeLocalSettings = false)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         await App.StopAsync(timeout.Token);
         await App.DisposeAsync();
+        if (removeLocalSettings)
+        {
+            await RemoveGlobalSettingsAsync();
+        }
         await StartAsync();
+        Admin = NewBrowser();
+    }
+
+    internal async Task RestartFromCopiedDataAsync(bool updateConfiguration = true)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await App.StopAsync(timeout.Token);
+        await App.DisposeAsync();
+        var target = Path.Combine(DirectoryPath, "restored-data");
+        var targetRecords = Path.Combine(DirectoryPath, "restored-records");
+        var sourceRecords = StoragePath;
+        foreach (var file in Directory.EnumerateFiles(DataDirectory, "*", SearchOption.AllDirectories))
+        {
+            var destination = Path.Combine(target, Path.GetRelativePath(DataDirectory, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Copy(file, destination);
+        }
+        foreach (var file in Directory.EnumerateFiles(sourceRecords, "*", SearchOption.AllDirectories))
+        {
+            var destination = Path.Combine(targetRecords, Path.GetRelativePath(sourceRecords, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Copy(file, destination);
+        }
+        Directory.CreateDirectory(targetRecords);
+        dataDirectory = target;
+        recordsDirectory = targetRecords;
+        if (updateConfiguration)
+        {
+            await new StartupConfigurationStore(ConfigFile).SaveAsync(target, targetRecords);
+        }
+        await StartAsync();
+    }
+
+    internal async Task RestartWithoutStartupConfigurationAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await App.StopAsync(timeout.Token);
+        await App.DisposeAsync();
+        File.Delete(ConfigFile);
+        await StartAsync();
+        Admin = NewBrowser();
+        await Admin.RefreshCsrfAsync();
+    }
+
+    internal async Task ReopenSetupAsync(bool preserveSettings = true, bool preserveKeys = true)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await App.StopAsync(timeout.Token);
+        await App.DisposeAsync();
+        File.Delete(Path.Combine(DataDirectory, "bootstrap.json"));
+        if (!preserveSettings)
+        {
+            await RemoveGlobalSettingsAsync();
+        }
+        if (!preserveKeys)
+        {
+            Directory.Delete(Path.Combine(DataDirectory, "keys"), true);
+        }
+        await StartAsync();
+        Admin = NewBrowser();
+        await Admin.RefreshCsrfAsync();
     }
 
     private async Task StartAsync()
     {
-        App = ServerStartup.CreateApplication(["--urls", "http://127.0.0.1:0", "--DataDirectory", Path.Combine(DirectoryPath, "data"), "--environment", HostEnvironment, "--Logging:LogLevel:Default", "Critical", .. AdditionalArguments]);
+        activePaths = null;
+        var configuration = new StartupConfigurationStore(ConfigFile);
+        dataDirectory = configuration.ResolvedDataDirectory;
+        recordsDirectory = configuration.ResolvedRecordsDirectory;
+        App = ServerStartup.CreateApplication(["--urls", "http://127.0.0.1:0", "--config", ConfigFile, "--environment", HostEnvironment, "--Logging:LogLevel:Default", "Critical", .. AdditionalArguments]);
+        activePaths = App.Services.GetRequiredService<IAppPaths>();
         await App.StartAsync();
         var addresses = App.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses;
         Address = new(addresses.Single());
     }
 
-    internal async Task InstallAsync()
+    internal async Task InstallAsync(SetupRequest? request = null)
     {
         await Admin.RefreshCsrfAsync();
         databaseTouched = true;
-        using var response = await Admin.SendAsync(HttpMethod.Post, "/api/setup", SetupRequest());
+        using var response = await Admin.SendAsync(HttpMethod.Post, "/api/setup", request ?? SetupRequest());
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var result = await response.Content.ReadFromJsonAsync<System.Text.Json.Nodes.JsonObject>();
         Assert.True(result!["installed"]!.GetValue<bool>());
+        await Admin.RefreshCsrfAsync();
     }
 
-    internal object SetupRequest() => new
+    internal SetupRequest SetupRequest(InstallationMode mode = InstallationMode.New, string? password = null) => new(
+        App.Services.GetRequiredService<IBootstrapStore>().InstallationToken,
+        "HTTP 管理员",
+        ADMIN_EMAIL,
+        password ?? ADMIN_PASSWORD,
+        MongoConnectionString,
+        DatabaseName,
+        DataDirectory,
+        StoragePath,
+        mode);
+
+    internal void TrackDatabase() => databaseTouched = true;
+
+    internal InstanceStorageContext PrepareCommittedStorage()
     {
-        token = App.Services.GetRequiredService<BootstrapStore>().InstallationToken,
-        userName = "HTTP 管理员",
-        email = ADMIN_EMAIL,
-        password = ADMIN_PASSWORD,
-        mongoConnectionString = MongoConnectionString,
-        databaseName = DatabaseName,
-        storagePath = StoragePath
-    };
+        var factory = new InstanceStorageFactory();
+        return factory.CreateForInstallationCommit(factory.CreateCandidate(DataDirectory, StoragePath));
+    }
+
+    private async Task RemoveGlobalSettingsAsync()
+    {
+        var configuration = new StartupConfigurationStore(ConfigFile);
+        await File.WriteAllTextAsync(ConfigFile, JsonSerializer.Serialize(new
+        {
+            DataDirectory = configuration.DataDirectory,
+            RecordsDirectory = configuration.RecordsDirectory
+        }));
+        File.Delete(Path.Combine(DataDirectory, "settings.json"));
+    }
 
     internal async Task<UserAccount> CreateUserAsync(string email, string status = "Active", string role = "User")
     {

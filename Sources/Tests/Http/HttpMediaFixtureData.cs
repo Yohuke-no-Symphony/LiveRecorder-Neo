@@ -24,7 +24,7 @@ internal sealed record HttpMediaFixtureData(BroadcastSession Session, Clip Clip,
         var recorded = new RecordedEventEnvelope { Sequence = 1, EventId = "http-event", Kind = "Danmu", Command = "DANMU_MSG", OffsetMs = 500, ReceivedAtUtc = now, SourceTimeUtc = now, UserId = ownerId, UserName = "观众", Text = "测试弹幕", RawJson = "{\"cmd\":\"DANMU_MSG\"}" };
         await File.WriteAllTextAsync(Path.Combine(eventsDirectory, "事件.jsonl"), JsonSerializer.Serialize(recorded, JsonFiles.Options) + "\n");
         var image = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6hAAAAABJRU5ErkJggg==");
-        var artwork = Path.Combine(fixture.StoragePath, ".cache", "artwork", Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(session.CoverUrl))).ToLowerInvariant() + ".image");
+        var artwork = Path.Combine(fixture.CachePath, "artwork", Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(session.CoverUrl))).ToLowerInvariant() + ".image");
         Directory.CreateDirectory(Path.GetDirectoryName(artwork)!);
         await File.WriteAllBytesAsync(artwork, image);
         await File.WriteAllTextAsync(artwork + ".type", "image/png");
@@ -41,7 +41,7 @@ internal sealed record HttpMediaFixtureData(BroadcastSession Session, Clip Clip,
         await fixture.Context.Collection<MediaJob>("jobs").InsertOneAsync(job);
         var key = Guid.NewGuid().ToString("N");
         var generation = Guid.NewGuid().ToString("N");
-        var cache = Path.Combine(fixture.StoragePath, ".cache", "playback", key, generation);
+        var cache = Path.Combine(fixture.CachePath, "playback", key, generation);
         await JsonFiles.WriteAsync(Path.Combine(cache, "window.json"), new PlaybackCacheEntry { SessionId = session.Id, SegmentId = segment.Id, Generation = generation, SourceBytes = 64, StartOffsetMs = 0, EndOffsetMs = 10000, BuiltAtUtc = now });
         await File.WriteAllTextAsync(Path.Combine(cache, "index.m3u8"), "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:10,\nsegment0.ts\n#EXT-X-ENDLIST\n");
         await File.WriteAllBytesAsync(Path.Combine(cache, "segment0.ts"), bytes);

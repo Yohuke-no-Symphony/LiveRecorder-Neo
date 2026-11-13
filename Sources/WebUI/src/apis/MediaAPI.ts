@@ -1,7 +1,7 @@
 import { post, put, query, remove, request } from './APIBase'
 import { getServerUrl } from './ServerURL'
 import type { Analytics, BroadcastSession, Clip, CreateJob, EventKind, EventPage, MediaJob, PlaybackWindow, SessionDetail, StorageVolume, Streamer, TrashEntry } from '@/models/media'
-import type { ServerSettings } from '@/models/settings'
+import type { ServerPaths, ServerSettings } from '@/models/settings'
 
 export const MediaAPI = {
   streamers: () => request<Streamer[]>('streamers'),
@@ -30,6 +30,8 @@ export const MediaAPI = {
   purgeTrash: (id: string) => remove(`trash/${encodeURIComponent(id)}`),
   storage: () => request<StorageVolume[]>('storage'),
   settings: () => request<ServerSettings>('settings'),
+  settingsPaths: () => request<ServerPaths>('settings/paths'),
+  updateSettingsPaths: (body: { dataDirectory: string; recordsDirectory: string }) => put<ServerPaths>('settings/paths', body),
   updateSettings: (body: ServerSettings) => put<ServerSettings>('settings', body),
   analytics: (id: string) => request<Analytics>(`sessions/${encodeURIComponent(id)}/analytics`),
 }

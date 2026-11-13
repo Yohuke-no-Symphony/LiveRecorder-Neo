@@ -18,7 +18,9 @@ public sealed class LanguagePreferenceHttpTests
         Assert.Equal("defaultLanguage", Assert.Single(settings!).Key);
         Assert.Equal("zh-CN", settings!["defaultLanguage"]!.GetValue<string>());
         using var response = await fixture.Admin.Client.GetAsync("/api/settings");
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<JsonObject>();
+        Assert.Equal("SETUP_REQUIRED", problem!["code"]!.GetValue<string>());
     }
 
     [MongoHttpFact]

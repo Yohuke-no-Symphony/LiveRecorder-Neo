@@ -5,21 +5,22 @@ using MongoDB.Bson;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Storage;
 
 /// <summary>通过持久状态与同卷独占锁恢复文件删除，避免使用过期回收站快照操作文件。</summary>
-public sealed class StorageService(MongoContext context, ISettingsStore settingsStore)
+public sealed class StorageService(IMongoContext context, ISettingsStore settingsStore, IAppPaths paths)
 {
     private readonly SemaphoreSlim operations = new(1, 1);
 
-    /// <summary>只查询文件系统余量，不扫描缓存或回收目录。</summary>
-    public async Task<long> GetFreeBytesAsync(CancellationToken cancellationToken = default)
+    /// <summary>查询录像输出所在卷的余量，不扫描缓存或回收目录。</summary>
+    public Task<long> GetFreeBytesAsync(CancellationToken cancellationToken = default)
     {
-        var settings = await settingsStore.GetAsync(cancellationToken);
-        return new DriveInfo(Path.GetFullPath(settings.StoragePath)).AvailableFreeSpace;
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(new DriveInfo(paths.RecordsDirectory).AvailableFreeSpace);
     }
 
     /// <summary>派生作业在录制水位之前预留四分之一余量。</summary>
@@ -29,21 +30,43 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
         return settings.MinimumFreeBytes > long.MaxValue - reserve ? long.MaxValue : settings.MinimumFreeBytes + reserve;
     }
 
-    /// <summary>读取实际存储卷容量，其他文件占用也纳入已用空间。</summary>
-    public async Task<StorageVolume> GetVolumeAsync(CancellationToken cancellationToken = default)
+    /// <summary>读取录像主卷容量，只统计录像目录内的回收站，不混入数据目录缓存。</summary>
+    public Task<StorageVolume> GetVolumeAsync(CancellationToken cancellationToken = default)
     {
-        var settings = await settingsStore.GetAsync(cancellationToken);
-        var root = Path.GetFullPath(settings.StoragePath);
+        cancellationToken.ThrowIfCancellationRequested();
+        var records = paths.RecordsDirectory;
+        return Task.FromResult(ReadVolume("recordings", records, 0, DirectoryBytes(Path.Combine(records, ".trash"))));
+    }
+
+    /// <summary>先返回录像主卷，再返回数据目录视图，各自只统计所属回收站或缓存。</summary>
+    /// <remarks>两个配置根可能位于同一物理卷，返回容量可重复显示，不能直接汇总 TotalBytes 或 FreeBytes。</remarks>
+    public Task<IReadOnlyList<StorageVolume>> GetVolumesAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var data = paths.DataDirectory;
+        var records = paths.RecordsDirectory;
+        IReadOnlyList<StorageVolume> volumes =
+        [
+            ReadVolume("recordings", records, 0, DirectoryBytes(Path.Combine(records, ".trash"))),
+            ReadVolume("data", data, DirectoryBytes(paths.CacheDirectory), 0)
+        ];
+        return Task.FromResult(volumes);
+    }
+
+    private static StorageVolume ReadVolume(string id, string root, long cacheBytes, long trashBytes)
+    {
         var drive = new DriveInfo(root);
-        var trashBytes = DirectoryBytes(Path.Combine(root, ".trash"));
+        var totalBytes = drive.TotalSize;
+        var freeBytes = drive.AvailableFreeSpace;
         return new()
         {
+            Id = id,
             Path = root,
-            TotalBytes = drive.TotalSize,
-            FreeBytes = drive.AvailableFreeSpace,
+            TotalBytes = totalBytes,
+            FreeBytes = freeBytes,
             TrashBytes = trashBytes,
-            CacheBytes = DirectoryBytes(Path.Combine(root, ".cache")),
-            UsedBytes = Math.Max(0, drive.TotalSize - drive.AvailableFreeSpace - trashBytes)
+            CacheBytes = cacheBytes,
+            UsedBytes = Math.Max(0, totalBytes - freeBytes - trashBytes)
         };
     }
 
@@ -59,7 +82,7 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
         try
         {
             var settings = await settingsStore.GetAsync(cancellationToken);
-            await using var fileLock = AcquireFileLock(settings.StoragePath, clipId);
+            await using var fileLock = AcquireFileLock(paths.RecordsDirectory, clipId);
             await context.Collection<TrashEntry>("trash").Indexes.CreateOneAsync(new CreateIndexModel<TrashEntry>(
                 Builders<TrashEntry>.IndexKeys.Ascending(x => x.EntityId), new CreateIndexOptions { Name = "trash_entity_unique", Unique = true }), cancellationToken: cancellationToken);
             var existing = await context.Collection<TrashEntry>("trash").Find(x => x.EntityId == clipId).FirstOrDefaultAsync(cancellationToken);
@@ -67,7 +90,7 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
             {
                 if (existing.State is "Pending" or "Moving")
                 {
-                    await CompleteMoveAsync(existing, settings, cancellationToken);
+                    await CompleteMoveAsync(existing, cancellationToken);
                 }
                 return;
             }
@@ -87,7 +110,7 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
             };
             entry.TrashRelativePath = Path.Combine(".trash", entry.Id, Path.GetFileName(clip.RelativePath));
             await context.Collection<TrashEntry>("trash").InsertOneAsync(entry, cancellationToken: cancellationToken);
-            await CompleteMoveAsync(entry, settings, cancellationToken);
+            await CompleteMoveAsync(entry, cancellationToken);
         }
         finally
         {
@@ -98,7 +121,7 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
     /// <summary>只恢复仍存在的当前删除意图，不覆盖原位置已有文件。</summary>
     public async Task RestoreAsync(TrashEntry entry, CancellationToken cancellationToken = default)
     {
-        await OperateEntryAsync(entry.Id, async (current, settings) =>
+        await OperateEntryAsync(entry.Id, async current =>
         {
             if (current.State == "Purging")
             {
@@ -106,29 +129,29 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
             }
             if (current.State is "Pending" or "Moving")
             {
-                current = await CompleteMoveAsync(current, settings, cancellationToken);
+                current = await CompleteMoveAsync(current, cancellationToken);
             }
-            await CompleteRestoreAsync(current, settings, cancellationToken);
+            await CompleteRestoreAsync(current, await settingsStore.GetAsync(cancellationToken), cancellationToken);
         }, cancellationToken);
     }
 
     /// <summary>只删除当前回收路径；已恢复或正在恢复的条目不会再次移动原文件。</summary>
     public async Task PurgeAsync(TrashEntry entry, CancellationToken cancellationToken = default)
     {
-        await OperateEntryAsync(entry.Id, async (current, settings) =>
+        await OperateEntryAsync(entry.Id, async current =>
         {
             if (current.State == "Restoring")
             {
-                await CompleteRestoreAsync(current, settings, cancellationToken);
+                await CompleteRestoreAsync(current, await settingsStore.GetAsync(cancellationToken), cancellationToken);
                 return;
             }
             if (current.State is "Pending" or "Moving")
             {
-                current = await CompleteMoveAsync(current, settings, cancellationToken);
+                current = await CompleteMoveAsync(current, cancellationToken);
             }
             current = await ClaimAsync(current, "Purging", cancellationToken);
             await RequireOperationAsync(current, cancellationToken);
-            var path = MediaPaths.Resolve(settings.StoragePath, current.TrashRelativePath);
+            var path = MediaPaths.Resolve(paths.RecordsDirectory, current.TrashRelativePath);
             File.Delete(path);
             await context.Collection<Clip>("clips").DeleteOneAsync(x => x.Id == current.EntityId && x.IsTrashed && x.RelativePath == current.OriginalRelativePath, cancellationToken);
             await context.Collection<TrashEntry>("trash").DeleteOneAsync(OperationFilter(current), cancellationToken);
@@ -158,11 +181,11 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
                 }
                 else
                 {
-                    await OperateEntryAsync(entry.Id, async (current, settings) =>
+                    await OperateEntryAsync(entry.Id, async current =>
                     {
                         if (current.State is "Pending" or "Moving")
                         {
-                            await CompleteMoveAsync(current, settings, cancellationToken);
+                            await CompleteMoveAsync(current, cancellationToken);
                         }
                     }, cancellationToken);
                 }
@@ -195,7 +218,7 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
         }
     }
 
-    private async Task OperateEntryAsync(string id, Func<TrashEntry, ServerSettings, Task> operation, CancellationToken cancellationToken)
+    private async Task OperateEntryAsync(string id, Func<TrashEntry, Task> operation, CancellationToken cancellationToken)
     {
         await operations.WaitAsync(cancellationToken);
         try
@@ -205,12 +228,11 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
             {
                 return;
             }
-            var settings = await settingsStore.GetAsync(cancellationToken);
-            await using var fileLock = AcquireFileLock(settings.StoragePath, initial.EntityId);
+            await using var fileLock = AcquireFileLock(paths.RecordsDirectory, initial.EntityId);
             var current = await context.Collection<TrashEntry>("trash").Find(x => x.Id == id).FirstOrDefaultAsync(cancellationToken);
             if (current is not null)
             {
-                await operation(current, settings);
+                await operation(current);
             }
         }
         finally
@@ -219,7 +241,7 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
         }
     }
 
-    private async Task<TrashEntry> CompleteMoveAsync(TrashEntry entry, ServerSettings settings, CancellationToken cancellationToken)
+    private async Task<TrashEntry> CompleteMoveAsync(TrashEntry entry, CancellationToken cancellationToken)
     {
         if (entry.State is not ("Pending" or "Moving"))
         {
@@ -232,8 +254,8 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
             await context.Collection<TrashEntry>("trash").DeleteOneAsync(OperationFilter(entry), cancellationToken);
             throw new InfrastructureException(MessageCode.STORAGE_SOURCE_CLIP_CHANGED, 410);
         }
-        var source = MediaPaths.Resolve(settings.StoragePath, entry.OriginalRelativePath);
-        var destination = MediaPaths.Resolve(settings.StoragePath, entry.TrashRelativePath);
+        var source = MediaPaths.Resolve(paths.RecordsDirectory, entry.OriginalRelativePath);
+        var destination = MediaPaths.Resolve(paths.RecordsDirectory, entry.TrashRelativePath);
         if (File.Exists(source) && File.Exists(destination))
         {
             throw new InfrastructureException(MessageCode.STORAGE_TRASH_PATH_CONFLICT, 409);
@@ -265,8 +287,8 @@ public sealed class StorageService(MongoContext context, ISettingsStore settings
             throw new InfrastructureException(MessageCode.STORAGE_RESTORE_STATE_INVALID, 409);
         }
         var resuming = entry.State == "Restoring";
-        var source = MediaPaths.Resolve(settings.StoragePath, entry.TrashRelativePath);
-        var destination = MediaPaths.Resolve(settings.StoragePath, entry.OriginalRelativePath);
+        var source = MediaPaths.Resolve(paths.RecordsDirectory, entry.TrashRelativePath);
+        var destination = MediaPaths.Resolve(paths.RecordsDirectory, entry.OriginalRelativePath);
         if (File.Exists(destination) && (!resuming || File.Exists(source)))
         {
             throw new InfrastructureException(MessageCode.STORAGE_RESTORE_DESTINATION_EXISTS, 409);

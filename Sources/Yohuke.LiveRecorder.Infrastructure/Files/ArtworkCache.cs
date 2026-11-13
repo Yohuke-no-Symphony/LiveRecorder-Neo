@@ -1,11 +1,11 @@
 using System.Security.Cryptography;
 using System.Text;
-using Yohuke.LiveRecorder.Application;
+using Yohuke.LiveRecorder.Infrastructure.Configuration;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Files;
 
 /// <summary>在鉴权媒体端点之后缓存 B站公开头像和封面。</summary>
-public sealed class ArtworkCache(IHttpClientFactory clients, ISettingsStore settingsStore)
+public sealed class ArtworkCache(IHttpClientFactory clients, IAppPaths paths)
 {
     private readonly SemaphoreSlim[] gates = Enumerable.Range(0, 16).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
 
@@ -20,9 +20,8 @@ public sealed class ArtworkCache(IHttpClientFactory clients, ISettingsStore sett
         {
             return null;
         }
-        var settings = await settingsStore.GetAsync(cancellationToken);
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sourceUrl))).ToLowerInvariant();
-        var root = Path.Combine(settings.StoragePath, ".cache", "artwork");
+        var root = Path.Combine(paths.CacheDirectory, "artwork");
         var path = Path.Combine(root, key + ".image");
         var gate = gates[(int)(Convert.ToUInt32(key[..8], 16) % gates.Length)];
         await gate.WaitAsync(cancellationToken);

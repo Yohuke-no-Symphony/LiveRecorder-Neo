@@ -5,6 +5,7 @@ using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Library;
 using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
@@ -12,7 +13,7 @@ using Yohuke.LiveRecorder.Infrastructure.Recording;
 namespace Yohuke.LiveRecorder.Infrastructure.Library;
 
 /// <summary>通过稳定文件引用归组和按物理边界拆分，保留所有源档案。</summary>
-public sealed class SessionGroupingService(MongoContext context, LibraryService library, ISettingsStore settingsStore, IStatusPublisher publisher)
+public sealed class SessionGroupingService(IMongoContext context, LibraryService library, ISettingsStore settingsStore, IStatusPublisher publisher, IAppPaths paths)
 {
     private readonly SemaphoreSlim gate = new(1, 1);
 
@@ -125,8 +126,7 @@ public sealed class SessionGroupingService(MongoContext context, LibraryService 
     /// <summary>重建源场次的隐藏状态，恢复发布后中断的收尾。</summary>
     public async Task ReconcileAsync(CancellationToken cancellationToken = default)
     {
-        var settings = await settingsStore.GetAsync(cancellationToken);
-        var journalRoot = Path.Combine(settings.StoragePath, ".work", "groups");
+        var journalRoot = Path.Combine(paths.RecordsDirectory, ".work", "groups");
         if (Directory.Exists(journalRoot))
         {
             foreach (var file in Directory.EnumerateFiles(journalRoot, "operation.json", SearchOption.AllDirectories))
@@ -135,7 +135,7 @@ public sealed class SessionGroupingService(MongoContext context, LibraryService 
                 var operation = await JsonSerializer.DeserializeAsync<ProjectionOperation>(input, JsonFiles.Options, cancellationToken);
                 if (operation is not null)
                 {
-                    await CompleteBatchAsync(operation, settings, cancellationToken);
+                    await CompleteBatchAsync(operation, cancellationToken);
                 }
                 input.Close();
                 File.Delete(file);
@@ -228,13 +228,13 @@ public sealed class SessionGroupingService(MongoContext context, LibraryService 
         {
             await PrepareAsync(output.Session, output.Segments, settings, cancellationToken);
         }
-        var journal = Path.Combine(settings.StoragePath, ".work", "groups", Guid.NewGuid().ToString("N"), "operation.json");
+        var journal = Path.Combine(paths.RecordsDirectory, ".work", "groups", Guid.NewGuid().ToString("N"), "operation.json");
         await JsonFiles.WriteAsync(journal, operation, cancellationToken);
-        await CompleteBatchAsync(operation, settings, cancellationToken);
+        await CompleteBatchAsync(operation, cancellationToken);
         File.Delete(journal);
     }
 
-    private async Task CompleteBatchAsync(ProjectionOperation operation, ServerSettings settings, CancellationToken cancellationToken)
+    private async Task CompleteBatchAsync(ProjectionOperation operation, CancellationToken cancellationToken)
     {
         foreach (var output in operation.Outputs)
         {
@@ -249,14 +249,14 @@ public sealed class SessionGroupingService(MongoContext context, LibraryService 
             {
                 await context.Collection<RecordingSegment>("segments").ReplaceOneAsync(x => x.Id == segment.Id, segment, new ReplaceOptions { IsUpsert = true }, cancellationToken);
             }
-            await JsonFiles.WriteAsync(Path.Combine(MediaPaths.Resolve(settings.StoragePath, output.Session.DirectoryPath), "场次.json"), output, cancellationToken);
+            await JsonFiles.WriteAsync(Path.Combine(MediaPaths.Resolve(paths.RecordsDirectory, output.Session.DirectoryPath), "场次.json"), output, cancellationToken);
             await context.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == output.Session.Id, output.Session, new ReplaceOptions { IsUpsert = true }, cancellationToken);
         }
         foreach (var output in operation.Outputs)
         {
             output.Session.ProjectionReady = true;
             await context.Collection<BroadcastSession>("sessions").UpdateOneAsync(x => x.Id == output.Session.Id, Builders<BroadcastSession>.Update.Set(x => x.ProjectionReady, true), cancellationToken: cancellationToken);
-            await JsonFiles.WriteAsync(Path.Combine(MediaPaths.Resolve(settings.StoragePath, output.Session.DirectoryPath), "场次.json"), output, cancellationToken);
+            await JsonFiles.WriteAsync(Path.Combine(MediaPaths.Resolve(paths.RecordsDirectory, output.Session.DirectoryPath), "场次.json"), output, cancellationToken);
         }
         foreach (var id in operation.SourceIds)
         {

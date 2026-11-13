@@ -16,7 +16,7 @@ using Yohuke.LiveRecorder.Infrastructure.Library;
 namespace Yohuke.LiveRecorder.Infrastructure.Recording;
 
 /// <summary>并行维护启用的直播间，数据库和派生任务不进入采集热路径。</summary>
-public sealed class RecordingSupervisor(MongoContext context, BootstrapStore bootstrap, ISettingsStore settingsStore, IBilibiliService bilibili, IMediaRecorder recorder, IStatusPublisher publisher, ILogger<RecordingSupervisor> logger, SessionGroupingService grouping) : BackgroundService
+public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore bootstrap, ISettingsStore settingsStore, IBilibiliService bilibili, IMediaRecorder recorder, IStatusPublisher publisher, ILogger<RecordingSupervisor> logger, SessionGroupingService grouping, IAppPaths paths) : BackgroundService
 {
     private readonly Dictionary<string, RecordingWorkerHandle> workers = new();
 
@@ -46,7 +46,7 @@ public sealed class RecordingSupervisor(MongoContext context, BootstrapStore boo
                             var open = await context.Collection<BroadcastSession>("sessions").Find(x => x.StreamerId == item.Key && x.EndedAtUtc == null && !x.IsHidden).FirstOrDefaultAsync(stoppingToken);
                             if (open is not null)
                             {
-                                await CloseSessionAsync(open, DateTime.UtcNow, await settingsStore.GetAsync(stoppingToken), stoppingToken);
+                                await CloseSessionAsync(open, DateTime.UtcNow, stoppingToken);
                             }
                             await context.Collection<Streamer>("streamers").UpdateOneAsync(x => x.Id == item.Key && !x.Enabled, Builders<Streamer>.Update.Set(x => x.State, "Stopped"), cancellationToken: stoppingToken);
                         }
@@ -116,7 +116,7 @@ public sealed class RecordingSupervisor(MongoContext context, BootstrapStore boo
                         {
                             await StopEventCaptureAsync(eventCapture);
                             eventCapture = null;
-                            await CloseSessionAsync(session, offlineSince.Value, settings, cancellationToken);
+                            await CloseSessionAsync(session, offlineSince.Value, cancellationToken);
                             session = null;
                         }
                         await Task.Delay(TimeSpan.FromSeconds(settings.MonitorIntervalSeconds), cancellationToken);
@@ -127,7 +127,7 @@ public sealed class RecordingSupervisor(MongoContext context, BootstrapStore boo
                     {
                         await StopEventCaptureAsync(eventCapture);
                         eventCapture = null;
-                        await CloseSessionAsync(session, offlineSince ?? session.LastMediaAtUtc, settings, cancellationToken);
+                        await CloseSessionAsync(session, offlineSince ?? session.LastMediaAtUtc, cancellationToken);
                         session = null;
                     }
                     offlineSince = null;
@@ -135,12 +135,12 @@ public sealed class RecordingSupervisor(MongoContext context, BootstrapStore boo
                     {
                         session = await CreateSessionAsync(target, room, liveTime, settings, cancellationToken);
                     }
-                    var directory = MediaPaths.Resolve(settings.StoragePath, session.DirectoryPath);
+                    var directory = MediaPaths.Resolve(paths.RecordsDirectory, session.DirectoryPath);
                     if ((target.RecordDanmu ?? settings.RecordDanmu) && eventCapture is null)
                     {
                         eventCapture = new SessionEventCapture(session, target, directory, CaptureEventsAsync, cancellationToken);
                     }
-                    if (AvailableBytes(settings.StoragePath) < settings.MinimumFreeBytes)
+                    if (AvailableBytes(paths.RecordsDirectory) < settings.MinimumFreeBytes)
                     {
                         throw new InfrastructureException(MessageCode.RECORDING_DISK_SPACE_LOW, 507);
                     }
@@ -201,7 +201,7 @@ public sealed class RecordingSupervisor(MongoContext context, BootstrapStore boo
                     var target = await context.Collection<Streamer>("streamers").Find(x => x.Id == id).FirstOrDefaultAsync(CancellationToken.None);
                     if (target is null || !target.Enabled || !target.IsMonitored)
                     {
-                        await CloseSessionAsync(session, DateTime.UtcNow, await settingsStore.GetAsync(), CancellationToken.None);
+                        await CloseSessionAsync(session, DateTime.UtcNow, CancellationToken.None);
                     }
                 }
                 catch (Exception error)
@@ -285,17 +285,17 @@ public sealed class RecordingSupervisor(MongoContext context, BootstrapStore boo
         var streamerDirectory = string.IsNullOrEmpty(target.DirectoryName) ? MediaPaths.SafeName(room.Name) + "_" + room.Uid : target.DirectoryName;
         target.DirectoryName = streamerDirectory;
         session.DirectoryPath = Path.Combine(streamerDirectory, name + "_" + MediaPaths.SafeName(room.Title) + "_" + session.Id[..8]);
-        var directory = MediaPaths.Resolve(settings.StoragePath, session.DirectoryPath);
+        var directory = MediaPaths.Resolve(paths.RecordsDirectory, session.DirectoryPath);
         Directory.CreateDirectory(directory);
         await JsonFiles.WriteAsync(Path.Combine(directory, "场次.json"), new SessionManifest { Session = session }, cancellationToken);
-        await JsonFiles.WriteAsync(Path.Combine(settings.StoragePath, streamerDirectory, "主播信息.json"), room, cancellationToken);
+        await JsonFiles.WriteAsync(Path.Combine(paths.RecordsDirectory, streamerDirectory, "主播信息.json"), room, cancellationToken);
         await context.Collection<BroadcastSession>("sessions").InsertOneAsync(session, cancellationToken: cancellationToken);
         await TrySaveTargetAsync(target, cancellationToken);
         await publisher.PublishAsync("session", session.Id, cancellationToken: cancellationToken);
         return session;
     }
 
-    private async Task CloseSessionAsync(BroadcastSession session, DateTime end, ServerSettings settings, CancellationToken cancellationToken)
+    private async Task CloseSessionAsync(BroadcastSession session, DateTime end, CancellationToken cancellationToken)
     {
         session.EndedAtUtc = end < session.LastMediaAtUtc ? session.LastMediaAtUtc : end;
         session.State = "Completed";
@@ -303,7 +303,7 @@ public sealed class RecordingSupervisor(MongoContext context, BootstrapStore boo
         var current = await context.Collection<BroadcastSession>("sessions").FindOneAndUpdateAsync(x => x.Id == session.Id,
             Builders<BroadcastSession>.Update.Set(x => x.EndedAtUtc, session.EndedAtUtc).Set(x => x.State, session.State),
             new FindOneAndUpdateOptions<BroadcastSession> { ReturnDocument = ReturnDocument.After }, cancellationToken);
-        await JsonFiles.WriteAsync(Path.Combine(MediaPaths.Resolve(settings.StoragePath, session.DirectoryPath), "场次.json"), new SessionManifest { Session = current ?? session, Segments = segments }, cancellationToken);
+        await JsonFiles.WriteAsync(Path.Combine(MediaPaths.Resolve(paths.RecordsDirectory, session.DirectoryPath), "场次.json"), new SessionManifest { Session = current ?? session, Segments = segments }, cancellationToken);
     }
 
     private async Task UpdateTargetAsync(Streamer target, LiveRoomSnapshot room, string state, string? error, CancellationToken cancellationToken)
@@ -343,9 +343,8 @@ public sealed class RecordingSupervisor(MongoContext context, BootstrapStore boo
 
     private async Task ReconcileAsync(CancellationToken cancellationToken)
     {
-        var settings = await settingsStore.GetAsync(cancellationToken);
-        Directory.CreateDirectory(settings.StoragePath);
-        foreach (var path in Directory.EnumerateFiles(settings.StoragePath, "场次.json", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint }))
+        Directory.CreateDirectory(paths.RecordsDirectory);
+        foreach (var path in Directory.EnumerateFiles(paths.RecordsDirectory, "场次.json", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint }))
         {
             try
             {
@@ -374,7 +373,7 @@ public sealed class RecordingSupervisor(MongoContext context, BootstrapStore boo
             var target = await context.Collection<Streamer>("streamers").Find(x => x.Id == session.StreamerId).FirstOrDefaultAsync(cancellationToken);
             if (target is null || !target.Enabled || !target.IsMonitored)
             {
-                await CloseSessionAsync(session, session.LastMediaAtUtc, settings, cancellationToken);
+                await CloseSessionAsync(session, session.LastMediaAtUtc, cancellationToken);
             }
         }
     }

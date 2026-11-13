@@ -183,7 +183,7 @@ public sealed class JobReliabilityTests
         await File.WriteAllTextAsync(Path.Combine(work, "partial.mp4"), "partial");
         var worker = fixture.CreateWorker();
         var sweep = (Task)typeof(MediaJobWorker).GetMethod("CleanupTerminalWorkAsync", BindingFlags.NonPublic | BindingFlags.Instance)!
-            .Invoke(worker, [fixture.Settings.Settings, CancellationToken.None])!;
+            .Invoke(worker, [CancellationToken.None])!;
         await sweep;
         Assert.False(Directory.Exists(Path.Combine(fixture.Root, ".work", "jobs", job.Id)));
         Assert.Equal("canonical-original-0", await File.ReadAllTextAsync(Path.Combine(fixture.Root, session.DirectoryPath, segments[0].RelativePath)));
