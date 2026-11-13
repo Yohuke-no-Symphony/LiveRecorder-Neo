@@ -5,6 +5,7 @@ export interface SmtpSettings
   host: string
   port: number
   useSsl: boolean
+  checkCertificateRevocation: boolean
   userName: string
   password: string
   fromAddress: string

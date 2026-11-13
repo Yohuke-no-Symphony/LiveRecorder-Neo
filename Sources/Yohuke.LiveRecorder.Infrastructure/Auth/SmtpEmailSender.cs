@@ -25,6 +25,7 @@ public sealed class SmtpEmailSender(ISettingsStore settingsStore, ISecretProtect
         message.Body = new TextPart("plain") { Text = body };
         using var client = new SmtpClient();
         client.Timeout = 15000;
+        client.CheckCertificateRevocation = settings.CheckCertificateRevocation;
         await client.ConnectAsync(settings.Host, settings.Port, settings.UseSsl ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTlsWhenAvailable, cancellationToken);
         if (!string.IsNullOrWhiteSpace(settings.UserName))
         {
