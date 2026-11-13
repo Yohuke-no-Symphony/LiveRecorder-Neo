@@ -20,7 +20,7 @@
     <v-spacer />
     <v-btn :icon="theme.global.current.value.dark ? 'mdi-weather-sunny' : 'mdi-weather-night'" variant="text" :aria-label="t('shell.nav.toggleTheme')" @click="toggleTheme" />
     <v-btn icon="mdi-progress-clock" variant="text" to="/jobs" :aria-label="t('shell.nav.jobs')" />
-    <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" variant="text" class="mr-4" :aria-label="t('shell.nav.userMenu')"><v-avatar size="30" color="surface-variant" class="mr-2"><v-img v-if="auth.user?.avatarUrl" :src="auth.user.avatarUrl" /><span v-else>{{ auth.user?.displayName?.slice(0, 1) }}</span></v-avatar><span v-if="!mobile">{{ auth.user?.displayName }}</span><v-icon icon="mdi-chevron-down" size="16" class="ml-2" /></v-btn></template><v-list density="compact"><v-list-item to="/account" :title="t('shell.nav.account')" prepend-icon="mdi-account-cog-outline" /><v-list-item :title="t('shell.nav.logout')" prepend-icon="mdi-logout" @click="logout" /></v-list></v-menu>
+    <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" variant="text" class="mr-4" :aria-label="t('shell.nav.userMenu')"><UserAvatar :name="auth.user?.displayName ?? ''" :avatar-url="auth.user?.avatarUrl" size="30" class="mr-2" /><span v-if="!mobile">{{ auth.user?.displayName }}</span><v-icon icon="mdi-chevron-down" size="16" class="ml-2" /></v-btn></template><v-list density="compact"><v-list-item to="/account" :title="t('shell.nav.account')" prepend-icon="mdi-account-cog-outline" /><v-list-item :title="t('shell.nav.logout')" prepend-icon="mdi-logout" @click="logout" /></v-list></v-menu>
   </v-app-bar>
   <v-main><main class="page-container"><slot /></main></v-main>
   <v-snackbar v-model="errorOpen" color="error">{{ error }}</v-snackbar>
@@ -37,6 +37,7 @@ import { usePolling } from '@/composables/usePolling'
 import type { StorageVolume } from '@/models/media'
 import StorageBar from '@/components/common/StorageBar.vue'
 import AppBrand from '@/components/common/AppBrand.vue'
+import UserAvatar from '@/components/common/UserAvatar.vue'
 
 const { t } = useI18n()
 const auth = useAuthStore()
