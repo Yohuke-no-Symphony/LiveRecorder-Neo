@@ -85,7 +85,7 @@ x86/
 !**/[Pp]ackages/build/
 
 # .NET build artifacts
-artifacts/
+/Artifacts/
 
 # Publish output
 publish/

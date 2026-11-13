@@ -4,6 +4,18 @@ Bilibili 直播录制服务器：C# WebServer、MongoDB 与 Vue / Vuetify 媒体
 
 [开发、运行、发布与测试说明](Sources/README.md)
 
-服务端及前端位于 `Sources/`；共享 B站 API 位于 `Core/` 子模块。
+服务端及前端位于 `Sources/`；共享 B站 API 位于 `Core/` 子模块。发布脚本位于根目录 `scripts/`，发布产物位于根目录 `Artifacts/<runtime>/`。
+
+在仓库根目录使用 PowerShell 发布，默认目标为 `linux-x64`：
+
+```powershell
+pwsh ./release.ps1 --version 1.2.3
+```
+
+使用 `-Runtime win-x64` 可指定其他平台；使用 `--all` 一次发布五个平台：
+
+```powershell
+pwsh ./release.ps1 --all --version 1.2.3
+```
 
 项目使用 [GPLv3](LICENSE)。FLV 组件固定源码来源及修改说明位于 `Sources/ThirdParty/BililiveRecorder.Flv/NOTICE`。

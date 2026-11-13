@@ -5,7 +5,6 @@
 **/coverage/
 **/TestResults/
 **/data/
-artifacts/
 publish/
 .env
 .env.local

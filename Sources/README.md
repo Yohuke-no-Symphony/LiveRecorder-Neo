@@ -58,17 +58,23 @@ VITE_API_BASE_URL=http://127.0.0.1:4884
 
 ## 发布
 
+以下命令在仓库根目录执行。PowerShell 入口默认发布 `linux-x64`，使用 `-Runtime` 指定单个平台，或使用 `--all` 一次发布全部五个平台：
+
+```powershell
+pwsh ./release.ps1 --version 1.2.3
+pwsh ./release.ps1 -Runtime win-x64 --version 1.2.3
+pwsh ./release.ps1 --all --version 1.2.3
+```
+
+`--version` 可省略，未指定时沿用项目默认版本；指定时仅设置本次发布版本，不修改项目文件。批量发布只在第一个平台构建前端，后续平台复用构建结果；任一平台失败时立即终止。
+
+也可使用 Bash 脚本发布单个平台：
+
 ```sh
 ./scripts/publish.sh linux-x64
 ```
 
-Windows PowerShell：
-
-```powershell
-./scripts/publish.ps1 -Runtime win-x64
-```
-
-支持 `linux-x64`、`linux-arm64`、`win-x64`、`osx-x64`、`osx-arm64`。发布产物在 `artifacts/<runtime>/`，包括自包含服务端和 `webui/`。FFmpeg 与 ffprobe 由目标机器安装，也可以在安装页和管理设置中填写绝对路径。
+支持 `linux-x64`、`linux-arm64`、`win-x64`、`osx-x64`、`osx-arm64`。发布产物在仓库根目录的 `Artifacts/<runtime>/`，包括自包含服务端和 `webui/`。FFmpeg 与 ffprobe 由目标机器安装，也可以在安装页和管理设置中填写绝对路径。
 
 运行发布产物：
 
