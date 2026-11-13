@@ -198,6 +198,24 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
     }
 
     /// <inheritdoc />
+    public async Task<UserProfile> SetPermissionsAsync(string id, UserPermissions permissions, CancellationToken cancellationToken = default)
+    {
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var user = await Users.FindOneAndUpdateAsync(x => x.Id == id,
+                Builders<UserAccount>.Update.Set(x => x.Permissions, permissions with { }).Set(x => x.UpdatedAtUtc, DateTime.UtcNow),
+                new FindOneAndUpdateOptions<UserAccount> { ReturnDocument = ReturnDocument.After }, cancellationToken)
+                ?? throw new InfrastructureException(MessageCode.AUTH_USER_NOT_FOUND, 404);
+            return Profile(user);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<InvitationSummary> CreateInvitationAsync(InvitationRequest request, string createdBy, CancellationToken cancellationToken = default)
     {
         if (request.MaxUses is < 1 or > 10000 || request.ExpiresAtUtc is { } expiry && expiry <= DateTime.UtcNow)
@@ -425,6 +443,7 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
             }
             user.Status = settings.RegistrationApprovalRequired ? "Pending" : "Active";
             user.EmailVerified = verification is not null;
+            user.Permissions = settings.DefaultUserPermissions with { };
             await Users.InsertOneAsync(user, cancellationToken: cancellationToken);
             insertedUser = true;
             if (external is not null)
@@ -539,7 +558,12 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
     }
 
     private static string ExternalId(string provider, string subject) => IdentityToken.Hash($"{provider}\n{subject}");
-    private static UserProfile Profile(UserAccount user) => new(user.Id, user.Email, user.DisplayName, user.AvatarUrl, user.Role, user.Status, user.Language);
+    private static UserProfile Profile(UserAccount user) => new(user.Id, user.Email, user.DisplayName, user.AvatarUrl, user.Role, user.Status, user.Language)
+    {
+        Permissions = user.Role == "Admin"
+            ? new() { ManageRecordings = true, ViewAnalytics = true, PurgeRecordings = true }
+            : user.Permissions with { }
+    };
     private static InvitationSummary InvitationProfile(Invitation invitation, string? code = null) => new(invitation.Id, invitation.CreatedAtUtc, invitation.ExpiresAtUtc, invitation.MaxUses, invitation.UsedCount, invitation.Revoked, code);
 
     private static void EnsureActive(UserAccount user)

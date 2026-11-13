@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
+using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Application.Bilibili;
 using Yohuke.LiveRecorder.Application.Media;
 using Yohuke.LiveRecorder.Domain;
@@ -93,7 +94,7 @@ public static class LibraryEndpoints
             var report = await analytics.GetAsync(detail.Session, paths.RecordsDirectory, ct);
             report.CoverageGaps = Math.Max(report.CoverageGaps, detail.Gaps.Count);
             return Results.Ok(report);
-        }).RequireAuthorization(policy => policy.RequireRole("Admin"));
+        }).RequireAuthorization(UserPermissionNames.VIEW_ANALYTICS);
         api.MapGet("/playback/{key}/{generation}/{fileName}", async (string key, string generation, string fileName, PlaybackService playback, CancellationToken ct) =>
         {
             var path = await playback.ResolveAssetAsync(key, generation, fileName, ct);
@@ -176,14 +177,28 @@ public static class LibraryEndpoints
             await storage.TrashClipAsync(await GetClipAsync(id, http, context, ct), ct);
             return Results.NoContent();
         });
-        api.MapGet("/trash", async (HttpContext http, IMongoContext context, CancellationToken ct) =>
+        api.MapGet("/trash", async (HttpContext http, IMongoContext context, ISettingsStore settingsStore, CancellationToken ct) =>
         {
-            var filter = http.User.IsInRole("Admin") ? FilterDefinition<TrashEntry>.Empty : Builders<TrashEntry>.Filter.Where(x => x.OwnerId == Owner(http) && x.Kind != "Session");
-            return Results.Ok(await context.Collection<TrashEntry>("trash").Find(filter).SortByDescending(x => x.CreatedAtUtc).ToListAsync(ct));
+            var filter = Builders<TrashEntry>.Filter.Where(x => x.OwnerId == Owner(http) && x.Kind != "Session");
+            if (http.User.IsInRole("Admin"))
+            {
+                filter = FilterDefinition<TrashEntry>.Empty;
+            }
+            else if (HasPermission(http, UserPermissionNames.MANAGE_RECORDINGS) || HasPermission(http, UserPermissionNames.PURGE_RECORDINGS))
+            {
+                filter |= Builders<TrashEntry>.Filter.Eq(x => x.Kind, "Session");
+            }
+            var entries = await context.Collection<TrashEntry>("trash").Find(filter).SortByDescending(x => x.CreatedAtUtc).ToListAsync(ct);
+            var settings = await settingsStore.GetAsync(ct);
+            foreach (var entry in entries)
+            {
+                entry.PurgeAtUtc = TrashRetentionPolicy.GetPurgeAtUtc(entry, settings);
+            }
+            return Results.Ok(entries);
         });
         api.MapPost("/trash/{id}/restore", async (string id, HttpContext http, IMongoContext context, StorageService storage, SessionTrashService sessionTrash, CancellationToken ct) =>
         {
-            var entry = await GetTrashAsync(id, http, context, ct);
+            var entry = await GetTrashAsync(id, http, context, UserPermissionNames.MANAGE_RECORDINGS, ct);
             if (entry.Kind == "Session")
             {
                 await sessionTrash.RestoreAsync(entry, ct);
@@ -196,7 +211,7 @@ public static class LibraryEndpoints
         });
         api.MapDelete("/trash/{id}", async (string id, HttpContext http, IMongoContext context, StorageService storage, SessionTrashService sessionTrash, CancellationToken ct) =>
         {
-            var entry = await GetTrashAsync(id, http, context, ct);
+            var entry = await GetTrashAsync(id, http, context, UserPermissionNames.PURGE_RECORDINGS, ct);
             if (entry.Kind == "Session")
             {
                 await sessionTrash.PurgeAsync(entry, ct);
@@ -209,15 +224,13 @@ public static class LibraryEndpoints
         });
         api.MapGet("/storage", async (bool? refresh, StorageUsageService storage, CancellationToken ct) => Results.Ok(await storage.GetVolumesAsync(refresh ?? false, ct)));
 
-        var admin = api.MapGroup("").RequireAuthorization(policy => policy.RequireRole("Admin"));
-        admin.MapGet("/storage/details", async (bool? refresh, StorageUsageService storage, StorageUsageMetadataService metadata, CancellationToken ct) =>
-            Results.Ok(await metadata.EnrichAsync(await storage.GetDetailsAsync(refresh ?? false, ct), ct)));
-        admin.MapDelete("/sessions/{id}", async (string id, HttpContext http, SessionTrashService sessionTrash, CancellationToken ct) =>
+        var recordings = api.MapGroup("").RequireAuthorization(UserPermissionNames.MANAGE_RECORDINGS);
+        recordings.MapDelete("/sessions/{id}", async (string id, HttpContext http, SessionTrashService sessionTrash, CancellationToken ct) =>
         {
             await sessionTrash.TrashAsync(id, Owner(http), ct);
             return Results.NoContent();
         });
-        admin.MapPost("/sessions/trash", async (SessionTrashRequest request, HttpContext http, SessionTrashService sessionTrash, CancellationToken ct) =>
+        recordings.MapPost("/sessions/trash", async (SessionTrashRequest request, HttpContext http, SessionTrashService sessionTrash, CancellationToken ct) =>
         {
             if (request.SessionIds is null || request.SessionIds.Count is < 1 or > 200 || request.SessionIds.Any(string.IsNullOrWhiteSpace))
             {
@@ -246,6 +259,15 @@ public static class LibraryEndpoints
             }
             return Results.Ok(results);
         });
+        recordings.MapPut("/sessions/{id}/retention", async (string id, SessionRetentionRequest request, SessionTrashService sessionTrash, CancellationToken ct) =>
+        {
+            await sessionTrash.SetPermanentAsync(id, request.IsPermanent, ct);
+            return Results.NoContent();
+        });
+
+        var admin = api.MapGroup("").RequireAuthorization(policy => policy.RequireRole("Admin"));
+        admin.MapGet("/storage/details", async (bool? refresh, StorageUsageService storage, StorageUsageMetadataService metadata, CancellationToken ct) =>
+            Results.Ok(await metadata.EnrichAsync(await storage.GetDetailsAsync(refresh ?? false, ct), ct)));
         admin.MapPost("/sessions/{id}/group", async (string id, SessionGroupRequest request, SessionGroupingService grouping, CancellationToken ct) => Results.Ok(await grouping.GroupAsync(id, request.SessionIds, request.Title, ct)));
         admin.MapPost("/sessions/{id}/split", async (string id, SessionSplitRequest request, SessionGroupingService grouping, CancellationToken ct) => Results.Ok(new { sessions = await grouping.SplitAsync(id, request.BeforeSegmentId, ct) }));
         admin.MapPost("/streamers", async (TargetRequest request, IMongoContext context, IBilibiliService bilibili, CancellationToken ct) =>
@@ -316,16 +338,25 @@ public static class LibraryEndpoints
         return clip;
     }
 
-    private static async Task<TrashEntry> GetTrashAsync(string id, HttpContext http, IMongoContext context, CancellationToken ct)
+    private static async Task<TrashEntry> GetTrashAsync(string id, HttpContext http, IMongoContext context, string sessionPermission, CancellationToken ct)
     {
         var item = await context.Collection<TrashEntry>("trash").Find(x => x.Id == id).FirstOrDefaultAsync(ct) ?? throw new InfrastructureException(MessageCode.LIBRARY_TRASH_NOT_FOUND, 404);
-        if (item.Kind == "Session" && !http.User.IsInRole("Admin"))
+        if (item.Kind == "Session")
         {
-            throw new InfrastructureException(MessageCode.LIBRARY_ACCESS_DENIED, 403);
+            if (!HasPermission(http, sessionPermission))
+            {
+                throw new InfrastructureException(MessageCode.LIBRARY_ACCESS_DENIED, 403);
+            }
         }
-        RequireOwner(http, item.OwnerId);
+        else
+        {
+            RequireOwner(http, item.OwnerId);
+        }
         return item;
     }
+
+    private static bool HasPermission(HttpContext http, string permission) =>
+        http.User.IsInRole("Admin") || http.User.HasClaim(UserPermissionNames.CLAIM_TYPE, permission);
 
     private static IResult Download(string path, string name)
     {

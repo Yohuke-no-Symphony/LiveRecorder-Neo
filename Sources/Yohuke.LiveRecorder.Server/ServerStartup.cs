@@ -159,19 +159,28 @@ public static class ServerStartup
                     context.RejectPrincipal();
                     await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
                 }
-                else if (context.Principal?.FindFirstValue(ClaimTypes.Role) != user.Role)
+                else
                 {
-                    context.ReplacePrincipal(new ClaimsPrincipal(new ClaimsIdentity(new[]
+                    var principal = UserPrincipalFactory.Create(user);
+                    var currentClaims = context.Principal!.Claims.Select(claim => (claim.Type, claim.Value));
+                    var updatedClaims = principal.Claims.Select(claim => (claim.Type, claim.Value));
+                    if (!currentClaims.SequenceEqual(updatedClaims))
                     {
-                        new Claim(ClaimTypes.NameIdentifier, user.Id), new Claim(ClaimTypes.Name, user.DisplayName),
-                        new Claim(ClaimTypes.Email, user.Email), new Claim(ClaimTypes.Role, user.Role)
-                    }, CookieAuthenticationDefaults.AuthenticationScheme)));
-                    context.ShouldRenew = true;
+                        context.ReplacePrincipal(principal);
+                        context.ShouldRenew = true;
+                    }
                 }
             };
         });
         builder.Services.AddSingleton<IAuthenticationSchemeProvider, InstanceAuthenticationSchemeProvider>();
-        builder.Services.AddAuthorization();
+        builder.Services.AddAuthorization(options =>
+        {
+            foreach (var permission in new[] { UserPermissionNames.MANAGE_RECORDINGS, UserPermissionNames.VIEW_ANALYTICS, UserPermissionNames.PURGE_RECORDINGS })
+            {
+                options.AddPolicy(permission, policy => policy.RequireAuthenticatedUser().RequireAssertion(context =>
+                    context.User.IsInRole("Admin") || context.User.HasClaim(UserPermissionNames.CLAIM_TYPE, permission)));
+            }
+        });
         builder.Services.Configure<ForwardedHeadersOptions>(options =>
         {
             options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;

@@ -1,3 +1,5 @@
+using Yohuke.LiveRecorder.Domain;
+
 namespace Yohuke.LiveRecorder.Application.Auth;
 
 /// <summary>本地身份、邮箱验证、邀请与外部授权的应用边界。</summary>
@@ -23,6 +25,8 @@ public interface IIdentityService
     Task<UserProfile> SetApprovalAsync(string id, bool approved, CancellationToken cancellationToken = default);
     /// <summary>修改角色并保护最后一名管理员。</summary>
     Task<UserProfile> SetRoleAsync(string id, string role, CancellationToken cancellationToken = default);
+    /// <summary>修改用户的独立权限，管理员的有效权限保持完整。</summary>
+    Task<UserProfile> SetPermissionsAsync(string id, UserPermissions permissions, CancellationToken cancellationToken = default);
     /// <summary>创建邀请码，仅本次返回明文。</summary>
     Task<InvitationSummary> CreateInvitationAsync(InvitationRequest request, string createdBy, CancellationToken cancellationToken = default);
     /// <summary>读取邀请码使用状态。</summary>

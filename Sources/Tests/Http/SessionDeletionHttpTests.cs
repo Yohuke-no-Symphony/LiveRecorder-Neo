@@ -112,9 +112,9 @@ public sealed class SessionDeletionHttpTests
         Assert.Equal(0, await fixture.Context.Collection<TrashEntry>("trash").CountDocumentsAsync(_ => true));
     }
 
-    /// <summary>匿名和普通成员不能删除场次，也不能查看或操作管理员的场次回收记录。</summary>
+    /// <summary>匿名和未授权成员不能删除场次，也不能查看或操作共享录像回收记录。</summary>
     [MongoHttpFact]
-    public async Task SessionDeletionAndSessionTrashRequireAdministrator()
+    public async Task SessionDeletionAndSessionTrashRequireExplicitPermission()
     {
         await using var fixture = await HttpServerFixture.CreateAsync();
         await fixture.InstallAsync();
@@ -183,6 +183,163 @@ public sealed class SessionDeletionHttpTests
         Assert.False(detail!["session"]!["isTrashed"]!.GetValue<bool>());
         Assert.Single(detail["segments"]!.AsArray());
         Assert.Equal(contents, await File.ReadAllTextAsync(source));
+    }
+
+    /// <summary>管理录像权限可恢复共享回收项和设置永久保留，撤权对既有 Cookie 立即生效。</summary>
+    [MongoHttpFact]
+    public async Task ManagePermissionAllowsSharedTrashRestoreAndRetentionButNotPurgeOrAnalytics()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+        var user = await fixture.CreateUserAsync("recording-manager@example.test");
+        var browser = fixture.NewBrowser();
+        await browser.LoginAsync(user.Email, HttpServerFixture.USER_PASSWORD);
+        var manifest = await SeedAsync(fixture);
+        await SetPermissionsAsync(fixture, user.Id, manage: true);
+
+        using var retained = await browser.SendAsync(HttpMethod.Put, "/api/sessions/" + manifest.Session.Id + "/retention", new { isPermanent = true });
+        Assert.Equal(HttpStatusCode.NoContent, retained.StatusCode);
+        var detail = await browser.Client.GetFromJsonAsync<JsonObject>("/api/sessions/" + manifest.Session.Id);
+        Assert.True(detail!["session"]!["isPermanent"]!.GetValue<bool>());
+        var saved = await File.ReadAllTextAsync(Path.Combine(fixture.StoragePath, manifest.Session.DirectoryPath, "场次.json"));
+        Assert.True(JsonNode.Parse(saved)!["session"]!["isPermanent"]!.GetValue<bool>());
+        using var analysis = await browser.Client.GetAsync("/api/sessions/" + manifest.Session.Id + "/analytics");
+        Assert.Equal(HttpStatusCode.Forbidden, analysis.StatusCode);
+
+        using var deletedByAdmin = await fixture.Admin.SendAsync(HttpMethod.Delete, "/api/sessions/" + manifest.Session.Id);
+        Assert.Equal(HttpStatusCode.NoContent, deletedByAdmin.StatusCode);
+        var entry = await fixture.Context.Collection<TrashEntry>("trash").Find(x => x.EntityId == manifest.Session.Id).SingleAsync();
+        var visible = await browser.Client.GetFromJsonAsync<JsonArray>("/api/trash");
+        Assert.Contains(visible!, item => item!["id"]!.GetValue<string>() == entry.Id);
+        using var restored = await browser.SendAsync(HttpMethod.Post, "/api/trash/" + entry.Id + "/restore");
+        Assert.Equal(HttpStatusCode.NoContent, restored.StatusCode);
+        Assert.Contains(manifest.Session.Id, await SessionIdsAsync(browser));
+
+        using var batch = await browser.SendAsync(HttpMethod.Post, "/api/sessions/trash", new { sessionIds = new[] { manifest.Session.Id } });
+        Assert.Equal(HttpStatusCode.OK, batch.StatusCode);
+        Assert.True(Assert.Single((await batch.Content.ReadFromJsonAsync<JsonArray>())!)!["success"]!.GetValue<bool>());
+        entry = await fixture.Context.Collection<TrashEntry>("trash").Find(x => x.EntityId == manifest.Session.Id).SingleAsync();
+        using var purge = await browser.SendAsync(HttpMethod.Delete, "/api/trash/" + entry.Id);
+        Assert.Equal(HttpStatusCode.Forbidden, purge.StatusCode);
+
+        await SetPermissionsAsync(fixture, user.Id);
+        using var revokedRestore = await browser.SendAsync(HttpMethod.Post, "/api/trash/" + entry.Id + "/restore");
+        using var revokedRetention = await browser.SendAsync(HttpMethod.Put, "/api/sessions/" + manifest.Session.Id + "/retention", new { isPermanent = false });
+        using var revokedBatch = await browser.SendAsync(HttpMethod.Post, "/api/sessions/trash", new { sessionIds = new[] { manifest.Session.Id } });
+        Assert.Equal(HttpStatusCode.Forbidden, revokedRestore.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, revokedRetention.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, revokedBatch.StatusCode);
+        visible = await browser.Client.GetFromJsonAsync<JsonArray>("/api/trash");
+        Assert.DoesNotContain(visible!, item => item!["id"]!.GetValue<string>() == entry.Id);
+    }
+
+    /// <summary>仅彻删权限可处理共享录像回收项，但不能软删、恢复、标记永久保留或访问其他人的切片。</summary>
+    [MongoHttpFact]
+    public async Task PurgePermissionIsIndependentAndPreservesPrivateClipOwnership()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+        var user = await fixture.CreateUserAsync("recording-purger@example.test");
+        var browser = fixture.NewBrowser();
+        await browser.LoginAsync(user.Email, HttpServerFixture.USER_PASSWORD);
+        await SetPermissionsAsync(fixture, user.Id, purge: true);
+        var manifest = await SeedAsync(fixture);
+        using var forbiddenDelete = await browser.SendAsync(HttpMethod.Delete, "/api/sessions/" + manifest.Session.Id);
+        using var forbiddenRetention = await browser.SendAsync(HttpMethod.Put, "/api/sessions/" + manifest.Session.Id + "/retention", new { isPermanent = true });
+        using var forbiddenAnalytics = await browser.Client.GetAsync("/api/sessions/" + manifest.Session.Id + "/analytics");
+        Assert.Equal(HttpStatusCode.Forbidden, forbiddenDelete.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, forbiddenRetention.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, forbiddenAnalytics.StatusCode);
+        using var deletedByAdmin = await fixture.Admin.SendAsync(HttpMethod.Delete, "/api/sessions/" + manifest.Session.Id);
+        Assert.Equal(HttpStatusCode.NoContent, deletedByAdmin.StatusCode);
+        var entry = await fixture.Context.Collection<TrashEntry>("trash").Find(x => x.EntityId == manifest.Session.Id).SingleAsync();
+        var clip = new Clip { OwnerId = "another-viewer", Title = "Private clip", ExpiresAtUtc = DateTime.UtcNow.AddDays(1) };
+        var privateTrash = new TrashEntry { OwnerId = clip.OwnerId, EntityId = clip.Id, Kind = "Clip", State = "Active", PurgeAtUtc = DateTime.UtcNow.AddDays(7) };
+        await fixture.Context.Collection<Clip>("clips").InsertOneAsync(clip);
+        await fixture.Context.Collection<TrashEntry>("trash").InsertOneAsync(privateTrash);
+        var visible = await browser.Client.GetFromJsonAsync<JsonArray>("/api/trash");
+        Assert.Contains(visible!, item => item!["id"]!.GetValue<string>() == entry.Id);
+        Assert.DoesNotContain(visible!, item => item!["id"]!.GetValue<string>() == privateTrash.Id);
+        using var forbiddenRestore = await browser.SendAsync(HttpMethod.Post, "/api/trash/" + entry.Id + "/restore");
+        using var forbiddenClipDelete = await browser.SendAsync(HttpMethod.Delete, "/api/clips/" + clip.Id);
+        using var forbiddenClipPurge = await browser.SendAsync(HttpMethod.Delete, "/api/trash/" + privateTrash.Id);
+        Assert.Equal(HttpStatusCode.Forbidden, forbiddenRestore.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, forbiddenClipDelete.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, forbiddenClipPurge.StatusCode);
+        using var purged = await browser.SendAsync(HttpMethod.Delete, "/api/trash/" + entry.Id);
+        Assert.Equal(HttpStatusCode.NoContent, purged.StatusCode);
+        Assert.False(await fixture.Context.Collection<BroadcastSession>("sessions").Find(x => x.Id == manifest.Session.Id).AnyAsync());
+        Assert.False(Directory.Exists(Path.Combine(fixture.StoragePath, entry.TrashRelativePath)));
+        Assert.True(await fixture.Context.Collection<Clip>("clips").Find(x => x.Id == clip.Id).AnyAsync());
+    }
+
+    /// <summary>分析权限单独授予和撤销，管理员仍可在未配置个人权限时操作录像和分析。</summary>
+    [MongoHttpFact]
+    public async Task AnalyticsPermissionCanBeGrantedAndRevokedWithoutGrantingRecordingManagement()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+        var user = await fixture.CreateUserAsync("recording-analyst@example.test");
+        var browser = fixture.NewBrowser();
+        await browser.LoginAsync(user.Email, HttpServerFixture.USER_PASSWORD);
+        var manifest = await SeedAsync(fixture);
+        await SetPermissionsAsync(fixture, user.Id, analytics: true);
+        using var granted = await browser.Client.GetAsync("/api/sessions/" + manifest.Session.Id + "/analytics");
+        Assert.Equal(HttpStatusCode.OK, granted.StatusCode);
+        using var forbiddenDelete = await browser.SendAsync(HttpMethod.Delete, "/api/sessions/" + manifest.Session.Id);
+        using var forbiddenRetention = await browser.SendAsync(HttpMethod.Put, "/api/sessions/" + manifest.Session.Id + "/retention", new { isPermanent = true });
+        Assert.Equal(HttpStatusCode.Forbidden, forbiddenDelete.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, forbiddenRetention.StatusCode);
+        await SetPermissionsAsync(fixture, user.Id);
+        using var revoked = await browser.Client.GetAsync("/api/sessions/" + manifest.Session.Id + "/analytics");
+        Assert.Equal(HttpStatusCode.Forbidden, revoked.StatusCode);
+        using var adminRetained = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/sessions/" + manifest.Session.Id + "/retention", new { isPermanent = true });
+        using var adminAnalysis = await fixture.Admin.Client.GetAsync("/api/sessions/" + manifest.Session.Id + "/analytics");
+        Assert.Equal(HttpStatusCode.NoContent, adminRetained.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, adminAnalysis.StatusCode);
+    }
+
+    /// <summary>录像和回收站周期可独立关闭，并由服务器拒绝负数及超出上限的周期。</summary>
+    [MongoHttpFact]
+    public async Task RetentionSettingsAcceptDisabledAndMaximumCyclesButRejectInvalidValues()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+        var settings = await fixture.Admin.Client.GetFromJsonAsync<JsonObject>("/api/settings");
+        Assert.Equal(0, settings!["recordingRetentionDays"]!.GetValue<int>());
+        Assert.Equal(7, settings["trashRetentionDays"]!.GetValue<int>());
+        foreach (var days in new[] { 0, 3650 })
+        {
+            settings["recordingRetentionDays"] = days;
+            settings["trashRetentionDays"] = days;
+            using var response = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/settings", settings);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var saved = await fixture.Admin.Client.GetFromJsonAsync<JsonObject>("/api/settings");
+            Assert.Equal(days, saved!["recordingRetentionDays"]!.GetValue<int>());
+            Assert.Equal(days, saved["trashRetentionDays"]!.GetValue<int>());
+        }
+        foreach (var (recordingDays, trashDays) in new[] { (-1, 7), (3651, 7), (0, -1), (0, 3651) })
+        {
+            settings["recordingRetentionDays"] = recordingDays;
+            settings["trashRetentionDays"] = trashDays;
+            using var response = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/settings", settings);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+    }
+
+    private static async Task SetPermissionsAsync(HttpServerFixture fixture, string id, bool manage = false, bool analytics = false, bool purge = false)
+    {
+        using var response = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/admin/users/" + id + "/permissions", new
+        {
+            manageRecordings = manage,
+            viewAnalytics = analytics,
+            purgeRecordings = purge
+        });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     private static async Task RestartAndWaitForRebuildAsync(HttpServerFixture fixture)

@@ -131,6 +131,11 @@ export function useSessionPages(parameters: () => { streamerId?: string; search?
     }
   }
 
+  function updateSessionRetention(id: string, isPermanent: boolean): void
+  {
+    sessions.value = sessions.value.map(session => session.id === id ? { ...session, isPermanent } : session)
+  }
+
   function removeSessions(ids: readonly string[]): void
   {
     ids.forEach(id => removedIds.add(id))
@@ -140,5 +145,5 @@ export function useSessionPages(parameters: () => { streamerId?: string; search?
   watch(() => [parameters().streamerId, parameters().search], () => { void reload() }, { immediate: true })
   usePolling(refresh, 15000, false)
   onScopeDispose(() => { generation++ })
-  return { sessions, loading, loadingMore, hasMore, error, reload, loadMore, refresh, removeSessions }
+  return { sessions, loading, loadingMore, hasMore, error, reload, loadMore, refresh, removeSessions, updateSessionRetention }
 }

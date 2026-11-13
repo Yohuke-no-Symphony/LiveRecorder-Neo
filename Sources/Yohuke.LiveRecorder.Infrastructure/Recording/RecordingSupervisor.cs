@@ -534,7 +534,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
     private async Task PublishSessionAsync(BroadcastSession session, Streamer target, LiveRoomSnapshot room, CancellationToken cancellationToken)
     {
         var directory = MediaPaths.Resolve(paths.RecordsDirectory, session.DirectoryPath);
-        await JsonFiles.WriteAsync(Path.Combine(directory, "场次.json"), new SessionManifest { Session = session }, cancellationToken);
+        await SessionManifestFiles.WriteAsync(Path.Combine(directory, "场次.json"), new SessionManifest { Session = session }, cancellationToken);
         await JsonFiles.WriteAsync(Path.Combine(paths.RecordsDirectory, target.DirectoryName, "主播信息.json"), room, cancellationToken);
         await context.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == session.Id, session, new ReplaceOptions { IsUpsert = true }, cancellationToken);
         await TrySaveTargetAsync(target, cancellationToken);
@@ -578,7 +578,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         {
             await context.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == session.Id, session, new ReplaceOptions { IsUpsert = true }, cancellationToken);
         }
-        await JsonFiles.WriteAsync(Path.Combine(MediaPaths.Resolve(paths.RecordsDirectory, session.DirectoryPath), "场次.json"), new SessionManifest { Session = current ?? session, Segments = segments }, cancellationToken);
+        await SessionManifestFiles.WriteAsync(Path.Combine(MediaPaths.Resolve(paths.RecordsDirectory, session.DirectoryPath), "场次.json"), new SessionManifest { Session = current ?? session, Segments = segments }, cancellationToken);
         await publisher.PublishAsync("session", session.Id, cancellationToken: cancellationToken);
     }
 

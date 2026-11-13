@@ -13,7 +13,7 @@ function session(id: number, title = `录播 ${id}`): BroadcastSession
   return {
     id: String(id), createdAtUtc: '2026-11-12T00:00:00Z', streamerId: 'streamer', roomId: 1,
     title, coverUrl: '', startedAtUtc: '2026-11-12T00:00:00Z', lastMediaAtUtc: '2026-11-12T01:00:00Z',
-    state: 'Completed', hasDanmu: true, totalBytes: 1024, isTrashed: false, mediaRevision: 1,
+    state: 'Completed', hasDanmu: true, totalBytes: 1024, isTrashed: false, isPermanent: false, mediaRevision: 1,
   }
 }
 

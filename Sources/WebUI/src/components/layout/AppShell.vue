@@ -54,7 +54,7 @@ const links = computed(() => [
   { to: '/', title: t('shell.nav.library'), icon: 'mdi-play-box-multiple-outline' },
   { to: '/clips', title: t('shell.nav.clips'), icon: 'mdi-content-cut' },
   { to: '/jobs', title: t('shell.nav.jobs'), icon: 'mdi-progress-clock' },
-  { to: '/analytics', title: t('shell.nav.analytics'), icon: 'mdi-chart-timeline-variant' },
+  ...(auth.canViewAnalytics ? [{ to: '/analytics', title: t('shell.nav.analytics'), icon: 'mdi-chart-timeline-variant' }] : []),
   { to: '/trash', title: t('shell.nav.trash'), icon: 'mdi-delete-outline' },
 ])
 const adminLinks = computed(() => [
@@ -67,9 +67,26 @@ const adminLinks = computed(() => [
 const breadcrumbs = computed(() => [{ title: t('shell.nav.library'), to: '/' }, ...(route.path === '/' ? [] : [{ title: [...links.value, ...adminLinks.value].find(link => route.path.startsWith(link.to) && link.to !== '/')?.title ?? (route.path === '/account' ? t('shell.nav.account') : route.path.startsWith('/sessions') ? t('shell.nav.playRecording') : t('shell.nav.streamerRecordings')) }])])
 usePolling(async () =>
 {
-  try { volumes.value = await MediaAPI.storage() }
+  try
+  {
+    await auth.refresh()
+    if (!auth.hasAccess)
+    {
+      await router.replace('/login')
+      return
+    }
+    volumes.value = await MediaAPI.storage()
+  }
   catch { volumes.value = [] }
 }, 30000)
+
+watch(() => auth.canViewAnalytics, allowed =>
+{
+  if (!allowed && route.path === '/analytics')
+  {
+    void router.replace('/')
+  }
+})
 
 watch(() => auth.isAdmin, allowed =>
 {

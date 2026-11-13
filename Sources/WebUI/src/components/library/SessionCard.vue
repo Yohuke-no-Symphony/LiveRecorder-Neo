@@ -7,6 +7,7 @@
             <template #error><div class="cover-fallback"><v-icon icon="mdi-play-box-outline" size="40" /></div></template>
           </v-img>
           <div class="cover-top"><v-chip v-if="session.state.toLowerCase() === 'recording'" color="error" variant="flat" size="x-small" prepend-icon="mdi-record">{{ t('components.status.recording') }}</v-chip></div>
+          <v-chip v-if="session.isPermanent" class="permanent-badge" color="primary" variant="flat" size="x-small" prepend-icon="mdi-shield-check-outline">{{ t('shell.retention.permanent') }}</v-chip>
           <span class="duration mono">{{ duration }}</span>
           <div class="cover-play"><v-icon icon="mdi-play" size="34" /></div>
         </div>
@@ -83,6 +84,7 @@ function onMenuKeydown(event: KeyboardEvent): void
 .session-cover { position: relative; background: rgba(var(--v-theme-on-surface), .035); }
 .cover-fallback { display: grid; place-items: center; height: 100%; color: rgba(var(--v-theme-on-surface), .15); }
 .cover-top { position: absolute; left: 12px; top: 12px; }
+.permanent-badge { position: absolute; left: 12px; bottom: 10px; }
 .duration { position: absolute; bottom: 10px; right: 10px; font-size: .7rem; color: white; border-radius: 5px; padding: 3px 6px; background: #000a; }
 .cover-play { display: grid; place-items: center; position: absolute; inset: 0; opacity: 0; color: white; background: #0003; transition: opacity .18s; }
 .session-card:hover .cover-play { opacity: 1; }

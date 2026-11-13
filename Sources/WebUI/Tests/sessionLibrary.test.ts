@@ -9,14 +9,18 @@ import ConfirmDialog from '../src/components/common/ConfirmDialog.vue'
 import type { BroadcastSession } from '../src/models/media'
 import { i18n } from '../src/plugins/i18n'
 
-const { authState, deleteSession, trashSessions } = vi.hoisted(() => ({ authState: { isAdmin: true }, deleteSession: vi.fn(), trashSessions: vi.fn() }))
+const { authState, deleteSession, trashSessions, setSessionPermanent } = vi.hoisted(() => ({ authState: { isAdmin: true, manageRecordings: false, viewAnalytics: false }, deleteSession: vi.fn(), trashSessions: vi.fn(), setSessionPermanent: vi.fn() }))
 vi.mock('../src/stores/auth', async () =>
 {
   const { reactive } = await import('vue')
-  const auth = reactive(authState)
+  const auth = reactive({
+    get isAdmin() { return authState.isAdmin },
+    get canManageRecordings() { return authState.isAdmin || authState.manageRecordings },
+    get canViewAnalytics() { return authState.isAdmin || authState.viewAnalytics },
+  })
   return { useAuthStore: () => auth }
 })
-vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { cover: (id: string) => `/cover/${id}`, deleteSession, trashSessions } }))
+vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { cover: (id: string) => `/cover/${id}`, deleteSession, trashSessions, setSessionPermanent } }))
 
 const mounted: VueWrapper[] = []
 const container = { template: '<div><slot /></div>' }
@@ -40,7 +44,7 @@ function session(id: string, recording = false): BroadcastSession
     id, streamerId: 'streamer', roomId: 42, title: `录播 ${id}`, coverUrl: '', createdAtUtc: '2026-11-13T00:00:00Z',
     startedAtUtc: '2026-11-13T00:00:00Z', endedAtUtc: recording ? null : '2026-11-13T01:00:00Z',
     lastMediaAtUtc: '2026-11-13T01:00:00Z', state: recording ? 'Recording' : 'Completed', hasDanmu: true,
-    totalBytes: 42, isTrashed: false, mediaRevision: 1,
+    totalBytes: 42, isTrashed: false, isPermanent: false, mediaRevision: 1,
   }
 }
 
@@ -51,7 +55,9 @@ async function start(sessions = [session('a'), session('b'), session('live', tru
   await router.push('/')
   let wrapper: VueWrapper<InstanceType<typeof SessionLibrary>>
   wrapper = mount(SessionLibrary, {
-    props: { sessions, onRemoved: (ids: string[]) => { void wrapper.setProps({ sessions: wrapper.props('sessions').filter((item: BroadcastSession) => !ids.includes(item.id)) }) } },
+    props: { sessions,
+      onRetentionChanged: (id: string, isPermanent: boolean) => { void wrapper.setProps({ sessions: wrapper.props('sessions').map((item: BroadcastSession) => item.id === id ? { ...item, isPermanent } : item) }) },
+      onRemoved: (ids: string[]) => { void wrapper.setProps({ sessions: wrapper.props('sessions').filter((item: BroadcastSession) => !ids.includes(item.id)) }) } },
     global: { plugins: [router, i18n], stubs },
   })
   mounted.push(wrapper)
@@ -74,6 +80,9 @@ async function selectAll(wrapper: VueWrapper): Promise<void>
 beforeEach(() =>
 {
   authState.isAdmin = true
+  authState.manageRecordings = false
+  authState.viewAnalytics = false
+  setSessionPermanent.mockReset().mockResolvedValue(undefined)
   i18n.global.locale.value = 'zh-CN'
   deleteSession.mockReset().mockResolvedValue(undefined)
   trashSessions.mockReset().mockImplementation(async (ids: string[]) => ids.map(sessionId => ({ sessionId, success: true })))
@@ -254,6 +263,41 @@ describe('录播库操作', () =>
     await wrapper.get('a').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.path).toBe('/sessions/a')
+  })
+
+  it('仅分析授权可以打开分析，无法选择、删除或永久保留', async () =>
+  {
+    authState.isAdmin = false
+    authState.viewAnalytics = true
+    const { wrapper } = await start([session('a')])
+    await wrapper.get('a').trigger('contextmenu')
+    expect(button(wrapper, '直播分析').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('移入回收站')
+    expect(wrapper.text()).not.toContain('设为永久保留')
+    expect(wrapper.findAll('button').some(item => item.text() === '多选')).toBe(false)
+  })
+
+  it('仅管理授权可以设置和取消永久保留，保存失败时保留原状态', async () =>
+  {
+    authState.isAdmin = false
+    authState.manageRecordings = true
+    const { wrapper } = await start([session('a')])
+    await wrapper.get('a').trigger('contextmenu')
+    expect(wrapper.text()).not.toContain('直播分析')
+    await button(wrapper, '设为永久保留').trigger('click')
+    await flushPromises()
+    expect(setSessionPermanent).toHaveBeenCalledExactlyOnceWith('a', true)
+    expect(wrapper.props('sessions')[0]?.isPermanent).toBe(true)
+    await wrapper.get('a').trigger('contextmenu')
+    setSessionPermanent.mockRejectedValueOnce(new Error('无法保存'))
+    await button(wrapper, '取消永久保留').trigger('click')
+    await flushPromises()
+    expect(wrapper.props('sessions')[0]?.isPermanent).toBe(true)
+    expect(wrapper.get('[role="alert"]').text()).toContain('无法保存')
+    await wrapper.get('a').trigger('contextmenu')
+    await button(wrapper, '取消永久保留').trigger('click')
+    await flushPromises()
+    expect(wrapper.props('sessions')[0]?.isPermanent).toBe(false)
   })
 
   it('相同卡片组件在三语下提供明确的操作名称', async () =>

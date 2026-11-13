@@ -3,7 +3,6 @@ using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Media;
 using Yohuke.LiveRecorder.Domain;
-using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Recording;
@@ -106,7 +105,7 @@ public sealed class RecordingProgressSink : IProgress<MediaRecordingUpdate>, IAs
             dirtySegments.Clear();
             dirty = false;
         }
-        await JsonFiles.WriteAsync(Path.Combine(directory, "场次.json"), manifest);
+        await SessionManifestFiles.WriteAsync(Path.Combine(directory, "场次.json"), manifest);
         try
         {
             foreach (var segment in changed)

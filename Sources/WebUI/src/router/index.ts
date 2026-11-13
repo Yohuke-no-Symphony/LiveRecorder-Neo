@@ -15,7 +15,7 @@ const router = createRouter({
     { path: '/clips', component: () => import('@/views/ClipsView.vue') },
     { path: '/jobs', component: () => import('@/views/JobsView.vue') },
     { path: '/trash', component: () => import('@/views/TrashView.vue') },
-    { path: '/analytics', component: () => import('@/views/AnalyticsView.vue'), meta: { admin: true } },
+    { path: '/analytics', component: () => import('@/views/AnalyticsView.vue'), meta: { analytics: true } },
     { path: '/account', component: () => import('@/views/AccountView.vue') },
     { path: '/admin/targets', component: () => import('@/views/TargetsView.vue'), meta: { admin: true } },
     { path: '/admin/accounts', component: () => import('@/views/AccountsView.vue'), meta: { admin: true } },
@@ -31,6 +31,10 @@ router.beforeEach(async to =>
 {
   const auth = useAuthStore()
   await auth.bootstrap()
+  if (auth.user)
+  {
+    await auth.refresh()
+  }
   if (!auth.installed && to.path !== '/setup')
   {
     return '/setup'
@@ -46,6 +50,10 @@ router.beforeEach(async to =>
   if (!to.meta.public && !auth.hasAccess)
   {
     return '/access'
+  }
+  if (to.meta.analytics && !auth.canViewAnalytics)
+  {
+    return '/'
   }
   if (to.meta.admin && !auth.isAdmin)
   {

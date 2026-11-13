@@ -1,4 +1,5 @@
 import type { AppLanguage } from '@/localization/types'
+import type { UserPermissions } from './auth'
 
 export interface SmtpSettings
 {
@@ -38,6 +39,7 @@ export interface ServerSettings
   quality: number
   recordDanmu: boolean
   segmentBytes: number
+  recordingRetentionDays: number
   clipRetentionDays: number
   trashRetentionDays: number
   cacheLimitBytes: number
@@ -49,6 +51,7 @@ export interface ServerSettings
   sessionGraceMinutes: number
   streamDisconnectTimeoutMinutes: number
   registrationEnabled: boolean
+  defaultUserPermissions: UserPermissions
   registrationApprovalRequired: boolean
   registrationInvitationRequired: boolean
   registrationEmailVerificationRequired: boolean

@@ -3,7 +3,7 @@ import { getServerUrl } from './ServerURL'
 import type { BilibiliRoomSearchPage } from '@/models/bilibili'
 import type { AppLanguage } from '@/localization/types'
 import type { SetupRequest, SetupStatus } from '@/models/setup'
-import type { BilibiliAccount, BilibiliLoginSession, Invitation, OAuthExchange, Registration, RegistrationOptions, SmsChallengeAnswer, UserProfile, UserSession } from '@/models/auth'
+import type { BilibiliAccount, BilibiliLoginSession, Invitation, OAuthExchange, Registration, RegistrationOptions, SmsChallengeAnswer, UserPermissions, UserProfile, UserSession } from '@/models/auth'
 
 export const AuthAPI = {
   setupStatus: () => request<SetupStatus>('setup/status'),
@@ -24,6 +24,7 @@ export const AuthAPI = {
   users: () => request<UserProfile[]>('admin/users'),
   approveUser: (id: string, approved: boolean) => post<UserProfile>(`admin/users/${encodeURIComponent(id)}/approval`, { approved }),
   userRole: (id: string, role: 'Admin' | 'User') => post<UserProfile>(`admin/users/${encodeURIComponent(id)}/role`, { role }),
+  userPermissions: (id: string, permissions: UserPermissions) => put<UserProfile>(`admin/users/${encodeURIComponent(id)}/permissions`, permissions),
   invitations: () => request<Invitation[]>('admin/invitations'),
   createInvitation: (maxUses: number, expiresAtUtc: string | null) => post<Invitation>('admin/invitations', { maxUses, expiresAtUtc }),
   revokeInvitation: (id: string) => remove(`admin/invitations/${encodeURIComponent(id)}`),

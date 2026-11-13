@@ -50,6 +50,8 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
             var first = details[0].Session;
             var result = Projection(first, string.IsNullOrWhiteSpace(title) ? first.Title : title.Trim(), first.StartedAtUtc, details.Max(x => x.Session.EndedAtUtc!.Value), ids);
             result.HasDanmu = details.Any(x => x.Session.HasDanmu);
+            result.IsPermanent = details.Any(x => x.Session.IsPermanent);
+            result.RetentionStartedAtUtc = details.Max(x => x.Session.RetentionStartedAtUtc);
             var sourceBookmarks = await context.Collection<SessionBookmark>("sessionBookmarks")
                 .Find(Builders<SessionBookmark>.Filter.In(x => x.SessionId, ids)).ToListAsync(cancellationToken);
             var bookmarksBySession = sourceBookmarks.ToLookup(x => x.SessionId);
@@ -204,6 +206,8 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
         LastMediaAtUtc = end,
         State = "Completed",
         HasDanmu = original.HasDanmu,
+        IsPermanent = original.IsPermanent,
+        RetentionStartedAtUtc = original.RetentionStartedAtUtc,
         ProjectionReady = false,
         GroupedSessionIds = sourceIds
     };
@@ -281,14 +285,14 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
             {
                 await context.Collection<SessionBookmark>("sessionBookmarks").ReplaceOneAsync(x => x.Id == bookmark.Id, bookmark, new ReplaceOptions { IsUpsert = true }, cancellationToken);
             }
-            await JsonFiles.WriteAsync(Path.Combine(MediaPaths.Resolve(paths.RecordsDirectory, output.Session.DirectoryPath), "场次.json"), output, cancellationToken);
+            await SessionManifestFiles.WriteAsync(Path.Combine(MediaPaths.Resolve(paths.RecordsDirectory, output.Session.DirectoryPath), "场次.json"), output, cancellationToken);
             await context.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == output.Session.Id, output.Session, new ReplaceOptions { IsUpsert = true }, cancellationToken);
         }
         foreach (var output in operation.Outputs)
         {
             output.Session.ProjectionReady = true;
             await context.Collection<BroadcastSession>("sessions").UpdateOneAsync(x => x.Id == output.Session.Id, Builders<BroadcastSession>.Update.Set(x => x.ProjectionReady, true), cancellationToken: cancellationToken);
-            await JsonFiles.WriteAsync(Path.Combine(MediaPaths.Resolve(paths.RecordsDirectory, output.Session.DirectoryPath), "场次.json"), output, cancellationToken);
+            await SessionManifestFiles.WriteAsync(Path.Combine(MediaPaths.Resolve(paths.RecordsDirectory, output.Session.DirectoryPath), "场次.json"), output, cancellationToken);
         }
         foreach (var id in operation.SourceIds)
         {

@@ -21,7 +21,7 @@ const mounted: VueWrapper[] = []
 
 function source(id = 's1'): BroadcastSession
 {
-  return { id, streamerId: 'streamer1', roomId: 1, title: `测试直播 ${id}`, coverUrl: '', createdAtUtc: '2026-11-12T00:00:00Z', startedAtUtc: '2026-11-12T00:00:00Z', endedAtUtc: '2026-11-12T00:01:00Z', lastMediaAtUtc: '2026-11-12T00:01:00Z', state: 'Completed', hasDanmu: true, totalBytes: 1024, isTrashed: false, mediaRevision: 1 }
+  return { id, streamerId: 'streamer1', roomId: 1, title: `测试直播 ${id}`, coverUrl: '', createdAtUtc: '2026-11-12T00:00:00Z', startedAtUtc: '2026-11-12T00:00:00Z', endedAtUtc: '2026-11-12T00:01:00Z', lastMediaAtUtc: '2026-11-12T00:01:00Z', state: 'Completed', hasDanmu: true, totalBytes: 1024, isTrashed: false, isPermanent: false, mediaRevision: 1 }
 }
 function user(id: string, name: string)
 {

@@ -19,7 +19,7 @@ function newPinia(): void
 
 function user(id: string, language: UserProfile['language'] = null): UserProfile
 {
-  return { id, email: `${id}@example.test`, displayName: id, role: 'User', status: 'Active', language }
+  return { id, email: `${id}@example.test`, displayName: id, role: 'User', status: 'Active', permissions: { manageRecordings: false, viewAnalytics: false, purgeRecordings: false }, language }
 }
 
 beforeEach(() =>

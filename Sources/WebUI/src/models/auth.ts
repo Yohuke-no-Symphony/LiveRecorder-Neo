@@ -1,11 +1,19 @@
 import type { AppLanguage } from '@/localization/types'
 
+export interface UserPermissions
+{
+  manageRecordings: boolean
+  viewAnalytics: boolean
+  purgeRecordings: boolean
+}
+
 export interface UserProfile
 {
   id: string
   email: string
   displayName: string
   role: 'Admin' | 'User'
+  permissions: UserPermissions
   status: 'Active' | 'Pending' | 'Rejected' | 'Disabled'
   avatarUrl?: string | null
   language?: AppLanguage | null

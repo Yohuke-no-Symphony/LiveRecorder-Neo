@@ -74,7 +74,7 @@ public static class ManagementEndpoints
         {
             throw new InfrastructureException(MessageCode.LANGUAGE_UNSUPPORTED);
         }
-        if (settings.Quality <= 0 || settings.SegmentBytes < 0 || settings.ClipRetentionDays is < 1 or > 3650 || settings.TrashRetentionDays is < 1 or > 3650 || settings.MediaConcurrency is < 1 or > 16 || settings.PlaybackConcurrency is < 1 or > 32 || settings.MonitorIntervalSeconds is < 5 or > 600 || settings.SessionGraceMinutes is < 0 or > 120 || settings.MinimumFreeBytes < 0 || settings.CacheLimitBytes < 64 * 1024 * 1024 || settings.CacheRetentionMinutes < 1 || string.IsNullOrWhiteSpace(settings.FfmpegPath) || string.IsNullOrWhiteSpace(settings.FfprobePath))
+        if (settings.Quality <= 0 || settings.SegmentBytes < 0 || settings.RecordingRetentionDays is < 0 or > 3650 || settings.ClipRetentionDays is < 1 or > 3650 || settings.TrashRetentionDays is < 0 or > 3650 || settings.DefaultUserPermissions is null || settings.MediaConcurrency is < 1 or > 16 || settings.PlaybackConcurrency is < 1 or > 32 || settings.MonitorIntervalSeconds is < 5 or > 600 || settings.SessionGraceMinutes is < 0 or > 120 || settings.MinimumFreeBytes < 0 || settings.CacheLimitBytes < 64 * 1024 * 1024 || settings.CacheRetentionMinutes < 1 || string.IsNullOrWhiteSpace(settings.FfmpegPath) || string.IsNullOrWhiteSpace(settings.FfprobePath))
         {
             throw new InfrastructureException(MessageCode.SETTINGS_INVALID);
         }

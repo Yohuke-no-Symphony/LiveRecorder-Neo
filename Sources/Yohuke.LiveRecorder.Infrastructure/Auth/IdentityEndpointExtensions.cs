@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
+using Yohuke.LiveRecorder.Domain;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Auth;
 
@@ -98,6 +99,7 @@ public static class IdentityEndpointExtensions
         admin.MapGet("/users", async (IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.ListUsersAsync(ct)));
         admin.MapPost("/users/{id}/approval", async (string id, ApprovalRequest request, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.SetApprovalAsync(id, request.Approved, ct)));
         admin.MapPost("/users/{id}/role", async (string id, RoleRequest request, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.SetRoleAsync(id, request.Role, ct)));
+        admin.MapPut("/users/{id}/permissions", async (string id, UserPermissions request, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.SetPermissionsAsync(id, request, ct)));
         admin.MapGet("/invitations", async (IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.ListInvitationsAsync(ct)));
         admin.MapPost("/invitations", async (InvitationRequest request, HttpContext http, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.CreateInvitationAsync(request, http.User.FindFirstValue(ClaimTypes.NameIdentifier)!, ct)));
         admin.MapDelete("/invitations/{id}", async (string id, IIdentityService identity, CancellationToken ct) =>
@@ -119,13 +121,7 @@ public static class IdentityEndpointExtensions
 
     private static async Task SignInAsync(HttpContext http, UserProfile user)
     {
-        var principal = new ClaimsPrincipal(new ClaimsIdentity(new[]
-        {
-            new Claim(ClaimTypes.NameIdentifier, user.Id),
-            new Claim(ClaimTypes.Name, user.DisplayName),
-            new Claim(ClaimTypes.Email, user.Email),
-            new Claim(ClaimTypes.Role, user.Role)
-        }, CookieAuthenticationDefaults.AuthenticationScheme));
+        var principal = UserPrincipalFactory.Create(user);
         await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, new AuthenticationProperties { IsPersistent = false, ExpiresUtc = DateTimeOffset.UtcNow.AddHours(12) });
         http.User = principal;
     }

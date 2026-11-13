@@ -48,10 +48,11 @@ function settings(checkCertificateRevocation: boolean): ServerSettings
 {
   const value = {
     id: 'server', defaultLanguage: 'zh-CN' as const, storagePath: '/srv/recordings', timeZone: 'Asia/Shanghai', quality: 10000,
-    recordDanmu: true, segmentBytes: 1024 ** 3, clipRetentionDays: 7, trashRetentionDays: 7,
+    recordDanmu: true, segmentBytes: 1024 ** 3, recordingRetentionDays: 0, clipRetentionDays: 7, trashRetentionDays: 7,
     cacheLimitBytes: 1024 ** 3, cacheRetentionMinutes: 30, minimumFreeBytes: 1024 ** 3,
     mediaConcurrency: 2, playbackConcurrency: 2, monitorIntervalSeconds: 15, sessionGraceMinutes: 5,
     streamDisconnectTimeoutMinutes: 5,
+    defaultUserPermissions: { manageRecordings: false, viewAnalytics: false, purgeRecordings: false },
     registrationEnabled: true, ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe', oauthProviders: [],
     registrationApprovalRequired: true, registrationInvitationRequired: true, registrationEmailVerificationRequired: true,
     smtp: { host: 'smtp.example.test', port: 465, useSsl: true, checkCertificateRevocation, userName: 'sender@example.test', password: '', fromAddress: 'sender@example.test', fromName: 'Recorder' },

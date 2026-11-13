@@ -1,5 +1,5 @@
 <template>
-  <v-alert v-if="error" type="error" class="mb-6">{{ error }}</v-alert>
+  <v-alert v-if="error || retentionError" type="error" class="mb-6">{{ error || retentionError }}</v-alert>
   <v-progress-linear v-if="!detail && busy" indeterminate color="primary" />
   <template v-if="detail">
     <div class="session-heading mb-6"><router-link :to="`/streamers/${detail.session.streamerId}`" class="text-body-2 muted"><v-icon icon="mdi-chevron-left" size="18" />{{ streamer?.name || t('views.common.streamerRecordings') }}</router-link><StatusChip :status="detail.session.state" /></div>
@@ -10,7 +10,7 @@
         </MediaPlayer>
         <div class="session-meta">
           <h1>{{ detail.session.title }}</h1>
-          <div class="d-flex align-center flex-wrap ga-3 mt-3"><span class="text-caption muted">{{ formatDate(detail.session.startedAtUtc) }}</span><span class="text-caption mono muted">{{ formatDuration(detail.durationMs, true) }}</span><span class="text-caption muted">{{ formatBytes(detail.session.totalBytes) }}</span><v-spacer /><v-btn color="primary" prepend-icon="mdi-content-cut" :disabled="detail.durationMs <= 0 || clipSelectionInvalid" @click="clipOpen = true">{{ t('views.session.createClip') }}</v-btn><v-menu v-if="auth.isAdmin && isFinished"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-horizontal" variant="text" :aria-label="t('views.session.actions')" /></template><v-list density="compact"><v-list-item :title="t('views.session.group')" prepend-icon="mdi-folder-multiple-outline" @click="groupOpen = true" /><v-list-item :title="t('views.session.split')" prepend-icon="mdi-call-split" :disabled="detail.segments.length < 2" @click="splitOpen = true" /><v-divider /><v-list-item :title="t('views.session.repair')" prepend-icon="mdi-wrench-outline" @click="openMaintenance('Repair')" /><v-list-item :title="t('views.session.merge')" prepend-icon="mdi-call-merge" @click="openMaintenance('Merge')" /></v-list></v-menu></div>
+          <div class="d-flex align-center flex-wrap ga-3 mt-3"><span class="text-caption muted">{{ formatDate(detail.session.startedAtUtc) }}</span><span class="text-caption mono muted">{{ formatDuration(detail.durationMs, true) }}</span><span class="text-caption muted">{{ formatBytes(detail.session.totalBytes) }}</span><v-chip v-if="detail.session.isPermanent" color="primary" size="small" prepend-icon="mdi-shield-check-outline">{{ t('shell.retention.permanent') }}</v-chip><v-spacer /><v-btn v-if="auth.canManageRecordings" variant="text" prepend-icon="mdi-shield-check-outline" :loading="retentionBusy" @click="setPermanent">{{ t(detail.session.isPermanent ? 'shell.retention.cancelPermanent' : 'shell.retention.keepPermanent') }}</v-btn><v-btn color="primary" prepend-icon="mdi-content-cut" :disabled="detail.durationMs <= 0 || clipSelectionInvalid" @click="clipOpen = true">{{ t('views.session.createClip') }}</v-btn><v-menu v-if="auth.isAdmin && isFinished"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-horizontal" variant="text" :aria-label="t('views.session.actions')" /></template><v-list density="compact"><v-list-item :title="t('views.session.group')" prepend-icon="mdi-folder-multiple-outline" @click="groupOpen = true" /><v-list-item :title="t('views.session.split')" prepend-icon="mdi-call-split" :disabled="detail.segments.length < 2" @click="splitOpen = true" /><v-divider /><v-list-item :title="t('views.session.repair')" prepend-icon="mdi-wrench-outline" @click="openMaintenance('Repair')" /><v-list-item :title="t('views.session.merge')" prepend-icon="mdi-call-merge" @click="openMaintenance('Merge')" /></v-list></v-menu></div>
         </div>
         <SessionBookmarkList class="mt-6" :bookmarks="bookmarks" :loading="bookmarksLoading" :saving="bookmarkSaving" :error="bookmarksError" :editable="bookmarksEditable" @seek="player?.seek($event)" @start="setClipStart" @end="setClipEnd" @edit="editBookmark" @delete="confirmBookmarkDelete" @refresh="refreshBookmarks" />
         <v-expansion-panels v-if="detail.segments.length" variant="accordion" class="mt-6"><v-expansion-panel :title="t('views.session.segments', { count: formatNumber(detail.segments.length) })"><v-expansion-panel-text><v-table density="comfortable"><thead><tr><th>{{ t('views.session.segment') }}</th><th>{{ t('views.session.start') }}</th><th>{{ t('views.session.duration') }}</th><th>{{ t('views.common.size') }}</th><th>{{ t('views.common.status') }}</th></tr></thead><tbody><tr v-for="(segment, index) in detail.segments" :key="segment.id" class="clickable-row" @click="player?.seek(segment.startOffsetMs)"><td>{{ String(index + 1).padStart(2, '0') }}</td><td class="mono text-caption">{{ formatDuration(segment.startOffsetMs, true) }}</td><td class="mono text-caption">{{ formatDuration(segment.durationMs) }}</td><td class="mono text-caption">{{ formatBytes(segment.committedBytes) }}</td><td><StatusChip :status="segment.isClosed ? 'completed' : 'recording'" /></td></tr></tbody></v-table></v-expansion-panel-text></v-expansion-panel></v-expansion-panels>
@@ -87,6 +87,7 @@ const maintenanceOpen = ref(false)
 const maintenanceKind = ref<'Repair' | 'Merge'>('Repair')
 const selectedSegments = ref<string[]>([])
 const { busy, error, run } = useAction()
+const { busy: retentionBusy, error: retentionError, run: runRetention } = useAction()
 const { busy: maintenanceBusy, error: maintenanceError, run: runMaintenance } = useAction()
 const isLive = computed(() => detail.value?.session.state === 'Recording')
 const { timeline, loading: timelineLoading, error: timelineError, refresh: refreshTimeline } = useSessionTimeline(() => id, () => !!detail.value?.session.hasDanmu, isLive)
@@ -100,6 +101,19 @@ onMounted(async () =>
     streamers.value = await MediaAPI.streamers()
   })
 })
+async function setPermanent(): Promise<void>
+{
+  if (!auth.canManageRecordings || !detail.value || retentionBusy.value) { return }
+  const isPermanent = !detail.value.session.isPermanent
+  await runRetention(async () =>
+  {
+    await MediaAPI.setSessionPermanent(id, isPermanent)
+    if (detail.value)
+    {
+      detail.value = { ...detail.value, session: { ...detail.value.session, isPermanent } }
+    }
+  })
+}
 function setClipStart(value: number): void
 {
   clipSelection.value = { ...clipSelection.value, startMs: Math.floor(clampOffset(value, detail.value?.durationMs ?? 0)) }

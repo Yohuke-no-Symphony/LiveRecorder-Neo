@@ -11,7 +11,7 @@ public sealed class TrashEntry : Entity
     public string TrashRelativePath { get; set; } = "";
     public bool RetainedInPlace { get; set; }
     public long Bytes { get; set; }
-    public DateTime PurgeAtUtc { get; set; }
+    public DateTime? PurgeAtUtc { get; set; }
     public string State { get; set; } = "Pending";
     public string? OperationOwner { get; set; }
     public DateTime? OperationLeaseUntilUtc { get; set; }

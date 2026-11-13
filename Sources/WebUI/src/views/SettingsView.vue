@@ -32,7 +32,7 @@
       <v-card class="form-section"><h2>{{ t('shell.settings.filesAndTools') }}</h2><div class="form-stack"><v-text-field v-model="settings.timeZone" :label="t('shell.settings.timeZone')" /><v-text-field v-model="settings.ffmpegPath" :label="t('shell.settings.ffmpeg')" /><v-text-field v-model="settings.ffprobePath" :label="t('shell.settings.ffprobe')" /></div></v-card>
     </div>
     <div v-else-if="tab === 'media'" class="settings-grid">
-      <v-card class="form-section"><h2>{{ t('shell.settings.retention') }}</h2><div class="form-stack"><v-text-field v-model.number="settings.clipRetentionDays" :label="t('shell.settings.clipRetention')" type="number" min="1" /><v-text-field v-model.number="settings.trashRetentionDays" :label="t('shell.settings.trashRetention')" type="number" min="1" /><v-text-field v-model.number="settings.cacheRetentionMinutes" :label="t('shell.settings.cacheRetention')" type="number" min="1" /></div></v-card>
+      <v-card class="form-section"><h2>{{ t('shell.settings.retention') }}</h2><div class="form-stack"><v-text-field v-model.number="settings.recordingRetentionDays" :label="t('shell.settings.recordingRetention')" :hint="t('shell.settings.recordingRetentionDescription')" persistent-hint type="number" min="0" max="3650" step="1" /><v-text-field v-model.number="settings.clipRetentionDays" :label="t('shell.settings.clipRetention')" type="number" min="1" /><v-text-field v-model.number="settings.trashRetentionDays" :label="t('shell.settings.trashRetention')" :hint="t('shell.settings.trashRetentionDescription')" persistent-hint type="number" min="0" max="3650" step="1" /><v-text-field v-model.number="settings.cacheRetentionMinutes" :label="t('shell.settings.cacheRetention')" type="number" min="1" /></div></v-card>
       <v-card class="form-section"><h2>{{ t('shell.settings.resourceLimits') }}</h2><div class="form-stack"><v-text-field v-model.number="cacheGiB" :label="t('shell.settings.cacheLimit')" type="number" min="1" /><v-text-field v-model.number="minimumFreeGiB" :label="t('shell.settings.minimumFree')" type="number" min="1" /><v-text-field v-model.number="settings.mediaConcurrency" :label="t('shell.settings.mediaConcurrency')" type="number" min="1" max="32" /><v-text-field v-model.number="settings.playbackConcurrency" :label="t('shell.settings.playbackConcurrency')" type="number" min="1" max="32" /></div></v-card>
     </div>
     <RegistrationSettings v-else-if="tab === 'registration'" v-model="settings" :disabled="saving" />
@@ -132,6 +132,10 @@ async function save(): Promise<void>
       throw new Error(t('shell.settings.invalidStreamDisconnectTimeout'))
     }
     if (settings.value!.oauthProviders.some(provider => !provider.id.trim() || !provider.name.trim())) { throw new Error(t('shell.settings.invalidProvider')) }
+    if ([settings.value!.recordingRetentionDays, settings.value!.trashRetentionDays].some(value => !Number.isInteger(value) || value < 0 || value > 3650))
+    {
+      throw new Error(t('shell.settings.invalidRetention'))
+    }
     await MediaAPI.updateSettings(settings.value!)
     settings.value = clearSecrets(await MediaAPI.settings())
     preferences.setDefaultLanguage(settings.value.defaultLanguage)

@@ -8,6 +8,10 @@
       <v-switch v-model="settings.registrationEmailVerificationRequired" :disabled="disabled" :label="t('shell.settings.registrationEmailVerificationRequired')" :hint="t('shell.settings.registrationEmailVerificationDescription')" persistent-hint />
     </div>
     <v-divider class="my-6" />
+    <h2>{{ t('shell.permissions.defaults') }}</h2>
+    <p class="text-body-2 muted mb-5">{{ t('shell.permissions.defaultsDescription') }}</p>
+    <UserPermissionFields v-model="settings.defaultUserPermissions" :disabled="disabled" />
+    <v-divider class="my-6" />
     <v-btn variant="tonal" prepend-icon="mdi-account-group-outline" to="/admin/users">{{ t('shell.settings.manageUsers') }}</v-btn>
   </v-card>
 </template>
@@ -15,6 +19,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import type { ServerSettings } from '@/models/settings'
+import UserPermissionFields from './UserPermissionFields.vue'
 
 defineProps<{ disabled?: boolean }>()
 const settings = defineModel<ServerSettings>({ required: true })

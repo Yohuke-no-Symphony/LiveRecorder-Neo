@@ -151,7 +151,7 @@ public sealed class SessionTrashTests
         Assert.Equal(entry.Id, (await EntryAsync(fixture, session.Id)).Id);
         var journalPath = Path.Combine(fixture.Root, ".trash", entry.Id, "session-entry.json");
         var json = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(journalPath))!;
-        json["entry"]!["purgeAtUtc"] = DateTime.UtcNow.AddDays(-1);
+        json["entry"]!["createdAtUtc"] = DateTime.UtcNow.AddDays(-8);
         await File.WriteAllTextAsync(journalPath, json.ToJsonString());
         await service.MaintainAsync();
         Assert.Equal(0, await fixture.Mongo.Collection<BroadcastSession>("sessions").CountDocumentsAsync(_ => true));

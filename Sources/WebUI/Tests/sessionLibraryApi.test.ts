@@ -28,6 +28,18 @@ describe('录播删除API', () =>
     expect(new Headers(options.headers).get('X-CSRF-TOKEN')).toBe('session-trash-token')
   })
 
+  it('设置永久保留使用编码ID、PUT和显式布尔值', async () =>
+  {
+    const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetcher)
+    await MediaAPI.setSessionPermanent('session /1', false)
+    const [url, options] = fetcher.mock.calls[0]!
+    expect(url).toBe('http://127.0.0.1:5784/api/sessions/session%20%2F1/retention')
+    expect(options.method).toBe('PUT')
+    expect(JSON.parse(options.body)).toEqual({ isPermanent: false })
+    expect(new Headers(options.headers).get('X-CSRF-TOKEN')).toBe('session-trash-token')
+  })
+
   it('批量请求提交逐项结果所对应的场次ID并保留失败原因', async () =>
   {
     const results = [{ sessionId: 'a', success: true }, { sessionId: 'b', success: false, error: '录制中' }]

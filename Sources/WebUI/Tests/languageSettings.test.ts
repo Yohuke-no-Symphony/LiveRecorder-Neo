@@ -83,17 +83,18 @@ function deferred<T>()
 
 function user(language: AppLanguage | null): UserProfile
 {
-  return { id: 'user-1', email: 'user@example.test', displayName: '原始用户昵称', role: 'Admin', status: 'Active', language }
+  return { id: 'user-1', email: 'user@example.test', displayName: '原始用户昵称', role: 'Admin', status: 'Active', permissions: { manageRecordings: false, viewAnalytics: false, purgeRecordings: false }, language }
 }
 
 function settings(defaultLanguage: AppLanguage): ServerSettings
 {
   return {
     id: 'server', defaultLanguage, timeZone: 'Asia/Shanghai', quality: 10000,
-    recordDanmu: true, segmentBytes: 1024 ** 3, clipRetentionDays: 7, trashRetentionDays: 7,
+    recordDanmu: true, segmentBytes: 1024 ** 3, recordingRetentionDays: 0, clipRetentionDays: 7, trashRetentionDays: 7,
     cacheLimitBytes: 1024 ** 3, cacheRetentionMinutes: 30, minimumFreeBytes: 1024 ** 3,
     mediaConcurrency: 2, playbackConcurrency: 2, monitorIntervalSeconds: 15, sessionGraceMinutes: 5,
     streamDisconnectTimeoutMinutes: 5,
+    defaultUserPermissions: { manageRecordings: false, viewAnalytics: false, purgeRecordings: false },
     registrationEnabled: true, ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe',
     registrationApprovalRequired: true, registrationInvitationRequired: true, registrationEmailVerificationRequired: true,
     smtp: { host: '', port: 587, useSsl: true, checkCertificateRevocation: true, userName: '', password: '', fromAddress: '', fromName: '' },

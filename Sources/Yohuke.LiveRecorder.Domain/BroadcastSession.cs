@@ -20,6 +20,8 @@ public sealed class BroadcastSession : Entity
     public string? ErrorCode { get; set; }
     public List<string> ErrorArguments { get; set; } = [];
     public bool IsTrashed { get; set; }
+    public bool IsPermanent { get; set; }
+    public DateTime? RetentionStartedAtUtc { get; set; }
     public int MediaRevision { get; set; } = 1;
     public string? MediaRevisionJobId { get; set; }
     public int MediaRevisionAttempt { get; set; }

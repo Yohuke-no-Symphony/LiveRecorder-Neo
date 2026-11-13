@@ -15,6 +15,7 @@ export const MediaAPI = {
   avatar: (id: string) => getServerUrl(`/api/streamers/${encodeURIComponent(id)}/avatar`),
   sessions: (streamerId?: string, search?: string, before?: string, take = 50) => request<BroadcastSession[]>(`sessions${query({ streamerId, search, before, take })}`),
   session: (id: string) => request<SessionDetail>(`sessions/${encodeURIComponent(id)}`),
+  setSessionPermanent: (id: string, isPermanent: boolean) => put<void>(`sessions/${encodeURIComponent(id)}/retention`, { isPermanent }),
   deleteSession: (id: string) => remove(`sessions/${encodeURIComponent(id)}`),
   trashSessions: (sessionIds: string[]) => post<SessionTrashResult[]>('sessions/trash', { sessionIds }),
   groupSessions: (id: string, sessionIds: string[], title?: string) => post<BroadcastSession>(`sessions/${encodeURIComponent(id)}/group`, { sessionIds, title }),

@@ -17,14 +17,15 @@
     </SessionLibraryToolbar>
     <v-alert v-if="error && !confirmOpen" type="error" class="mb-4 deletion-error">{{ error }}</v-alert>
     <div v-if="sessions.length" class="media-grid">
-      <SessionCard v-for="session in sessions" :key="session.id" :session="session" :streamer-name="streamerNames?.[session.streamerId]" :allow-actions="auth.isAdmin" :selection-mode="selectionMode" :selected="selectedIds.includes(session.id)" :can-select="canSelect(session)" :disabled="busy" @actions="openActions(session, $event)" @toggle="toggle(session)" />
+      <SessionCard v-for="session in sessions" :key="session.id" :session="session" :streamer-name="streamerNames?.[session.streamerId]" :allow-actions="actionsAllowed" :selection-mode="selectionMode" :selected="selectedIds.includes(session.id)" :can-select="canSelect(session)" :disabled="busy" @actions="openActions(session, $event)" @toggle="toggle(session)" />
     </div>
     <v-menu v-model="menuOpen" :target="menuPosition" location="bottom start" context-menu>
-      <v-list v-if="menuSession && auth.isAdmin" density="compact">
-        <v-list-item :title="t('components.library.analyze')" prepend-icon="mdi-chart-timeline-variant" @click="analyze" />
+      <v-list v-if="menuSession && actionsAllowed" density="compact">
+        <v-list-item v-if="auth.canViewAnalytics" :title="t('components.library.analyze')" prepend-icon="mdi-chart-timeline-variant" @click="analyze" />
         <v-list-item v-if="selectionEnabled" :title="t(selectedIds.includes(menuSession.id) ? 'components.library.deselectSession' : 'components.library.selectSession', { title: menuSession.title || t('components.library.unnamedSession') })" prepend-icon="mdi-checkbox-marked-outline" :disabled="!canSelect(menuSession) || busy" @click="selectFromMenu" />
-        <v-divider />
-        <v-list-item :title="menuTrashIds.length > 1 ? t('components.library.trashSelected') : t('components.library.moveToTrash')" prepend-icon="mdi-delete-outline" base-color="error" :disabled="!canTrash(menuSession) || busy" @click="prepareTrash(menuTrashIds)" />
+        <v-list-item v-if="auth.canManageRecordings" :title="t(menuSession.isPermanent ? 'shell.retention.cancelPermanent' : 'shell.retention.keepPermanent')" prepend-icon="mdi-shield-check-outline" :disabled="busy" @click="setPermanent" />
+        <v-divider v-if="auth.canManageRecordings" />
+        <v-list-item v-if="auth.canManageRecordings" :title="menuTrashIds.length > 1 ? t('components.library.trashSelected') : t('components.library.moveToTrash')" prepend-icon="mdi-delete-outline" base-color="error" :disabled="!canTrash(menuSession) || busy" @click="prepareTrash(menuTrashIds)" />
       </v-list>
     </v-menu>
     <ConfirmDialog :model-value="confirmOpen" :title="t('components.library.trashTitle')" :message="t('components.library.trashConfirm', { count: formatNumber(pendingIds.length) })" :action-label="t('components.library.moveToTrash')" danger :busy="busy" :error="error" @update:model-value="setConfirmationOpen" @confirm="trash" />
@@ -48,7 +49,7 @@ import SessionLibraryToolbar from './SessionLibraryToolbar.vue'
 
 const MAX_SELECTION = 200
 const props = withDefaults(defineProps<{ sessions: BroadcastSession[]; streamerNames?: Record<string, string>; allowSelection?: boolean }>(), { allowSelection: true })
-const emit = defineEmits<{ removed: [ids: string[]] }>()
+const emit = defineEmits<{ removed: [ids: string[]]; retentionChanged: [id: string, isPermanent: boolean] }>()
 const { t } = useI18n()
 const router = useRouter()
 const auth = useAuthStore()
@@ -62,7 +63,8 @@ const confirmOpen = ref(false)
 const pendingIds = ref<string[]>([])
 const noticeOpen = ref(false)
 const trashedCount = ref(0)
-const selectionEnabled = computed(() => auth.isAdmin && props.allowSelection)
+const actionsAllowed = computed(() => auth.canManageRecordings || auth.canViewAnalytics)
+const selectionEnabled = computed(() => auth.canManageRecordings && props.allowSelection)
 const selectableIds = computed(() => props.sessions.filter(canTrash).map(session => session.id))
 const menuSession = computed(() => props.sessions.find(session => session.id === menuId.value))
 const menuTrashIds = computed(() => selectionEnabled.value && selectedIds.value.includes(menuId.value) ? [...selectedIds.value] : [menuId.value])
@@ -79,7 +81,7 @@ function canSelect(session: BroadcastSession): boolean
 
 function toggle(session: BroadcastSession): void
 {
-  if (!auth.isAdmin || busy.value || !canSelect(session)) { return }
+  if (!auth.canManageRecordings || busy.value || !canSelect(session)) { return }
   selectionMode.value = true
   selectedIds.value = selectedIds.value.includes(session.id)
     ? selectedIds.value.filter(id => id !== session.id)
@@ -104,7 +106,7 @@ function cancelSelection(): void
 
 function openActions(session: BroadcastSession, event: MouseEvent | KeyboardEvent): void
 {
-  if (!auth.isAdmin || busy.value) { return }
+  if (!actionsAllowed.value || busy.value) { return }
   menuId.value = session.id
   if (event.type === 'contextmenu' && event instanceof MouseEvent)
   {
@@ -120,9 +122,22 @@ function openActions(session: BroadcastSession, event: MouseEvent | KeyboardEven
 
 function analyze(): void
 {
-  if (!auth.isAdmin || !menuSession.value) { return }
+  if (!auth.canViewAnalytics || !menuSession.value) { return }
   menuOpen.value = false
   void router.push({ path: '/analytics', query: { sessionId: menuSession.value.id } })
+}
+
+async function setPermanent(): Promise<void>
+{
+  const session = menuSession.value
+  if (!auth.canManageRecordings || !session || busy.value) { return }
+  menuOpen.value = false
+  const isPermanent = !session.isPermanent
+  await run(async () =>
+  {
+    await MediaAPI.setSessionPermanent(session.id, isPermanent)
+    emit('retentionChanged', session.id, isPermanent)
+  })
 }
 
 function selectFromMenu(): void
@@ -134,7 +149,7 @@ function selectFromMenu(): void
 
 function prepareTrash(ids: readonly string[]): void
 {
-  if (!auth.isAdmin || busy.value) { return }
+  if (!auth.canManageRecordings || busy.value) { return }
   const eligible = new Set(selectableIds.value)
   pendingIds.value = [...new Set(ids)].filter(id => eligible.has(id)).slice(0, MAX_SELECTION)
   if (!pendingIds.value.length) { return }
@@ -145,7 +160,7 @@ function prepareTrash(ids: readonly string[]): void
 
 function retainFailures(ids: string[]): void
 {
-  if (!auth.isAdmin) { return }
+  if (!auth.canManageRecordings) { return }
   if (selectionEnabled.value)
   {
     selectedIds.value = [...new Set([...ids, ...selectedIds.value])].slice(0, MAX_SELECTION)
@@ -161,7 +176,7 @@ function setConfirmationOpen(open: boolean): void
 
 async function trash(): Promise<void>
 {
-  if (!auth.isAdmin || busy.value || !pendingIds.value.length) { return }
+  if (!auth.canManageRecordings || busy.value || !pendingIds.value.length) { return }
   const ids = [...pendingIds.value]
   const eligible = new Set(selectableIds.value)
   if (ids.some(id => !eligible.has(id)))
@@ -221,9 +236,9 @@ watch(selectionEnabled, enabled =>
   selectionMode.value = false
   selectedIds.value = []
 })
-watch(() => auth.isAdmin, isAdmin =>
+watch(() => auth.canManageRecordings, allowed =>
 {
-  if (isAdmin) { return }
+  if (allowed) { return }
   menuOpen.value = false
   confirmOpen.value = false
   selectionMode.value = false

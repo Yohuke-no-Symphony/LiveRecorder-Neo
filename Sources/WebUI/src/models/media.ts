@@ -37,6 +37,8 @@ export interface BroadcastSession extends Entity
   totalBytes: number
   error?: string | null
   isTrashed: boolean
+  isPermanent: boolean
+  retentionStartedAtUtc?: string | null
   mediaRevision: number
   isHidden?: boolean
 }
@@ -159,7 +161,7 @@ export interface TrashEntry extends Entity
   entityId: string
   title: string
   bytes: number
-  purgeAtUtc: string
+  purgeAtUtc: string | null
   state: string
 }
 

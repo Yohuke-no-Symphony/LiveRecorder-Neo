@@ -20,6 +20,9 @@ export const useAuthStore = defineStore('auth', () =>
   const oauthDraft = ref<{ email: string; displayName: string } | null>(null)
   const isAdmin = computed(() => user.value?.role === 'Admin' && user.value.status === 'Active')
   const hasAccess = computed(() => user.value?.status === 'Active')
+  const canManageRecordings = computed(() => hasAccess.value && (isAdmin.value || user.value?.permissions?.manageRecordings === true))
+  const canViewAnalytics = computed(() => hasAccess.value && (isAdmin.value || user.value?.permissions?.viewAnalytics === true))
+  const canPurgeRecordings = computed(() => hasAccess.value && (isAdmin.value || user.value?.permissions?.purgeRecordings === true))
   let initialLoad: Promise<void> | undefined
 
   async function refresh(): Promise<void>
@@ -77,5 +80,5 @@ export const useAuthStore = defineStore('auth', () =>
     await refresh()
   }
 
-  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, bootstrap, refresh, login, logout, setLanguage }
+  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canViewAnalytics, canPurgeRecordings, bootstrap, refresh, login, logout, setLanguage }
 })

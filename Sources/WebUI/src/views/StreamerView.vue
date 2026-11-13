@@ -5,7 +5,7 @@
     <v-btn variant="outlined" prepend-icon="mdi-arrow-left" to="/">{{ t('views.common.library') }}</v-btn>
   </PageHeader>
   <v-alert v-if="sessionError || error" type="error" class="mb-6">{{ sessionError || error }}</v-alert>
-  <SessionLibrary :sessions="sessions" @removed="removeSessions">
+  <SessionLibrary :sessions="sessions" @removed="removeSessions" @retention-changed="updateSessionRetention">
     <template #filters>
       <v-text-field v-model="search" class="session-search" :label="t('views.streamer.search')" prepend-inner-icon="mdi-magnify" clearable hide-details density="compact" @keydown.enter="applySearch" />
     </template>
@@ -37,7 +37,7 @@ const streamer = ref<Streamer>()
 const search = ref<string | null>('')
 const searchQuery = ref('')
 const { error, run } = useAction()
-const { sessions, loading, loadingMore, hasMore, error: sessionError, loadMore, removeSessions } = useSessionPages(() => ({ streamerId: String(route.params.id), search: searchQuery.value }))
+const { sessions, loading, loadingMore, hasMore, error: sessionError, loadMore, removeSessions, updateSessionRetention } = useSessionPages(() => ({ streamerId: String(route.params.id), search: searchQuery.value }))
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 function applySearch(): void
 {

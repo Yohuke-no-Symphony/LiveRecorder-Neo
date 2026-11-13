@@ -13,6 +13,7 @@ public sealed class ServerSettings : Entity
     public int Quality { get; set; } = 10000;
     public bool RecordDanmu { get; set; } = true;
     public long SegmentBytes { get; set; } = 4L * 1024 * 1024 * 1024;
+    public int RecordingRetentionDays { get; set; }
     public int ClipRetentionDays { get; set; } = 30;
     public int TrashRetentionDays { get; set; } = 7;
     public long CacheLimitBytes { get; set; } = 20L * 1024 * 1024 * 1024;
@@ -24,6 +25,7 @@ public sealed class ServerSettings : Entity
     public int SessionGraceMinutes { get; set; } = 10;
     public int StreamDisconnectTimeoutMinutes { get; set; } = 5;
     public bool RegistrationEnabled { get; set; }
+    public UserPermissions DefaultUserPermissions { get; set; } = new();
     public bool RegistrationApprovalRequired { get; set; } = true;
     public bool RegistrationInvitationRequired { get; set; } = true;
     public bool RegistrationEmailVerificationRequired { get; set; } = true;

@@ -10,6 +10,7 @@ public sealed class UserAccount : Entity
     public string AvatarUrl { get; set; } = "";
     public string PasswordHash { get; set; } = "";
     public string Role { get; set; } = "User";
+    public UserPermissions Permissions { get; set; } = new();
     public string Status { get; set; } = "Pending";
     public bool EmailVerified { get; set; }
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;

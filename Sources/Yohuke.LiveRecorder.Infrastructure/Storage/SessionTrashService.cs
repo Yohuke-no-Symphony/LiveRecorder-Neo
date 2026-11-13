@@ -20,6 +20,36 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
     public async Task TrashAsync(string id, string ownerId, CancellationToken cancellationToken = default)
     {
         await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
+        await TrashCoreAsync(id, ownerId, false, cancellationToken);
+    }
+
+    /// <summary>更新正常场次的永久保留标记，并同步保存可重建的场次清单。</summary>
+    public async Task SetPermanentAsync(string id, bool isPermanent, CancellationToken cancellationToken = default)
+    {
+        await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
+        var session = await context.Collection<BroadcastSession>("sessions")
+                          .Find(x => x.Id == id && !x.IsTrashed && !x.IsHidden && x.ProjectionReady)
+                          .FirstOrDefaultAsync(cancellationToken)
+                      ?? throw new InfrastructureException(MessageCode.LIBRARY_SESSION_NOT_FOUND, 404);
+        if (await context.Collection<TrashEntry>("trash").Find(x => x.EntityId == id && x.Kind == "Session")
+                .AnyAsync(cancellationToken) || await FindJournalAsync(id, cancellationToken) is not null)
+        {
+            throw new InfrastructureException(MessageCode.STORAGE_OPERATION_IN_PROGRESS, 409);
+        }
+
+        var segments = await context.Collection<RecordingSegment>("segments").Find(x => x.SessionId == id)
+            .ToListAsync(cancellationToken);
+        await SessionManifestFiles.SetPermanentAsync(
+            new() { Session = session, Segments = segments }, ResolveDirectory(session.DirectoryPath),
+            isPermanent, cancellationToken);
+        await context.Collection<BroadcastSession>("sessions").UpdateOneAsync(x => x.Id == id,
+            Builders<BroadcastSession>.Update.Set(x => x.IsPermanent, isPermanent),
+            cancellationToken: cancellationToken);
+    }
+
+    private async Task TrashCoreAsync(string id, string ownerId, bool expiredOnly,
+        CancellationToken cancellationToken)
+    {
         var existing = await context.Collection<TrashEntry>("trash").Find(x => x.EntityId == id && x.Kind == "Session")
             .FirstOrDefaultAsync(cancellationToken);
         if (existing is not null)
@@ -57,6 +87,16 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
         var session = await context.Collection<BroadcastSession>("sessions").Find(x => x.Id == id)
                           .FirstOrDefaultAsync(cancellationToken)
                       ?? throw new InfrastructureException(MessageCode.LIBRARY_SESSION_NOT_FOUND, 404);
+        var settings = await settingsStore.GetAsync(cancellationToken);
+        if (expiredOnly)
+        {
+            await SynchronizeRetentionAsync(session, cancellationToken);
+            if (!IsExpired(session, settings, DateTime.UtcNow))
+            {
+                return;
+            }
+        }
+
         if (session.IsHidden || !session.ProjectionReady)
         {
             throw new InfrastructureException(MessageCode.LIBRARY_DELETE_NOT_EDITABLE, 409);
@@ -74,7 +114,6 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
             throw new InfrastructureException(MessageCode.LIBRARY_DELETE_JOB_ACTIVE, 409);
         }
 
-        var settings = await settingsStore.GetAsync(cancellationToken);
         var entry = new TrashEntry
         {
             Kind = "Session",
@@ -85,9 +124,9 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
             Bytes = session.TotalBytes > 0
                 ? session.TotalBytes
                 : segments.Where(x => x.Revision == session.MediaRevision).Sum(x => x.CommittedBytes),
-            PurgeAtUtc = DateTime.UtcNow.AddDays(settings.TrashRetentionDays),
             RetainedInPlace = await HasReferencesAsync(session.DirectoryPath, session.Id, cancellationToken)
         };
+        entry.PurgeAtUtc = TrashRetentionPolicy.GetPurgeAtUtc(entry, settings);
         entry.TrashRelativePath = Path.Combine(".trash", entry.Id, "recording");
         var journal = new SessionTrashJournal
             { Entry = entry, Manifest = new() { Session = session, Segments = segments } };
@@ -166,6 +205,14 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
                 try
                 {
                     var journal = await ReadAsync<SessionTrashJournal>(journalPath, cancellationToken);
+                    var settings = await settingsStore.GetAsync(cancellationToken);
+                    var purgeAt = TrashRetentionPolicy.GetPurgeAtUtc(journal.Entry, settings);
+                    if (journal.Entry.PurgeAtUtc != purgeAt)
+                    {
+                        journal.Entry.PurgeAtUtc = purgeAt;
+                        await PersistAsync(journal, cancellationToken);
+                    }
+
                     if (journal.Entry.State is "Restoring" or "Restored")
                     {
                         await CompleteRestoreAsync(journal, cancellationToken);
@@ -190,8 +237,66 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
             }
         }
 
+        var retentionSettings = await settingsStore.GetAsync(cancellationToken);
+        if (retentionSettings.RecordingRetentionDays > 0)
+        {
+            var deadline = DateTime.UtcNow.AddDays(-retentionSettings.RecordingRetentionDays);
+            var expired = await context.Collection<BroadcastSession>("sessions")
+                .Find(Builders<BroadcastSession>.Filter.Where(x => !x.IsTrashed && !x.IsHidden && x.ProjectionReady &&
+                           x.EndedAtUtc != null && x.EndedAtUtc <= deadline &&
+                           (x.RetentionStartedAtUtc == null || x.RetentionStartedAtUtc <= deadline)) &
+                      Builders<BroadcastSession>.Filter.Ne(x => x.IsPermanent, true))
+                .ToListAsync(cancellationToken);
+            foreach (var session in expired)
+            {
+                try
+                {
+                    await TrashCoreAsync(session.Id, "", true, cancellationToken);
+                }
+                catch (InfrastructureException error) when (error.StatusCode is 409 or 410)
+                {
+                }
+            }
+        }
+
         await CollectHiddenSourcesAsync(cancellationToken);
         await CollectRetiredSourcesAsync(cancellationToken);
+    }
+
+    private async Task SynchronizeRetentionAsync(BroadcastSession session, CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(ResolveDirectory(session.DirectoryPath), "场次.json");
+        var persisted = await SessionManifestFiles.ReadSessionAsync(path, cancellationToken);
+        if (persisted is null)
+        {
+            return;
+        }
+
+        if (persisted.Id != session.Id)
+        {
+            throw new InvalidDataException("Session manifest identity does not match the recording.");
+        }
+
+        if (session.IsPermanent == persisted.IsPermanent &&
+            session.RetentionStartedAtUtc == persisted.RetentionStartedAtUtc)
+        {
+            return;
+        }
+
+        session.IsPermanent = persisted.IsPermanent;
+        session.RetentionStartedAtUtc = persisted.RetentionStartedAtUtc;
+        await context.Collection<BroadcastSession>("sessions").UpdateOneAsync(x => x.Id == session.Id,
+            Builders<BroadcastSession>.Update.Set(x => x.IsPermanent, session.IsPermanent)
+                .Set(x => x.RetentionStartedAtUtc, session.RetentionStartedAtUtc),
+            cancellationToken: cancellationToken);
+    }
+
+    private static bool IsExpired(BroadcastSession session, ServerSettings settings, DateTime now)
+    {
+        return settings.RecordingRetentionDays > 0 && !session.IsTrashed && !session.IsHidden &&
+               session.ProjectionReady && !session.IsPermanent && session.EndedAtUtc is { } endedAt &&
+               endedAt <= now.AddDays(-settings.RecordingRetentionDays) &&
+               (session.RetentionStartedAtUtc ?? endedAt) <= now.AddDays(-settings.RecordingRetentionDays);
     }
 
     /// <summary>启动重建只扫描正式录播目录，不把回收目录和操作日志作为新录播导入。</summary>
@@ -254,7 +359,7 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
 
         journal.Manifest.Session.IsTrashed = true;
         var actual = entry.RetainedInPlace || Directory.Exists(source) ? source : destination;
-        await SaveManifestAsync(journal.Manifest, actual, cancellationToken);
+        await SaveManifestAsync(journal.Manifest, actual, true, cancellationToken);
         if (!entry.RetainedInPlace && Directory.Exists(source))
         {
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
@@ -289,6 +394,11 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
             }
         }
 
+        if (entry.State != "Restoring" || journal.Manifest.Session.RetentionStartedAtUtc is null)
+        {
+            journal.Manifest.Session.RetentionStartedAtUtc = DateTime.UtcNow;
+        }
+
         entry.State = "Restoring";
         await PersistAsync(journal, cancellationToken);
         if (!entry.RetainedInPlace && Directory.Exists(source))
@@ -298,7 +408,7 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
         }
 
         journal.Manifest.Session.IsTrashed = false;
-        await SaveManifestAsync(journal.Manifest, destination, cancellationToken);
+        await SaveManifestAsync(journal.Manifest, destination, false, cancellationToken);
         entry.State = "Restored";
         await PersistAsync(journal, cancellationToken);
         await FinishAsync(journal, cancellationToken);
@@ -541,10 +651,11 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
         }
     }
 
-    private async Task SaveManifestAsync(SessionManifest manifest, string directory,
+    private async Task SaveManifestAsync(SessionManifest manifest, string directory, bool preserveRetention,
         CancellationToken cancellationToken)
     {
-        await JsonFiles.WriteAsync(Path.Combine(directory, "场次.json"), manifest, cancellationToken);
+        await SessionManifestFiles.WriteAsync(Path.Combine(directory, "场次.json"), manifest, preserveRetention,
+            cancellationToken);
         await context.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == manifest.Session.Id,
             manifest.Session,
             new ReplaceOptions { IsUpsert = true }, cancellationToken);

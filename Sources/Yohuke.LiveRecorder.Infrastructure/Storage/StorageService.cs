@@ -107,9 +107,9 @@ public sealed class StorageService(IMongoContext context, ISettingsStore setting
                 EntityId = clip.Id,
                 Title = clip.Title,
                 OriginalRelativePath = clip.RelativePath,
-                Bytes = clip.Bytes,
-                PurgeAtUtc = DateTime.UtcNow.AddDays(settings.TrashRetentionDays)
+                Bytes = clip.Bytes
             };
+            entry.PurgeAtUtc = TrashRetentionPolicy.GetPurgeAtUtc(entry, settings);
             entry.TrashRelativePath = Path.Combine(".trash", entry.Id, Path.GetFileName(clip.RelativePath));
             await context.Collection<TrashEntry>("trash").InsertOneAsync(entry, cancellationToken: cancellationToken);
             await CompleteMoveAsync(entry, cancellationToken);
@@ -138,10 +138,33 @@ public sealed class StorageService(IMongoContext context, ISettingsStore setting
     }
 
     /// <summary>只删除当前回收路径；已恢复或正在恢复的条目不会再次移动原文件。</summary>
-    public async Task PurgeAsync(TrashEntry entry, CancellationToken cancellationToken = default)
+    public Task PurgeAsync(TrashEntry entry, CancellationToken cancellationToken = default)
+    {
+        return PurgeCoreAsync(entry, false, cancellationToken);
+    }
+
+    private async Task PurgeCoreAsync(TrashEntry entry, bool expiredOnly, CancellationToken cancellationToken)
     {
         await OperateEntryAsync(entry.Id, async current =>
         {
+            if (expiredOnly && current.State != "Purging")
+            {
+                var purgeAt = TrashRetentionPolicy.GetPurgeAtUtc(current,
+                    await settingsStore.GetAsync(cancellationToken));
+                if (current.PurgeAtUtc != purgeAt)
+                {
+                    await context.Collection<TrashEntry>("trash").UpdateOneAsync(x => x.Id == current.Id,
+                        Builders<TrashEntry>.Update.Set(x => x.PurgeAtUtc, purgeAt),
+                        cancellationToken: cancellationToken);
+                    current.PurgeAtUtc = purgeAt;
+                }
+
+                if (purgeAt is null || purgeAt > DateTime.UtcNow)
+                {
+                    return;
+                }
+            }
+
             if (current.State == "Restoring")
             {
                 await CompleteRestoreAsync(current, await settingsStore.GetAsync(cancellationToken), cancellationToken);
@@ -207,12 +230,13 @@ public sealed class StorageService(IMongoContext context, ISettingsStore setting
             {
             }
         }
-        var purge = await context.Collection<TrashEntry>("trash").Find(x => x.Kind == "Clip" && x.PurgeAtUtc <= DateTime.UtcNow).ToListAsync(cancellationToken);
+        var purge = await context.Collection<TrashEntry>("trash").Find(x => x.Kind == "Clip")
+            .ToListAsync(cancellationToken);
         foreach (var entry in purge)
         {
             try
             {
-                await PurgeAsync(entry, cancellationToken);
+                await PurgeCoreAsync(entry, true, cancellationToken);
             }
             catch (InfrastructureException error) when (error.StatusCode is 409 or 410)
             {

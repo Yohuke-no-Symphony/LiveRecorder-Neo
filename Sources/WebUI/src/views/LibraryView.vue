@@ -9,7 +9,7 @@
     <div class="streamer-grid mb-10"><StreamerCard v-for="streamer in visibleStreamers" :key="streamer.id" :streamer="streamer" /></div>
   </template>
   <h2 class="section-heading">{{ searchQuery ? t('views.library.results') : t('views.library.recent') }}</h2>
-  <SessionLibrary :sessions="sessions" :streamer-names="streamerNames" :allow-selection="false" @removed="removeSessions" />
+  <SessionLibrary :sessions="sessions" :streamer-names="streamerNames" :allow-selection="false" @removed="removeSessions" @retention-changed="updateSessionRetention" />
   <LoadMoreButton :has-more="hasMore" :loading="loadingMore" @load="loadMore" />
   <EmptyState v-if="!sessions.length && !loading" :title="searchQuery ? t('views.common.noMatchingRecordings') : t('views.common.noRecordings')">
     <v-btn v-if="auth.isAdmin && !searchQuery" color="primary" to="/admin/targets" prepend-icon="mdi-plus">{{ t('views.library.addRecording') }}</v-btn>
@@ -39,7 +39,7 @@ const search = ref<string | null>('')
 const searchQuery = ref('')
 const streamers = ref<Streamer[]>([])
 const { error, run } = useAction()
-const { sessions, loading, loadingMore, hasMore, error: sessionError, loadMore, removeSessions } = useSessionPages(() => ({ search: searchQuery.value }))
+const { sessions, loading, loadingMore, hasMore, error: sessionError, loadMore, removeSessions, updateSessionRetention } = useSessionPages(() => ({ search: searchQuery.value }))
 const streamerNames = computed(() => Object.fromEntries(streamers.value.map(streamer => [streamer.id, streamer.name])))
 const visibleStreamers = computed(() => streamers.value.filter(streamer => !searchQuery.value || streamer.name.toLowerCase().includes(searchQuery.value.toLowerCase()) || String(streamer.roomId).includes(searchQuery.value)))
 let searchTimer: ReturnType<typeof setTimeout> | undefined

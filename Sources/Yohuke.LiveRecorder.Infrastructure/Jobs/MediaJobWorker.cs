@@ -297,7 +297,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
                     throw new InfrastructureException(MessageCode.JOB_ACTIVE_REVISION_INCOMPLETE, 409);
                 }
                 await RequireLeaseAsync(job, cancellationToken);
-                await JsonFiles.WriteAsync(Path.Combine(sessionDirectory, "场次.json"), new SessionManifest { Session = session, Segments = published }, cancellationToken);
+                await SessionManifestFiles.WriteAsync(Path.Combine(sessionDirectory, "场次.json"), new SessionManifest { Session = session, Segments = published }, cancellationToken);
                 return;
             }
             if (session.MediaRevision != job.SourceRevision)
@@ -355,7 +355,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
             session.MediaRevisionJobId = job.Id;
             session.MediaRevisionAttempt = manifest.Attempt;
             await RequireLeaseAsync(job, cancellationToken);
-            await JsonFiles.WriteAsync(Path.Combine(sessionDirectory, "场次.json"), new SessionManifest { Session = session, Segments = next }, cancellationToken);
+            await SessionManifestFiles.WriteAsync(Path.Combine(sessionDirectory, "场次.json"), new SessionManifest { Session = session, Segments = next }, cancellationToken);
         }
     }
 
