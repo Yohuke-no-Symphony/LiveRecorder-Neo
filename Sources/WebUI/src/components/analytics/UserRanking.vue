@@ -10,7 +10,7 @@
       <tbody>
         <tr v-for="(user, index) in users" :key="user.userId">
           <td class="mono text-caption muted">{{ formatNumber(index + 1) }}</td>
-          <td class="py-3 text-body-2">{{ user.userName || t('views.analytics.guest') }}</td>
+          <td class="py-3 text-body-2"><AnalyticsUserIdentity :user-id="user.userId" :user-name="user.userName" /></td>
           <td class="ranking-value mono text-caption text-end">{{ formatValue(user[metric]) }}</td>
           <td class="mono text-caption text-end">{{ formatMoney(user.paidAmount) }}</td>
         </tr>
@@ -27,6 +27,7 @@ import type { Analytics } from '@/models/media'
 import { formatMoney, formatNumber } from '@/utilities/format'
 import EmptyState from '@/components/common/EmptyState.vue'
 import CardHeader from '@/components/common/CardHeader.vue'
+import AnalyticsUserIdentity from '@/components/analytics/AnalyticsUserIdentity.vue'
 
 const METRICS = ['danmuCount', 'superChatAmount', 'superChatCount', 'giftAmount', 'giftQuantity', 'guardAmount', 'guardQuantity', 'redPocketAmount', 'redPocketCount'] as const
 const props = defineProps<{ rankings: Analytics['userRankings'] }>()

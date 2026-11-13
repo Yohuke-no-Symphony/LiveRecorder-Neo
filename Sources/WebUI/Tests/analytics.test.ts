@@ -40,6 +40,7 @@ function report(): Analytics
     activeUsers: 2, payingUsers: 1, danmuUsers: 1, danmuCount: 2, giftCount: 3, superChatCount: 1, guardCount: 1, redPocketCount: 1, coverageGaps: 0,
     categories: [{ kind: 'SuperChat', amount: 1, count: 1, quantity: 1, users: 1 }, { kind: 'Gift', amount: 0.001, count: 3, quantity: 5, users: 1 }, { kind: 'Guard', amount: 0, count: 1, quantity: 1, users: 1 }],
     topUsers: [first], userRankings: { danmuCount: [first], superChatAmount: [], superChatCount: [], giftAmount: [first], giftQuantity: [first], guardAmount: [], guardQuantity: [], redPocketAmount: [], redPocketCount: [] }, buckets: [],
+    translations: { count: 0, users: 0, topUsers: [], buckets: [] },
   }
 }
 function deferred<T>()
@@ -119,6 +120,55 @@ describe('分析流水与分类', () =>
     expect(wrapper.get('.ranking-value').text()).toBe('未知')
     expect(wrapper.text()).toContain('不计入总流水')
   })
+
+  it('排行榜头像和姓名链接到同一B站主页，保留完整UID并在图片失败后保留链接', async () =>
+  {
+    const data = report()
+    const viewer = user('9223372036854775807', '用户甲')
+    data.userRankings.danmuCount = [viewer]
+    const wrapper = mount(UserRanking, { props: { rankings: data.userRankings }, global: { plugins: [i18n], stubs } })
+    mounted.push(wrapper)
+    const link = wrapper.get('tbody a')
+    expect(link.attributes('href')).toBe('https://space.bilibili.com/9223372036854775807')
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.attributes('rel')?.split(' ')).toEqual(expect.arrayContaining(['noopener', 'noreferrer']))
+    expect(link.get('.analytics-user-name').text()).toBe(viewer.userName)
+    expect(link.attributes('title')).toBe(viewer.userName)
+    const avatar = link.get('img')
+    expect(new URL(avatar.attributes('src')!).pathname).toBe('/api/audience/9223372036854775807/avatar')
+    expect(avatar.attributes('loading')).toBe('lazy')
+    await avatar.trigger('error')
+    expect(link.find('img').exists()).toBe(false)
+    expect(link.get('.avatar-initial').text()).toBe('用')
+    expect(link.get('.analytics-user-name').text()).toBe(viewer.userName)
+    expect(link.attributes('href')).toBe('https://space.bilibili.com/9223372036854775807')
+  })
+
+  it.each(['', '0', '-1', '00123', 'unknown', '9223372036854775808', '123/avatar', 'javascript:alert(1)'])('无有效UID %s时保留姓名与占位头像，不生成链接或图片请求', id =>
+  {
+    const data = report()
+    data.userRankings.danmuCount = [user(id, '访客甲')]
+    const wrapper = mount(UserRanking, { props: { rankings: data.userRankings }, global: { plugins: [i18n], stubs } })
+    mounted.push(wrapper)
+    expect(wrapper.get('tbody').text()).toContain('访客甲')
+    expect(wrapper.get('tbody .avatar-initial').text()).toBe('访')
+    expect(wrapper.find('tbody a').exists()).toBe(false)
+    expect(wrapper.find('tbody img').exists()).toBe(false)
+  })
+
+  it('切换排行榜指标后同步头像和用户主页', async () =>
+  {
+    const data = report()
+    data.userRankings.danmuCount = [user('123456', '用户甲')]
+    data.userRankings.giftAmount = [user('654321', '用户乙')]
+    const wrapper = mount(UserRanking, { props: { rankings: data.userRankings }, global: { plugins: [i18n], stubs } })
+    mounted.push(wrapper)
+    await wrapper.get('tbody img').trigger('error')
+    await wrapper.get('select').setValue('giftAmount')
+    expect(wrapper.get('tbody a').attributes('href')).toBe('https://space.bilibili.com/654321')
+    expect(new URL(wrapper.get('tbody img').attributes('src')!).pathname).toBe('/api/audience/654321/avatar')
+    expect(wrapper.get('.analytics-user-name').text()).toBe('用户乙')
+  })
 })
 
 describe('指定录播分析导航', () =>
@@ -179,6 +229,81 @@ describe('指定录播分析导航', () =>
     expect(router.currentRoute.value.query.at).toBeUndefined()
     expect(wrapper.get('[role="tooltip"]').text()).toContain('01:00')
     expect(wrapper.get('[role="tooltip"]').text()).toContain('弹幕')
+  })
+})
+
+describe('独立同传统计', () =>
+{
+  it('同传板块展示完整总量与人数、个人条数和主页，不混入普通弹幕统计', async () =>
+  {
+    analytics.mockResolvedValue({ ...report(), translations: {
+      count: 130, users: 101, topUsers: [{ userId: '123456', userName: '同传者甲', count: 12 }, ...Array.from({ length: 99 }, (_, index) => ({ userId: String(200000 + index), userName: `同传者${index + 2}`, count: 1 }))],
+      buckets: [{ offsetMs: 0, count: 80 }, { offsetMs: 60000, count: 50 }],
+    } })
+    const { wrapper } = await mountView()
+    expect(wrapper.get('.analytics-filter-note').text()).toContain('已剔除同传弹幕')
+    expect(wrapper.get('[data-stat="danmuCount"] .stat-value').text()).toBe('2')
+    expect(wrapper.get('[data-stat="activeUsers"] .stat-value').text()).toBe('2')
+    const section = wrapper.get('.translation-analytics')
+    expect(section.get('[data-stat="translationCount"] .stat-value').text()).toBe('130')
+    expect(section.get('[data-stat="translationUsers"] .stat-value').text()).toBe('101')
+    expect(section.get('.translation-ranking').text()).toContain('前 100 名')
+    expect(section.findAll('tbody tr')).toHaveLength(100)
+    expect(section.get('tbody a').attributes('href')).toBe('https://space.bilibili.com/123456')
+    expect(new URL(section.get('tbody img').attributes('src')!).pathname).toBe('/api/audience/123456/avatar')
+    expect(section.get('.translation-user-count').text()).toBe('12')
+    expect(section.findAll('th').map(header => header.text())).toEqual(['排名', '用户', '同传条数'])
+    expect(section.get('svg').attributes('aria-label')).toBe('同传量')
+    expect(section.find('[data-metric]').exists()).toBe(false)
+    await section.findAll('.chart-bucket')[1]!.trigger('focus')
+    expect(section.get('[role="tooltip"]').text()).toContain('01:00')
+    expect(section.get('.chart-tooltip-value').text()).toBe('50')
+    expect(wrapper.get('.user-ranking').text()).not.toContain('同传者甲')
+  })
+
+  it('仅有同传时仍可查看统计，普通榜和同传榜使用各自的空态', async () =>
+  {
+    const data = report()
+    data.activeUsers = 0
+    data.danmuCount = 0
+    data.userRankings.danmuCount = []
+    data.translations = { count: 3, users: 1, topUsers: [{ userId: '123456', userName: '同传者甲', count: 3 }], buckets: [{ offsetMs: 0, count: 3 }] }
+    analytics.mockResolvedValue(data)
+    const { wrapper } = await mountView()
+    expect(wrapper.get('.user-ranking').text()).toContain('暂无活跃用户数据')
+    expect(wrapper.find('.translation-analytics svg').exists()).toBe(true)
+    expect(wrapper.get('.translation-ranking').text()).toContain('同传者甲')
+    analytics.mockResolvedValue(report())
+    const { wrapper: empty } = await mountView()
+    expect(empty.get('.translation-analytics').text()).toContain('暂无同传弹幕')
+    expect(empty.get('.translation-ranking').text()).toContain('暂无同传者数据')
+    expect(empty.find('.translation-analytics svg').exists()).toBe(false)
+  })
+
+  it('同传量图表复用键盘与悬停选择，零时长仍完整展示最后一分钟且不显示金额', async () =>
+  {
+    const wrapper = mount(ActivityChart, { props: { mode: 'translations', buckets: [{ offsetMs: 60000, count: 9 }], durationMs: 0 }, global: { plugins: [i18n], stubs } })
+    mounted.push(wrapper)
+    expect(wrapper.get('svg').attributes('aria-label')).toBe('同传量')
+    expect(wrapper.text()).toContain('02:00')
+    expect(wrapper.get('.chart-max').text()).toBe('9')
+    const bucket = wrapper.get('.chart-bucket')
+    await bucket.trigger('mouseenter')
+    expect(wrapper.get('.chart-tooltip-value').text()).toBe('9')
+    await bucket.trigger('mouseleave')
+    expect(wrapper.find('[role="tooltip"]').exists()).toBe(false)
+    await bucket.trigger('keydown', { key: 'Enter' })
+    expect(bucket.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[role="tooltip"]').text()).toContain('同传条数')
+    await bucket.trigger('keydown', { key: 'Escape' })
+    expect(wrapper.find('[role="tooltip"]').exists()).toBe(false)
+    await bucket.trigger('focus')
+    await wrapper.setProps({ buckets: [{ offsetMs: 60000, count: 11 }] })
+    expect(wrapper.find('[role="tooltip"]').exists()).toBe(false)
+    await wrapper.get('.chart-bucket').trigger('focus')
+    expect(wrapper.get('.chart-tooltip-value').text()).toBe('11')
+    expect(wrapper.text()).not.toContain('¥')
+    expect(wrapper.emitted('seek')).toBeUndefined()
   })
 })
 

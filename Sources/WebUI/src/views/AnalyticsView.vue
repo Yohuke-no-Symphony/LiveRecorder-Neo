@@ -7,6 +7,7 @@
   <v-alert v-if="error || sessionError || streamerError" type="error" class="mb-6">{{ error || sessionError || streamerError }}</v-alert>
   <v-progress-linear v-if="busy" indeterminate color="primary" class="mb-6" />
   <template v-if="analytics && selectedId">
+    <p class="analytics-filter-note text-caption muted mb-6">{{ t('views.analytics.translationsExcluded') }}</p>
     <div class="analytics-stats summary-grid mb-6">
       <v-card v-for="stat in stats" :key="stat.key" class="card-content" :data-stat="stat.key">
         <div class="stat-heading d-flex align-center ga-2">
@@ -29,6 +30,7 @@
       </ContentCard>
     </div>
     <UserRanking :key="selectedId" :rankings="analytics.userRankings" />
+    <TranslationAnalytics :key="selectedId" :report="analytics.translations" :duration-ms="durationMs" class="mt-6" />
   </template>
   <EmptyState v-else-if="!busy && !sessionLoading && !selectedId" :title="t('views.analytics.empty')" icon="mdi-chart-timeline-variant" />
 </template>
@@ -48,6 +50,7 @@ import ActivityChart from '@/components/analytics/ActivityChart.vue'
 import CategoryRevenueCard from '@/components/analytics/CategoryRevenueCard.vue'
 import RevenueComposition from '@/components/analytics/RevenueComposition.vue'
 import UserRanking from '@/components/analytics/UserRanking.vue'
+import TranslationAnalytics from '@/components/analytics/TranslationAnalytics.vue'
 
 const { t } = useI18n()
 const route = useRoute()

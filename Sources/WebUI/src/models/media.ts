@@ -204,6 +204,28 @@ export interface Analytics
   userRankings: Record<string, AnalyticsUser[]>
   categories: { kind: 'SuperChat' | 'Gift' | 'Guard'; amount: number; count: number; quantity: number; users: number }[]
   buckets: AnalyticsBucket[]
+  translations: TranslationAnalytics
+}
+
+export interface TranslationAnalytics
+{
+  count: number
+  users: number
+  topUsers: TranslationAnalyticsUser[]
+  buckets: TranslationAnalyticsBucket[]
+}
+
+export interface TranslationAnalyticsUser
+{
+  userId: string
+  userName: string
+  count: number
+}
+
+export interface TranslationAnalyticsBucket
+{
+  offsetMs: number
+  count: number
 }
 
 export interface AnalyticsUser

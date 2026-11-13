@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using Yohuke.LiveRecorder.Application.Library;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Library;
@@ -16,43 +18,52 @@ public sealed class AnalyticsService(EventArchiveReader reader)
     public Task<AnalyticsReport> GetAsync(BroadcastSession session, string storageRoot,
         CancellationToken cancellationToken = default)
     {
-        return GetSessionAsync(session, storageRoot, null, cancellationToken);
+        return GetSessionAsync(session, storageRoot, null, null, cancellationToken);
     }
 
     /// <summary>按统一播放终点排除已结束场次的尾部互动，再计算金融去重和用户统计。</summary>
     public Task<AnalyticsReport> GetAsync(BroadcastSession session, string storageRoot, double playbackEndMs,
         CancellationToken cancellationToken = default)
     {
-        return GetSessionAsync(session, storageRoot, playbackEndMs, cancellationToken);
+        return GetSessionAsync(session, storageRoot, playbackEndMs, null, cancellationToken);
+    }
+
+    /// <summary>按有效同传正文规则分流统计，并沿用播放边界及金融去重基线。</summary>
+    public Task<AnalyticsReport> GetAsync(BroadcastSession session, string storageRoot, double playbackEndMs,
+        string translationPattern, CancellationToken cancellationToken = default)
+    {
+        return GetSessionAsync(session, storageRoot, playbackEndMs, TranslationDanmuPattern.Create(translationPattern), cancellationToken);
     }
 
     private Task<AnalyticsReport> GetSessionAsync(BroadcastSession session, string storageRoot, double? playbackEndMs,
-        CancellationToken cancellationToken)
+        Regex? translationPattern, CancellationToken cancellationToken)
     {
         var sources = SessionGroupingService.Sources(session, playbackEndMs).Select(source =>
             (Path: Path.Combine(MediaPaths.Resolve(storageRoot, source.DirectoryPath), "弹幕", "事件.jsonl"),
                 Offset: source.StartOffsetMs, From: source.FromMs, To: source.ToMs)).ToList();
         var output = Path.Combine(MediaPaths.Resolve(storageRoot, session.DirectoryPath), "分析", "summary.json");
-        return ReadAsync(sources, output, cancellationToken);
+        return ReadAsync(sources, output, translationPattern, cancellationToken);
     }
 
     /// <summary>读取完整场次文件统计，文件增长时最多每三十秒重建一次。</summary>
     public Task<AnalyticsReport> GetAsync(string sessionDirectory, CancellationToken cancellationToken = default)
     {
         return ReadAsync([(Path.Combine(sessionDirectory, "弹幕", "事件.jsonl"), 0d, 0d, null)],
-            Path.Combine(sessionDirectory, "分析", "summary.json"), cancellationToken);
+            Path.Combine(sessionDirectory, "分析", "summary.json"), null, cancellationToken);
     }
 
     private async Task<AnalyticsReport> ReadAsync(
         IReadOnlyList<(string Path, double Offset, double From, double? To)> sources, string output,
-        CancellationToken cancellationToken)
+        Regex? translationPattern, CancellationToken cancellationToken)
     {
         await gate.WaitAsync(cancellationToken);
         try
         {
-            var identity = Hash(JsonSerializer.Serialize(
-                sources.Select(source => new { source.Path, source.Offset, source.From, source.To }),
-                JsonFiles.Options));
+            var identity = Hash(JsonSerializer.Serialize(new
+            {
+                Sources = sources.Select(source => new { source.Path, source.Offset, source.From, source.To }),
+                TranslationPattern = translationPattern?.ToString()
+            }, JsonFiles.Options));
             var files = sources.Select(source => new FileInfo(source.Path)).ToArray();
             var length = files.Where(file => file.Exists).Sum(file => file.Length);
             var fingerprint = Hash(JsonSerializer.Serialize(files.Select(file => new
@@ -92,7 +103,7 @@ public sealed class AnalyticsService(EventArchiveReader reader)
                     }
 
                     item.OffsetMs += source.Offset;
-                    accumulator.Add(item);
+                    accumulator.Add(item, item.Kind == "Danmu" && translationPattern?.IsMatch(item.Text) == true);
                 }
             }
 

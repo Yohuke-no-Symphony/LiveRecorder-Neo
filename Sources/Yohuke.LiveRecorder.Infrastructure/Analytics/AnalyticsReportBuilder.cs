@@ -2,8 +2,8 @@ namespace Yohuke.LiveRecorder.Infrastructure.Analytics;
 
 internal sealed class AnalyticsReportBuilder
 {
-    private const int RANKING_LIMIT = 100;
     private readonly AnalyticsReport report = new();
+    private readonly TranslationAnalyticsReportBuilder translations = new();
     private readonly Dictionary<string, AnalyticsUser> users = new(StringComparer.Ordinal);
     private readonly Dictionary<long, AnalyticsBucketAccumulator> buckets = new();
     private readonly HashSet<string> unknownRedPocketUsers = new(StringComparer.Ordinal);
@@ -62,7 +62,7 @@ internal sealed class AnalyticsReportBuilder
         report.PayingUsers = users.Values.Count(user => user.PaidAmount > 0);
         report.Categories = categories.Values.ToList();
         report.TopUsers = users.Values.OrderByDescending(user => user.Messages).ThenByDescending(user => user.PaidAmount)
-            .ThenBy(user => user.UserId, StringComparer.Ordinal).Take(RANKING_LIMIT).ToList();
+            .ThenBy(user => user.UserId, StringComparer.Ordinal).Take(AnalyticsReport.USER_RANKING_LIMIT).ToList();
         report.UserRankings = new(StringComparer.Ordinal)
         {
             ["danmuCount"] = Rank(user => user.DanmuCount),
@@ -76,11 +76,17 @@ internal sealed class AnalyticsReportBuilder
             ["redPocketCount"] = Rank(user => user.RedPocketCount)
         };
         report.Buckets = buckets.OrderBy(pair => pair.Key).Select(pair => pair.Value.Value).ToList();
+        report.Translations = translations.Build();
         return report;
     }
 
     private void AddInteraction(AnalyticsInteractionObservation interaction)
     {
+        if (interaction.IsTranslation)
+        {
+            translations.Add(interaction);
+            return;
+        }
         var bucket = Bucket(interaction.BucketKey);
         bucket.Value.Messages++;
         var user = User(interaction.UserId, interaction.UserName);
@@ -244,5 +250,5 @@ internal sealed class AnalyticsReportBuilder
 
     private List<AnalyticsUser> Rank(Func<AnalyticsUser, decimal?> metric) => users.Values.Where(user => metric(user) is > 0)
         .OrderByDescending(metric).ThenByDescending(user => user.PaidAmount).ThenByDescending(user => user.Messages)
-        .ThenBy(user => user.UserId, StringComparer.Ordinal).Take(RANKING_LIMIT).ToList();
+        .ThenBy(user => user.UserId, StringComparer.Ordinal).Take(AnalyticsReport.USER_RANKING_LIMIT).ToList();
 }

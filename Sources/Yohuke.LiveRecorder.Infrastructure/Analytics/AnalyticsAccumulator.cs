@@ -18,8 +18,8 @@ public sealed class AnalyticsAccumulator
     private int coverageGaps;
     private long anonymous;
 
-    /// <summary>累计事件互动；相同身份的价格补齐仍可更新金额，而不重复增加互动数。</summary>
-    public void Add(RecordedEventEnvelope item)
+    /// <summary>累计去重后的互动并独立标记同传弹幕；相同身份的价格补齐仍可更新金额。</summary>
+    public void Add(RecordedEventEnvelope item, bool isTranslation = false)
     {
         if (!double.IsFinite(item.OffsetMs))
         {
@@ -38,7 +38,7 @@ public sealed class AnalyticsAccumulator
         {
             return;
         }
-        CountInteraction(item);
+        CountInteraction(item, isTranslation && item.Kind == "Danmu");
         switch (item.Kind)
         {
             case "Gift":
@@ -72,7 +72,7 @@ public sealed class AnalyticsAccumulator
         }
     }
 
-    private void CountInteraction(RecordedEventEnvelope item)
+    private void CountInteraction(RecordedEventEnvelope item, bool isTranslation)
     {
         var key = InteractionKey(item);
         if (item.Kind == "RedPocket" && baselineRedPockets.Contains(key))
@@ -85,6 +85,7 @@ public sealed class AnalyticsAccumulator
             interaction = new() { Kind = item.Kind, BucketKey = Bucket(item) };
             interactions.Add(key, interaction);
         }
+        interaction.IsTranslation |= isTranslation;
         if (ValidUser(item.UserId))
         {
             interaction.UserId = item.UserId;

@@ -9,12 +9,24 @@ export interface ArchivedEmoticonToken extends EmoticonToken
 
 export function audienceAvatarUrl(value: unknown): string | undefined
 {
+  const userId = audienceUserId(value)
+  return userId ? getServerUrl(`/api/audience/${userId}/avatar`) : undefined
+}
+
+export function audienceProfileUrl(value: unknown): string | undefined
+{
+  const userId = audienceUserId(value)
+  return userId ? `https://space.bilibili.com/${userId}` : undefined
+}
+
+function audienceUserId(value: unknown): string | undefined
+{
   const userId = typeof value === 'string' ? value : typeof value === 'number' && Number.isSafeInteger(value) ? String(value) : ''
   if (userId.length > 19 || !/^[1-9]\d*$/.test(userId) || BigInt(userId) > 9223372036854775807n)
   {
     return undefined
   }
-  return getServerUrl(`/api/audience/${userId}/avatar`)
+  return userId
 }
 
 export function eventAvatarSources(sessionId: string, event: RecordedEvent): string[]

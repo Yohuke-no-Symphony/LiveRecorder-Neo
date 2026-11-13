@@ -1,13 +1,13 @@
 <template>
   <div class="activity-chart">
-    <CardHeader class="pa-0 mb-3" :title="t('views.analytics.activityTitle')">
+    <CardHeader class="pa-0 mb-3" :title="chartTitle">
       <template #suffix><span class="text-caption muted">{{ t('views.analytics.perMinute') }}</span></template>
-      <template #actions><div class="chart-metrics" role="group" :aria-label="t('views.analytics.activityTitle')">
-        <v-btn v-for="option in metricOptions" :key="option.value" :data-metric="option.value" :aria-pressed="metric === option.value" :variant="metric === option.value ? 'tonal' : 'text'" :color="metric === option.value ? 'primary' : undefined" size="small" @click="metric = option.value">{{ option.title }}</v-btn>
+      <template v-if="mode !== 'translations'" #actions><div class="chart-metrics" role="group" :aria-label="chartTitle">
+        <v-btn v-for="option in metricOptions" :key="option.value" :data-metric="option.value" :aria-pressed="metric === option.value" :variant="metric === option.value ? 'tonal' : 'text'" :color="metric === option.value ? 'primary' : undefined" size="small" @click="selectedMetric = option.value">{{ option.title }}</v-btn>
       </div></template>
     </CardHeader>
     <div class="chart-legend mb-7"><span v-for="item in series" :key="item.field"><i :style="{ background: `rgb(var(--v-theme-${item.color}))` }" />{{ item.label }}</span></div>
-    <div v-if="!groups.length" class="empty-state py-10">{{ t('components.chart.empty') }}</div>
+    <div v-if="!groups.length" class="empty-state py-10">{{ t(mode === 'translations' ? 'views.analytics.noTranslations' : 'components.chart.empty') }}</div>
     <template v-else>
       <div :id="tooltipId" class="chart-tooltip mb-5" :class="{ 'is-inactive': !activeGroup }" :role="activeGroup ? 'tooltip' : undefined" :aria-hidden="!activeGroup" :style="{ '--chart-value-width': tooltipValueWidth }">
         <div class="chart-tooltip-time mono">{{ activeGroup ? formatDuration(activeGroup.offsetMs) : '—' }}</div>
@@ -39,12 +39,12 @@
 <script setup lang="ts">
 import { computed, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { Analytics } from '@/models/media'
+import type { Analytics, TranslationAnalyticsBucket } from '@/models/media'
 import { formatDuration, formatMoney, formatNumber } from '@/utilities/format'
 import CardHeader from '@/components/common/CardHeader.vue'
 
 type ChartMetric = 'danmu' | 'users' | 'revenue' | 'cumulative'
-type BucketField = 'danmuCount' | 'activeUsers' | 'danmuUsers' | 'superChatAmount' | 'giftAmount' | 'guardAmount' | 'paidAmount'
+type BucketField = 'danmuCount' | 'activeUsers' | 'danmuUsers' | 'superChatAmount' | 'giftAmount' | 'guardAmount' | 'paidAmount' | 'count'
 interface ChartSeries
 {
   field: BucketField
@@ -60,8 +60,10 @@ interface ChartGroup
 
 const BUCKET_WIDTH_MS = 60000
 const { t } = useI18n()
-const props = defineProps<{ buckets: Analytics['buckets']; durationMs: number }>()
-const metric = ref<ChartMetric>('danmu')
+const props = withDefaults(defineProps<{ buckets: Analytics['buckets'] | TranslationAnalyticsBucket[]; durationMs: number; mode?: 'interactions' | 'translations' }>(), { mode: 'interactions' })
+const selectedMetric = ref<ChartMetric>('danmu')
+const metric = computed(() => props.mode === 'translations' ? 'translations' : selectedMetric.value)
+const chartTitle = computed(() => t(props.mode === 'translations' ? 'views.analytics.translationVolume' : 'views.analytics.activityTitle'))
 const tooltipId = useId()
 const previewOffset = ref<number>()
 const selectedOffset = ref<number>()
@@ -71,10 +73,14 @@ const metricOptions = computed(() => [
   { value: 'revenue' as const, title: t('views.analytics.chartRevenue') },
   { value: 'cumulative' as const, title: t('views.analytics.chartCumulative') },
 ])
-const selectedTitle = computed(() => metricOptions.value.find(option => option.value === metric.value)!.title)
+const selectedTitle = computed(() => metric.value === 'translations' ? chartTitle.value : metricOptions.value.find(option => option.value === metric.value)!.title)
 const monetary = computed(() => metric.value === 'revenue' || metric.value === 'cumulative')
 const series = computed<ChartSeries[]>(() =>
 {
+  if (metric.value === 'translations')
+  {
+    return [{ field: 'count', label: t('views.analytics.translationCount'), color: 'info' }]
+  }
   if (metric.value === 'revenue')
   {
     return [
@@ -98,8 +104,9 @@ const groups = computed<ChartGroup[]>(() =>
   let cumulative = 0
   return orderedBuckets.value.map(bucket =>
   {
-    cumulative += bucket.paidAmount
-    return { offsetMs: bucket.offsetMs, values: series.value.map(item => bucket[item.field]), cumulative }
+    const values: Partial<Record<BucketField, number>> = bucket
+    cumulative += values.paidAmount ?? 0
+    return { offsetMs: bucket.offsetMs, values: series.value.map(item => values[item.field] ?? 0), cumulative }
   })
 })
 const maximum = computed(() => groups.value.reduce((maximum, group) => Math.max(maximum, metric.value === 'cumulative' ? group.cumulative : metric.value === 'revenue' ? group.values.reduce((sum, value) => sum + value, 0) : Math.max(...group.values)), 0))

@@ -1,9 +1,12 @@
+using System.Text.Json.Serialization;
+
 namespace Yohuke.LiveRecorder.Infrastructure.Analytics;
 
 /// <summary>从文件计算的协议支付与金币面值观察，不代表用户实际花费或主播结算收入。</summary>
 public sealed class AnalyticsReport
 {
-    public const int CURRENT_SCHEMA_VERSION = 4;
+    public const int CURRENT_SCHEMA_VERSION = 5;
+    internal const int USER_RANKING_LIMIT = 100;
     public int SchemaVersion { get; set; }
     public long SourceBytes { get; set; }
     public string SourceIdentity { get; set; } = "";
@@ -32,4 +35,6 @@ public sealed class AnalyticsReport
     public Dictionary<string, List<AnalyticsUser>> UserRankings { get; set; } = new(StringComparer.Ordinal);
     public List<AnalyticsCategorySummary> Categories { get; set; } = [];
     public List<AnalyticsBucket> Buckets { get; set; } = [];
+    [JsonRequired]
+    public TranslationAnalyticsReport Translations { get; set; } = new();
 }

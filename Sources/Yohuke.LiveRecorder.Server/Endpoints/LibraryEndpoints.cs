@@ -130,12 +130,22 @@ public static class LibraryEndpoints
                 throw new InfrastructureException(MessageCode.TRANSLATION_DANMU_PATTERN_TIMEOUT);
             }
         });
-        viewing.MapGet("/sessions/{id}/analytics", async (string id, LibraryService library, IAppPaths paths, AnalyticsService analytics, CancellationToken ct) =>
+        viewing.MapGet("/sessions/{id}/analytics", async (string id, HttpContext http, LibraryService library, IAppPaths paths, AnalyticsService analytics, IIdentityService identity, ISettingsStore settingsStore, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
-            var report = await analytics.GetAsync(detail.Session, paths.RecordsDirectory, detail.DurationMs, ct);
-            report.CoverageGaps = Math.Max(report.CoverageGaps, detail.Gaps.Count);
-            return Results.Ok(report);
+            var user = await identity.GetUserAsync(Owner(http), ct)
+                ?? throw new InfrastructureException(MessageCode.AUTH_USER_NOT_FOUND, 404);
+            var pattern = user.TranslationDanmuPattern ?? (await settingsStore.GetAsync(ct)).TranslationDanmuPattern;
+            try
+            {
+                var report = await analytics.GetAsync(detail.Session, paths.RecordsDirectory, detail.DurationMs, pattern, ct);
+                report.CoverageGaps = Math.Max(report.CoverageGaps, detail.Gaps.Count);
+                return Results.Ok(report);
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                throw new InfrastructureException(MessageCode.TRANSLATION_DANMU_PATTERN_TIMEOUT);
+            }
         }).RequireAuthorization(UserPermissionNames.VIEW_ANALYTICS);
         viewing.MapGet("/playback/{key}/{generation}/{fileName}", async (string key, string generation, string fileName, PlaybackService playback, CancellationToken ct) =>
         {
