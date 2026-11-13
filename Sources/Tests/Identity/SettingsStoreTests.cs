@@ -19,6 +19,7 @@ public sealed class SettingsStoreTests
 
         Assert.Equal(5, settings.StreamDisconnectTimeoutMinutes);
         Assert.Equal(10, settings.SessionGraceMinutes);
+        Assert.Equal(".*?【.*?】", settings.TranslationDanmuPattern);
     }
 
     [Fact]
@@ -88,16 +89,19 @@ public sealed class SettingsStoreTests
             var context = new MongoContext(bootstrap);
             var store = new SettingsStore(startup, bootstrap, context, paths);
             Assert.Equal(PermissionCatalog.Defaults, (await store.GetAsync()).DefaultUserPermissions);
-            var input = new ServerSettings { Quality = 400, StreamDisconnectTimeoutMinutes = 17 };
+            var input = new ServerSettings { Quality = 400, StreamDisconnectTimeoutMinutes = 17, TranslationDanmuPattern = "^翻译：" };
             input.Smtp.Password = protector.Protect("local-settings-secret");
             await store.SaveAsync(input);
             input.Quality = 250;
             input.StreamDisconnectTimeoutMinutes = 1;
+            input.TranslationDanmuPattern = "^未保存：";
             var snapshot = await store.GetAsync();
             Assert.Equal(400, snapshot.Quality);
             Assert.Equal(17, snapshot.StreamDisconnectTimeoutMinutes);
+            Assert.Equal("^翻译：", snapshot.TranslationDanmuPattern);
             snapshot.Quality = 80;
             snapshot.StreamDisconnectTimeoutMinutes = 3;
+            snapshot.TranslationDanmuPattern = "^快照：";
             snapshot.Smtp.Password = "unsaved";
 
             var reloaded = await new SettingsStore(new StartupConfigurationStore(startup.ConfigFile), bootstrap, context, paths).GetAsync();
@@ -106,6 +110,7 @@ public sealed class SettingsStoreTests
             Assert.Equal(400, reloaded.Quality);
             Assert.Equal(17, (await store.GetAsync()).StreamDisconnectTimeoutMinutes);
             Assert.Equal(17, reloaded.StreamDisconnectTimeoutMinutes);
+            Assert.Equal("^翻译：", reloaded.TranslationDanmuPattern);
             Assert.Equal("local-settings-secret", protector.Unprotect(reloaded.Smtp.Password));
             var persisted = await File.ReadAllTextAsync(startup.ConfigFile);
             Assert.DoesNotContain("local-settings-secret", persisted);

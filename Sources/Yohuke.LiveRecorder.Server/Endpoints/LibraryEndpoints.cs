@@ -6,6 +6,7 @@ using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Application.Bilibili;
+using Yohuke.LiveRecorder.Application.Library;
 using Yohuke.LiveRecorder.Application.Media;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Analytics;
@@ -102,16 +103,32 @@ public static class LibraryEndpoints
             return await ImageAsync(session.CoverUrl, artwork, ct);
         });
         viewing.MapPost("/sessions/{id}/playback", async (string id, PlaybackRequest request, PlaybackService playback, CancellationToken ct) => Results.Ok(await playback.OpenAsync(id, request.OffsetMs, ct)));
-        viewing.MapGet("/sessions/{id}/events", async (string id, double? fromMs, double? toMs, string? kind, long? cursor, int? limit, LibraryService library, IAppPaths paths, SessionEventReader reader, CancellationToken ct) =>
+        viewing.MapGet("/sessions/{id}/events", async (string id, double? fromMs, double? toMs, string? kind, long? cursor, int? limit, bool? translationsOnly, HttpContext http, LibraryService library, IAppPaths paths, SessionEventReader reader, IIdentityService identity, ISettingsStore settingsStore, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
             var from = fromMs ?? 0;
-            var until = toMs ?? from + 60000;
+            var until = toMs ?? (translationsOnly == true ? detail.DurationMs : from + 60000);
             if (!double.IsFinite(from) || !double.IsFinite(until) || from < 0 || until < from)
             {
                 throw new InfrastructureException(MessageCode.LIBRARY_EVENT_RANGE_INVALID);
             }
-            return Results.Ok(LocalizedState.ForResponse(await reader.ReadAsync(detail, paths.RecordsDirectory, from, Math.Min(until, detail.DurationMs), kind, cursor, limit ?? 300, ct)));
+            Regex? textPattern = null;
+            if (translationsOnly == true)
+            {
+                var user = await identity.GetUserAsync(Owner(http), ct)
+                    ?? throw new InfrastructureException(MessageCode.AUTH_USER_NOT_FOUND, 404);
+                var pattern = user.TranslationDanmuPattern ?? (await settingsStore.GetAsync(ct)).TranslationDanmuPattern;
+                textPattern = TranslationDanmuPattern.Create(pattern);
+                kind = "Danmu";
+            }
+            try
+            {
+                return Results.Ok(LocalizedState.ForResponse(await reader.ReadAsync(detail, paths.RecordsDirectory, from, Math.Min(until, detail.DurationMs), kind, cursor, limit ?? 300, textPattern, ct)));
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                throw new InfrastructureException(MessageCode.TRANSLATION_DANMU_PATTERN_TIMEOUT);
+            }
         });
         viewing.MapGet("/sessions/{id}/analytics", async (string id, LibraryService library, IAppPaths paths, AnalyticsService analytics, CancellationToken ct) =>
         {

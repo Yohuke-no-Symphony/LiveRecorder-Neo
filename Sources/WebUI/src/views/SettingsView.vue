@@ -11,6 +11,12 @@
           <p class="text-body-2 muted">{{ t('shell.settings.defaultLanguageDescription') }}</p>
         </div>
       </ContentCard>
+      <ContentCard :title="t('shell.settings.playbackPreview')">
+        <div class="form-stack">
+          <v-text-field v-model="settings.translationDanmuPattern" :label="t('shell.settings.translationDanmuPattern')" :hint="t('shell.settings.translationDanmuPatternHint')" persistent-hint :disabled="saving" spellcheck="false" autocomplete="off" />
+          <p class="text-body-2 muted">{{ t('shell.settings.translationDanmuPatternDescription') }}</p>
+        </div>
+      </ContentCard>
       <ContentCard :title="t('components.dataDirectories.title')">
         <DataDirectorySettings v-if="paths" :paths="paths" @saved="paths = $event" />
       </ContentCard>

@@ -18,7 +18,6 @@
       </div>
     </div>
     <div v-else-if="!loading" class="event-empty"><v-icon icon="mdi-comment-text-outline" size="28" /><span>{{ enabled ? t('components.events.empty') : t('components.events.notRecorded') }}</span></div>
-    <div class="feed-footer mono">{{ formatDuration(offsetMs, true) }}<span>{{ t('components.events.count', { count: formatNumber(visibleEvents.length) }) }}</span></div>
   </v-card>
 </template>
 
@@ -29,7 +28,6 @@ import { MediaAPI } from '@/apis/MediaAPI'
 import { usePolling } from '@/composables/usePolling'
 import { usePlaybackEvents } from '@/composables/usePlaybackEvents'
 import type { EventKind, RecordedEvent } from '@/models/media'
-import { formatDuration, formatNumber } from '@/utilities/format'
 import EventMessageRow from '@/components/events/EventMessageRow.vue'
 import CardHeader from '@/components/common/CardHeader.vue'
 
@@ -298,11 +296,10 @@ onBeforeUnmount(() =>
 
 <style scoped>
 .event-panel { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-.feed-heading, .feed-tabs, .feed-footer { flex-shrink: 0; }
+.feed-heading, .feed-tabs { flex-shrink: 0; }
 .feed-tabs :deep(.v-slide-group__content) { gap: 4px; }.feed-tabs :deep(.v-chip) { font-size: .7rem; margin-inline: 0; }
 .event-scroll { flex: 1; min-height: 0; position: relative; overflow-y: auto; overscroll-behavior-y: contain; }
 .event-scroll.is-following { overflow-anchor: none; }
 .event-list { min-height: 100%; }.event-row { padding: 13px 16px; border-bottom: 1px solid rgba(var(--v-theme-on-surface), .045); }
 .event-empty { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 15px; align-items: center; justify-content: center; font-size: .8rem; color: rgba(var(--v-theme-on-surface), .3); }
-.feed-footer { display: flex; justify-content: space-between; padding: 12px 18px; font-size: .65rem; color: rgba(var(--v-theme-on-surface), .32); border-top: 1px solid rgba(var(--v-theme-on-surface), .06); }
 </style>

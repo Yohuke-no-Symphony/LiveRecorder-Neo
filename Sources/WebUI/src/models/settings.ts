@@ -34,6 +34,7 @@ export interface OAuthProviderSettings
 export interface ServerSettings
 {
   defaultLanguage: AppLanguage
+  translationDanmuPattern: string
   id: string
   timeZone: string
   quality: number

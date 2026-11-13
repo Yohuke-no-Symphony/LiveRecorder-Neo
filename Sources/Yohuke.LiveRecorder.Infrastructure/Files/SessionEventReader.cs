@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Yohuke.LiveRecorder.Application.Library;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Library;
@@ -12,17 +13,29 @@ public sealed class SessionEventReader(EventArchiveReader reader)
     /// <summary>将来源文件序号投影为稳定的场次游标。</summary>
     public Task<EventPage> ReadAsync(BroadcastSession session, string storageRoot, double fromMs, double toMs, string? kind, long? cursor, int limit, CancellationToken cancellationToken = default)
     {
-        return ReadCoreAsync(session, storageRoot, fromMs, toMs, kind, cursor, limit, null, cancellationToken);
+        return ReadAsync(session, storageRoot, fromMs, toMs, kind, cursor, limit, null, cancellationToken);
+    }
+
+    /// <summary>筛选各来源的正文并投影为稳定的场次游标。</summary>
+    public Task<EventPage> ReadAsync(BroadcastSession session, string storageRoot, double fromMs, double toMs, string? kind, long? cursor, int limit, Regex? textPattern, CancellationToken cancellationToken = default)
+    {
+        return ReadCoreAsync(session, storageRoot, fromMs, toMs, kind, cursor, limit, null, textPattern, cancellationToken);
     }
 
     /// <summary>按有效播放终点读取事件，在原始来源坐标上排除已结束场次的尾部。</summary>
     public Task<EventPage> ReadAsync(SessionDetail detail, string storageRoot, double fromMs, double toMs, string? kind, long? cursor, int limit, CancellationToken cancellationToken = default)
     {
-        var playbackEnd = detail.Session.EndedAtUtc is null ? (double?)null : detail.DurationMs;
-        return ReadCoreAsync(detail.Session, storageRoot, fromMs, toMs, kind, cursor, limit, playbackEnd, cancellationToken);
+        return ReadAsync(detail, storageRoot, fromMs, toMs, kind, cursor, limit, null, cancellationToken);
     }
 
-    private async Task<EventPage> ReadCoreAsync(BroadcastSession session, string storageRoot, double fromMs, double toMs, string? kind, long? cursor, int limit, double? playbackEndMs, CancellationToken cancellationToken)
+    /// <summary>筛选正文并按有效播放终点排除各来源的尾部。</summary>
+    public Task<EventPage> ReadAsync(SessionDetail detail, string storageRoot, double fromMs, double toMs, string? kind, long? cursor, int limit, Regex? textPattern, CancellationToken cancellationToken = default)
+    {
+        var playbackEnd = detail.Session.EndedAtUtc is null ? (double?)null : detail.DurationMs;
+        return ReadCoreAsync(detail.Session, storageRoot, fromMs, toMs, kind, cursor, limit, playbackEnd, textPattern, cancellationToken);
+    }
+
+    private async Task<EventPage> ReadCoreAsync(BroadcastSession session, string storageRoot, double fromMs, double toMs, string? kind, long? cursor, int limit, double? playbackEndMs, Regex? textPattern, CancellationToken cancellationToken)
     {
         if (playbackEndMs is { } playbackEnd)
         {
@@ -34,7 +47,7 @@ public sealed class SessionEventReader(EventArchiveReader reader)
         }
         if (session.EventSources.Count == 0)
         {
-            return await reader.ReadAsync(Path.Combine(MediaPaths.Resolve(storageRoot, session.DirectoryPath), "弹幕"), fromMs, toMs, kind, cursor, limit, cancellationToken);
+            return await reader.ReadAsync(Path.Combine(MediaPaths.Resolve(storageRoot, session.DirectoryPath), "弹幕"), fromMs, toMs, kind, cursor, limit, textPattern, cancellationToken);
         }
         limit = Math.Clamp(limit, 1, 1000);
         var items = new List<RecordedEventEnvelope>();
@@ -54,7 +67,7 @@ public sealed class SessionEventReader(EventArchiveReader reader)
                 continue;
             }
             var localCursor = cursor > prefix ? cursor - prefix : null;
-            var page = await reader.ReadAsync(Path.Combine(MediaPaths.Resolve(storageRoot, source.DirectoryPath), "弹幕"), from, until, kind, localCursor, limit + 1 - items.Count, cancellationToken);
+            var page = await reader.ReadAsync(Path.Combine(MediaPaths.Resolve(storageRoot, source.DirectoryPath), "弹幕"), from, until, kind, localCursor, limit + 1 - items.Count, textPattern, cancellationToken);
             foreach (var item in page.Items)
             {
                 item.OffsetMs += source.StartOffsetMs;

@@ -9,6 +9,7 @@ public sealed class ServerSettings : Entity
     }
 
     public string DefaultLanguage { get; set; } = Localization.SupportedLanguages.DEFAULT;
+    public string TranslationDanmuPattern { get; set; } = ".*?【.*?】";
     public string TimeZone { get; set; } = "Asia/Shanghai";
     public int Quality { get; set; } = 10000;
     public bool RecordDanmu { get; set; } = true;

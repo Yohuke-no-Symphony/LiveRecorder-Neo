@@ -93,6 +93,15 @@ export const useAuthStore = defineStore('auth', () =>
     user.value = await AuthAPI.setLanguage(language)
   }
 
+  async function setTranslationDanmuPattern(pattern: string | null): Promise<void>
+  {
+    const updated = await AuthAPI.setTranslationDanmuPattern(pattern)
+    if (user.value?.id === updated.id)
+    {
+      user.value = updated
+    }
+  }
+
   async function logout(): Promise<void>
   {
     await AuthAPI.logout()
@@ -101,5 +110,5 @@ export const useAuthStore = defineStore('auth', () =>
     await refresh()
   }
 
-  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canViewAnalytics, canPurgeRecordings, canViewRecordings, canDownloadRecordings, canCreateClips, canUploadLiveMarkers, canManageLiveMarkers, permissionDefinitions, hasPermission, homePath, bootstrap, refresh, login, logout, setLanguage }
+  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canViewAnalytics, canPurgeRecordings, canViewRecordings, canDownloadRecordings, canCreateClips, canUploadLiveMarkers, canManageLiveMarkers, permissionDefinitions, hasPermission, homePath, bootstrap, refresh, login, logout, setLanguage, setTranslationDanmuPattern }
 })

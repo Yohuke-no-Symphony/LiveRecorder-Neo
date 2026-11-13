@@ -59,6 +59,8 @@
   <data name="SETUP_MEDIA_TOOL_NOT_FOUND" xml:space="preserve"><value>実行可能な FFmpeg/ffprobe が見つかりません。パスを確認してください。</value></data>
   <data name="SETTINGS_STORAGE_PATH_LOCKED" xml:space="preserve"><value>録画が存在する場合、保存先のルートディレクトリは変更できません。</value></data>
   <data name="SETTINGS_INVALID" xml:space="preserve"><value>設定値が無効です。</value></data>
+  <data name="TRANSLATION_DANMU_PATTERN_INVALID" xml:space="preserve"><value>同時通訳の正規表現を 1～2048 文字で正しく入力してください。空白のみの指定はできません。</value></data>
+  <data name="TRANSLATION_DANMU_PATTERN_TIMEOUT" xml:space="preserve"><value>同時通訳の正規表現の照合がタイムアウトしました。式を簡略化して再試行してください。</value></data>
   <data name="SETTINGS_TIME_ZONE_INVALID" xml:space="preserve"><value>タイムゾーンが無効です。</value></data>
   <data name="SETTINGS_OAUTH_DUPLICATE_ID" xml:space="preserve"><value>OAuth プロバイダーの識別子が重複しています。</value></data>
   <data name="SETTINGS_OAUTH_ENDPOINT_INVALID" xml:space="preserve"><value>OAuth のエンドポイントまたは識別子が無効です。</value></data>

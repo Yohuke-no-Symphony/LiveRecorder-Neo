@@ -34,6 +34,7 @@ export interface UserProfile
   status: 'Active' | 'Pending' | 'Rejected' | 'Disabled'
   avatarUrl?: string | null
   language?: AppLanguage | null
+  translationDanmuPattern?: string | null
 }
 
 export interface UserSession

@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Identity;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
+using Yohuke.LiveRecorder.Application.Library;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Domain.Localization;
 using Yohuke.LiveRecorder.Application.Localization;
@@ -58,6 +59,20 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         }
         var user = await Users.FindOneAndUpdateAsync(x => x.Id == id && x.Status == "Active",
             Builders<UserAccount>.Update.Set(x => x.Language, request.Language).Set(x => x.UpdatedAtUtc, DateTime.UtcNow),
+            new FindOneAndUpdateOptions<UserAccount> { ReturnDocument = ReturnDocument.After }, cancellationToken)
+            ?? throw new InfrastructureException(MessageCode.AUTH_USER_NOT_FOUND, 404);
+        return Profile(user);
+    }
+
+    /// <inheritdoc />
+    public async Task<UserProfile> SetTranslationDanmuPatternAsync(string id, TranslationDanmuPatternRequest request, CancellationToken cancellationToken = default)
+    {
+        if (request.Pattern is not null)
+        {
+            TranslationDanmuPattern.Create(request.Pattern);
+        }
+        var user = await Users.FindOneAndUpdateAsync(x => x.Id == id && x.Status == "Active",
+            Builders<UserAccount>.Update.Set(x => x.TranslationDanmuPattern, request.Pattern).Set(x => x.UpdatedAtUtc, DateTime.UtcNow),
             new FindOneAndUpdateOptions<UserAccount> { ReturnDocument = ReturnDocument.After }, cancellationToken)
             ?? throw new InfrastructureException(MessageCode.AUTH_USER_NOT_FOUND, 404);
         return Profile(user);
@@ -564,6 +579,7 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
     private static string ExternalId(string provider, string subject) => IdentityToken.Hash($"{provider}\n{subject}");
     private static UserProfile Profile(UserAccount user) => new(user.Id, user.Email, user.DisplayName, user.AvatarUrl, user.Role, user.Status, user.Language)
     {
+        TranslationDanmuPattern = user.TranslationDanmuPattern,
         Permissions = user.Role == "Admin"
             ? PermissionCatalog.All
             : user.Permissions

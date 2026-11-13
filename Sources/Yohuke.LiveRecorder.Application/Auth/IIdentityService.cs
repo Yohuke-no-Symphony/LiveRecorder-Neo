@@ -11,6 +11,8 @@ public interface IIdentityService
     Task<UserProfile?> GetUserAsync(string id, CancellationToken cancellationToken = default);
     /// <summary>更新当前用户的界面语言，空值表示跟随全局默认。</summary>
     Task<UserProfile> SetLanguageAsync(string id, LanguagePreferenceRequest request, CancellationToken cancellationToken = default);
+    /// <summary>更新当前用户的同传正则，空值表示跟随全局默认。</summary>
+    Task<UserProfile> SetTranslationDanmuPatternAsync(string id, TranslationDanmuPatternRequest request, CancellationToken cancellationToken = default);
     /// <summary>重验 Cookie 身份，仅返回当前仍有效的用户与角色。</summary>
     Task<UserProfile?> ValidateSessionAsync(string id, CancellationToken cancellationToken = default);
     /// <summary>列出网站用户。</summary>

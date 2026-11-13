@@ -47,7 +47,7 @@ let pinia: Pinia
 function settings(checkCertificateRevocation: boolean): ServerSettings
 {
   const value = {
-    id: 'server', defaultLanguage: 'zh-CN' as const, storagePath: '/srv/recordings', timeZone: 'Asia/Shanghai', quality: 10000,
+    id: 'server', defaultLanguage: 'zh-CN' as const, translationDanmuPattern: '.*?【.*?】', storagePath: '/srv/recordings', timeZone: 'Asia/Shanghai', quality: 10000,
     recordDanmu: true, segmentBytes: 1024 ** 3, recordingRetentionDays: 0, clipRetentionDays: 7, trashRetentionDays: 7,
     cacheLimitBytes: 1024 ** 3, cacheRetentionMinutes: 30, minimumFreeBytes: 1024 ** 3,
     mediaConcurrency: 2, playbackConcurrency: 2, monitorIntervalSeconds: 15, sessionGraceMinutes: 5,

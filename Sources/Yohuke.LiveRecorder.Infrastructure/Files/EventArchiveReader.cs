@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Yohuke.LiveRecorder.Domain;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Files;
@@ -11,7 +12,13 @@ public sealed class EventArchiveReader
     private const int BUFFER_BYTES = 65536;
 
     /// <summary>按归档顺序分页读取时间范围，索引损坏时补建完整记录的索引。</summary>
-    public async Task<EventPage> ReadAsync(string directory, double fromMs, double toMs, string? kind, long? cursor, int limit, CancellationToken cancellationToken = default)
+    public Task<EventPage> ReadAsync(string directory, double fromMs, double toMs, string? kind, long? cursor, int limit, CancellationToken cancellationToken = default)
+    {
+        return ReadAsync(directory, fromMs, toMs, kind, cursor, limit, null, cancellationToken);
+    }
+
+    /// <summary>在分页计数前应用正文正则，保持归档游标及完整事件内容。</summary>
+    public async Task<EventPage> ReadAsync(string directory, double fromMs, double toMs, string? kind, long? cursor, int limit, Regex? textPattern, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var path = Path.Combine(directory, "事件.jsonl");
@@ -60,7 +67,8 @@ public sealed class EventArchiveReader
             {
                 if (DeserializeEvent(line.Bytes) is not { } item ||
                     item.OffsetMs < fromMs || item.OffsetMs > toMs || item.Sequence <= (cursor ?? 0) ||
-                    !string.IsNullOrEmpty(kind) && !string.Equals(kind, "All", StringComparison.OrdinalIgnoreCase) && !string.Equals(item.Kind, kind, StringComparison.OrdinalIgnoreCase))
+                    !string.IsNullOrEmpty(kind) && !string.Equals(kind, "All", StringComparison.OrdinalIgnoreCase) && !string.Equals(item.Kind, kind, StringComparison.OrdinalIgnoreCase) ||
+                    textPattern is not null && !textPattern.IsMatch(item.Text))
                 {
                     continue;
                 }

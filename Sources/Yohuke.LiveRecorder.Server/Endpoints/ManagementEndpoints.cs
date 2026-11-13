@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
+using Yohuke.LiveRecorder.Application.Library;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Domain.Localization;
 using Yohuke.LiveRecorder.Application.Localization;
@@ -119,6 +120,8 @@ public static class ManagementEndpoints
 
     private static void Validate(ServerSettings settings)
     {
+        TranslationDanmuPattern.Create(settings.TranslationDanmuPattern);
+
         if (settings.StreamDisconnectTimeoutMinutes is < 1 or > 1440)
         {
             throw new InfrastructureException(MessageCode.SETTINGS_INVALID);

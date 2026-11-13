@@ -9,6 +9,9 @@ export const shellZh = {
   account: {
     title: '账户设置', language: '界面语言', languageDescription: '语言偏好会保存在账户中，并在其他设备登录时生效。',
     loginMethods: '登录方式', bound: '已绑定', bind: '绑定', noProviders: '暂无外部登录方式', languageSaved: '语言设置已保存',
+    translationSettings: '同传设置', inheritTranslationPattern: '跟随全局默认', translationDanmuPattern: '个人同传正则',
+    translationPatternPlaceholder: '输入个人同传正则',
+    saveTranslation: '保存同传设置', translationSaved: '同传设置已保存',
   },
   permissions: {
     title: '权限',
@@ -45,6 +48,9 @@ export const shellZh = {
     invalidRetention: '自动删除周期必须是 0 至 3650 的整数天数',
     title: '设置', save: '保存设置', general: '常规', interface: '界面设置',
     defaultLanguageDescription: '全局默认语言适用于未选择个人语言的用户和首次访问网站的访客。',
+    playbackPreview: '播放预览', translationDanmuPattern: '默认同传正则',
+    translationDanmuPatternHint: '使用 .NET 正则表达式匹配弹幕正文；不需要添加 / 分隔符。',
+    translationDanmuPatternDescription: '播放预览的“同传”页显示匹配的弹幕。此规则适用于未设置个人规则的用户。',
     recording: '录制', media: '媒体与存储', registration: '注册', mail: '邮件', oauth: 'OAuth 登录', recordingSettings: '录制设置',
     quality: '清晰度', recordDanmu: '录制弹幕', segmentSize: '文件分段大小（GiB）', monitorInterval: '开播检测间隔（秒）', sessionGrace: '同场重连等待（分钟）',
     streamDisconnectTimeout: '断流后结束录制（分钟）',
@@ -76,6 +82,9 @@ export const shellEn: MessageSchema<typeof shellZh> = {
   account: {
     title: 'Account settings', language: 'Interface language', languageDescription: 'Your language preference is saved to your account and applies when you sign in on other devices.',
     loginMethods: 'Sign-in methods', bound: 'Linked', bind: 'Link', noProviders: 'No external sign-in methods available', languageSaved: 'Language preference saved',
+    translationSettings: 'Translation settings', inheritTranslationPattern: 'Use global default', translationDanmuPattern: 'Personal translation pattern',
+    translationPatternPlaceholder: 'Enter a personal translation pattern',
+    saveTranslation: 'Save translation settings', translationSaved: 'Translation settings saved',
   },
   permissions: {
     title: 'Permissions',
@@ -112,6 +121,9 @@ export const shellEn: MessageSchema<typeof shellZh> = {
     invalidRetention: 'Automatic deletion periods must be whole numbers from 0 to 3650 days',
     title: 'Settings', save: 'Save settings', general: 'General', interface: 'Interface settings',
     defaultLanguageDescription: 'The global default applies to users without a personal language preference and visitors opening the website for the first time.',
+    playbackPreview: 'Playback preview', translationDanmuPattern: 'Default translation pattern',
+    translationDanmuPatternHint: 'Match chat text with a .NET regular expression, without / delimiters.',
+    translationDanmuPatternDescription: 'The Translations tab in playback previews shows matching chat messages. This pattern applies to users without a personal pattern.',
     recording: 'Recording', media: 'Media and storage', registration: 'Registration', mail: 'Email', oauth: 'OAuth sign-in', recordingSettings: 'Recording settings',
     quality: 'Quality', recordDanmu: 'Record chat', segmentSize: 'File segment size (GiB)', monitorInterval: 'Live status check interval (seconds)', sessionGrace: 'Session reconnection window (minutes)',
     streamDisconnectTimeout: 'End recording after stream loss (minutes)',
@@ -143,6 +155,9 @@ export const shellJa: MessageSchema<typeof shellZh> = {
   account: {
     title: 'アカウント設定', language: '表示言語', languageDescription: '言語設定はアカウントに保存され、ほかの端末でログインしたときも適用されます。',
     loginMethods: 'ログイン方法', bound: '連携済み', bind: '連携', noProviders: '外部ログイン方法はありません', languageSaved: '言語設定を保存しました',
+    translationSettings: '同時通訳設定', inheritTranslationPattern: '全体の既定値を使用', translationDanmuPattern: '個人の同時通訳の正規表現',
+    translationPatternPlaceholder: '個人の同時通訳の正規表現を入力',
+    saveTranslation: '同時通訳設定を保存', translationSaved: '同時通訳設定を保存しました',
   },
   permissions: {
     title: 'アクセス権',
@@ -178,6 +193,9 @@ export const shellJa: MessageSchema<typeof shellZh> = {
     invalidRetention: '自動削除期間は 0 から 3650 までの整数で指定してください',
     title: '設定', save: '設定を保存', general: '全般', interface: '表示設定',
     defaultLanguageDescription: '全体の既定言語は、個人の言語を設定していないユーザーと、初めてサイトにアクセスする訪問者に適用されます。',
+    playbackPreview: '再生プレビュー', translationDanmuPattern: '既定の同時通訳の正規表現',
+    translationDanmuPatternHint: '.NET の正規表現でコメント本文を照合します。/ の区切り文字は不要です。',
+    translationDanmuPatternDescription: '再生プレビューの「同時通訳」タブに一致するコメントを表示します。個人設定のないユーザーに適用されます。',
     recording: '録画', media: 'メディアとストレージ', registration: '登録', mail: 'メール', oauth: 'OAuth ログイン', recordingSettings: '録画設定',
     quality: '画質', recordDanmu: 'コメントを記録', segmentSize: 'ファイル分割サイズ（GiB）', monitorInterval: '配信開始の確認間隔（秒）', sessionGrace: '同じ配信への再接続待機時間（分）',
     streamDisconnectTimeout: '配信切断後に録画を終了するまで（分）',

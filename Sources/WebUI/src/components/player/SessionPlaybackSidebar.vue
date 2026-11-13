@@ -2,9 +2,11 @@
   <v-card class="session-playback-sidebar">
     <v-tabs v-model="tab" grow density="compact" color="primary">
       <v-tab value="events">{{ t('liveMarkers.eventsTab') }}</v-tab>
+      <v-tab value="translations">{{ t('translations.tab') }}</v-tab>
       <v-tab value="markers">{{ t('liveMarkers.recordsTab') }}</v-tab>
     </v-tabs>
     <EventFeed v-show="tab === 'events'" class="sidebar-panel" :active="tab === 'events'" :session-id="sessionId" :offset-ms="offsetMs" :enabled="hasDanmu" :is-live="isLive" :navigation-revision="navigationRevision" @seek="emit('seek', $event)" />
+    <SessionTranslationPanel v-show="tab === 'translations'" class="sidebar-panel" :active="tab === 'translations'" :session-id="sessionId" :duration-ms="durationMs" :enabled="hasDanmu" :is-live="isLive" @seek="emit('seek', $event)" />
     <SessionLiveMarkerPanel v-show="tab === 'markers'" class="sidebar-panel" :active="tab === 'markers'" :session-id="sessionId" :duration-ms="durationMs" :editable="editable" @seek="emit('seek', $event)" />
   </v-card>
 </template>
@@ -14,6 +16,7 @@ import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import EventFeed from './EventFeed.vue'
 import SessionLiveMarkerPanel from './SessionLiveMarkerPanel.vue'
+import SessionTranslationPanel from './SessionTranslationPanel.vue'
 
 withDefaults(defineProps<{ sessionId: string; offsetMs: number; durationMs: number; hasDanmu: boolean; isLive: boolean; navigationRevision: number; editable?: boolean }>(), { editable: true })
 const emit = defineEmits<{ seek: [offsetMs: number] }>()
