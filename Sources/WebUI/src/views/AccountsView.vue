@@ -1,8 +1,8 @@
 <template>
   <PageHeader :title="t('views.accounts.title')"><v-btn color="primary" prepend-icon="mdi-plus" @click="openLogin">{{ t('views.accounts.add') }}</v-btn></PageHeader>
   <v-alert v-if="error" type="error" class="mb-6">{{ error }}</v-alert>
-  <div v-if="accounts.length" class="settings-grid">
-    <v-card v-for="account in accounts" :key="account.id" class="pa-6"><div class="d-flex align-center ga-4"><v-avatar size="58" color="surface-variant"><v-img :src="account.avatarUrl" /></v-avatar><div class="flex-grow-1"><h2 class="text-body-1 font-weight-medium">{{ account.userName }}</h2><div class="text-caption muted mono mt-1">UID {{ account.uid }}</div></div><v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-horizontal" size="small" variant="text" :aria-label="t('views.accounts.actions')" /></template><v-list density="compact"><v-list-item :title="t('views.accounts.remove')" prepend-icon="mdi-delete-outline" @click="selected = account" /></v-list></v-menu></div><div class="d-flex justify-space-between align-center mt-6"><StatusChip :status="account.status" /><span class="text-caption muted">{{ formatDate(account.lastValidatedAtUtc) }}</span></div></v-card>
+  <div v-if="accounts.length" class="accounts-grid">
+    <BilibiliAccountCard v-for="account in accounts" :key="account.id" :account="account" @remove="selected = $event" />
   </div>
   <EmptyState v-else-if="!busy" :title="t('views.accounts.empty')" icon="mdi-account-box-outline"><v-btn color="primary" @click="openLogin">{{ t('views.accounts.add') }}</v-btn></EmptyState>
   <v-dialog v-model="loginOpen" max-width="440" @after-leave="resetLogin"><v-card class="pa-6"><h2 class="text-h6 mb-5">{{ t('views.accounts.addBilibili') }}</h2><v-tabs v-model="loginMethod" color="primary" grow class="mb-6"><v-tab value="qr">{{ t('views.accounts.qrLogin') }}</v-tab><v-tab value="sms">{{ t('views.accounts.smsLogin') }}</v-tab></v-tabs><v-alert v-if="loginError" type="error" class="mb-5">{{ loginError }}</v-alert>
@@ -33,12 +33,11 @@ import { AuthAPI } from '@/apis/AuthAPI'
 import { useAction } from '@/composables/useAction'
 import { usePolling } from '@/composables/usePolling'
 import type { BilibiliAccount, BilibiliLoginSession, SmsChallengeAnswer } from '@/models/auth'
-import { formatDate } from '@/utilities/format'
 import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
-import StatusChip from '@/components/common/StatusChip.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import CaptchaChallenge from '@/components/accounts/CaptchaChallenge.vue'
+import BilibiliAccountCard from '@/components/accounts/BilibiliAccountCard.vue'
 
 const { t } = useI18n()
 
@@ -146,4 +145,23 @@ async function removeAccount(): Promise<void>
 onBeforeUnmount(resetLogin)
 </script>
 
-<style scoped>.qr-login { display: flex; flex-direction: column; align-items: center; min-height: 280px; }.qr-login img { border-radius: 12px; background: white; }</style>
+<style scoped>
+.accounts-grid
+{
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 20px;
+}
+.qr-login
+{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 280px;
+}
+.qr-login img
+{
+  border-radius: 12px;
+  background: white;
+}
+</style>

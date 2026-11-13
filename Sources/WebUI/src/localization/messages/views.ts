@@ -44,6 +44,7 @@ export const viewsZh = {
   },
   accounts: {
     title: 'B站账号', add: '添加账号', actions: '账号操作', remove: '移除账号', empty: '暂无B站账号', addBilibili: '添加B站账号',
+    lastValidated: '最近校验', notValidated: '尚未校验',
     qrLogin: '扫码登录', smsLogin: '短信登录', qrAlt: 'B站登录二维码', refreshQr: '刷新二维码', verifyBilibili: '完成B站验证',
     countryCode: '区号', phone: '手机号', getCode: '获取验证码', smsCode: '短信验证码', removeConfirm: '移除B站账号？',
     waiting: '使用哔哩哔哩客户端扫码', scanned: '已扫码，请在手机上确认', expired: '二维码已过期', challenge: '请完成安全验证',
@@ -110,6 +111,7 @@ export const viewsEn: MessageSchema<typeof viewsZh> = {
   },
   accounts: {
     title: 'Bilibili accounts', add: 'Add account', actions: 'Account actions', remove: 'Remove account', empty: 'No Bilibili accounts yet', addBilibili: 'Add Bilibili account',
+    lastValidated: 'Last validated', notValidated: 'Not validated yet',
     qrLogin: 'QR code', smsLogin: 'SMS', qrAlt: 'Bilibili sign-in QR code', refreshQr: 'Refresh QR code', verifyBilibili: 'Complete Bilibili verification',
     countryCode: 'Code', phone: 'Phone number', getCode: 'Get verification code', smsCode: 'SMS verification code', removeConfirm: 'Remove this Bilibili account?',
     waiting: 'Scan with the Bilibili app', scanned: 'Scanned. Confirm on your phone.', expired: 'QR code expired', challenge: 'Complete the security check',
@@ -176,6 +178,7 @@ export const viewsJa: MessageSchema<typeof viewsZh> = {
   },
   accounts: {
     title: 'Bilibili アカウント', add: 'アカウントを追加', actions: 'アカウントの操作', remove: 'アカウントを削除', empty: 'Bilibili アカウントはありません', addBilibili: 'Bilibili アカウントを追加',
+    lastValidated: '最終確認', notValidated: '未確認',
     qrLogin: 'QR コード', smsLogin: 'SMS 認証', qrAlt: 'Bilibili ログイン用 QR コード', refreshQr: 'QR コードを更新', verifyBilibili: 'Bilibili の認証を完了',
     countryCode: '国番号', phone: '電話番号', getCode: '認証コードを取得', smsCode: 'SMS 認証コード', removeConfirm: 'この Bilibili アカウントを削除しますか？',
     waiting: 'Bilibili アプリでスキャンしてください', scanned: 'スキャン済みです。スマートフォンで確認してください。', expired: 'QR コードの有効期限が切れました', challenge: 'セキュリティ認証を完了してください',

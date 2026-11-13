@@ -11,6 +11,7 @@ export const componentsZh = {
     pending: '待审核', running: '处理中', publishing: '发布中', completed: '已完成', ready: '可播放',
     failed: '失败', interrupted: '已中断', canceled: '已取消', approved: '已通过', rejected: '已拒绝',
     disabled: '已禁用', expired: '已过期', valid: '有效', invalid: '登录失效', needsLogin: '需重新登录', trashed: '回收站',
+    unavailable: '暂不可用',
   },
   storage: {
     disk: '磁盘', usedPercent: '磁盘已用 {percent}%', freeBytes: '{bytes} 空余', used: '占用 {bytes}',
@@ -69,6 +70,7 @@ export const componentsEn: MessageSchema<typeof componentsZh> = {
     pending: 'Pending approval', running: 'Processing', publishing: 'Publishing', completed: 'Completed', ready: 'Ready to play',
     failed: 'Failed', interrupted: 'Interrupted', canceled: 'Canceled', approved: 'Approved', rejected: 'Rejected',
     disabled: 'Disabled', expired: 'Expired', valid: 'Active', invalid: 'Login expired', needsLogin: 'Login required', trashed: 'Trash',
+    unavailable: 'Temporarily unavailable',
   },
   storage: {
     disk: 'Disk', usedPercent: 'Disk {percent}% used', freeBytes: '{bytes} free', used: 'Used {bytes}',
@@ -129,6 +131,7 @@ export const componentsJa: MessageSchema<typeof componentsZh> = {
     pending: '承認待ち', running: '処理中', publishing: '公開処理中', completed: '完了', ready: '再生可能',
     failed: '失敗', interrupted: '中断', canceled: 'キャンセル済み', approved: '承認済み', rejected: '却下済み',
     disabled: '無効', expired: '期限切れ', valid: '有効', invalid: 'ログイン期限切れ', needsLogin: '再ログインが必要', trashed: 'ゴミ箱',
+    unavailable: '一時的に利用不可',
   },
   storage: {
     disk: 'ディスク', usedPercent: 'ディスク使用率 {percent}%', freeBytes: '空き {bytes}', used: '使用中 {bytes}',

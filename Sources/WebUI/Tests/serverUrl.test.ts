@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getServerUrl } from '../src/apis/ServerURL'
 import { MediaAPI } from '../src/apis/MediaAPI'
+import { AuthAPI } from '../src/apis/AuthAPI'
 
 beforeEach(() =>
 {
@@ -48,5 +49,16 @@ describe('服务器地址', () =>
     expect(MediaAPI.downloadClip('clip')).toBe('http://127.0.0.1:4884/api/clips/clip/download')
     expect(MediaAPI.downloadJobOutput('job', 1)).toBe('http://127.0.0.1:4884/api/jobs/job/outputs/1')
     expect(getServerUrl('/api/playback/key/generation/index.m3u8')).toBe('http://127.0.0.1:4884/api/playback/key/generation/index.m3u8')
+  })
+
+  it('采集账号头像共用后端地址，头像更新后使用新的缓存标识', () =>
+  {
+    vi.stubEnv('DEV', true)
+    vi.stubEnv('VITE_API_BASE_URL', 'http://127.0.0.1:4884')
+    const version = 'https://i0.hdslb.com/new.jpg'
+    const url = new URL(AuthAPI.bilibiliAccountAvatar('账号/1', version))
+    expect(url.origin).toBe('http://127.0.0.1:4884')
+    expect(url.pathname).toBe('/api/admin/bilibili/accounts/%E8%B4%A6%E5%8F%B7%2F1/avatar')
+    expect(url.searchParams.get('v')).toBe(version)
   })
 })

@@ -259,6 +259,7 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
                     }
                     continue;
                 }
+                await UpdateMissingAvatarAsync(account, cancellationToken);
                 using var client = new BilibiliWebLoginClient(httpClientFactory.CreateClient("bilibili-login"), true);
                 var refreshed = await client.RefreshAsync(credentials, cancellationToken);
                 if (refreshed != credentials)
@@ -316,23 +317,17 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
         {
             throw new InfrastructureException(MessageCode.BILIBILI_IDENTITY_NOT_CONFIRMED);
         }
-        var avatar = "";
-        try
-        {
-            var card = await api.GetUserCardContainerAsync(user.Uid, cancellationToken: cancellationToken, cookie: credentials.Cookie);
-            avatar = NormalizeImage(card.Data?.Card?.Face);
-        }
-        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-        }
+        var avatar = await GetAvatarUrlAsync(user.Uid, cancellationToken);
         await accountGate.WaitAsync(cancellationToken);
         try
         {
             await Accounts.Indexes.CreateOneAsync(new CreateIndexModel<BilibiliAccount>(Builders<BilibiliAccount>.IndexKeys.Ascending(x => x.Uid), new CreateIndexOptions { Unique = true }), cancellationToken: cancellationToken);
             var account = await Accounts.Find(x => x.Uid == user.Uid).FirstOrDefaultAsync(cancellationToken) ?? new BilibiliAccount { Uid = user.Uid };
             account.UserName = user.UserName;
-            account.AvatarUrl = avatar;
+            if (!string.IsNullOrWhiteSpace(avatar))
+            {
+                account.AvatarUrl = avatar;
+            }
             account.ProtectedCredentials = protector.Protect(JsonSerializer.Serialize(credentials));
             account.Status = "Valid";
             account.LastValidatedAtUtc = DateTime.UtcNow;
@@ -344,6 +339,27 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
         {
             accountGate.Release();
         }
+    }
+
+    private async Task UpdateMissingAvatarAsync(BilibiliAccount account, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(account.AvatarUrl))
+        {
+            return;
+        }
+        var avatar = await GetAvatarUrlAsync(account.Uid, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(avatar))
+        {
+            await Accounts.UpdateOneAsync(x => x.Id == account.Id && x.AvatarUrl == account.AvatarUrl,
+                Builders<BilibiliAccount>.Update.Set(x => x.AvatarUrl, avatar), cancellationToken: cancellationToken);
+        }
+    }
+
+    private async Task<string> GetAvatarUrlAsync(long uid, CancellationToken cancellationToken)
+    {
+        using var client = httpClientFactory.CreateClient("bilibili");
+        using var source = new BilibiliUserAvatarSource(client);
+        return await source.GetAvatarUrlAsync(uid, cancellationToken);
     }
 
     private async Task<(BilibiliAccount? Account, BilibiliLoginCredentials Credentials)> GetCredentialsAsync(string? accountId, CancellationToken cancellationToken)

@@ -35,6 +35,7 @@ const definitions: Record<string, { labelKey: string; color: string; icon?: stri
   rejected: { labelKey: 'components.status.rejected', color: 'error' },
   disabled: { labelKey: 'components.status.disabled', color: 'secondary' },
   expired: { labelKey: 'components.status.expired', color: 'warning' },
+  unavailable: { labelKey: 'components.status.unavailable', color: 'warning' },
   valid: { labelKey: 'components.status.valid', color: 'success' },
   active: { labelKey: 'components.status.valid', color: 'success' },
   invalid: { labelKey: 'components.status.invalid', color: 'error' },

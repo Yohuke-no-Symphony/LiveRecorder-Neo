@@ -1,7 +1,11 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application.Bilibili;
+using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Infrastructure.Files;
+using Yohuke.LiveRecorder.Infrastructure.Persistence;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Bilibili;
 
@@ -13,6 +17,12 @@ public static class BilibiliEndpointExtensions
     {
         var group = endpoints.MapGroup("/api/admin/bilibili").RequireAuthorization(policy => policy.RequireRole("Admin"));
         group.MapGet("/accounts", async (IBilibiliService service, CancellationToken ct) => Results.Ok(await service.ListAccountsAsync(ct)));
+        group.MapGet("/accounts/{id}/avatar", async (string id, IMongoContext context, ArtworkCache artwork, CancellationToken ct) =>
+        {
+            var source = await context.Collection<BilibiliAccount>("bilibili_accounts").Find(x => x.Id == id).Project(x => x.AvatarUrl).FirstOrDefaultAsync(ct);
+            var path = string.IsNullOrWhiteSpace(source) ? null : await artwork.GetAsync(source, ct);
+            return path is null ? Results.NotFound() : Results.File(path, await File.ReadAllTextAsync(path + ".type", ct));
+        });
         group.MapDelete("/accounts/{id}", async (string id, IBilibiliService service, CancellationToken ct) =>
         {
             await service.DeleteAccountAsync(id, ct);

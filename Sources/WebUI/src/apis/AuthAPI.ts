@@ -1,4 +1,5 @@
 import { post, put, remove, request } from './APIBase'
+import { getServerUrl } from './ServerURL'
 import type { AppLanguage } from '@/localization/types'
 import type { SetupRequest, SetupStatus } from '@/models/setup'
 import type { BilibiliAccount, BilibiliLoginSession, Invitation, OAuthExchange, Registration, SmsChallengeAnswer, UserProfile, UserSession } from '@/models/auth'
@@ -25,6 +26,7 @@ export const AuthAPI = {
   createInvitation: (maxUses: number, expiresAtUtc: string | null) => post<Invitation>('admin/invitations', { maxUses, expiresAtUtc }),
   revokeInvitation: (id: string) => remove(`admin/invitations/${encodeURIComponent(id)}`),
   bilibiliAccounts: () => request<BilibiliAccount[]>('admin/bilibili/accounts'),
+  bilibiliAccountAvatar: (id: string, version: string) => getServerUrl(`/api/admin/bilibili/accounts/${encodeURIComponent(id)}/avatar?v=${encodeURIComponent(version)}`),
   deleteBilibiliAccount: (id: string) => remove(`admin/bilibili/accounts/${encodeURIComponent(id)}`),
   createQrLogin: () => post<BilibiliLoginSession>('admin/bilibili/qr'),
   pollQrLogin: (id: string) => request<BilibiliLoginSession>(`admin/bilibili/qr/${encodeURIComponent(id)}`),
