@@ -1,4 +1,3 @@
-import 'vuetify/styles'
 import '@mdi/font/css/materialdesignicons.css'
 import { createVuetify } from 'vuetify'
 import { useI18n } from 'vue-i18n'

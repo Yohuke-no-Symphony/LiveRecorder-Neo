@@ -1,7 +1,6 @@
 :root { font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; font-synthesis: none; --ui-card-padding: 16px; --ui-card-header-padding: 8px; --ui-card-title-size: 1rem; --ui-form-gap: 20px; --ui-layout-gap: 20px; }
 body { margin: 0; }
 a { color: inherit; text-decoration: none; }
-button, input, textarea, select { font: inherit; }
 .v-application { font-family: inherit !important; }
 .v-card { border: 1px solid rgba(var(--v-theme-on-surface), .07); }
 .v-field { border-radius: 12px !important; }
