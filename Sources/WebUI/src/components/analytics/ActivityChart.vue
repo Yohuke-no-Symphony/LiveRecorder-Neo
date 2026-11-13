@@ -9,6 +9,15 @@
     <div class="chart-legend mb-7"><span v-for="item in series" :key="item.field"><i :style="{ background: `rgb(var(--v-theme-${item.color}))` }" />{{ item.label }}</span></div>
     <div v-if="!groups.length" class="empty-state py-10">{{ t('components.chart.empty') }}</div>
     <template v-else>
+      <div :id="tooltipId" class="chart-tooltip mb-5" :class="{ 'is-inactive': !activeGroup }" :role="activeGroup ? 'tooltip' : undefined" :aria-hidden="!activeGroup" :style="{ '--chart-value-width': tooltipValueWidth }">
+        <div class="chart-tooltip-time mono">{{ activeGroup ? formatDuration(activeGroup.offsetMs) : '—' }}</div>
+        <dl>
+          <div v-for="row in tooltipRows" :key="row.field" class="chart-tooltip-row">
+            <dt><i :style="{ background: 'rgb(var(--v-theme-' + row.color + '))' }" />{{ row.label }}</dt>
+            <dd class="chart-tooltip-value mono">{{ row.value }}</dd>
+          </div>
+        </dl>
+      </div>
       <div class="chart-content">
         <span class="chart-max mono">{{ formatValue(maximum) }}</span>
         <svg viewBox="0 0 1000 220" role="group" :aria-label="selectedTitle" preserveAspectRatio="none" @click="clearSelection">
@@ -21,15 +30,6 @@
             <rect v-for="(value, seriesIndex) in group.values" v-else :key="series[seriesIndex]!.field" class="chart-bar" :data-series="series[seriesIndex]!.field" :x="barX(group.offsetMs, index, seriesIndex)" :y="barY(group.values, seriesIndex)" :width="metric === 'users' ? barWidth(index) / series.length : barWidth(index)" :height="value / scaleMaximum * 180" rx="1" :fill="`rgb(var(--v-theme-${series[seriesIndex]!.color}))`" />
           </g>
         </svg>
-        <div v-if="activeGroup" :id="tooltipId" class="chart-tooltip" role="tooltip" :style="tooltipStyle">
-          <div class="chart-tooltip-time mono">{{ formatDuration(activeGroup.offsetMs) }}</div>
-          <dl>
-            <div v-for="row in tooltipRows" :key="row.field" class="chart-tooltip-row">
-              <dt><i :style="{ background: 'rgb(var(--v-theme-' + row.color + '))' }" />{{ row.label }}</dt>
-              <dd class="chart-tooltip-value mono">{{ row.value }}</dd>
-            </div>
-          </dl>
-        </div>
       </div>
       <div class="d-flex justify-space-between mt-3 mono text-caption muted"><span>00:00</span><span>{{ formatDuration(chartDurationMs / 2) }}</span><span>{{ formatDuration(chartDurationMs) }}</span></div>
     </template>
@@ -37,7 +37,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, useId, watch, type CSSProperties } from 'vue'
+import { computed, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Analytics } from '@/models/media'
 import { formatDuration, formatMoney, formatNumber } from '@/utilities/format'
@@ -110,27 +110,24 @@ const activeGroup = computed(() => groups.value.find(group => group.offsetMs ===
 const tooltipRows = computed(() =>
 {
   const group = activeGroup.value
-  if (!group)
-  {
-    return []
-  }
   return series.value.map((item, index) => ({
     field: item.field,
     label: item.label,
     color: item.color,
-    value: formatValue(metric.value === 'cumulative' ? group.cumulative : group.values[index]!),
+    value: group ? formatValue(metric.value === 'cumulative' ? group.cumulative : group.values[index]!) : '—',
   }))
 })
-const tooltipStyle = computed<CSSProperties>(() =>
+const tooltipValueWidth = computed(() =>
 {
-  const group = activeGroup.value
-  if (!group)
+  const width = groups.value.reduce((width, group) =>
   {
-    return {}
-  }
-  const value = metric.value === 'cumulative' ? group.cumulative
-    : metric.value === 'revenue' ? group.values.reduce((sum, value) => sum + value, 0) : Math.max(...group.values)
-  return { '--tooltip-anchor-x': String(x(group.offsetMs) / 10) + '%', top: String(Math.max(12, Math.min(96, 180 - value / scaleMaximum.value * 180))) + 'px' }
+    if (metric.value === 'cumulative')
+    {
+      return Math.max(width, formatMoney(group.cumulative).length)
+    }
+    return group.values.reduce((maximum, value) => Math.max(maximum, formatValue(value).length), width)
+  }, 1)
+  return String(width + 1) + 'ch'
 })
 watch(() => props.buckets, clearSelection)
 
@@ -219,10 +216,12 @@ function describe(group: ChartGroup): string
 .chart-bucket:focus > rect:first-of-type { stroke: rgb(var(--v-theme-on-surface)); stroke-width: 1; }
 .chart-max { position: absolute; top: -10px; left: 0; font-size: .65rem; color: rgba(var(--v-theme-on-surface), .5); }
 .chart-crosshair { stroke: rgb(var(--v-theme-primary)); stroke-width: 1; stroke-dasharray: 4 4; opacity: .6; pointer-events: none; }
-.chart-tooltip { --tooltip-width: min(240px, calc(100% - 16px)); position: absolute; z-index: 2; left: clamp(8px, calc(var(--tooltip-anchor-x) - 120px), calc(100% - var(--tooltip-width) - 8px)); width: var(--tooltip-width); padding: 12px 14px; border: 1px solid rgba(var(--v-theme-on-surface), .14); border-radius: 8px; background: rgb(var(--v-theme-surface)); color: rgb(var(--v-theme-on-surface)); box-shadow: 0 8px 24px #0003; pointer-events: none; font-size: .75rem; }
-.chart-tooltip-time { margin-bottom: 10px; color: rgba(var(--v-theme-on-surface), .65); }
-.chart-tooltip-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 8px; }
+.chart-tooltip { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 24px; padding: 10px 12px; border: 1px solid rgba(var(--v-theme-on-surface), .14); border-radius: 8px; background: rgb(var(--v-theme-surface)); color: rgb(var(--v-theme-on-surface)); pointer-events: none; font-size: .75rem; }
+.chart-tooltip.is-inactive { visibility: hidden; }
+.chart-tooltip-time { flex: 0 0 9ch; color: rgba(var(--v-theme-on-surface), .65); }
+.chart-tooltip dl { display: flex; flex: 1 1 320px; min-width: 0; flex-wrap: wrap; gap: 8px 24px; }
+.chart-tooltip-row { display: flex; flex-wrap: wrap; max-width: 100%; align-items: center; gap: 8px 12px; }
 .chart-tooltip-row dt { display: flex; align-items: center; gap: 7px; }
 .chart-tooltip-row i { display: block; width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
-.chart-tooltip-value { margin: 0; white-space: nowrap; }
+.chart-tooltip-value { flex: 0 0 var(--chart-value-width); margin: 0; white-space: nowrap; text-align: right; }
 </style>
