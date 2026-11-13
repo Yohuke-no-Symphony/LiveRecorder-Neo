@@ -7,7 +7,7 @@ Bilibili 直播录制服务器，使用 .NET 10、MongoDB 与 Vue / Vuetify。�
 - Linux 优先；支持 Windows、macOS 原生运行。
 - MongoDB 8.x，支持单节点；使用独立数据库。
 - FFmpeg 与 ffprobe，需要 H.264/AAC 编解码能力。媒体测试已验证 FFmpeg 9.0.2。
-- 开发需要 .NET 10 SDK、Node.js 22.12+ 与 package.json 指定的 pnpm 12.9.1。
+- 开发需要 .NET 10 SDK、Node.js 22.12+ 与 pnpm。
 
 ## 开发
 
