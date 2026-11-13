@@ -9,7 +9,7 @@
     <v-divider class="my-4" />
     <h2 class="section-heading">{{ t('shell.permissions.defaults') }}</h2>
     <p class="text-body-2 muted mb-5">{{ t('shell.permissions.defaultsDescription') }}</p>
-    <UserPermissionFields v-model="settings.defaultUserPermissions" :disabled="disabled" />
+    <PermissionFields v-model="settings.defaultUserPermissions" :definitions="auth.permissionDefinitions" :disabled="disabled" />
     <v-divider class="my-4" />
     <v-btn variant="tonal" prepend-icon="mdi-account-group-outline" to="/admin/users">{{ t('shell.settings.manageUsers') }}</v-btn>
   </ContentCard>
@@ -17,11 +17,13 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import { useAuthStore } from '@/stores/auth'
 import ContentCard from '@/components/common/ContentCard.vue'
 import type { ServerSettings } from '@/models/settings'
-import UserPermissionFields from './UserPermissionFields.vue'
+import PermissionFields from './PermissionFields.vue'
 
 defineProps<{ disabled?: boolean }>()
 const settings = defineModel<ServerSettings>({ required: true })
 const { t } = useI18n()
+const auth = useAuthStore()
 </script>

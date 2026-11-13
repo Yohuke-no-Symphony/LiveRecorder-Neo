@@ -647,7 +647,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                 logger.LogWarning("档案清单 {Path} 无法读取：{Message}", path, error.Message);
             }
         }
-        await grouping.ReconcileAsync(cancellationToken);
+        await grouping.ReconcileUnderLibraryLockAsync(cancellationToken);
         var unfinished = await context.Collection<BroadcastSession>("sessions").Find(x => x.EndedAtUtc == null && !x.IsHidden).ToListAsync(cancellationToken);
         foreach (var session in unfinished)
         {

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.SignalR;
+using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
 
@@ -17,6 +18,10 @@ public sealed class SignalRStatusPublisher(IHubContext<StatusHub> hub, StatusCon
             {
                 connection.Abort();
                 connections.Remove(connection.Id);
+                continue;
+            }
+            if (ownerId is null && user.Role != "Admin" && !user.Permissions.Contains(PermissionIds.VIEW_RECORDINGS))
+            {
                 continue;
             }
             if (ownerId is null || ownerId == user.Id || user.Role == "Admin")

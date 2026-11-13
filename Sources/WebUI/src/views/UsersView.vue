@@ -14,11 +14,11 @@
   </template>
   <v-dialog v-model="createOpen" max-width="440" :aria-label="t('views.users.createInvitation')"><ContentCard :title="t('views.users.createInvitation')"><form class="form-stack" @submit.prevent="create"><v-text-field v-model.number="maxUses" :label="t('views.users.maxUses')" type="number" min="1" max="10000" required /><v-text-field v-model="expiry" :label="t('views.common.expiresAt')" type="datetime-local" /><v-alert v-if="createError" type="error">{{ createError }}</v-alert><CardActions embedded><v-btn variant="text" @click="createOpen = false">{{ t('views.common.cancel') }}</v-btn><v-btn type="submit" color="primary" :loading="createBusy">{{ t('views.users.create') }}</v-btn></CardActions></form></ContentCard></v-dialog>
   <ConfirmDialog :model-value="!!roleUser" :title="roleUser?.role === 'Admin' ? t('views.users.confirmUser') : t('views.users.confirmAdmin')" :message="roleUser?.displayName" :busy="busy" :error="error" @update:model-value="!$event && (roleUser = undefined)" @confirm="changeRole" />
-  <v-dialog :model-value="!!permissionUser" max-width="480" :persistent="permissionsBusy" :aria-label="t('shell.permissions.title')" @update:model-value="!$event && (permissionUser = undefined)">
+  <v-dialog :model-value="!!permissionUser" max-width="520" scrollable :persistent="permissionsBusy" :aria-label="t('shell.permissions.title')" @update:model-value="!$event && (permissionUser = undefined)">
     <ContentCard :title="t('shell.permissions.title')">
       <template #suffix><span class="permission-subject muted">{{ permissionUser?.displayName }}</span></template>
       <template #header-actions><v-btn icon="mdi-close" variant="text" size="small" :disabled="permissionsBusy" :aria-label="t('views.common.cancel')" @click="permissionUser = undefined" /></template>
-      <UserPermissionFields v-model="permissionDraft" :disabled="permissionsBusy" />
+      <PermissionFields v-model="permissionDraft" :definitions="auth.permissionDefinitions" :disabled="permissionsBusy" />
       <v-alert v-if="permissionsError" type="error" density="compact" class="mt-3">{{ permissionsError }}</v-alert>
       <template #actions><v-btn variant="text" :disabled="permissionsBusy" @click="permissionUser = undefined">{{ t('views.common.cancel') }}</v-btn><v-btn color="primary" :loading="permissionsBusy" @click="savePermissions">{{ t('shell.permissions.save') }}</v-btn></template>
     </ContentCard>
@@ -42,7 +42,7 @@ import UserAvatar from '@/components/common/UserAvatar.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import UserPermissionFields from '@/components/common/UserPermissionFields.vue'
+import PermissionFields from '@/components/common/PermissionFields.vue'
 
 const { t } = useI18n()
 
@@ -54,7 +54,7 @@ const search = ref('')
 const userFilter = ref('all')
 const roleUser = ref<UserProfile>()
 const permissionUser = ref<UserProfile>()
-const permissionDraft = ref<UserPermissions>({ manageRecordings: false, viewAnalytics: false, purgeRecordings: false })
+const permissionDraft = ref<UserPermissions>([])
 const { busy: permissionsBusy, error: permissionsError, run: runPermissions } = useAction()
 const createOpen = ref(false)
 const createdCode = ref('')
@@ -69,7 +69,7 @@ usePolling(async () => { await run(async () => { [users.value, invitations.value
 function editPermissions(user: UserProfile): void
 {
   permissionUser.value = user
-  permissionDraft.value = { ...user.permissions }
+  permissionDraft.value = [...user.permissions]
   permissionsError.value = ''
 }
 async function savePermissions(): Promise<void>

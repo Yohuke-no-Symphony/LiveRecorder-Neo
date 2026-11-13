@@ -11,6 +11,7 @@ public static class LegacySettingsReader
     /// <summary>读取旧设置，舍弃由新实例启动目录取代的绝对录像路径。</summary>
     public static async Task<ServerSettings?> ReadAsync(IMongoDatabase database, CancellationToken cancellationToken = default)
     {
+        MongoSerialization.EnsureInitialized();
         var document = await database.GetCollection<BsonDocument>("settings").Find(new BsonDocument("_id", "server")).FirstOrDefaultAsync(cancellationToken);
         if (document is null)
         {

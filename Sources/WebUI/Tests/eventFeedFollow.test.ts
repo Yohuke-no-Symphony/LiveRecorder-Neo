@@ -74,7 +74,68 @@ beforeEach(() =>
     return observer
   }))
 })
-afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()); vi.unstubAllGlobals(); vi.restoreAllMocks() })
+afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
+
+describe('直播消息侧栏激活状态', () =>
+{
+  it('隐藏标签不拉取消息，切回后使用当前播放位置恢复', async () =>
+  {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    eventsRequest.mockResolvedValue({ items: [event(1, 45000)], nextCursor: null })
+    const wrapper = mount(EventFeed, {
+      props: { sessionId: 's1', offsetMs: 2000, enabled: true, isLive: true, active: false },
+      global: { plugins: [i18n], stubs: { VCard: card, VVirtualScroll: virtualScroll, VBtn: true, VIcon: true, VChipGroup: true, VChip: true, VAlert: true, VProgressLinear: true } },
+    })
+    mounted.push(wrapper)
+    await flushPromises()
+    await wrapper.setProps({ offsetMs: 45000 })
+    await vi.advanceTimersByTimeAsync(20000)
+    expect(eventsRequest).not.toHaveBeenCalled()
+
+    await wrapper.setProps({ active: true })
+    await flushPromises()
+    expect(eventsRequest).toHaveBeenCalledTimes(1)
+    expect(eventsRequest.mock.calls[0]?.[1]).toMatchObject({ fromMs: 0, toMs: 75000 })
+    expect(wrapper.text()).toContain('消息1')
+  })
+
+  it('切出标签取消在途请求，迟到响应不覆盖切回后的消息', async () =>
+  {
+    let completeOld!: (value: { items: RecordedEvent[]; nextCursor: null }) => void
+    eventsRequest.mockImplementationOnce(() => new Promise(resolve => { completeOld = resolve }))
+    const wrapper = mount(EventFeed, {
+      props: { sessionId: 's1', offsetMs: 2000, enabled: true, isLive: false, active: true },
+      global: { plugins: [i18n], stubs: { VCard: card, VVirtualScroll: virtualScroll, VBtn: true, VIcon: true, VChipGroup: true, VChip: true, VAlert: true, VProgressLinear: true } },
+    })
+    mounted.push(wrapper)
+    await flushPromises()
+    const oldSignal = eventsRequest.mock.calls[0]?.[2] as AbortSignal
+    await wrapper.setProps({ active: false, offsetMs: 4000 })
+    expect(oldSignal.aborted).toBe(true)
+
+    eventsRequest.mockResolvedValueOnce({ items: [event(2, 3000)], nextCursor: null })
+    await wrapper.setProps({ active: true })
+    await flushPromises()
+    expect(wrapper.text()).toContain('消息2')
+    completeOld({ items: [event(1, 1000)], nextCursor: null })
+    await flushPromises()
+    expect(wrapper.text()).toContain('消息2')
+    expect(wrapper.text()).not.toContain('消息1')
+  })
+
+  it('切换标签保留用户暂停跟随的状态', async () =>
+  {
+    const state = await setupFeed()
+    await state.wrapper.get('.event-scroll').trigger('wheel', { deltaY: -100 })
+    await state.wrapper.setProps({ active: false })
+    const count = eventsRequest.mock.calls.length
+    await state.wrapper.setProps({ offsetMs: 3000 })
+    expect(eventsRequest).toHaveBeenCalledTimes(count)
+    await state.wrapper.setProps({ active: true })
+    await flushPromises()
+    expect(state.wrapper.get('.feed-heading v-btn-stub').attributes('color')).toBe('secondary')
+  })
+})
 
 describe('直播消息按实际滚动范围贴底', () =>
 {

@@ -9,6 +9,7 @@ using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
+using Yohuke.LiveRecorder.Infrastructure.Library.LiveMarkers;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Library;
 
@@ -16,6 +17,7 @@ namespace Yohuke.LiveRecorder.Infrastructure.Library;
 public sealed class SessionGroupingService(IMongoContext context, LibraryService library, ISettingsStore settingsStore, IStatusPublisher publisher, IAppPaths paths)
 {
     private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly LiveMarkerFileStore liveMarkers = new(paths);
 
     /// <summary>将同主播、不重叠的已结束场次归为一个目录条目。</summary>
     public async Task<BroadcastSession> GroupAsync(string id, IReadOnlyCollection<string> otherIds, string? title, CancellationToken cancellationToken = default)
@@ -146,6 +148,12 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
     /// <summary>重建源场次的隐藏状态，恢复发布后中断的收尾。</summary>
     public async Task ReconcileAsync(CancellationToken cancellationToken = default)
     {
+        await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
+        await ReconcileUnderLibraryLockAsync(cancellationToken);
+    }
+
+    internal async Task ReconcileUnderLibraryLockAsync(CancellationToken cancellationToken)
+    {
         var journalRoot = Path.Combine(paths.RecordsDirectory, ".work", "groups");
         if (Directory.Exists(journalRoot))
         {
@@ -192,6 +200,8 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
 
     private async Task<SessionDetail> RequireEditableAsync(string id, CancellationToken cancellationToken)
     {
+        await LiveMarkerProjectionGuard.EnsureWritableAsync(paths.RecordsDirectory, id, cancellationToken);
+        await LiveMarkerProjectionGuard.EnsureNoTrashIntentAsync(paths.RecordsDirectory, id, cancellationToken);
         var detail = await library.GetAsync(id, cancellationToken);
         if (detail.Session.EndedAtUtc is null || detail.Session.IsHidden || detail.Segments.Any(x => !x.IsClosed))
         {
@@ -271,6 +281,14 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
         foreach (var output in operation.Outputs)
         {
             await PrepareAsync(output.Session, output.Segments, settings, cancellationToken);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var sourceId in operation.SourceIds)
+            {
+                var source = await context.Collection<BroadcastSession>("sessions").Find(session => session.Id == sourceId).FirstOrDefaultAsync(cancellationToken)
+                             ?? throw new InfrastructureException(MessageCode.LIBRARY_SESSION_NOT_FOUND, 404);
+                operation.LiveMarkerCopies.AddRange(await liveMarkers.PlanCopiesAsync(source.DirectoryPath, output.Session.Id,
+                    output.Session.DirectoryPath, seen, cancellationToken));
+            }
         }
         var journal = Path.Combine(paths.RecordsDirectory, ".work", "groups", Guid.NewGuid().ToString("N"), "operation.json");
         await JsonFiles.WriteAsync(journal, operation, cancellationToken);
@@ -288,6 +306,10 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
                 output.Session = existing;
                 output.Segments = await context.Collection<RecordingSegment>("segments").Find(x => x.SessionId == existing.Id && x.Revision == existing.MediaRevision).ToListAsync(cancellationToken);
                 continue;
+            }
+            foreach (var copy in operation.LiveMarkerCopies.Where(copy => copy.TargetSessionId == output.Session.Id))
+            {
+                await liveMarkers.CompleteCopyAsync(copy, cancellationToken);
             }
             foreach (var segment in output.Segments)
             {

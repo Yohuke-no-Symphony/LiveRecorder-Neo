@@ -1,11 +1,28 @@
 import type { AppLanguage } from '@/localization/types'
 
-export interface UserPermissions
+export type UserPermissions = string[]
+
+export interface PermissionDefinition
 {
-  manageRecordings: boolean
-  viewAnalytics: boolean
-  purgeRecordings: boolean
+  id: string
+  group: string
+  labelKey: string
+  descriptionKey: string | null
+  icon: string
+  isDangerous: boolean
+  defaultGranted: boolean
 }
+
+export const PERMISSIONS = {
+  viewRecordings: 'recordings.view',
+  downloadRecordings: 'recordings.download',
+  createClips: 'clips.create',
+  uploadLiveMarkers: 'live-markers.upload',
+  manageLiveMarkers: 'live-markers.manage',
+  manageRecordings: 'recordings.manage',
+  viewAnalytics: 'analytics.view',
+  purgeRecordings: 'recordings.purge',
+} as const
 
 export interface UserProfile
 {

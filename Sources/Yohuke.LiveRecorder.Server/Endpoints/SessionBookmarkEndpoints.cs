@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Auth;
 using System.Security.Claims;
 using Yohuke.LiveRecorder.Infrastructure.Library;
 using Yohuke.LiveRecorder.Server.Contracts;
@@ -10,7 +11,7 @@ public static class SessionBookmarkEndpoints
     /// <summary>注册仅按当前登录身份访问的个人标记接口。</summary>
     public static IEndpointRouteBuilder MapSessionBookmarkEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        var bookmarks = endpoints.MapGroup("/api/sessions/{id}/bookmarks").RequireAuthorization();
+        var bookmarks = endpoints.MapGroup("/api/sessions/{id}/bookmarks").RequireAuthorization(UserPermissionNames.VIEW_RECORDINGS);
         bookmarks.MapGet("", async (string id, HttpContext http, SessionBookmarkService service, CancellationToken cancellationToken) =>
             Results.Ok(await service.ListAsync(id, Owner(http), cancellationToken)));
         bookmarks.MapPost("", async (string id, SessionBookmarkRequest request, HttpContext http, SessionBookmarkService service, CancellationToken cancellationToken) =>

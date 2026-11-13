@@ -22,12 +22,12 @@
                 <v-btn v-bind="tooltipProps" icon="mdi-shield-check-outline" size="small" variant="text" :aria-label="t(detail.session.isPermanent ? 'shell.retention.cancelPermanent' : 'shell.retention.keepPermanent')" :loading="retentionBusy" @click="setPermanent" />
               </template>
             </v-tooltip>
-            <v-tooltip :text="t('components.download.open')" location="top">
+            <v-tooltip v-if="auth.canDownloadRecordings" :text="t('components.download.open')" location="top">
               <template #activator="{ props: tooltipProps }">
                 <v-btn v-bind="tooltipProps" icon="mdi-download" size="small" variant="tonal" :aria-label="t('components.download.open')" @click="downloadOpen = true" />
               </template>
             </v-tooltip>
-            <v-tooltip :text="t('views.session.createClip')" location="top">
+            <v-tooltip v-if="auth.canCreateClips" :text="t('views.session.createClip')" location="top">
               <template #activator="{ props: tooltipProps }">
                 <v-btn v-bind="tooltipProps" icon="mdi-content-cut" size="small" color="primary" :aria-label="t('views.session.createClip')" :disabled="detail.durationMs <= 0 || clipSelectionInvalid" @click="clipOpen = true" />
               </template>
@@ -53,10 +53,10 @@
         <SessionBookmarkList class="mt-6" :bookmarks="bookmarks" :loading="bookmarksLoading" :saving="bookmarkSaving" :error="bookmarksError" :editable="bookmarksEditable" @seek="player?.seek($event)" @start="setClipStart" @end="setClipEnd" @edit="editBookmark" @delete="confirmBookmarkDelete" @refresh="refreshBookmarks" />
         <v-expansion-panels v-if="detail.segments.length" variant="accordion" class="mt-6"><v-expansion-panel :title="t('views.session.segments', { count: formatNumber(detail.segments.length) })"><v-expansion-panel-text><v-table density="comfortable"><thead><tr><th>{{ t('views.session.segment') }}</th><th>{{ t('views.session.start') }}</th><th>{{ t('views.session.duration') }}</th><th>{{ t('views.common.size') }}</th><th>{{ t('views.common.status') }}</th></tr></thead><tbody><tr v-for="(segment, index) in detail.segments" :key="segment.id" class="clickable-row" @click="player?.seek(segment.startOffsetMs)"><td>{{ String(index + 1).padStart(2, '0') }}</td><td class="mono text-caption">{{ formatDuration(segment.startOffsetMs, true) }}</td><td class="mono text-caption">{{ formatDuration(segment.durationMs) }}</td><td class="mono text-caption">{{ formatBytes(segment.committedBytes) }}</td><td><StatusChip :status="segment.isClosed ? 'completed' : 'recording'" /></td></tr></tbody></v-table></v-expansion-panel-text></v-expansion-panel></v-expansion-panels>
       </div>
-      <EventFeed class="playback-feed" :navigation-revision="feedNavigationRevision" :session-id="id" :offset-ms="offsetMs" :enabled="detail.session.hasDanmu" :is-live="isLive" @seek="player?.seek($event)" />
+      <SessionPlaybackSidebar class="playback-feed" :navigation-revision="feedNavigationRevision" :session-id="id" :offset-ms="offsetMs" :duration-ms="detail.durationMs" :has-danmu="detail.session.hasDanmu" :is-live="isLive" :editable="bookmarksEditable" @seek="player?.seek($event)" />
     </div>
-    <ClipDialog v-model="clipOpen" :session-id="id" :session-title="detail.session.title" :current-ms="offsetMs" :duration-ms="detail.durationMs" :selection="clipSelection" :bookmarks="bookmarks" @created="onClipCreated" />
-    <SessionDownloadDialog v-model="downloadOpen" :session-id="id" :session-title="detail.session.title" :segments="detail.segments" />
+    <ClipDialog v-if="auth.canCreateClips" v-model="clipOpen" :session-id="id" :session-title="detail.session.title" :current-ms="offsetMs" :duration-ms="detail.durationMs" :selection="clipSelection" :bookmarks="bookmarks" @created="onClipCreated" />
+    <SessionDownloadDialog v-if="auth.canDownloadRecordings" v-model="downloadOpen" :session-id="id" :session-title="detail.session.title" :segments="detail.segments" />
     <SessionBookmarkDialog v-model="bookmarkOpen" :bookmark="editingBookmark" :offset-ms="bookmarkOffsetMs" :duration-ms="detail.durationMs" :busy="bookmarkSaving" :error="bookmarksError" @save="saveBookmark" />
     <ConfirmDialog :model-value="!!deletingBookmark" :title="t('components.bookmarks.delete')" :message="t('components.bookmarks.deleteConfirm', { title: deletingBookmark?.title ?? '' })" :action-label="t('components.bookmarks.delete')" :busy="bookmarkSaving" :error="bookmarksError" danger @update:model-value="!$event && (deletingBookmark = undefined)" @confirm="deleteBookmark" />
     <SessionGroupDialog v-if="groupOpen && auth.isAdmin && isFinished" v-model="groupOpen" :session="detail.session" @grouped="router.replace(`/sessions/${$event.id}`)" />
@@ -83,7 +83,7 @@ import { clampOffset } from '@/utilities/timeline'
 import { resolveClipRange } from '@/utilities/clipSelection'
 import { formatBytes, formatDate, formatDuration, formatNumber } from '@/utilities/format'
 import MediaPlayer from '@/components/player/MediaPlayer.vue'
-import EventFeed from '@/components/player/EventFeed.vue'
+import SessionPlaybackSidebar from '@/components/player/SessionPlaybackSidebar.vue'
 import ClipDialog from '@/components/player/ClipDialog.vue'
 import SessionDownloadDialog from '@/components/player/SessionDownloadDialog.vue'
 import PlaybackBookmarkActions from '@/components/player/PlaybackBookmarkActions.vue'

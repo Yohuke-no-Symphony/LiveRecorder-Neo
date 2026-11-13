@@ -1,6 +1,7 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Yohuke.LiveRecorder.Infrastructure.Auth;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Files;
 
@@ -10,7 +11,7 @@ public static class JsonFiles
     public static JsonSerializerOptions Options { get; } = new(JsonSerializerDefaults.Web)
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        Converters = { new JsonStringEnumConverter() }
+        Converters = { new JsonStringEnumConverter(), new PermissionSetJsonConverter(allowLegacy: true) }
     };
 
     /// <summary>先写临时文件，再原子发布完整 JSON。</summary>

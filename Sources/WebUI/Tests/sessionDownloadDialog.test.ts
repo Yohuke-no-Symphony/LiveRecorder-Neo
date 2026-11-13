@@ -10,6 +10,8 @@ import CardHeader from '../src/components/common/CardHeader.vue'
 import { MediaAPI } from '../src/apis/MediaAPI'
 import { i18n } from '../src/plugins/i18n'
 import type { RecordingSegment, SessionDetail } from '../src/models/media'
+import { useAuthStore } from '../src/stores/auth'
+import { PERMISSIONS } from '../src/models/auth'
 
 const container = { template: '<div><slot /></div>' }
 const dialog = defineComponent({
@@ -118,13 +120,17 @@ describe('录播原始分段下载', () =>
     vi.spyOn(MediaAPI, 'streamers').mockResolvedValue([])
     vi.spyOn(MediaAPI, 'bookmarks').mockResolvedValue([])
     const pinia = createPinia()
+    useAuthStore(pinia).user = {
+      id: 'viewer', email: 'viewer@example.test', displayName: 'Viewer', role: 'User',
+      status: 'Active', permissions: [PERMISSIONS.viewRecordings, PERMISSIONS.downloadRecordings],
+    }
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/sessions/:id', component: SessionView }] })
     await router.push('/sessions/session-1')
     const wrapper = mount(SessionView, {
       global: {
         plugins: [i18n, pinia, router],
         stubs: {
-          ...stubs, MediaPlayer: true, EventFeed: true, ClipDialog: true, PlaybackBookmarkActions: true,
+          ...stubs, MediaPlayer: true, SessionPlaybackSidebar: true, ClipDialog: true, PlaybackBookmarkActions: true,
           SessionBookmarkList: true, SessionBookmarkDialog: true, ConfirmDialog: true, StatusChip: true,
           SessionGroupDialog: true, SessionSplitDialog: true, VProgressLinear: true, VAlert: true,
           VExpansionPanels: true, VExpansionPanel: true, VExpansionPanelText: true, VTable: true, VSnackbar: true,

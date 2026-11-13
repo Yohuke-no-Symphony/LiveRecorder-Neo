@@ -2,7 +2,7 @@ import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { AuthAPI } from '@/apis/AuthAPI'
 import { setCsrfToken } from '@/apis/APIBase'
-import type { UserProfile } from '@/models/auth'
+import { PERMISSIONS, type PermissionDefinition, type UserProfile } from '@/models/auth'
 import type { AppLanguage } from '@/localization/types'
 import { usePreferencesStore } from './preferences'
 
@@ -20,9 +20,21 @@ export const useAuthStore = defineStore('auth', () =>
   const oauthDraft = ref<{ email: string; displayName: string } | null>(null)
   const isAdmin = computed(() => user.value?.role === 'Admin' && user.value.status === 'Active')
   const hasAccess = computed(() => user.value?.status === 'Active')
-  const canManageRecordings = computed(() => hasAccess.value && (isAdmin.value || user.value?.permissions?.manageRecordings === true))
-  const canViewAnalytics = computed(() => hasAccess.value && (isAdmin.value || user.value?.permissions?.viewAnalytics === true))
-  const canPurgeRecordings = computed(() => hasAccess.value && (isAdmin.value || user.value?.permissions?.purgeRecordings === true))
+  const permissionDefinitions = ref<PermissionDefinition[]>([])
+  let permissionLoad: Promise<PermissionDefinition[]> | undefined
+  function hasPermission(permission: string): boolean
+  {
+    return hasAccess.value && (isAdmin.value || user.value?.permissions?.includes(permission) === true)
+  }
+  const canViewRecordings = computed(() => hasPermission(PERMISSIONS.viewRecordings))
+  const canDownloadRecordings = computed(() => canViewRecordings.value && hasPermission(PERMISSIONS.downloadRecordings))
+  const canCreateClips = computed(() => canViewRecordings.value && hasPermission(PERMISSIONS.createClips))
+  const canUploadLiveMarkers = computed(() => canViewRecordings.value && hasPermission(PERMISSIONS.uploadLiveMarkers))
+  const canManageLiveMarkers = computed(() => canViewRecordings.value && hasPermission(PERMISSIONS.manageLiveMarkers))
+  const canManageRecordings = computed(() => hasPermission(PERMISSIONS.manageRecordings))
+  const canViewAnalytics = computed(() => canViewRecordings.value && hasPermission(PERMISSIONS.viewAnalytics))
+  const canPurgeRecordings = computed(() => hasPermission(PERMISSIONS.purgeRecordings))
+  const homePath = computed(() => canViewRecordings.value ? '/' : '/account')
   let initialLoad: Promise<void> | undefined
 
   async function refresh(): Promise<void>
@@ -30,6 +42,15 @@ export const useAuthStore = defineStore('auth', () =>
     const session = await AuthAPI.me()
     user.value = session.user
     setCsrfToken(session.csrfToken)
+    if (hasAccess.value)
+    {
+      permissionLoad ??= AuthAPI.permissions().catch(error =>
+      {
+        permissionLoad = undefined
+        throw error
+      })
+      permissionDefinitions.value = await permissionLoad
+    }
   }
 
   async function bootstrap(): Promise<void>
@@ -80,5 +101,5 @@ export const useAuthStore = defineStore('auth', () =>
     await refresh()
   }
 
-  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canViewAnalytics, canPurgeRecordings, bootstrap, refresh, login, logout, setLanguage }
+  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canViewAnalytics, canPurgeRecordings, canViewRecordings, canDownloadRecordings, canCreateClips, canUploadLiveMarkers, canManageLiveMarkers, permissionDefinitions, hasPermission, homePath, bootstrap, refresh, login, logout, setLanguage }
 })

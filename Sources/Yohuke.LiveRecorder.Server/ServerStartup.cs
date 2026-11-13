@@ -12,6 +12,7 @@ using MongoDB.Driver;
 using Yohuke.DanmuCore.Services;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
+using Yohuke.LiveRecorder.Application.Library.LiveMarkers;
 using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Domain.Localization;
 using Yohuke.LiveRecorder.Infrastructure.Analytics;
@@ -21,6 +22,7 @@ using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Jobs;
 using Yohuke.LiveRecorder.Infrastructure.Library;
+using Yohuke.LiveRecorder.Infrastructure.Library.LiveMarkers;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Infrastructure.Playback;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
@@ -95,6 +97,9 @@ public static class ServerStartup
         builder.Services.AddSingleton<EventArchiveReader>();
         builder.Services.AddSingleton<LibraryService>();
         builder.Services.AddSingleton<SessionBookmarkService>();
+        builder.Services.AddSingleton<LiveMarkerFileStore>();
+        builder.Services.AddSingleton<LiveMarkerYamlParser>();
+        builder.Services.AddSingleton<ISessionLiveMarkerService, SessionLiveMarkerService>();
         builder.Services.AddSingleton<SessionGroupingService>();
         builder.Services.AddSingleton<SessionEventReader>();
         builder.Services.AddSingleton<StorageService>();
@@ -119,8 +124,10 @@ public static class ServerStartup
         builder.Services.AddHostedService<MediaJobWorker>();
         builder.Services.AddHostedService<StorageMaintenanceWorker>();
         builder.Services.AddHostedService<ArtworkMaintenanceWorker>();
+        builder.Services.AddHostedService<LiveMarkerMaintenanceWorker>();
         builder.Services.AddSignalR();
         builder.Services.AddOpenApi();
+        builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new PermissionSetJsonConverter()));
         var antiforgeryCookieName = currentStorage.IsInstalled ? "lr.csrf" : "lr.setup.csrf." + Guid.NewGuid().ToString("N");
         builder.Services.AddAntiforgery(options =>
         {
@@ -175,7 +182,7 @@ public static class ServerStartup
         builder.Services.AddSingleton<IAuthenticationSchemeProvider, InstanceAuthenticationSchemeProvider>();
         builder.Services.AddAuthorization(options =>
         {
-            foreach (var permission in new[] { UserPermissionNames.MANAGE_RECORDINGS, UserPermissionNames.VIEW_ANALYTICS, UserPermissionNames.PURGE_RECORDINGS })
+            foreach (var permission in PermissionCatalog.Definitions.Select(definition => definition.Id))
             {
                 options.AddPolicy(permission, policy => policy.RequireAuthenticatedUser().RequireAssertion(context =>
                     context.User.IsInRole("Admin") || context.User.HasClaim(UserPermissionNames.CLAIM_TYPE, permission)));
@@ -291,6 +298,7 @@ public static class ServerStartup
         app.MapBilibiliEndpoints();
         app.MapLibraryEndpoints();
         app.MapSessionBookmarkEndpoints();
+        app.MapSessionLiveMarkerEndpoints();
         app.MapEventArtworkEndpoints();
         app.MapSessionTimelineEndpoints();
         app.MapManagementEndpoints();

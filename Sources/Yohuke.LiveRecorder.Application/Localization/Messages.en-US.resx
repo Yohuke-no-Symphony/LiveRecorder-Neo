@@ -181,4 +181,13 @@ This code is valid for 10 minutes. Do not share it. If you did not request it, i
   <data name="BOOKMARK_TIME_INVALID" xml:space="preserve"><value>Provide a valid bookmark time within the session.</value></data>
   <data name="BOOKMARK_NOT_FOUND" xml:space="preserve"><value>The bookmark does not exist.</value></data>
   <data name="BOOKMARK_SESSION_NOT_EDITABLE" xml:space="preserve"><value>This recording is being grouped or has been hidden. Bookmarks cannot be changed right now.</value></data>
+  <data name="LIVE_MARKER_FILE_INVALID" xml:space="preserve"><value>Select a valid DanmuNeo YAML record file.</value></data>
+  <data name="LIVE_MARKER_FILE_TOO_LARGE" xml:space="preserve"><value>Record files must not exceed 5 MiB.</value></data>
+  <data name="LIVE_MARKER_TOO_MANY_ENTRIES" xml:space="preserve"><value>Record files may contain at most 20,000 entries.</value></data>
+  <data name="LIVE_MARKER_TIME_ZONE_INVALID" xml:space="preserve"><value>Select a valid source time zone.</value></data>
+  <data name="LIVE_MARKER_TIME_ZONE_AMBIGUOUS" xml:space="preserve"><value>A local timestamp is ambiguous or invalid due to daylight saving time. Add an explicit UTC offset in the source file.</value></data>
+  <data name="LIVE_MARKER_ALIGNMENT_INVALID" xml:space="preserve"><value>The record alignment exceeds the valid time range.</value></data>
+  <data name="LIVE_MARKER_NOT_FOUND" xml:space="preserve"><value>The record file does not exist or has been deleted.</value></data>
+  <data name="LIVE_MARKER_SESSION_NOT_AVAILABLE" xml:space="preserve"><value>Live records are unavailable while this recording is being grouped, hidden or in the trash.</value></data>
+  <data name="LIVE_MARKER_FILE_CORRUPT" xml:space="preserve"><value>The record attachment is incomplete or corrupt. Check the recording directory.</value></data>
 </root>

@@ -52,7 +52,7 @@ function settings(checkCertificateRevocation: boolean): ServerSettings
     cacheLimitBytes: 1024 ** 3, cacheRetentionMinutes: 30, minimumFreeBytes: 1024 ** 3,
     mediaConcurrency: 2, playbackConcurrency: 2, monitorIntervalSeconds: 15, sessionGraceMinutes: 5,
     streamDisconnectTimeoutMinutes: 5,
-    defaultUserPermissions: { manageRecordings: false, viewAnalytics: false, purgeRecordings: false },
+    defaultUserPermissions: [],
     registrationEnabled: true, ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe', oauthProviders: [],
     registrationApprovalRequired: true, registrationInvitationRequired: true, registrationEmailVerificationRequired: true,
     smtp: { host: 'smtp.example.test', port: 465, useSsl: true, checkCertificateRevocation, userName: 'sender@example.test', password: '', fromAddress: 'sender@example.test', fromName: 'Recorder' },

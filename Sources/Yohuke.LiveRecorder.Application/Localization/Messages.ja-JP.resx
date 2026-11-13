@@ -181,4 +181,13 @@
   <data name="BOOKMARK_TIME_INVALID" xml:space="preserve"><value>配信の時間範囲内で有効なブックマーク時刻を指定してください。</value></data>
   <data name="BOOKMARK_NOT_FOUND" xml:space="preserve"><value>ブックマークが見つかりません。</value></data>
   <data name="BOOKMARK_SESSION_NOT_EDITABLE" xml:space="preserve"><value>この録画はグループ化中か非表示のため、現在ブックマークを変更できません。</value></data>
+  <data name="LIVE_MARKER_FILE_INVALID" xml:space="preserve"><value>有効な DanmuNeo YAML 記録ファイルを選択してください。</value></data>
+  <data name="LIVE_MARKER_FILE_TOO_LARGE" xml:space="preserve"><value>記録ファイルは 5 MiB 以下にしてください。</value></data>
+  <data name="LIVE_MARKER_TOO_MANY_ENTRIES" xml:space="preserve"><value>記録ファイルの項目数は 20000 件以下にしてください。</value></data>
+  <data name="LIVE_MARKER_TIME_ZONE_INVALID" xml:space="preserve"><value>有効な記録元のタイムゾーンを選択してください。</value></data>
+  <data name="LIVE_MARKER_TIME_ZONE_AMBIGUOUS" xml:space="preserve"><value>夏時間により重複または存在しない時刻があります。元ファイルに UTC オフセットを追加してください。</value></data>
+  <data name="LIVE_MARKER_ALIGNMENT_INVALID" xml:space="preserve"><value>記録の時刻調整が有効な範囲を超えています。</value></data>
+  <data name="LIVE_MARKER_NOT_FOUND" xml:space="preserve"><value>記録ファイルが存在しないか、削除されています。</value></data>
+  <data name="LIVE_MARKER_SESSION_NOT_AVAILABLE" xml:space="preserve"><value>この録画はグループ化中、非表示、またはごみ箱内のため、記録を利用できません。</value></data>
+  <data name="LIVE_MARKER_FILE_CORRUPT" xml:space="preserve"><value>記録の添付ファイルが不完全か破損しています。録画フォルダーを確認してください。</value></data>
 </root>

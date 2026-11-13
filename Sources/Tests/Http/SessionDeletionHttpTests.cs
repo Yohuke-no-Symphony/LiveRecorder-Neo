@@ -437,12 +437,11 @@ public sealed class SessionDeletionHttpTests
 
     private static async Task SetPermissionsAsync(HttpServerFixture fixture, string id, bool manage = false, bool analytics = false, bool purge = false)
     {
-        using var response = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/admin/users/" + id + "/permissions", new
+        var permissions = PermissionSet.MemberDefaults.Concat(new[]
         {
-            manageRecordings = manage,
-            viewAnalytics = analytics,
-            purgeRecordings = purge
-        });
+            (PermissionIds.MANAGE_RECORDINGS, manage), (PermissionIds.VIEW_ANALYTICS, analytics), (PermissionIds.PURGE_RECORDINGS, purge)
+        }.Where(item => item.Item2).Select(item => item.Item1)).ToArray();
+        using var response = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/admin/users/" + id + "/permissions", permissions);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 

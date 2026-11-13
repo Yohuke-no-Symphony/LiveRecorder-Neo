@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Yohuke.DanmuCore.Services;
+using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Playback;
 using Xunit;
@@ -27,7 +28,7 @@ public sealed class PlaybackIntegrationTests
         var routes = ((IEndpointRouteBuilder)fixture.App).DataSources.SelectMany(source => source.Endpoints).OfType<RouteEndpoint>().ToArray();
         var timeline = routes.Single(route => route.RoutePattern.RawText == "/api/sessions/{id}/timeline");
         var analytics = routes.Single(route => route.RoutePattern.RawText == "/api/sessions/{id}/analytics");
-        var viewer = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "viewer"), new Claim(ClaimTypes.Role, "User")], "Integration"));
+        var viewer = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "viewer"), new Claim(ClaimTypes.Role, "User"), new Claim(UserPermissionNames.CLAIM_TYPE, UserPermissionNames.VIEW_RECORDINGS)], "Integration"));
         var administrator = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "admin"), new Claim(ClaimTypes.Role, "Admin")], "Integration"));
         var authorization = services.GetRequiredService<IAuthorizationService>();
         var timelinePolicy = await PolicyAsync(fixture.App, timeline);

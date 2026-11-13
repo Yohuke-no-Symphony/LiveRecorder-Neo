@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Yohuke.LiveRecorder.Application;
+using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
@@ -23,7 +24,7 @@ public sealed class SettingsStore(StartupConfigurationStore configuration, IBoot
             }
             if (!bootstrap.IsInstalled)
             {
-                return new();
+                return new() { DefaultUserPermissions = PermissionCatalog.Defaults };
             }
             var legacyFile = Path.Combine(paths.DataDirectory, "settings.json");
             var comparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;

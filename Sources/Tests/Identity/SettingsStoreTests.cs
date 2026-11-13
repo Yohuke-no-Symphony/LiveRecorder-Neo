@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
+using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
@@ -86,6 +87,7 @@ public sealed class SettingsStoreTests
             var startup = CreateStartupConfiguration(paths);
             var context = new MongoContext(bootstrap);
             var store = new SettingsStore(startup, bootstrap, context, paths);
+            Assert.Equal(PermissionCatalog.Defaults, (await store.GetAsync()).DefaultUserPermissions);
             var input = new ServerSettings { Quality = 400, StreamDisconnectTimeoutMinutes = 17 };
             input.Smtp.Password = protector.Protect("local-settings-secret");
             await store.SaveAsync(input);

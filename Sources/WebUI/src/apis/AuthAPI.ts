@@ -3,11 +3,12 @@ import { getServerUrl } from './ServerURL'
 import type { BilibiliRoomSearchPage } from '@/models/bilibili'
 import type { AppLanguage } from '@/localization/types'
 import type { SetupRequest, SetupStatus } from '@/models/setup'
-import type { BilibiliAccount, BilibiliLoginSession, Invitation, OAuthExchange, Registration, RegistrationOptions, SmsChallengeAnswer, UserPermissions, UserProfile, UserSession } from '@/models/auth'
+import type { BilibiliAccount, BilibiliLoginSession, Invitation, OAuthExchange, Registration, RegistrationOptions, SmsChallengeAnswer, PermissionDefinition, UserPermissions, UserProfile, UserSession } from '@/models/auth'
 
 export const AuthAPI = {
   setupStatus: () => request<SetupStatus>('setup/status'),
   setup: (body: SetupRequest) => post<void>('setup', body),
+  permissions: () => request<PermissionDefinition[]>('auth/permissions'),
   me: () => request<UserSession>('auth/me'),
   setLanguage: (language: AppLanguage | null) => put<UserProfile>('auth/language', { language }),
   login: (email: string, password: string) => post<UserSession>('auth/login', { email, password }),

@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Library;
 
@@ -14,12 +15,13 @@ public static class EventArtworkEndpoints
         {
             return await ImageAsync(await artwork.GetAudienceAvatarAsync(uid, ct), http, ct);
         });
-        api.MapGet("/sessions/{id}/events/{sequence:long}/avatar", async (string id, long sequence, HttpContext http, LibraryService library, EventArtworkService artwork, CancellationToken ct) =>
+        var viewing = api.MapGroup("").RequireAuthorization(UserPermissionNames.VIEW_RECORDINGS);
+        viewing.MapGet("/sessions/{id}/events/{sequence:long}/avatar", async (string id, long sequence, HttpContext http, LibraryService library, EventArtworkService artwork, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
             return await ImageAsync(await artwork.GetAvatarAsync(detail.Session, sequence, ct), http, ct);
         });
-        api.MapGet("/sessions/{id}/events/{sequence:long}/emoticons/{index:int}", async (string id, long sequence, int index, HttpContext http, LibraryService library, EventArtworkService artwork, CancellationToken ct) =>
+        viewing.MapGet("/sessions/{id}/events/{sequence:long}/emoticons/{index:int}", async (string id, long sequence, int index, HttpContext http, LibraryService library, EventArtworkService artwork, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
             return await ImageAsync(await artwork.GetEmoticonAsync(detail.Session, sequence, index, ct), http, ct);

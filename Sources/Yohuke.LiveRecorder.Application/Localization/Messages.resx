@@ -181,4 +181,13 @@
   <data name="BOOKMARK_TIME_INVALID" xml:space="preserve"><value>请提供场次范围内的有效标记时间。</value></data>
   <data name="BOOKMARK_NOT_FOUND" xml:space="preserve"><value>标记不存在。</value></data>
   <data name="BOOKMARK_SESSION_NOT_EDITABLE" xml:space="preserve"><value>此场录播正在归组或已被隐藏，暂时无法修改标记。</value></data>
+  <data name="LIVE_MARKER_FILE_INVALID" xml:space="preserve"><value>请选择有效的 DanmuNeo YAML 记录文件。</value></data>
+  <data name="LIVE_MARKER_FILE_TOO_LARGE" xml:space="preserve"><value>记录文件不能超过 5 MiB。</value></data>
+  <data name="LIVE_MARKER_TOO_MANY_ENTRIES" xml:space="preserve"><value>记录文件最多包含 20000 条记录。</value></data>
+  <data name="LIVE_MARKER_TIME_ZONE_INVALID" xml:space="preserve"><value>请选择有效的记录来源时区。</value></data>
+  <data name="LIVE_MARKER_TIME_ZONE_AMBIGUOUS" xml:space="preserve"><value>旧记录中的本地时间处于夏令时重复或跳过范围，请在原文件中补充时区偏移。</value></data>
+  <data name="LIVE_MARKER_ALIGNMENT_INVALID" xml:space="preserve"><value>记录校准超出了有效时间范围。</value></data>
+  <data name="LIVE_MARKER_NOT_FOUND" xml:space="preserve"><value>记录文件不存在或已删除。</value></data>
+  <data name="LIVE_MARKER_SESSION_NOT_AVAILABLE" xml:space="preserve"><value>此场录播正在归组、已隐藏或已回收，暂时无法访问直播记录。</value></data>
+  <data name="LIVE_MARKER_FILE_CORRUPT" xml:space="preserve"><value>记录附件不完整或已损坏，请检查场次目录。</value></data>
 </root>

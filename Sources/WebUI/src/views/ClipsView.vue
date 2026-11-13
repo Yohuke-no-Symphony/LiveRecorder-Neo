@@ -47,7 +47,7 @@ async function deleteClip(): Promise<void>
 }
 function preview(clip: Clip): void
 {
-  if (clip.isTrashed || new Date(clip.expiresAtUtc).getTime() <= Date.now()) { return }
+  if (!auth.canViewRecordings || clip.isTrashed || new Date(clip.expiresAtUtc).getTime() <= Date.now()) { return }
   previewedClip.value = clip
   previewOpen.value = true
 }

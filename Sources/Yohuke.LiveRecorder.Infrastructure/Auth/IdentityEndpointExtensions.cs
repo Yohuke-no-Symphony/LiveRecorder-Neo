@@ -22,6 +22,7 @@ public static class IdentityEndpointExtensions
     public static IEndpointRouteBuilder MapIdentityEndpoints(this IEndpointRouteBuilder endpoints, IReadOnlyCollection<string>? allowedWebUiOrigins = null)
     {
         var auth = endpoints.MapGroup("/api/auth");
+        auth.MapGet("/permissions", () => Results.Ok(PermissionCatalog.Definitions)).RequireAuthorization();
         auth.MapGet("/me", async (HttpContext http, IIdentityService identity, IAntiforgery antiforgery, CancellationToken ct) =>
         {
             var id = http.User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -99,7 +100,7 @@ public static class IdentityEndpointExtensions
         admin.MapGet("/users", async (IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.ListUsersAsync(ct)));
         admin.MapPost("/users/{id}/approval", async (string id, ApprovalRequest request, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.SetApprovalAsync(id, request.Approved, ct)));
         admin.MapPost("/users/{id}/role", async (string id, RoleRequest request, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.SetRoleAsync(id, request.Role, ct)));
-        admin.MapPut("/users/{id}/permissions", async (string id, UserPermissions request, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.SetPermissionsAsync(id, request, ct)));
+        admin.MapPut("/users/{id}/permissions", async (string id, PermissionSet request, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.SetPermissionsAsync(id, request, ct)));
         admin.MapGet("/invitations", async (IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.ListInvitationsAsync(ct)));
         admin.MapPost("/invitations", async (InvitationRequest request, HttpContext http, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.CreateInvitationAsync(request, http.User.FindFirstValue(ClaimTypes.NameIdentifier)!, ct)));
         admin.MapDelete("/invitations/{id}", async (string id, IIdentityService identity, CancellationToken ct) =>

@@ -38,6 +38,18 @@ public sealed class EventArtworkEndpointTests
     }
 
     [Fact]
+    public async Task WatchingPermissionIsRequiredBeforeResolvingSessionArtwork()
+    {
+        await using var context = await EventArtworkHttpContext.CreateAsync();
+        context.Client.DefaultRequestHeaders.Add("X-Artwork-Test-User", "viewer");
+        foreach (var route in new[] { "/api/sessions/missing/events/1/avatar", "/api/sessions/missing/events/1/emoticons/0" })
+        {
+            using var response = await context.Client.GetAsync(route);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+    }
+
+    [Fact]
     public async Task MissingAvatarAndInvalidUidReturnNonCacheableNotFound()
     {
         await using var context = await EventArtworkHttpContext.CreateAsync();

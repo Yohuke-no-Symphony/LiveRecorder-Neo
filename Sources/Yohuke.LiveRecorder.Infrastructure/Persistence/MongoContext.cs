@@ -6,11 +6,19 @@ using Yohuke.LiveRecorder.Infrastructure.Configuration;
 namespace Yohuke.LiveRecorder.Infrastructure.Persistence;
 
 /// <summary>按安装配置复用 MongoDB 客户端。</summary>
-public sealed class MongoContext(IBootstrapStore bootstrap) : IMongoContext
+public sealed class MongoContext : IMongoContext
 {
+    private readonly IBootstrapStore bootstrap;
     private readonly object gate = new();
     private MongoClient? client;
     private string? connection;
+
+    /// <summary>在任何类型化数据库访问前初始化兼容序列化器。</summary>
+    public MongoContext(IBootstrapStore bootstrap)
+    {
+        MongoSerialization.EnsureInitialized();
+        this.bootstrap = bootstrap;
+    }
 
     public IMongoDatabase Database
     {

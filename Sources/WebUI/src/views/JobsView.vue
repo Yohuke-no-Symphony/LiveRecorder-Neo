@@ -9,7 +9,7 @@
         <td><StatusChip :status="job.state" /></td>
         <td><v-progress-linear :model-value="progress(job)" :indeterminate="['Running', 'Publishing'].includes(job.state) && job.progress === 0" color="primary" height="4" rounded /><div class="text-caption mono muted mt-2">{{ progress(job) }}%</div></td>
         <td class="text-caption muted text-no-wrap">{{ formatDate(job.createdAtUtc) }}</td>
-        <td><div class="action-buttons"><v-btn v-if="['Queued', 'Running', 'Publishing'].includes(job.state)" variant="text" size="small" :disabled="job.cancelRequested" :loading="actionId === job.id" @click="act(job, 'cancel')">{{ job.cancelRequested ? t('views.jobs.cancelling') : t('views.common.cancel') }}</v-btn><v-btn v-if="['Failed', 'Canceled', 'Cancelled', 'Interrupted'].includes(job.state)" variant="text" size="small" color="primary" :loading="actionId === job.id" @click="act(job, 'retry')">{{ t('views.common.retry') }}</v-btn><template v-if="job.state === 'Completed' && ['Repair', 'Merge'].includes(job.kind)"><v-btn v-for="(_, index) in job.outputRelativePaths" :key="index" :href="MediaAPI.downloadJobOutput(job.id, index)" variant="text" size="small" color="primary" prepend-icon="mdi-download">{{ job.outputRelativePaths.length > 1 ? t('views.jobs.downloadNumberedFile', { number: formatNumber(index + 1) }) : t('views.jobs.downloadFile') }}</v-btn></template></div></td>
+        <td><div class="action-buttons"><v-btn v-if="['Queued', 'Running', 'Publishing'].includes(job.state)" variant="text" size="small" :disabled="job.cancelRequested" :loading="actionId === job.id" @click="act(job, 'cancel')">{{ job.cancelRequested ? t('views.jobs.cancelling') : t('views.common.cancel') }}</v-btn><v-btn v-if="['Failed', 'Canceled', 'Cancelled', 'Interrupted'].includes(job.state) && (job.kind === 'Clip' ? auth.canCreateClips : auth.isAdmin)" variant="text" size="small" color="primary" :loading="actionId === job.id" @click="act(job, 'retry')">{{ t('views.common.retry') }}</v-btn><template v-if="auth.canDownloadRecordings && job.state === 'Completed' && ['Repair', 'Merge'].includes(job.kind)"><v-btn v-for="(_, index) in job.outputRelativePaths" :key="index" :href="MediaAPI.downloadJobOutput(job.id, index)" variant="text" size="small" color="primary" prepend-icon="mdi-download">{{ job.outputRelativePaths.length > 1 ? t('views.jobs.downloadNumberedFile', { number: formatNumber(index + 1) }) : t('views.jobs.downloadFile') }}</v-btn></template></div></td>
       </tr></tbody>
     </v-table>
   </v-card>
@@ -20,6 +20,7 @@
 import { useI18n } from 'vue-i18n'
 import { computed, ref } from 'vue'
 import { MediaAPI } from '@/apis/MediaAPI'
+import { useAuthStore } from '@/stores/auth'
 import { useAction } from '@/composables/useAction'
 import { usePolling } from '@/composables/usePolling'
 import type { MediaJob } from '@/models/media'
@@ -29,6 +30,7 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 
 const { t } = useI18n()
+const auth = useAuthStore()
 
 const jobs = ref<MediaJob[]>([])
 const filter = ref('all')

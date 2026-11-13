@@ -97,7 +97,7 @@ public sealed class InstallationService(CurrentInstanceStorage current, Instance
                 settings ??= await LegacySettingsReader.ReadAsync(database, cancellationToken)
                              ?? throw new InfrastructureException(MessageCode.SETUP_RESTORE_SETTINGS_MISSING, 409);
             }
-            settings ??= new();
+            settings ??= new() { DefaultUserPermissions = PermissionCatalog.Defaults };
             await RequireOriginalKeysAsync(database, settings, candidate.SecretProtector, cancellationToken);
             if (!string.IsNullOrWhiteSpace(request.FfmpegPath))
             {

@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Yohuke.DanmuCore.Services;
+using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Library;
@@ -28,7 +29,8 @@ internal sealed class EventArtworkHttpContext : IAsyncDisposable
         {
             var builder = WebApplication.CreateBuilder(["--urls", "http://127.0.0.1:0", "--environment", "Production", "--Logging:LogLevel:Default", "Critical"]);
             builder.Services.AddAuthentication("ArtworkTest").AddScheme<AuthenticationSchemeOptions, EventArtworkTestAuthenticationHandler>("ArtworkTest", _ => { });
-            builder.Services.AddAuthorization();
+            builder.Services.AddAuthorization(options => options.AddPolicy(UserPermissionNames.VIEW_RECORDINGS, policy =>
+                policy.RequireAuthenticatedUser().RequireClaim(UserPermissionNames.CLAIM_TYPE, UserPermissionNames.VIEW_RECORDINGS)));
             builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddSingleton<IAppPaths>(new AppPaths(context.directory, Path.Combine(context.directory, "records")));
             builder.Services.AddSingleton<IUserAvatarSource>(context.Source);

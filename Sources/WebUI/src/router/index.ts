@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { PERMISSIONS } from '@/models/auth'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -9,13 +10,13 @@ const router = createRouter({
     { path: '/register', component: () => import('@/views/RegisterView.vue'), meta: { public: true } },
     { path: '/oauth/callback/:providerId', component: () => import('@/views/OAuthCallbackView.vue'), meta: { public: true } },
     { path: '/access', component: () => import('@/views/AccessView.vue'), meta: { public: true } },
-    { path: '/', component: () => import('@/views/LibraryView.vue') },
-    { path: '/streamers/:id', component: () => import('@/views/StreamerView.vue') },
-    { path: '/sessions/:id', component: () => import('@/views/SessionView.vue') },
+    { path: '/', component: () => import('@/views/LibraryView.vue'), meta: { permissions: [PERMISSIONS.viewRecordings] } },
+    { path: '/streamers/:id', component: () => import('@/views/StreamerView.vue'), meta: { permissions: [PERMISSIONS.viewRecordings] } },
+    { path: '/sessions/:id', component: () => import('@/views/SessionView.vue'), meta: { permissions: [PERMISSIONS.viewRecordings] } },
     { path: '/clips', component: () => import('@/views/ClipsView.vue') },
     { path: '/jobs', component: () => import('@/views/JobsView.vue') },
     { path: '/trash', component: () => import('@/views/TrashView.vue') },
-    { path: '/analytics', component: () => import('@/views/AnalyticsView.vue'), meta: { analytics: true } },
+    { path: '/analytics', component: () => import('@/views/AnalyticsView.vue'), meta: { permissions: [PERMISSIONS.viewRecordings, PERMISSIONS.viewAnalytics] } },
     { path: '/account', component: () => import('@/views/AccountView.vue') },
     { path: '/admin/targets', component: () => import('@/views/TargetsView.vue'), meta: { admin: true } },
     { path: '/admin/accounts', component: () => import('@/views/AccountsView.vue'), meta: { admin: true } },
@@ -41,7 +42,7 @@ router.beforeEach(async to =>
   }
   if (auth.installed && to.path === '/setup')
   {
-    return auth.hasAccess ? '/' : '/login'
+    return auth.hasAccess ? auth.homePath : '/login'
   }
   if (!to.meta.public && !auth.user)
   {
@@ -51,17 +52,17 @@ router.beforeEach(async to =>
   {
     return '/access'
   }
-  if (to.meta.analytics && !auth.canViewAnalytics)
+  if (Array.isArray(to.meta.permissions) && to.meta.permissions.some(permission => !auth.hasPermission(String(permission))))
   {
-    return '/'
+    return auth.homePath
   }
   if (to.meta.admin && !auth.isAdmin)
   {
-    return '/'
+    return auth.homePath
   }
   if (to.path === '/login' && auth.user)
   {
-    return auth.hasAccess ? '/' : '/access'
+    return auth.hasAccess ? auth.homePath : '/access'
   }
 })
 

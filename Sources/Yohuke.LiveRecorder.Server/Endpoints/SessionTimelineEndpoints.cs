@@ -1,3 +1,4 @@
+using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Library;
 using Yohuke.LiveRecorder.Infrastructure.Playback;
@@ -14,7 +15,7 @@ public static class SessionTimelineEndpoints
         {
             var detail = await library.GetAsync(id, cancellationToken);
             return Results.Ok(await timeline.GetAsync(detail.Session, paths.RecordsDirectory, detail.DurationMs, bucketCount ?? 300, cancellationToken));
-        }).RequireAuthorization();
+        }).RequireAuthorization(UserPermissionNames.VIEW_RECORDINGS);
         return endpoints;
     }
 }

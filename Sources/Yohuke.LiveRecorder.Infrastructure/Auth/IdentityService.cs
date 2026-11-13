@@ -198,13 +198,17 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
     }
 
     /// <inheritdoc />
-    public async Task<UserProfile> SetPermissionsAsync(string id, UserPermissions permissions, CancellationToken cancellationToken = default)
+    public async Task<UserProfile> SetPermissionsAsync(string id, PermissionSet permissions, CancellationToken cancellationToken = default)
     {
+        if (!PermissionCatalog.IsValid(permissions))
+        {
+            throw new InfrastructureException(MessageCode.REQUEST_INVALID);
+        }
         await gate.WaitAsync(cancellationToken);
         try
         {
             var user = await Users.FindOneAndUpdateAsync(x => x.Id == id,
-                Builders<UserAccount>.Update.Set(x => x.Permissions, permissions with { }).Set(x => x.UpdatedAtUtc, DateTime.UtcNow),
+                Builders<UserAccount>.Update.Set(x => x.Permissions, permissions).Set(x => x.UpdatedAtUtc, DateTime.UtcNow),
                 new FindOneAndUpdateOptions<UserAccount> { ReturnDocument = ReturnDocument.After }, cancellationToken)
                 ?? throw new InfrastructureException(MessageCode.AUTH_USER_NOT_FOUND, 404);
             return Profile(user);
@@ -443,7 +447,7 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
             }
             user.Status = settings.RegistrationApprovalRequired ? "Pending" : "Active";
             user.EmailVerified = verification is not null;
-            user.Permissions = settings.DefaultUserPermissions with { };
+            user.Permissions = settings.DefaultUserPermissions;
             await Users.InsertOneAsync(user, cancellationToken: cancellationToken);
             insertedUser = true;
             if (external is not null)
@@ -561,8 +565,8 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
     private static UserProfile Profile(UserAccount user) => new(user.Id, user.Email, user.DisplayName, user.AvatarUrl, user.Role, user.Status, user.Language)
     {
         Permissions = user.Role == "Admin"
-            ? new() { ManageRecordings = true, ViewAnalytics = true, PurgeRecordings = true }
-            : user.Permissions with { }
+            ? PermissionCatalog.All
+            : user.Permissions
     };
     private static InvitationSummary InvitationProfile(Invitation invitation, string? code = null) => new(invitation.Id, invitation.CreatedAtUtc, invitation.ExpiresAtUtc, invitation.MaxUses, invitation.UsedCount, invitation.Revoked, code);
 

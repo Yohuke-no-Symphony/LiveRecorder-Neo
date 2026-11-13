@@ -28,8 +28,10 @@ public static class LibraryEndpoints
     public static IEndpointRouteBuilder MapLibraryEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var api = endpoints.MapGroup("/api").RequireAuthorization();
-        api.MapGet("/streamers", async (LibraryService library, CancellationToken ct) => Results.Ok((await library.GetStreamersAsync(ct)).Select(LocalizedState.ForResponse)));
-        api.MapGet("/streamers/{id}/avatar", async (string id, IMongoContext context, ArtworkCache artwork, IAppPaths paths, CancellationToken ct) =>
+        var viewing = api.MapGroup("").RequireAuthorization(UserPermissionNames.VIEW_RECORDINGS);
+        var downloading = viewing.MapGroup("").RequireAuthorization(UserPermissionNames.DOWNLOAD_RECORDINGS);
+        viewing.MapGet("/streamers", async (LibraryService library, CancellationToken ct) => Results.Ok((await library.GetStreamersAsync(ct)).Select(LocalizedState.ForResponse)));
+        viewing.MapGet("/streamers/{id}/avatar", async (string id, IMongoContext context, ArtworkCache artwork, IAppPaths paths, CancellationToken ct) =>
         {
             var streamer = await context.Collection<Streamer>("streamers").Find(x => x.Id == id).FirstOrDefaultAsync(ct);
             if (streamer?.AvatarRelativePath is { } relative)
@@ -42,7 +44,7 @@ public static class LibraryEndpoints
             }
             return await ImageAsync(streamer?.AvatarUrl, artwork, ct);
         });
-        api.MapGet("/sessions", async (string? streamerId, string? search, string? before, int? take, IMongoContext context, ISettingsStore settingsStore, CancellationToken ct) =>
+        viewing.MapGet("/sessions", async (string? streamerId, string? search, string? before, int? take, IMongoContext context, ISettingsStore settingsStore, CancellationToken ct) =>
         {
             var collection = context.Collection<BroadcastSession>("sessions");
             var filter = Builders<BroadcastSession>.Filter.Where(x => !x.IsTrashed && !x.IsHidden && x.ProjectionReady);
@@ -67,14 +69,14 @@ public static class LibraryEndpoints
             return Results.Ok(sessions.Select(session => new SessionResponse(LocalizedState.ForResponse(session),
                 SessionRetentionPolicy.GetExpiresAtUtc(session, settings))));
         });
-        api.MapGet("/sessions/{id}", async (string id, LibraryService library, ISettingsStore settingsStore, CancellationToken ct) =>
+        viewing.MapGet("/sessions/{id}", async (string id, LibraryService library, ISettingsStore settingsStore, CancellationToken ct) =>
         {
             var detail = LocalizedState.ForResponse(await library.GetAsync(id, ct));
             var settings = await settingsStore.GetAsync(ct);
             return Results.Ok(new SessionDetailResponse(detail,
                 SessionRetentionPolicy.GetExpiresAtUtc(detail.Session, settings)));
         });
-        api.MapGet("/sessions/{id}/segments/{segmentId}/download", async (string id, string segmentId, LibraryService library, IAppPaths paths, CancellationToken ct) =>
+        downloading.MapGet("/sessions/{id}/segments/{segmentId}/download", async (string id, string segmentId, LibraryService library, IAppPaths paths, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
             var segment = detail.Segments.FirstOrDefault(item => item.Id == segmentId)
@@ -86,7 +88,7 @@ public static class LibraryEndpoints
             var path = MediaPaths.ResolveSegment(paths.RecordsDirectory, detail.Session.DirectoryPath, segment);
             return Download(path, Path.GetFileName(path));
         });
-        api.MapGet("/sessions/{id}/cover", async (string id, LibraryService library, ArtworkCache artwork, IAppPaths paths, CancellationToken ct) =>
+        viewing.MapGet("/sessions/{id}/cover", async (string id, LibraryService library, ArtworkCache artwork, IAppPaths paths, CancellationToken ct) =>
         {
             var session = (await library.GetAsync(id, ct)).Session;
             if (session.CoverRelativePath is { } relative)
@@ -99,8 +101,8 @@ public static class LibraryEndpoints
             }
             return await ImageAsync(session.CoverUrl, artwork, ct);
         });
-        api.MapPost("/sessions/{id}/playback", async (string id, PlaybackRequest request, PlaybackService playback, CancellationToken ct) => Results.Ok(await playback.OpenAsync(id, request.OffsetMs, ct)));
-        api.MapGet("/sessions/{id}/events", async (string id, double? fromMs, double? toMs, string? kind, long? cursor, int? limit, LibraryService library, IAppPaths paths, SessionEventReader reader, CancellationToken ct) =>
+        viewing.MapPost("/sessions/{id}/playback", async (string id, PlaybackRequest request, PlaybackService playback, CancellationToken ct) => Results.Ok(await playback.OpenAsync(id, request.OffsetMs, ct)));
+        viewing.MapGet("/sessions/{id}/events", async (string id, double? fromMs, double? toMs, string? kind, long? cursor, int? limit, LibraryService library, IAppPaths paths, SessionEventReader reader, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
             var from = fromMs ?? 0;
@@ -111,14 +113,14 @@ public static class LibraryEndpoints
             }
             return Results.Ok(LocalizedState.ForResponse(await reader.ReadAsync(detail, paths.RecordsDirectory, from, Math.Min(until, detail.DurationMs), kind, cursor, limit ?? 300, ct)));
         });
-        api.MapGet("/sessions/{id}/analytics", async (string id, LibraryService library, IAppPaths paths, AnalyticsService analytics, CancellationToken ct) =>
+        viewing.MapGet("/sessions/{id}/analytics", async (string id, LibraryService library, IAppPaths paths, AnalyticsService analytics, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
             var report = await analytics.GetAsync(detail.Session, paths.RecordsDirectory, detail.DurationMs, ct);
             report.CoverageGaps = Math.Max(report.CoverageGaps, detail.Gaps.Count);
             return Results.Ok(report);
         }).RequireAuthorization(UserPermissionNames.VIEW_ANALYTICS);
-        api.MapGet("/playback/{key}/{generation}/{fileName}", async (string key, string generation, string fileName, PlaybackService playback, CancellationToken ct) =>
+        viewing.MapGet("/playback/{key}/{generation}/{fileName}", async (string key, string generation, string fileName, PlaybackService playback, CancellationToken ct) =>
         {
             var path = await playback.ResolveAssetAsync(key, generation, fileName, ct);
             var type = Path.GetExtension(path) switch { ".m3u8" => "application/vnd.apple.mpegurl", ".m4s" => "video/iso.segment", ".mp4" => "video/mp4", ".ts" => "video/mp2t", _ => "application/octet-stream" };
@@ -131,6 +133,11 @@ public static class LibraryEndpoints
         });
         api.MapPost("/jobs", async (CreateMediaJobRequest request, HttpContext http, MediaJobService jobs, CancellationToken ct) =>
         {
+            RequirePermission(http, UserPermissionNames.VIEW_RECORDINGS);
+            if (request.Kind == "Clip")
+            {
+                RequirePermission(http, UserPermissionNames.CREATE_CLIPS);
+            }
             var job = await jobs.CreateAsync(request, Owner(http), http.User.IsInRole("Admin"), ct);
             return Results.Accepted("/api/jobs/" + job.Id, job);
         });
@@ -142,10 +149,20 @@ public static class LibraryEndpoints
         });
         api.MapPost("/jobs/{id}/retry", async (string id, HttpContext http, IMongoContext context, MediaJobService jobs, CancellationToken ct) =>
         {
-            await jobs.RetryAsync(await GetJobAsync(id, http, context, ct), ct);
+            var job = await GetJobAsync(id, http, context, ct);
+            RequirePermission(http, UserPermissionNames.VIEW_RECORDINGS);
+            if (job.Kind == "Clip")
+            {
+                RequirePermission(http, UserPermissionNames.CREATE_CLIPS);
+            }
+            else if (!http.User.IsInRole("Admin"))
+            {
+                throw new InfrastructureException(MessageCode.LIBRARY_ACCESS_DENIED, 403);
+            }
+            await jobs.RetryAsync(job, ct);
             return Results.NoContent();
         });
-        api.MapGet("/jobs/{id}/outputs/{index:int}", async (string id, int index, HttpContext http, IMongoContext context, IAppPaths paths, CancellationToken ct) =>
+        downloading.MapGet("/jobs/{id}/outputs/{index:int}", async (string id, int index, HttpContext http, IMongoContext context, IAppPaths paths, CancellationToken ct) =>
         {
             var job = await GetJobAsync(id, http, context, ct);
             if (job.State != "Completed" || index < 0 || index >= job.OutputRelativePaths.Count)
@@ -172,7 +189,7 @@ public static class LibraryEndpoints
             }
             return Results.Ok(await context.Collection<Clip>("clips").Find(filter).SortByDescending(x => x.CreatedAtUtc).ToListAsync(ct));
         });
-        api.MapGet("/clips/{id}/download", async (string id, HttpContext http, IMongoContext context, IAppPaths paths, CancellationToken ct) =>
+        downloading.MapGet("/clips/{id}/download", async (string id, HttpContext http, IMongoContext context, IAppPaths paths, CancellationToken ct) =>
         {
             var clip = await GetClipAsync(id, http, context, ct);
             if (clip.IsTrashed || clip.ExpiresAtUtc <= DateTime.UtcNow)
@@ -181,7 +198,7 @@ public static class LibraryEndpoints
             }
             return Download(MediaPaths.Resolve(paths.RecordsDirectory, clip.RelativePath), MediaPaths.SafeName(clip.Title) + ".mp4");
         });
-        api.MapGet("/clips/{id}/media", async (string id, HttpContext http, IMongoContext context, IAppPaths paths, CancellationToken ct) =>
+        viewing.MapGet("/clips/{id}/media", async (string id, HttpContext http, IMongoContext context, IAppPaths paths, CancellationToken ct) =>
         {
             var clip = await GetClipAsync(id, http, context, ct);
             if (clip.IsTrashed || clip.ExpiresAtUtc <= DateTime.UtcNow)
@@ -377,6 +394,14 @@ public static class LibraryEndpoints
             RequireOwner(http, item.OwnerId);
         }
         return item;
+    }
+
+    private static void RequirePermission(HttpContext http, string permission)
+    {
+        if (!HasPermission(http, permission))
+        {
+            throw new InfrastructureException(MessageCode.LIBRARY_ACCESS_DENIED, 403);
+        }
     }
 
     private static bool HasPermission(HttpContext http, string permission) =>

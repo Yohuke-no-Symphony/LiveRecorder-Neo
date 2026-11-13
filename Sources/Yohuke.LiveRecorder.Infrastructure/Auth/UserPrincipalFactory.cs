@@ -17,17 +17,10 @@ public static class UserPrincipalFactory
             new(ClaimTypes.Email, user.Email),
             new(ClaimTypes.Role, user.Role)
         };
-        if (user.Role == "Admin" || user.Permissions.ManageRecordings)
+        var permissions = user.Role == "Admin" ? PermissionCatalog.All : user.Permissions;
+        foreach (var permission in permissions.Where(PermissionCatalog.All.Contains))
         {
-            claims.Add(new(UserPermissionNames.CLAIM_TYPE, UserPermissionNames.MANAGE_RECORDINGS));
-        }
-        if (user.Role == "Admin" || user.Permissions.ViewAnalytics)
-        {
-            claims.Add(new(UserPermissionNames.CLAIM_TYPE, UserPermissionNames.VIEW_ANALYTICS));
-        }
-        if (user.Role == "Admin" || user.Permissions.PurgeRecordings)
-        {
-            claims.Add(new(UserPermissionNames.CLAIM_TYPE, UserPermissionNames.PURGE_RECORDINGS));
+            claims.Add(new(UserPermissionNames.CLAIM_TYPE, permission));
         }
         return new(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme));
     }

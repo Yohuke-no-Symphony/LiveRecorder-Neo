@@ -51,7 +51,7 @@ const recordingVolume = computed(() => volumes.value.find(volume => volume.id ==
 const error = ref('')
 const errorOpen = ref(false)
 const links = computed(() => [
-  { to: '/', title: t('shell.nav.library'), icon: 'mdi-play-box-multiple-outline' },
+  ...(auth.canViewRecordings ? [{ to: '/', title: t('shell.nav.library'), icon: 'mdi-play-box-multiple-outline' }] : []),
   { to: '/clips', title: t('shell.nav.clips'), icon: 'mdi-content-cut' },
   { to: '/jobs', title: t('shell.nav.jobs'), icon: 'mdi-progress-clock' },
   ...(auth.canViewAnalytics ? [{ to: '/analytics', title: t('shell.nav.analytics'), icon: 'mdi-chart-timeline-variant' }] : []),
@@ -80,11 +80,19 @@ usePolling(async () =>
   catch { volumes.value = [] }
 }, 30000)
 
+watch(() => auth.canViewRecordings, allowed =>
+{
+  if (!allowed && Array.isArray(route.meta.permissions) && route.meta.permissions.includes('recordings.view'))
+  {
+    void router.replace(auth.homePath)
+  }
+})
+
 watch(() => auth.canViewAnalytics, allowed =>
 {
   if (!allowed && route.path === '/analytics')
   {
-    void router.replace('/')
+    void router.replace(auth.homePath)
   }
 })
 
@@ -92,7 +100,7 @@ watch(() => auth.isAdmin, allowed =>
 {
   if (!allowed && route.path.startsWith('/admin/'))
   {
-    void router.replace('/')
+    void router.replace(auth.homePath)
   }
 })
 

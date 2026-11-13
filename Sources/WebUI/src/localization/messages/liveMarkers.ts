@@ -1,0 +1,49 @@
+import type { MessageSchema } from '@/localization/types'
+
+export const liveMarkersZh = {
+  title: '直播记录', eventsTab: '弹幕', recordsTab: '直播记录', selectFile: '记录文件',
+  upload: '上传记录', uploadTitle: '上传直播记录', file: 'DanmuNeo 记录文件',
+  fileHint: '支持 YAML / YML，最大 5 MiB、20,000 条记录。',
+  sourceTimeZone: '无时区日期的来源时区', timeZoneHint: '仅用于未包含时区的日期，例如 Asia/Shanghai 或 UTC。',
+  calibration: '整体校准（秒）', calibrationHint: '正数向录像后方移动，负数向前移动；不修改原始记录。',
+  invalidCalibration: '请输入有效的校准秒数，最多三位小数。', invalidFile: '请选择 5 MiB 以内的 YAML / YML 文件。',
+  align: '校准时间', alignmentTitle: '校准直播记录', save: '保存', cancel: '取消', refresh: '刷新记录',
+  delete: '删除记录文件', deleteConfirm: '永久删除当前录像中的“{name}”及其导入记录？此操作不可恢复，不影响其他录像中的副本。',
+  emptyFiles: '暂无直播记录', emptyEntries: '这份文件没有记录', loadFailed: '直播记录加载失败',
+  fileInfo: '{uploader} · {uploadedAt} · {count} 条', unknownUploader: '已删除用户',
+  liveTime: '直播内 {time}', recordingTime: '录像 {time}', outOfRange: '不在当前录像范围内',
+  jump: '跳转到 {time}：{message}', count: '{count} 条记录', loading: '正在加载直播记录',
+  readonly: '此录像暂不可修改附件',
+}
+
+export const liveMarkersEn: MessageSchema<typeof liveMarkersZh> = {
+  title: 'Live notes', eventsTab: 'Chat', recordsTab: 'Live notes', selectFile: 'Notes file',
+  upload: 'Upload notes', uploadTitle: 'Upload live notes', file: 'DanmuNeo notes file',
+  fileHint: 'YAML / YML, up to 5 MiB and 20,000 entries.',
+  sourceTimeZone: 'Time zone for dates without an offset', timeZoneHint: 'Only applies to dates without a time zone, e.g. Asia/Shanghai or UTC.',
+  calibration: 'Time adjustment (seconds)', calibrationHint: 'Positive moves later in the recording; negative moves earlier. Original notes stay unchanged.',
+  invalidCalibration: 'Enter a valid adjustment with up to three decimal places.', invalidFile: 'Choose a YAML / YML file no larger than 5 MiB.',
+  align: 'Adjust timing', alignmentTitle: 'Adjust live notes timing', save: 'Save', cancel: 'Cancel', refresh: 'Refresh notes',
+  delete: 'Delete notes file', deleteConfirm: 'Permanently delete “{name}” and its imported notes from this recording? This cannot be undone. Copies in other recordings are unaffected.',
+  emptyFiles: 'No live notes yet', emptyEntries: 'This file has no entries', loadFailed: 'Failed to load live notes',
+  fileInfo: '{uploader} · {uploadedAt} · {count} entries', unknownUploader: 'Deleted user',
+  liveTime: 'Live {time}', recordingTime: 'Recording {time}', outOfRange: 'Outside this recording',
+  jump: 'Jump to {time}: {message}', count: '{count} notes', loading: 'Loading live notes',
+  readonly: 'Attachments cannot be changed for this recording right now',
+}
+
+export const liveMarkersJa: MessageSchema<typeof liveMarkersZh> = {
+  title: '配信記録', eventsTab: 'コメント', recordsTab: '配信記録', selectFile: '記録ファイル',
+  upload: '記録をアップロード', uploadTitle: '配信記録をアップロード', file: 'DanmuNeo 記録ファイル',
+  fileHint: 'YAML / YML、最大 5 MiB・20,000 件。',
+  sourceTimeZone: '時差表記のない日時のタイムゾーン', timeZoneHint: 'タイムゾーンのない日時にのみ適用されます。例：Asia/Shanghai、UTC。',
+  calibration: '全体の時間調整（秒）', calibrationHint: '正数で録画の後方へ、負数で前方へ移動します。元の記録は変更しません。',
+  invalidCalibration: '小数点以下3桁までの有効な秒数を入力してください。', invalidFile: '5 MiB 以下の YAML / YML ファイルを選択してください。',
+  align: '時間を調整', alignmentTitle: '配信記録の時間を調整', save: '保存', cancel: 'キャンセル', refresh: '記録を更新',
+  delete: '記録ファイルを削除', deleteConfirm: 'この録画の「{name}」と取り込んだ記録を完全に削除しますか？元に戻せません。他の録画のコピーには影響しません。',
+  emptyFiles: '配信記録はまだありません', emptyEntries: 'このファイルに記録はありません', loadFailed: '配信記録を読み込めませんでした',
+  fileInfo: '{uploader} · {uploadedAt} · {count} 件', unknownUploader: '削除されたユーザー',
+  liveTime: '配信内 {time}', recordingTime: '録画 {time}', outOfRange: 'この録画の範囲外',
+  jump: '{time} に移動：{message}', count: '記録 {count} 件', loading: '配信記録を読み込み中',
+  readonly: 'この録画の添付ファイルは現在変更できません',
+}

@@ -35,7 +35,7 @@ import CardHeader from '@/components/common/CardHeader.vue'
 
 const { t } = useI18n()
 
-const props = defineProps<{ sessionId: string; offsetMs: number; enabled: boolean; isLive: boolean; navigationRevision?: number }>()
+const props = withDefaults(defineProps<{ sessionId: string; offsetMs: number; enabled: boolean; isLive: boolean; navigationRevision?: number; active?: boolean }>(), { active: true })
 defineEmits<{ seek: [offsetMs: number] }>()
 const kind = ref<EventKind | 'all'>('all')
 const events = ref<RecordedEvent[]>([])
@@ -74,7 +74,7 @@ let followFrame = 0
 
 async function load(force = false): Promise<void>
 {
-  if (!props.enabled || (!force && props.offsetMs >= rangeStart.value && props.offsetMs < rangeEnd.value - 10000))
+  if (!props.active || !props.enabled || (!force && props.offsetMs >= rangeStart.value && props.offsetMs < rangeEnd.value - 10000))
   {
     return
   }
@@ -161,9 +161,9 @@ watch(follow, enabled =>
     pausedEvents.value = sourceEvents.value
   }
 }, { flush: 'sync' })
-watch([() => visibleEvents.value.length, () => visibleEvents.value.at(-1)?.sequence, follow], () =>
+watch([() => visibleEvents.value.length, () => visibleEvents.value.at(-1)?.sequence, follow, () => props.active], () =>
 {
-  if (follow.value && visibleEvents.value.length)
+  if (props.active && follow.value && visibleEvents.value.length)
   {
     feed.value?.scrollToIndex(visibleEvents.value.length - 1, 'end')
     scheduleFollowToBottom()
@@ -182,7 +182,7 @@ watch([feedViewport, feedContent], ([viewport, content], _previous, onCleanup) =
 }, { flush: 'post' })
 function scheduleFollowToBottom(): void
 {
-  if (!follow.value || !visibleEvents.value.length || followFrame)
+  if (!props.active || !follow.value || !visibleEvents.value.length || followFrame)
   {
     return
   }
@@ -190,7 +190,7 @@ function scheduleFollowToBottom(): void
   {
     followFrame = 0
     const viewport = feedViewport.value
-    if (follow.value && visibleEvents.value.length && viewport)
+    if (props.active && follow.value && visibleEvents.value.length && viewport)
     {
       viewport.scrollTop = viewport.scrollHeight
     }
@@ -266,6 +266,24 @@ function onKeydown(event: KeyboardEvent): void
     resumeOnScroll = true
   }
 }
+watch(() => props.active, active =>
+{
+  if (active)
+  {
+    void load(true)
+  }
+  else
+  {
+    generation++
+    controller?.abort()
+    loading.value = false
+    if (followFrame)
+    {
+      cancelAnimationFrame(followFrame)
+      followFrame = 0
+    }
+  }
+})
 usePolling(async () => { await load(props.isLive) }, 10000)
 onBeforeUnmount(() =>
 {

@@ -6,6 +6,7 @@ using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Library;
+using Yohuke.LiveRecorder.Infrastructure.Library.LiveMarkers;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
 
@@ -52,6 +53,7 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
     private async Task TrashCoreAsync(string id, string ownerId, bool expiredOnly,
         CancellationToken cancellationToken)
     {
+        await LiveMarkerProjectionGuard.EnsureWritableAsync(paths.RecordsDirectory, id, cancellationToken);
         var existing = await context.Collection<TrashEntry>("trash").Find(x => x.EntityId == id && x.Kind == "Session")
             .FirstOrDefaultAsync(cancellationToken);
         if (existing is not null)
@@ -309,6 +311,7 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
     private async Task CompleteMoveAsync(SessionTrashJournal journal, CancellationToken cancellationToken)
     {
         var entry = journal.Entry;
+        await LiveMarkerProjectionGuard.EnsureWritableAsync(paths.RecordsDirectory, entry.EntityId, cancellationToken);
         var source = ResolveDirectory(entry.OriginalRelativePath);
         var destination = ResolveDirectory(entry.TrashRelativePath);
         if (entry.State is "Pending" or "Moving")
@@ -431,6 +434,7 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
     {
         var session = manifest.Session;
         var actual = ResolveDirectory(actualDirectory);
+        new LiveMarkerFileStore(paths).DeleteAll(actualDirectory);
         if (actualDirectory == session.DirectoryPath &&
             await HasReferencesAsync(session.DirectoryPath, session.Id, cancellationToken))
         {

@@ -7,15 +7,25 @@ import { AuthAPI } from '../src/apis/AuthAPI'
 import { MediaAPI } from '../src/apis/MediaAPI'
 import type { TrashEntry } from '../src/models/media'
 import { useAuthStore } from '../src/stores/auth'
-import type { UserPermissions, UserProfile } from '../src/models/auth'
+import type { PermissionDefinition, UserPermissions, UserProfile } from '../src/models/auth'
 import type { ServerSettings } from '../src/models/settings'
 import { i18n } from '../src/plugins/i18n'
-import UserPermissionFields from '../src/components/common/UserPermissionFields.vue'
+import PermissionFields from '../src/components/common/PermissionFields.vue'
 import RegistrationSettings from '../src/components/common/RegistrationSettings.vue'
 import UsersView from '../src/views/UsersView.vue'
 import TrashView from '../src/views/TrashView.vue'
 
-const denied: UserPermissions = { manageRecordings: false, viewAnalytics: false, purgeRecordings: false }
+const denied: UserPermissions = []
+const definitions: PermissionDefinition[] = [
+  ['recordings.view', 'recordings', 'viewRecordings'],
+  ['recordings.download', 'recordings', 'downloadRecordings'],
+  ['clips.create', 'recordings', 'createClips'],
+  ['recordings.manage', 'recordings', 'manageRecordings'],
+  ['recordings.purge', 'recordings', 'purgeRecordings'],
+  ['live-markers.upload', 'liveMarkers', 'uploadLiveMarkers'],
+  ['live-markers.manage', 'liveMarkers', 'manageLiveMarkers'],
+  ['analytics.view', 'analytics', 'viewAnalytics'],
+].map(([id, group, label]) => ({ id: id!, group: group!, labelKey: `shell.permissions.${label}`, descriptionKey: null, icon: 'mdi-check', isDangerous: id === 'recordings.purge' || id === 'live-markers.manage', defaultGranted: false }))
 const mounted: VueWrapper[] = []
 let pinia: Pinia
 const container = { template: '<div><slot /></div>' }
@@ -41,7 +51,7 @@ const stubs = {
 
 function user(permissions: UserPermissions = denied): UserProfile
 {
-  return { id: 'viewer', email: 'viewer@example.test', displayName: '观众', role: 'User', status: 'Active', permissions: { ...permissions } }
+  return { id: 'viewer', email: 'viewer@example.test', displayName: '观众', role: 'User', status: 'Active', permissions: [...permissions] }
 }
 
 function button(wrapper: VueWrapper, label: string)
@@ -57,6 +67,7 @@ beforeEach(() =>
   pinia = createPinia()
   setActivePinia(pinia)
   i18n.global.locale.value = 'zh-CN'
+  useAuthStore().permissionDefinitions = definitions
 })
 afterEach(() =>
 {
@@ -71,11 +82,11 @@ describe('独立权限与管理入口', () =>
   it.each(Array.from({ length: 8 }, (_, value) => [value] as const))('普通用户权限组合 %i 互不提升', value =>
   {
     const auth = useAuthStore()
-    const permissions = { manageRecordings: Boolean(value & 1), viewAnalytics: Boolean(value & 2), purgeRecordings: Boolean(value & 4) }
-    auth.user = user(permissions)
-    expect(auth.canManageRecordings).toBe(permissions.manageRecordings)
-    expect(auth.canViewAnalytics).toBe(permissions.viewAnalytics)
-    expect(auth.canPurgeRecordings).toBe(permissions.purgeRecordings)
+    const permissions = ['recordings.view', ...['recordings.manage', 'analytics.view', 'recordings.purge'].filter((_, index) => value & (1 << index))]
+    auth.user = user([...permissions])
+    expect(auth.canManageRecordings).toBe(permissions.includes('recordings.manage'))
+    expect(auth.canViewAnalytics).toBe(permissions.includes('analytics.view'))
+    expect(auth.canPurgeRecordings).toBe(permissions.includes('recordings.purge'))
     expect(auth.isAdmin).toBe(false)
   })
 
@@ -92,28 +103,28 @@ describe('独立权限与管理入口', () =>
 
   it('新注册默认权限与单用户编辑复用同一控件，并以快照发出修改', async () =>
   {
-    const defaults = { ...denied }
+    const defaults = [...denied]
     const settings = {
       registrationEnabled: true, registrationApprovalRequired: true, registrationInvitationRequired: true,
       registrationEmailVerificationRequired: true, defaultUserPermissions: defaults,
     } as ServerSettings
     const wrapper = mount(RegistrationSettings, { props: { modelValue: settings }, global: { plugins: [i18n], stubs } })
     mounted.push(wrapper)
-    expect(wrapper.findComponent(UserPermissionFields).exists()).toBe(true)
+    expect(wrapper.findComponent(PermissionFields).exists()).toBe(true)
     await wrapper.get('input[aria-label="查看分析数据"]').setValue(true)
-    expect(settings.defaultUserPermissions).toEqual({ ...denied, viewAnalytics: true })
+    expect(settings.defaultUserPermissions).toEqual(['analytics.view'])
     expect(defaults).toEqual(denied)
     expect(wrapper.text()).toContain('新注册用户默认权限')
   })
 
   it.each([
-    [{ ...denied, manageRecordings: true }, true, false],
-    [{ ...denied, purgeRecordings: true }, false, true],
-    [{ ...denied, manageRecordings: true, purgeRecordings: true }, true, true],
+    [['recordings.manage'], true, false],
+    [['recordings.purge'], false, true],
+    [['recordings.manage', 'recordings.purge'], true, true],
   ] as const)('回收站恢复与彻删按钮独立授权 %j', async (permissions, restore, purge) =>
   {
     const auth = useAuthStore()
-    auth.user = user(permissions)
+    auth.user = user([...permissions])
     const entry: TrashEntry = {
       id: 'entry', createdAtUtc: '2026-11-13T00:00:00Z', ownerId: 'other-user', kind: 'Session',
       entityId: 'recording', title: '回收录像', bytes: 42, purgeAtUtc: null, state: 'Active',
@@ -128,6 +139,26 @@ describe('独立权限与管理入口', () =>
     expect(wrapper.text()).toContain('不自动删除')
   })
 
+  it('没有观看权时下载、切片和上传均不可用，仍可清理录像', () =>
+  {
+    const auth = useAuthStore()
+    auth.user = user(['recordings.download', 'clips.create', 'live-markers.upload', 'recordings.manage'])
+    expect([auth.canViewRecordings, auth.canDownloadRecordings, auth.canCreateClips, auth.canUploadLiveMarkers]).toEqual([false, false, false, false])
+    expect(auth.canManageRecordings).toBe(true)
+    expect(auth.homePath).toBe('/account')
+    auth.user = user(['recordings.view', 'recordings.download', 'clips.create', 'live-markers.upload'])
+    expect([auth.canViewRecordings, auth.canDownloadRecordings, auth.canCreateClips, auth.canUploadLiveMarkers]).toEqual([true, true, true, true])
+    expect(auth.homePath).toBe('/')
+  })
+
+  it('通用权限面板渲染传入目录并保留未显示的授权', async () =>
+  {
+    const wrapper = mount(PermissionFields, { props: { modelValue: ['preserved.permission'], definitions: [{ ...definitions[0]!, id: 'future.permission' }] }, global: { plugins: [i18n], stubs } })
+    mounted.push(wrapper)
+    await wrapper.get('input[aria-label="观看录像"]').setValue(true)
+    expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([['preserved.permission', 'future.permission']])
+  })
+
   it('编辑用户不提前修改其权限，保存失败保留草稿并允许重试', async () =>
   {
     const profile = user()
@@ -135,7 +166,7 @@ describe('独立权限与管理入口', () =>
     auth.user = { ...user(), id: 'admin', role: 'Admin' }
     vi.spyOn(AuthAPI, 'users').mockResolvedValue([profile])
     vi.spyOn(AuthAPI, 'invitations').mockResolvedValue([])
-    const save = vi.spyOn(AuthAPI, 'userPermissions').mockRejectedValueOnce(new Error('保存失败')).mockResolvedValue({ ...profile, permissions: { ...denied, purgeRecordings: true } })
+    const save = vi.spyOn(AuthAPI, 'userPermissions').mockRejectedValueOnce(new Error('保存失败')).mockResolvedValue({ ...profile, permissions: ['recordings.purge'] })
     const wrapper = mount(UsersView, { global: { plugins: [pinia, i18n], stubs } })
     mounted.push(wrapper)
     await flushPromises()
@@ -149,7 +180,7 @@ describe('独立权限与管理入口', () =>
     expect(wrapper.get<HTMLInputElement>('input[aria-label="彻底删除录像"]').element.checked).toBe(true)
     await button(wrapper, '保存').trigger('click')
     await flushPromises()
-    expect(save).toHaveBeenLastCalledWith('viewer', { ...denied, purgeRecordings: true })
+    expect(save).toHaveBeenLastCalledWith('viewer', ['recordings.purge'])
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 })

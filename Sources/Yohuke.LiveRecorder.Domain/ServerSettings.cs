@@ -25,7 +25,7 @@ public sealed class ServerSettings : Entity
     public int SessionGraceMinutes { get; set; } = 10;
     public int StreamDisconnectTimeoutMinutes { get; set; } = 5;
     public bool RegistrationEnabled { get; set; }
-    public UserPermissions DefaultUserPermissions { get; set; } = new();
+    public PermissionSet DefaultUserPermissions { get; set; } = PermissionSet.MemberDefaults;
     public bool RegistrationApprovalRequired { get; set; } = true;
     public bool RegistrationInvitationRequired { get; set; } = true;
     public bool RegistrationEmailVerificationRequired { get; set; } = true;
