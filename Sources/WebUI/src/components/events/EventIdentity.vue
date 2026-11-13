@@ -2,8 +2,7 @@
   <div class="event-identity">
     <EventAvatar :name="name" :sources="avatarSources" />
     <div class="identity-details">
-      <div class="identity-name-line"><v-icon v-if="appearance" :icon="appearance.icon" :color="appearance.color" size="13" :title="t(appearance.label)" /><span class="identity-name" :title="name">{{ name }}</span></div>
-      <EventBadges :event="event" />
+      <div class="identity-name-line"><v-icon v-if="appearance" :icon="appearance.icon" :color="appearance.color" size="13" :title="t(appearance.label)" /><span class="identity-name" :title="name">{{ name }}</span><EventBadges :event="event" /></div>
     </div>
     <button class="event-time mono" type="button" :aria-label="`${t('components.player.position')} ${formatDuration(event.offsetMs, true)}`" @click="$emit('seek', event.offsetMs)">{{ formatDuration(event.offsetMs) }}</button>
   </div>
@@ -36,8 +35,9 @@ const appearance = computed(() => appearances[props.event.kind])
 .event-identity { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; align-items: center; min-width: 0; }
 .identity-details { min-width: 0; }
 .identity-name-line { display: flex; align-items: center; gap: 5px; min-width: 0; }
-.identity-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: .75rem; font-weight: 550; color: rgba(var(--v-theme-on-surface), .72); }
-.event-time { align-self: start; margin-top: 3px; padding: 2px 0 2px 4px; background: transparent; border: 0; border-radius: 3px; font-size: .62rem; line-height: 1.4; white-space: nowrap; color: rgba(var(--v-theme-on-surface), .4); cursor: pointer; }
+.identity-name-line > :deep(.v-icon) { flex: 0 0 auto; }
+.identity-name { flex: 0 1 auto; min-width: 3em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: .75rem; font-weight: 550; color: rgba(var(--v-theme-on-surface), .72); }
+.event-time { padding: 2px 0 2px 4px; background: transparent; border: 0; border-radius: 3px; font-size: .62rem; line-height: 1.4; white-space: nowrap; color: rgba(var(--v-theme-on-surface), .4); cursor: pointer; }
 .event-time:hover { color: rgb(var(--v-theme-primary)); }
 .event-time:focus-visible { outline: 2px solid rgb(var(--v-theme-primary)); outline-offset: 3px; }
 </style>

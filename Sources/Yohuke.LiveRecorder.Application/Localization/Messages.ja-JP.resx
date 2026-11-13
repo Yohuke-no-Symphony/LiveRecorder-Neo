@@ -167,4 +167,6 @@
   <data name="RECORDING_CAPTURE_FAILED" xml:space="preserve"><value>録画が中断されました：{0}</value></data>
   <data name="SETTINGS_DATA_DIRECTORY_INVALID" xml:space="preserve"><value>有効なデータおよび録画ディレクトリを入力してください。保存先とその親パスに通常のファイルは指定できません。</value></data>
   <data name="STARTUP_CONFIGURATION_PATH_CONFLICT" xml:space="preserve"><value>録画ディレクトリに設定、キー、キャッシュを含めることはできません。設定ファイルでインストール状態やトークンを上書きすることもできません。保存先を変更してください。</value></data>
+  <data name="BILIBILI_SEARCH_INVALID" xml:space="preserve"><value>検索語は200文字以内、ページ番号は1以上で指定してください。</value></data>
+  <data name="BILIBILI_SEARCH_UNAVAILABLE" xml:space="preserve"><value>ライブ配信ルームを検索できません。しばらくしてから再試行してください。</value></data>
 </root>

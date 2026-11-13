@@ -14,6 +14,6 @@ const dimension = (value?: number) => value && Number.isFinite(value) && value >
 
 <style scoped>
 .inline-emoticons { display: inline; white-space: pre-wrap; overflow-wrap: anywhere; }
-.inline-emoticons :deep(.danmu-emoticon) { display: inline-block; width: auto; height: 1.65em; max-width: min(5em, 100%); object-fit: contain; vertical-align: middle; margin: 0 1px; }
-.inline-emoticons :deep(.danmu-emoticon.sticker) { height: auto; max-width: min(130px, 100%); max-height: 96px; }
+.inline-emoticons :deep(.danmu-emoticon) { display: inline-block; width: auto; height: 1.25em; max-width: min(4em, 100%); object-fit: contain; vertical-align: middle; margin: 0 1px; }
+.inline-emoticons :deep(.danmu-emoticon.sticker) { height: auto; max-width: min(64px, 100%); max-height: 48px; }
 </style>

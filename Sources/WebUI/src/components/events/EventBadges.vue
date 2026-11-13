@@ -26,7 +26,7 @@ const medalLevel = computed(() =>
 </script>
 
 <style scoped>
-.message-badges { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; min-width: 0; margin-top: 3px; }
+.message-badges { display: flex; flex: 0 1 auto; gap: 4px; flex-wrap: nowrap; align-items: center; min-width: 0; overflow: hidden; }
 .identity-badge { flex: 0 0 auto; border-radius: 4px; padding: 0 4px; font-size: .6rem; line-height: 1.6; }
 .room-admin { color: rgb(var(--v-theme-info)); background: rgba(var(--v-theme-info), .12); }
 .room-guard { color: rgb(var(--v-theme-warning)); background: rgba(var(--v-theme-warning), .1); }

@@ -23,6 +23,14 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
     private IMongoCollection<BilibiliAccount> Accounts => context.Collection<BilibiliAccount>("bilibili_accounts");
 
     /// <inheritdoc />
+    public async Task<BilibiliRoomSearchPage> SearchRoomsAsync(string keyword, int page = 1, string? accountId = null, CancellationToken cancellationToken = default)
+    {
+        var (_, credentials) = await GetCredentialsAsync(accountId, cancellationToken);
+        using var client = httpClientFactory.CreateClient("bilibili");
+        return await new BilibiliRoomSearchService(client).SearchAsync(keyword, page, credentials.Cookie, cancellationToken);
+    }
+
+    /// <inheritdoc />
     public async Task<LiveRoomSnapshot> GetRoomAsync(long roomId, string? accountId = null, CancellationToken cancellationToken = default)
     {
         if (roomId <= 0)

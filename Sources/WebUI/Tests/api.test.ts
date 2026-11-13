@@ -1,3 +1,4 @@
+import { AuthAPI } from '../src/apis/AuthAPI'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, post, query, request, setCsrfToken } from '../src/apis/APIBase'
 import { i18n } from '../src/plugins/i18n'
@@ -87,5 +88,25 @@ describe('API 请求', () =>
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network failed')))
     await expect(request('sessions')).rejects.toBeInstanceOf(ApiError)
     expect(query({ fromMs: 0, enabled: false, kind: undefined, search: '' })).toBe('?fromMs=0&enabled=false')
+  })
+})
+
+
+describe('直播间搜索 API', () =>
+{
+  it('编码关键词、页码和账号，并传递取消信号', async () =>
+  {
+    const controller = new AbortController()
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ results: [], issues: [], page: 2, hasMore: false }), { headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetcher)
+    await AuthAPI.searchBilibiliRooms({ keyword: '主播 & 名字', page: 2, accountId: 'account-1' }, controller.signal)
+    const [path, options] = fetcher.mock.calls[0]!
+    const url = new URL(path)
+    expect(url.pathname).toBe('/api/admin/bilibili/rooms/search')
+    expect(url.searchParams.get('keyword')).toBe('主播 & 名字')
+    expect(url.searchParams.get('page')).toBe('2')
+    expect(url.searchParams.get('accountId')).toBe('account-1')
+    expect(options.signal).toBe(controller.signal)
+    expect(options.body).toBeUndefined()
   })
 })

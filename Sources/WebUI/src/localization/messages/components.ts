@@ -1,6 +1,35 @@
 import type { MessageSchema } from '@/localization/types'
 
 export const componentsZh = {
+  targets: {
+    "description": "搜索主播或直播间，也可以手动输入直播间号添加录制。",
+    "automaticSearch": "自动搜索",
+    "manualAdd": "手动添加",
+    "searchLabel": "昵称、UID 或直播间号",
+    "search": "搜索",
+    "searchHint": "留空搜索可查看所选账号正在直播的关注列表。",
+    "manualHint": "支持标准直播间号和短号，添加时会读取主播资料。",
+    "searchFailed": "搜索失败，请稍后重试。",
+    "noResults": "没有找到可添加的直播间",
+    "add": "添加",
+    "added": "已添加",
+    "addRoom": "添加 {name}",
+    "shortRoom": "短号 {roomId}",
+    "sourceIssue": "{source}：{message}",
+    "issueCode": "{message}（{code}）",
+    "sources": {
+      "nickname": "昵称",
+      "uid": "UID",
+      "roomId": "房号",
+      "following": "关注直播"
+    },
+    "issues": {
+      "followingLoginRequired": "请选择已登录的B站账号以查看正在直播的关注。",
+      "invalidIdentifier": "请输入有效的 UID 或直播间号。",
+      "incompleteResponse": "平台返回的直播间资料不完整，请重试。",
+      "unavailable": "暂时无法完成这部分查询，请稍后重试。"
+    }
+  },
   common: {
     cancel: '取消', confirm: '确认', retry: '重试', loadMore: '加载更多', operationFailed: '操作失败',
     emailCode: '邮箱验证码', sendCode: '发送验证码', countdown: '{seconds}秒',
@@ -63,6 +92,35 @@ export const componentsZh = {
 } as const
 
 export const componentsEn: MessageSchema<typeof componentsZh> = {
+  targets: {
+    "description": "Search for a streamer or live room, or enter a room ID to add a recording target.",
+    "automaticSearch": "Search",
+    "manualAdd": "Manual entry",
+    "searchLabel": "Name, UID or room ID",
+    "search": "Search",
+    "searchHint": "Leave blank to find followed streamers who are live using the selected account.",
+    "manualHint": "Full and short room IDs are supported. Streamer details are retrieved when adding.",
+    "searchFailed": "Search failed. Please try again later.",
+    "noResults": "No live rooms found",
+    "add": "Add",
+    "added": "Added",
+    "addRoom": "Add {name}",
+    "shortRoom": "Short ID {roomId}",
+    "sourceIssue": "{source}: {message}",
+    "issueCode": "{message} ({code})",
+    "sources": {
+      "nickname": "Name",
+      "uid": "UID",
+      "roomId": "Room ID",
+      "following": "Following live"
+    },
+    "issues": {
+      "followingLoginRequired": "Select a signed-in Bilibili account to see followed streamers who are live.",
+      "invalidIdentifier": "Enter a valid UID or live room ID.",
+      "incompleteResponse": "The platform returned incomplete room details. Please retry.",
+      "unavailable": "This part of the search is unavailable. Please try again later."
+    }
+  },
   common: {
     cancel: 'Cancel', confirm: 'Confirm', retry: 'Retry', loadMore: 'Load more', operationFailed: 'Operation failed',
     emailCode: 'Email verification code', sendCode: 'Send code', countdown: '{seconds}s',
@@ -127,6 +185,35 @@ export const componentsEn: MessageSchema<typeof componentsZh> = {
 }
 
 export const componentsJa: MessageSchema<typeof componentsZh> = {
+  targets: {
+    "description": "配信者やルームを検索するか、ルーム番号を入力して録画対象に追加します。",
+    "automaticSearch": "自動検索",
+    "manualAdd": "手動追加",
+    "searchLabel": "ニックネーム、UID、ルーム番号",
+    "search": "検索",
+    "searchHint": "空欄で検索すると、選択したアカウントがフォロー中の配信者のライブ一覧を表示します。",
+    "manualHint": "通常のルーム番号と短縮番号に対応しています。追加時に配信者情報を取得します。",
+    "searchFailed": "検索に失敗しました。しばらくしてから再試行してください。",
+    "noResults": "追加できるルームが見つかりません",
+    "add": "追加",
+    "added": "追加済み",
+    "addRoom": "{name}を追加",
+    "shortRoom": "短縮番号 {roomId}",
+    "sourceIssue": "{source}：{message}",
+    "issueCode": "{message}（{code}）",
+    "sources": {
+      "nickname": "ニックネーム",
+      "uid": "UID",
+      "roomId": "ルーム番号",
+      "following": "フォロー中のライブ"
+    },
+    "issues": {
+      "followingLoginRequired": "ログイン済みのBilibiliアカウントを選択すると、フォロー中のライブを表示できます。",
+      "invalidIdentifier": "有効なUIDまたはルーム番号を入力してください。",
+      "incompleteResponse": "配信プラットフォームから取得したルーム情報が不完全です。再試行してください。",
+      "unavailable": "この検索元を現在利用できません。しばらくしてから再試行してください。"
+    }
+  },
   common: {
     cancel: 'キャンセル', confirm: '確認', retry: '再試行', loadMore: 'もっと見る', operationFailed: '操作に失敗しました',
     emailCode: 'メール認証コード', sendCode: '認証コードを送信', countdown: '{seconds}秒',

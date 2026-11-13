@@ -1,5 +1,6 @@
-import { post, put, remove, request } from './APIBase'
+import { post, put, query, remove, request } from './APIBase'
 import { getServerUrl } from './ServerURL'
+import type { BilibiliRoomSearchPage } from '@/models/bilibili'
 import type { AppLanguage } from '@/localization/types'
 import type { SetupRequest, SetupStatus } from '@/models/setup'
 import type { BilibiliAccount, BilibiliLoginSession, Invitation, OAuthExchange, Registration, SmsChallengeAnswer, UserProfile, UserSession } from '@/models/auth'
@@ -25,6 +26,7 @@ export const AuthAPI = {
   invitations: () => request<Invitation[]>('admin/invitations'),
   createInvitation: (maxUses: number, expiresAtUtc: string | null) => post<Invitation>('admin/invitations', { maxUses, expiresAtUtc }),
   revokeInvitation: (id: string) => remove(`admin/invitations/${encodeURIComponent(id)}`),
+  searchBilibiliRooms: (parameters: { keyword: string; page: number; accountId: string | null }, signal?: AbortSignal) => request<BilibiliRoomSearchPage>(`admin/bilibili/rooms/search${query(parameters)}`, { signal }),
   bilibiliAccounts: () => request<BilibiliAccount[]>('admin/bilibili/accounts'),
   bilibiliAccountAvatar: (id: string, version: string) => getServerUrl(`/api/admin/bilibili/accounts/${encodeURIComponent(id)}/avatar?v=${encodeURIComponent(version)}`),
   deleteBilibiliAccount: (id: string) => remove(`admin/bilibili/accounts/${encodeURIComponent(id)}`),

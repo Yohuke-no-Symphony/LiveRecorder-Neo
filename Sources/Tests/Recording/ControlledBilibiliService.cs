@@ -40,6 +40,7 @@ internal sealed class ControlledBilibiliService : IBilibiliService
         }
     }
 
+    public Task<BilibiliRoomSearchPage> SearchRoomsAsync(string keyword, int page = 1, string? accountId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<IReadOnlyList<BilibiliAccountSummary>> ListAccountsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<BilibiliLoginSession> BeginQrAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<BilibiliLoginSession> PollQrAsync(string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

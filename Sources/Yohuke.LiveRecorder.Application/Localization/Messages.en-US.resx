@@ -167,4 +167,6 @@ This code is valid for 10 minutes. Do not share it. If you did not request it, i
   <data name="RECORDING_CAPTURE_FAILED" xml:space="preserve"><value>Recording was interrupted: {0}</value></data>
   <data name="SETTINGS_DATA_DIRECTORY_INVALID" xml:space="preserve"><value>Enter valid data and recordings directories. Neither destination nor its parent paths may be regular files.</value></data>
   <data name="STARTUP_CONFIGURATION_PATH_CONFLICT" xml:space="preserve"><value>The recordings directory must not contain configuration, keys, or cache. The settings file must not overwrite installation state or tokens. Choose other locations.</value></data>
+  <data name="BILIBILI_SEARCH_INVALID" xml:space="preserve"><value>Search keywords must be 200 characters or fewer and the page must be greater than zero.</value></data>
+  <data name="BILIBILI_SEARCH_UNAVAILABLE" xml:space="preserve"><value>Unable to search live rooms. Please try again later.</value></data>
 </root>

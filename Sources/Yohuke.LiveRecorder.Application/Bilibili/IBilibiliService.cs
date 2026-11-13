@@ -5,6 +5,8 @@ namespace Yohuke.LiveRecorder.Application.Bilibili;
 /// <summary>Core 的服务端适配，包括账号管理与录制来源。</summary>
 public interface IBilibiliService
 {
+    /// <summary>按昵称、UID、房号搜索；空关键词查询所选账号正在直播的关注。</summary>
+    Task<BilibiliRoomSearchPage> SearchRoomsAsync(string keyword, int page = 1, string? accountId = null, CancellationToken cancellationToken = default);
     /// <summary>读取主播名称、头像、封面及开播状态。</summary>
     Task<LiveRoomSnapshot> GetRoomAsync(long roomId, string? accountId = null, CancellationToken cancellationToken = default);
     /// <summary>解析允许采集的实际流和清晰度。</summary>

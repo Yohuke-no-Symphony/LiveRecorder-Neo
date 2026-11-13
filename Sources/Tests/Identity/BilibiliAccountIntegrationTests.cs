@@ -43,8 +43,23 @@ public sealed class BilibiliAccountIntegrationTests
                     success.Headers.TryAddWithoutValidation("Set-Cookie", new[] { "SESSDATA=backend-session; Domain=.bilibili.com; Path=/; Secure", "bili_jct=backend-csrf; Domain=.bilibili.com; Path=/; Secure", "DedeUserID=42; Domain=.bilibili.com; Path=/; Secure" });
                     return Task.FromResult(success);
                 case "/x/web-interface/nav":
-                    Assert.Contains("SESSDATA=backend-session", request.Headers.GetValues("Cookie").Single());
-                    return Task.FromResult(Json("""{"code":0,"data":{"isLogin":true,"mid":42,"uname":"主播"}}"""));
+                    var authenticated = request.Headers.TryGetValues("Cookie", out var cookies)
+                                        && cookies.Single().Contains("SESSDATA=backend-session", StringComparison.Ordinal);
+                    return Task.FromResult(Json(JsonSerializer.Serialize(new
+                    {
+                        code = authenticated ? 0 : -101,
+                        data = new
+                        {
+                            isLogin = authenticated,
+                            mid = authenticated ? 42 : 0,
+                            uname = "主播",
+                            wbi_img = new
+                            {
+                                img_url = "https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png",
+                                sub_url = "https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png"
+                            }
+                        }
+                    })));
                 case "/x/web-interface/card":
                     return Task.FromResult(Json("""{"code":0,"data":{"card":{"mid":42,"name":"主播","face":"https://i0.hdslb.com/face.jpg"}}}"""));
                 case "/xlive/web-room/v1/index/getInfoByRoom":

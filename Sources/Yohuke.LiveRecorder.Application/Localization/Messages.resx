@@ -167,4 +167,6 @@
   <data name="RECORDING_CAPTURE_FAILED" xml:space="preserve"><value>录制暂时中断：{0}</value></data>
   <data name="SETTINGS_DATA_DIRECTORY_INVALID" xml:space="preserve"><value>请填写有效的数据目录和录像目录，目标及其上级路径不能是普通文件。</value></data>
   <data name="STARTUP_CONFIGURATION_PATH_CONFLICT" xml:space="preserve"><value>录像目录不能包含配置文件、密钥或缓存，配置文件也不能覆盖安装状态或令牌。请调整目录位置。</value></data>
+  <data name="BILIBILI_SEARCH_INVALID" xml:space="preserve"><value>搜索关键词最多 200 个字符，页码必须大于零。</value></data>
+  <data name="BILIBILI_SEARCH_UNAVAILABLE" xml:space="preserve"><value>无法搜索直播间，请稍后重试。</value></data>
 </root>

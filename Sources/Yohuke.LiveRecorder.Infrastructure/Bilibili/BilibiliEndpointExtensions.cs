@@ -9,13 +9,14 @@ using Yohuke.LiveRecorder.Infrastructure.Persistence;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Bilibili;
 
-/// <summary>管理员扫码和短信绑定接口，不接受或返回 Cookie。</summary>
+/// <summary>管理员直播间搜索和账号绑定接口，不接受或返回 Cookie。</summary>
 public static class BilibiliEndpointExtensions
 {
-    /// <summary>映射账号列表、删除及平台登录流程。</summary>
+    /// <summary>映射直播间搜索、账号管理及平台登录流程。</summary>
     public static IEndpointRouteBuilder MapBilibiliEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/admin/bilibili").RequireAuthorization(policy => policy.RequireRole("Admin"));
+        group.MapGet("/rooms/search", async (string? keyword, int? page, string? accountId, IBilibiliService service, CancellationToken ct) => Results.Ok(await service.SearchRoomsAsync(keyword ?? "", page ?? 1, accountId, ct)));
         group.MapGet("/accounts", async (IBilibiliService service, CancellationToken ct) => Results.Ok(await service.ListAccountsAsync(ct)));
         group.MapGet("/accounts/{id}/avatar", async (string id, IMongoContext context, ArtworkCache artwork, CancellationToken ct) =>
         {
