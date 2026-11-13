@@ -42,7 +42,14 @@
                     </span>
                   </template>
                 </v-tooltip>
-                <span v-if="canSeekLiveMarker(item.offsetMs, durationMs)" class="marker-real-time" :title="formatDate(item.realDateTime)">{{ formatDate(item.realDateTime) }}</span>
+                <v-tooltip v-if="canSeekLiveMarker(item.offsetMs, durationMs)" :text="formatDate(item.realDateTime)" location="top">
+                  <template #activator="{ props: tooltipProps }">
+                    <span v-bind="tooltipProps" class="marker-time marker-real-time" :aria-label="formatDate(item.realDateTime)">
+                      <v-icon icon="mdi-calendar-clock-outline" size="14" aria-hidden="true" />
+                      <span>{{ formatDate(item.realDateTime) }}</span>
+                    </span>
+                  </template>
+                </v-tooltip>
               </span>
               <span v-if="!canSeekLiveMarker(item.offsetMs, durationMs)" class="marker-unavailable">{{ t('liveMarkers.outOfRange') }}</span>
             </span>
@@ -147,9 +154,10 @@ async function deleteFile(): Promise<void>
 .marker-red { color: rgb(var(--v-theme-error)); }.marker-orange { color: #e89143; }.marker-yellow { color: rgb(var(--v-theme-warning)); }.marker-green { color: rgb(var(--v-theme-success)); }.marker-blue { color: rgb(var(--v-theme-info)); }.marker-magenta { color: #c967b4; }.marker-grey { color: rgba(var(--v-theme-on-surface), .45); }
 .marker-entry-content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .marker-message { font-size: .86rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
-.marker-times { display: flex; align-items: center; gap: 8px; font-size: .65rem; opacity: .65; }
+.marker-times { display: flex; align-items: center; gap: 6px; font-size: .65rem; opacity: .65; }
 .marker-time { display: inline-flex; flex-shrink: 0; align-items: center; gap: 4px; white-space: nowrap; }
-.marker-real-time { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.marker-real-time { flex-shrink: 1; min-width: 0; overflow: hidden; }
+.marker-real-time > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .marker-unavailable { font-size: .65rem; opacity: .65; }
 .marker-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 32px 16px; color: rgba(var(--v-theme-on-surface), .45); font-size: .85rem; }
 </style>
