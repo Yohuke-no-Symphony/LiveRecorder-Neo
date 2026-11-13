@@ -9,4 +9,7 @@
     <ProjectReference Include="../Yohuke.LiveRecorder.Application/Yohuke.LiveRecorder.Application.csproj" />
     <ProjectReference Include="../ThirdParty/BililiveRecorder.Flv/BililiveRecorder.Flv.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Yohuke.LiveRecorder.Media.Tests" />
+  </ItemGroup>
 </Project>

@@ -38,7 +38,7 @@ public sealed class IndexedPlaybackWindowBuilder : IPlaybackWindowBuilder
         var after = index.Keyframes.FirstOrDefault(frame => frame.TimestampMs >= desiredEnd && frame.Offset > first.Offset);
         var endOffset = after?.Offset ?? committed;
         var sourceEndMs = after?.TimestampMs ?? index.DurationMs;
-        var directory = Path.GetFullPath(request.OutputDirectory);
+        var directory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(request.OutputDirectory));
         var temporary = directory + ".building-" + Guid.NewGuid().ToString("N");
         Directory.CreateDirectory(temporary);
         try
@@ -71,11 +71,7 @@ public sealed class IndexedPlaybackWindowBuilder : IPlaybackWindowBuilder
             {
                 throw new InvalidDataException("The playback process did not produce any playable fragments.");
             }
-            Directory.CreateDirectory(directory);
-            foreach (var file in Directory.EnumerateFiles(temporary))
-            {
-                File.Move(file, Path.Combine(directory, Path.GetFileName(file)), overwrite: false);
-            }
+            PlaybackWindowPublisher.Publish(temporary, directory);
             return new()
             {
                 PlaylistPath = Path.Combine(directory, "index.m3u8"),
@@ -87,7 +83,10 @@ public sealed class IndexedPlaybackWindowBuilder : IPlaybackWindowBuilder
         }
         finally
         {
-            Directory.Delete(temporary, recursive: true);
+            if (Directory.Exists(temporary))
+            {
+                Directory.Delete(temporary, recursive: true);
+            }
         }
     }
 }
