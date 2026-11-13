@@ -117,12 +117,18 @@ function mergeRedPocket(previous: RecordedEvent, current: RecordedEvent): Record
   }
 }
 
+const DISPLAY_EVENT_KINDS = new Set(['Danmu', 'SuperChat', 'Gift', 'Guard', 'RedPocket', 'Gap'])
+
+export function isDisplayEventKind(kind: string): boolean
+{
+  return DISPLAY_EVENT_KINDS.has(kind)
+}
+
 export function displayEvents(events: readonly RecordedEvent[], offsetMs: number, kind: EventKind | 'all' = 'all'): RecordedEvent[]
 {
-  const supported = new Set(['Danmu', 'SuperChat', 'Gift', 'Guard', 'RedPocket', 'Gap'])
   const output: RecordedEvent[] = []
   const pockets = new Map<string, number>()
-  for (const event of events.filter(item => supported.has(item.kind) && item.offsetMs <= offsetMs && (kind === 'all' || item.kind === kind)).sort((a, b) => a.offsetMs - b.offsetMs || a.sequence - b.sequence))
+  for (const event of events.filter(item => isDisplayEventKind(item.kind) && item.offsetMs <= offsetMs && (kind === 'all' || item.kind === kind)).sort((a, b) => a.offsetMs - b.offsetMs || a.sequence - b.sequence))
   {
     if (event.kind !== 'RedPocket') { output.push(event); continue }
     const data = redPocketData(event)

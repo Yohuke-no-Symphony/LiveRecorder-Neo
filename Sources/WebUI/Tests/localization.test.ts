@@ -6,7 +6,7 @@ import { i18n } from '../src/plugins/i18n'
 import { formatBytes, formatDate, formatDuration, formatMoney, formatNumber } from '../src/utilities/format'
 import ConfirmDialog from '../src/components/common/ConfirmDialog.vue'
 import StatusChip from '../src/components/common/StatusChip.vue'
-import DanmuContent from '../src/components/events/DanmuContent.vue'
+import EventMessageRow from '../src/components/events/EventMessageRow.vue'
 import CaptchaChallenge from '../src/components/accounts/CaptchaChallenge.vue'
 import DataDirectoryInfo from '../src/components/common/DataDirectoryInfo.vue'
 import type { RecordedEvent } from '../src/models/media'
@@ -87,22 +87,25 @@ describe('运行时界面语言', () =>
       text: '原始弹幕 <script>保留为文本</script>', quantity: 1,
       payload: { isRoomAdmin: true, roomGuardLevel: 2, medalName: '原始粉丝牌', replyUserName: '回复对象' },
     }
-    const wrapper = mount(DanmuContent, { props: { event }, global: { plugins: [i18n] } })
+    const wrapper = mount(EventMessageRow, { props: { event, sessionId: 'localized-session' }, global: { plugins: [i18n], stubs: { VIcon: true } } })
     mounted.push(wrapper)
     i18n.global.locale.value = 'en-US'
     await nextTick()
     expect(wrapper.text()).toContain('Moderator')
     expect(wrapper.text()).toContain('Admiral')
     expect(wrapper.text()).toContain('Reply to 回复对象:')
-    expect(wrapper.text()).toContain('原始粉丝牌')
-    expect(wrapper.text()).toContain(event.text)
+    expect(wrapper.get('.identity-name').text()).toBe('原始昵称')
+    expect(wrapper.get('.medal').text()).toBe('原始粉丝牌')
+    expect(wrapper.get('.event-content').text()).toContain(event.text)
     expect(wrapper.find('script').exists()).toBe(false)
 
     i18n.global.locale.value = 'ja-JP'
     await nextTick()
     expect(wrapper.text()).toContain('モデレーター')
     expect(wrapper.text()).toContain('返信')
-    expect(wrapper.text()).toContain(event.text)
+    expect(wrapper.get('.identity-name').text()).toBe('原始昵称')
+    expect(wrapper.get('.medal').text()).toBe('原始粉丝牌')
+    expect(wrapper.get('.event-content').text()).toContain(event.text)
     expect(event.userName).toBe('原始昵称')
   })
 })

@@ -4,42 +4,35 @@
     <v-chip-group v-model="kind" mandatory class="feed-tabs px-4" color="primary"><v-chip value="all" size="small">{{ t('components.events.all') }}</v-chip><v-chip v-for="item in kinds" :key="item.value" :value="item.value" size="small">{{ item.title }}</v-chip></v-chip-group>
     <v-alert v-if="error" type="error" class="mx-4 my-3" density="compact">{{ error }}</v-alert>
     <v-progress-linear v-if="loading" color="primary" height="2" indeterminate />
-    <v-virtual-scroll v-if="visibleEvents.length" ref="feed" :items="visibleEvents" class="event-scroll" :item-height="78" height="500" @scroll.passive="onScroll">
-      <template #default="{ item }">
-        <div class="event-row" :class="`event-${item.kind.toLowerCase()}`">
-          <div v-if="item.kind === 'Gap'" class="gap-message"><button class="event-time mono" type="button" @click="$emit('seek', item.offsetMs)">{{ formatDuration(item.offsetMs) }}</button><v-icon icon="mdi-video-off-outline" size="15" /><span>{{ item.text || t('components.events.gap') }}</span></div>
-          <template v-else><div class="d-flex align-center ga-2 mb-1">
-            <button class="event-time mono" type="button" @click="$emit('seek', item.offsetMs)">{{ formatDuration(item.offsetMs) }}</button>
-            <v-avatar size="22" color="surface-variant"><v-img v-if="safeImageUrl(item.avatarUrl)" :src="safeImageUrl(item.avatarUrl)" /><span v-else class="text-caption">{{ item.userName?.slice(0, 1) || '·' }}</span></v-avatar>
-            <span class="event-user text-truncate">{{ item.userName || t('components.events.guest') }}</span>
-            <v-icon v-if="item.kind !== 'Danmu'" :icon="kindIcons[item.kind]" :color="kindColors[item.kind]" size="14" />
-          </div>
-          <div class="event-content"><DanmuContent v-if="item.kind === 'Danmu'" :event="item" /><ScContent v-else-if="item.kind === 'SuperChat'" :event="item" /><GiftContent v-else-if="item.kind === 'Gift'" :event="item" /><GuardContent v-else-if="item.kind === 'Guard'" :event="item" /><RedPocketContent v-else-if="item.kind === 'RedPocket'" :event="item" /></div></template>
-        </div>
-      </template>
-    </v-virtual-scroll>
+    <div v-if="visibleEvents.length" ref="feedViewport" class="event-scroll" tabindex="0" @scroll.passive="onScroll" @wheel.passive="onWheel" @touchstart.passive="onTouchStart" @touchmove.passive="onTouchMove" @pointerdown="onPointerDown" @keydown="onKeydown">
+      <div ref="feedContent" class="event-list">
+        <v-virtual-scroll ref="feed" :items="visibleEvents" :item-height="78" item-key="sequence" renderless>
+          <template #default="{ item, itemRef }">
+            <div :ref="itemRef" class="event-row" :class="`event-${item.kind.toLowerCase()}`">
+              <EventMessageRow :session-id="sessionId" :event="item" @seek="$emit('seek', $event)" />
+            </div>
+          </template>
+        </v-virtual-scroll>
+      </div>
+    </div>
     <div v-else-if="!loading" class="event-empty"><v-icon icon="mdi-comment-text-outline" size="28" /><span>{{ enabled ? t('components.events.empty') : t('components.events.notRecorded') }}</span></div>
     <div class="feed-footer mono">{{ formatDuration(offsetMs, true) }}<span>{{ t('components.events.count', { count: formatNumber(visibleEvents.length) }) }}</span></div>
   </v-card>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MediaAPI } from '@/apis/MediaAPI'
 import { usePolling } from '@/composables/usePolling'
+import { usePlaybackEvents } from '@/composables/usePlaybackEvents'
 import type { EventKind, RecordedEvent } from '@/models/media'
 import { formatDuration, formatNumber } from '@/utilities/format'
-import { displayEvents, safeImageUrl } from '@/utilities/eventPresentation'
-import DanmuContent from '@/components/events/DanmuContent.vue'
-import ScContent from '@/components/events/ScContent.vue'
-import GiftContent from '@/components/events/GiftContent.vue'
-import GuardContent from '@/components/events/GuardContent.vue'
-import RedPocketContent from '@/components/events/RedPocketContent.vue'
+import EventMessageRow from '@/components/events/EventMessageRow.vue'
 
 const { t } = useI18n()
 
-const props = defineProps<{ sessionId: string; offsetMs: number; enabled: boolean; isLive: boolean }>()
+const props = defineProps<{ sessionId: string; offsetMs: number; enabled: boolean; isLive: boolean; navigationRevision?: number }>()
 defineEmits<{ seek: [offsetMs: number] }>()
 const kind = ref<EventKind | 'all'>('all')
 const events = ref<RecordedEvent[]>([])
@@ -47,7 +40,14 @@ const pocketHistory = ref<RecordedEvent[]>([])
 const error = ref('')
 const loading = ref(false)
 const follow = ref(true)
-const feed = ref<{ scrollToIndex: (index: number) => void }>()
+const feed = ref<{ scrollToIndex: (index: number, position: 'end') => void }>()
+const feedViewport = ref<HTMLElement>()
+const feedContent = ref<HTMLElement>()
+const rangeStart = ref(-1)
+const rangeEnd = ref(-1)
+const pausedEvents = shallowRef<readonly RecordedEvent[]>()
+const pausedOffset = ref(0)
+const pausedRangeStart = ref(0)
 const kinds = computed<{ title: string; value: EventKind }[]>(() => [
   { title: t('components.events.danmu'), value: 'Danmu' },
   { title: t('components.events.superChat'), value: 'SuperChat' },
@@ -55,13 +55,19 @@ const kinds = computed<{ title: string; value: EventKind }[]>(() => [
   { title: t('components.events.guard'), value: 'Guard' },
   { title: t('components.events.redPocket'), value: 'RedPocket' },
 ])
-const kindIcons: Record<string, string> = { SuperChat: 'mdi-message-badge-outline', Gift: 'mdi-gift-outline', Guard: 'mdi-shield-crown-outline', RedPocket: 'mdi-red-envelope' }
-const kindColors: Record<string, string> = { SuperChat: 'info', Gift: 'primary', Guard: 'warning', RedPocket: 'error' }
-const visibleEvents = computed(() => displayEvents([...events.value.filter(item => item.kind !== 'RedPocket'), ...pocketHistory.value], props.offsetMs, kind.value).filter(item => item.offsetMs >= rangeStart.value))
+const sourceEvents = computed(() => [...events.value.filter(item => item.kind !== 'RedPocket'), ...pocketHistory.value])
+const playbackEvents = usePlaybackEvents(() => pausedEvents.value ?? sourceEvents.value, () => pausedEvents.value ? pausedOffset.value : props.offsetMs, kind)
+const visibleRangeStart = computed(() => pausedEvents.value ? pausedRangeStart.value : rangeStart.value)
+const visibleEvents = computed<RecordedEvent[]>((previous) =>
+{
+  const visible = playbackEvents.value.filter(item => item.offsetMs >= visibleRangeStart.value)
+  return previous && previous.length === visible.length && previous.every((item, index) => item === visible[index]) ? previous : visible
+})
 let controller: AbortController | undefined
-const rangeStart = ref(-1)
-const rangeEnd = ref(-1)
 let generation = 0
+let touchY: number | undefined
+let resumeOnScroll = false
+let followFrame = 0
 
 async function load(force = false): Promise<void>
 {
@@ -91,10 +97,24 @@ async function load(force = false): Promise<void>
       cursor = next
     } while (cursor)
     if (operation !== generation) { return }
+    const previous = new Map([...events.value, ...pocketHistory.value].map(item => [item.sequence, item]))
+    const updated = collected.map(item => previous.get(item.sequence) ?? item).sort((a, b) => a.offsetMs - b.offsetMs || a.sequence - b.sequence)
     const pockets = new Map(pocketHistory.value.map(item => [item.sequence, item]))
-    for (const item of collected.filter(item => item.kind === 'RedPocket')) { pockets.set(item.sequence, item) }
-    pocketHistory.value = [...pockets.values()]
-    events.value = collected.sort((a, b) => a.offsetMs - b.offsetMs || a.sequence - b.sequence)
+    for (const item of updated)
+    {
+      if (item.kind === 'RedPocket')
+      {
+        pockets.set(item.sequence, item)
+      }
+    }
+    if (pockets.size !== pocketHistory.value.length)
+    {
+      pocketHistory.value = [...pockets.values()]
+    }
+    if (updated.length !== events.value.length || updated.some((item, index) => item !== events.value[index]))
+    {
+      events.value = updated
+    }
     rangeStart.value = fromMs
     rangeEnd.value = toMs
   }
@@ -110,31 +130,147 @@ async function load(force = false): Promise<void>
     if (operation === generation) { loading.value = false }
   }
 }
-watch(() => Math.floor(props.offsetMs / 5000), () => { void load() })
-watch(() => [visibleEvents.value.length, visibleEvents.value.at(-1)?.sequence, follow.value], async () =>
+watch([() => Math.floor(props.offsetMs / 5000), () => props.navigationRevision ?? 0], ([_bucket, revision], [_previousBucket, previousRevision]) =>
 {
-  if (follow.value)
+  const navigated = revision !== previousRevision
+  if (navigated)
   {
-    await nextTick()
-    feed.value?.scrollToIndex(Math.max(0, visibleEvents.value.length - 1))
+    follow.value = true
   }
+  void load(navigated)
 })
+watch(follow, enabled =>
+{
+  resumeOnScroll = false
+  if (followFrame)
+  {
+    cancelAnimationFrame(followFrame)
+    followFrame = 0
+  }
+  if (enabled)
+  {
+    pausedEvents.value = undefined
+  }
+  else
+  {
+    pausedOffset.value = props.offsetMs
+    pausedRangeStart.value = rangeStart.value
+    pausedEvents.value = sourceEvents.value
+  }
+}, { flush: 'sync' })
+watch([() => visibleEvents.value.length, () => visibleEvents.value.at(-1)?.sequence, follow], () =>
+{
+  if (follow.value && visibleEvents.value.length)
+  {
+    feed.value?.scrollToIndex(visibleEvents.value.length - 1, 'end')
+  }
+}, { flush: 'post' })
+watch([feedViewport, feedContent], ([viewport, content], _previous, onCleanup) =>
+{
+  if (!viewport || !content)
+  {
+    return
+  }
+  const observer = new ResizeObserver(() =>
+  {
+    if (!follow.value || !visibleEvents.value.length || followFrame || viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 1)
+    {
+      return
+    }
+    followFrame = requestAnimationFrame(() =>
+    {
+      followFrame = 0
+      if (follow.value && visibleEvents.value.length)
+      {
+        feed.value?.scrollToIndex(visibleEvents.value.length - 1, 'end')
+      }
+    })
+  })
+  observer.observe(content)
+  observer.observe(viewport)
+  onCleanup(() => observer.disconnect())
+}, { flush: 'post' })
 function onScroll(event: Event): void
 {
   const element = event.target as HTMLElement
-  follow.value = element.scrollHeight - element.scrollTop - element.clientHeight < 90
+  if (!follow.value && resumeOnScroll && element.scrollHeight - element.scrollTop - element.clientHeight <= 1)
+  {
+    follow.value = true
+  }
+}
+function onWheel(event: WheelEvent): void
+{
+  if (event.ctrlKey)
+  {
+    return
+  }
+  if (event.deltaY < 0)
+  {
+    follow.value = false
+    resumeOnScroll = false
+  }
+  else if (event.deltaY > 0)
+  {
+    resumeOnScroll = true
+  }
+}
+function onTouchStart(event: TouchEvent): void
+{
+  touchY = event.touches[0]?.clientY
+}
+function onTouchMove(event: TouchEvent): void
+{
+  const nextY = event.touches[0]?.clientY
+  if (nextY !== undefined && touchY !== undefined && nextY > touchY)
+  {
+    follow.value = false
+    resumeOnScroll = false
+  }
+  else if (nextY !== undefined && touchY !== undefined && nextY < touchY)
+  {
+    resumeOnScroll = true
+  }
+  touchY = nextY
+}
+function onPointerDown(event: PointerEvent): void
+{
+  if (event.target === event.currentTarget)
+  {
+    follow.value = false
+    resumeOnScroll = true
+  }
+}
+function onKeydown(event: KeyboardEvent): void
+{
+  if (['ArrowUp', 'PageUp', 'Home'].includes(event.key) || (event.key === ' ' && event.shiftKey))
+  {
+    follow.value = false
+    resumeOnScroll = false
+  }
+  else if (['ArrowDown', 'PageDown', 'End'].includes(event.key) || (event.key === ' ' && !event.shiftKey))
+  {
+    resumeOnScroll = true
+  }
 }
 usePolling(async () => { await load(props.isLive) }, 10000)
-onBeforeUnmount(() => { generation++; controller?.abort() })
+onBeforeUnmount(() =>
+{
+  generation++
+  controller?.abort()
+  if (followFrame)
+  {
+    cancelAnimationFrame(followFrame)
+  }
+})
 </script>
 
 <style scoped>
-.event-panel { display: flex; flex-direction: column; height: 100%; min-height: 450px; overflow: hidden; }
+.event-panel { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.feed-heading, .feed-tabs, .feed-footer { flex-shrink: 0; }
 .feed-heading { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px 5px 20px; }.feed-heading h2 { font-size: .94rem; font-weight: 600; }
 .feed-tabs :deep(.v-slide-group__content) { gap: 4px; }.feed-tabs :deep(.v-chip) { font-size: .7rem; margin-inline: 0; }
-.event-scroll { flex: 1; }.event-row { padding: 13px 18px; border-bottom: 1px solid rgba(var(--v-theme-on-surface), .045); }
-.event-time { font-size: .62rem; color: rgba(var(--v-theme-on-surface), .33); min-width: 42px; text-align: left; }.event-user { font-size: .73rem; color: rgba(var(--v-theme-on-surface), .6); }.event-amount { font-size: .72rem; }
-.event-content { font-size: .8rem; line-height: 1.65; overflow-wrap: anywhere; padding-left: 51px; }.gap-message { display: flex; align-items: center; gap: 8px; font-size: .72rem; color: rgba(var(--v-theme-on-surface), .4); }
-.event-empty { flex: 1; min-height: 250px; display: flex; flex-direction: column; gap: 15px; align-items: center; justify-content: center; font-size: .8rem; color: rgba(var(--v-theme-on-surface), .3); }
+.event-scroll { flex: 1; min-height: 0; position: relative; overflow-y: auto; overscroll-behavior-y: contain; }
+.event-list { min-height: 100%; }.event-row { padding: 13px 16px; border-bottom: 1px solid rgba(var(--v-theme-on-surface), .045); }
+.event-empty { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 15px; align-items: center; justify-content: center; font-size: .8rem; color: rgba(var(--v-theme-on-surface), .3); }
 .feed-footer { display: flex; justify-content: space-between; padding: 12px 18px; font-size: .65rem; color: rgba(var(--v-theme-on-surface), .32); border-top: 1px solid rgba(var(--v-theme-on-surface), .06); }
 </style>

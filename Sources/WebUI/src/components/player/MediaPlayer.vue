@@ -8,17 +8,14 @@
       <div v-else-if="!playing" class="video-overlay play-overlay"><v-icon icon="mdi-play" size="60" /></div>
     </div>
     <div class="player-controls">
-      <div class="timeline-track">
-        <div class="timeline-gaps" aria-hidden="true"><span v-for="item in normalizedGaps" :key="item.startMs" :style="{ left: `${item.startMs / durationMs * 100}%`, width: `${(item.endMs - item.startMs) / durationMs * 100}%` }" /></div>
-        <v-slider :model-value="sliderOffset" :max="Math.max(durationMs, 1)" :step="1" color="primary" track-color="white" track-opacity="0.17" thumb-size="12" track-size="4" hide-details density="compact" :aria-label="t('components.player.position')" @update:model-value="scrub" @start="scrubbing = true" @end="finishScrub" />
-      </div>
+      <PlaybackTimeline :model-value="sliderOffset" :duration-ms="durationMs" :gaps="gaps" :timeline="timeline" :loading="timelineLoading" :error="timelineError" @update:model-value="scrub" @start="startScrub" @end="finishScrub" @seek="navigate" @retry="emit('refreshTimeline')" />
       <div class="d-flex align-center ga-1">
         <v-btn :icon="playing ? 'mdi-pause' : 'mdi-play'" :aria-label="playing ? t('components.player.pause') : t('components.player.play')" size="small" variant="text" color="white" @click="togglePlay" />
-        <v-btn icon="mdi-rewind-10" size="small" variant="text" color="white" :aria-label="t('components.player.rewind')" @click="seek(currentMs - 10000)" />
-        <v-btn icon="mdi-fast-forward-10" size="small" variant="text" color="white" :aria-label="t('components.player.forward')" @click="seek(currentMs + 10000)" />
+        <v-btn icon="mdi-rewind-10" size="small" variant="text" color="white" :aria-label="t('components.player.rewind')" @click="navigate(currentMs - 10000)" />
+        <v-btn icon="mdi-fast-forward-10" size="small" variant="text" color="white" :aria-label="t('components.player.forward')" @click="navigate(currentMs + 10000)" />
         <span class="player-time mono">{{ formatDuration(currentMs, true) }}<span class="time-divider"> / </span>{{ formatDuration(durationMs, true) }}</span>
         <v-spacer />
-        <v-btn v-if="isLive" variant="text" size="small" color="primary" @click="seek(Math.max(0, durationMs - 2000))"><span class="live-indicator" />{{ t('components.player.chaseLive') }}</v-btn>
+        <v-btn v-if="isLive" variant="text" size="small" color="primary" @click="navigate(Math.max(0, durationMs - 2000))"><span class="live-indicator" />{{ t('components.player.chaseLive') }}</v-btn>
         <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" variant="text" size="small" color="white">{{ formatNumber(rate) }}×</v-btn></template><v-list density="compact"><v-list-item v-for="value in [0.5, 0.75, 1, 1.25, 1.5, 2]" :key="value" :title="`${formatNumber(value)}×`" @click="setRate(value)" /></v-list></v-menu>
         <v-btn :icon="muted || volume === 0 ? 'mdi-volume-off' : 'mdi-volume-high'" :aria-label="muted ? t('components.player.unmute') : t('components.player.mute')" variant="text" size="small" color="white" @click="muted = !muted" />
         <v-slider v-model="volume" :min="0" :max="1" :step="0.01" class="volume-slider" hide-details density="compact" color="white" thumb-size="8" track-size="3" :aria-label="t('components.player.volume')" @update:model-value="setVolume" />
@@ -34,13 +31,16 @@ import Hls from 'hls.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ApiError } from '@/apis/APIBase'
 import { getServerUrl } from '@/apis/ServerURL'
+import PlaybackTimeline from '@/components/player/PlaybackTimeline.vue'
+import type { SessionTimeline } from '@/models/sessionTimeline'
 import type { PlaybackWindow, TimelineGap } from '@/models/media'
 import { formatDuration, formatNumber } from '@/utilities/format'
 import { clampOffset, findGap, normalizeTimelineGaps, playbackPosition, windowPosition } from '@/utilities/timeline'
 
 const { t } = useI18n()
 
-const props = defineProps<{ durationMs: number; gaps: TimelineGap[]; isLive: boolean; initialOffsetMs?: number; loadWindow: (offsetMs: number) => Promise<PlaybackWindow> }>()
+const props = defineProps<{ durationMs: number; gaps: TimelineGap[]; isLive: boolean; initialOffsetMs?: number; loadWindow: (offsetMs: number) => Promise<PlaybackWindow>; timeline?: SessionTimeline; timelineLoading?: boolean; timelineError?: string }>()
+const emit = defineEmits<{ navigate: []; refreshTimeline: [] }>()
 const currentMs = defineModel<number>({ required: true })
 const player = ref<HTMLElement>()
 const video = ref<HTMLVideoElement>()
@@ -248,19 +248,33 @@ async function togglePlay(): Promise<void>
   }
 }
 
+async function navigate(value: number): Promise<void>
+{
+  clearTimeout(seekTimer)
+  seekTimer = undefined
+  emit('navigate')
+  await seek(value)
+}
+
 function scrub(value: number): void
 {
   sliderOffset.value = value
   clearTimeout(seekTimer)
   if (!scrubbing.value)
   {
-    seekTimer = setTimeout(() => { void seek(value) }, 180)
+    seekTimer = setTimeout(() => { void navigate(value) }, 180)
   }
+}
+function startScrub(): void
+{
+  clearTimeout(seekTimer)
+  seekTimer = undefined
+  scrubbing.value = true
 }
 function finishScrub(): void
 {
   scrubbing.value = false
-  void seek(sliderOffset.value)
+  void navigate(sliderOffset.value)
 }
 function setRate(value: number): void
 {
@@ -307,8 +321,8 @@ function onKeydown(event: KeyboardEvent): void
 {
   if ((event.target as HTMLElement).closest('input, button, [role="slider"]')) { return }
   if (event.code === 'Space') { event.preventDefault(); void togglePlay() }
-  else if (event.key === 'ArrowRight') { event.preventDefault(); void seek(currentMs.value + 10000) }
-  else if (event.key === 'ArrowLeft') { event.preventDefault(); void seek(currentMs.value - 10000) }
+  else if (event.key === 'ArrowRight') { event.preventDefault(); void navigate(currentMs.value + 10000) }
+  else if (event.key === 'ArrowLeft') { event.preventDefault(); void navigate(currentMs.value - 10000) }
 }
 onMounted(() =>
 {
@@ -325,7 +339,7 @@ onBeforeUnmount(() =>
   hls?.destroy()
   video.value?.pause()
 })
-defineExpose({ seek })
+defineExpose({ seek: navigate })
 </script>
 
 <style scoped>
@@ -337,9 +351,6 @@ video { display: block; width: 100%; height: 100%; object-fit: contain; }
 .error-overlay { font-size: .88rem; background: #101216; }
 .play-overlay { background: #0002; }
 .player-controls { padding: 5px 12px 9px; }
-.timeline-track { position: relative; }
-.timeline-gaps { position: absolute; left: 8px; right: 8px; top: 50%; height: 4px; transform: translateY(-50%); pointer-events: none; z-index: 1; }
-.timeline-gaps span { position: absolute; height: 4px; background: #e2b76b; opacity: .55; }
 .player-time { font-size: .72rem; padding: 0 5px; white-space: nowrap; color: #c8ccd5; }
 .time-divider { color: #697181; padding: 0 3px; }
 .volume-slider { max-width: 70px; min-width: 45px; margin: 0 7px; }

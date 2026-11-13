@@ -34,6 +34,9 @@ export const componentsZh = {
     awardCount: '{count} 份', drawAt: '开奖 {date}', mystery: '神秘人', battery: '{count} 电池', intimacy: '{count} 亲密度',
   },
   player: {
+    danmuHeat: '弹幕热度', eventCount: '{count} 条记录', itemQuantity: '数量 {count}', observedAmount: '已识别金额 {amount}',
+    timelineLoading: '正在加载互动记录', timelineLoadFailed: '互动记录加载失败',
+    markerSummary: '{kind} · {time} · {count} 条记录', heatSummary: '{time} · 弹幕 {count} 条',
     label: '录播播放器', position: '播放位置', play: '播放', pause: '暂停', rewind: '后退10秒', forward: '前进10秒',
     chaseLive: '追录', mute: '静音', unmute: '取消静音', volume: '音量', fullscreen: '全屏', closePreview: '关闭预览',
     previewFailed: '无法播放此切片', noVideo: '当前时段没有可播放的视频', loadFailed: '视频加载失败',
@@ -94,6 +97,9 @@ export const componentsEn: MessageSchema<typeof componentsZh> = {
     drawAt: 'Draw at {date}', mystery: 'Anonymous', battery: '{count} batteries', intimacy: '{count} affinity',
   },
   player: {
+    danmuHeat: 'Chat activity', eventCount: '{count} events', itemQuantity: 'Quantity {count}', observedAmount: 'Known amount {amount}',
+    timelineLoading: 'Loading interactions', timelineLoadFailed: 'Failed to load interactions',
+    markerSummary: '{kind} · {time} · {count} events', heatSummary: '{time} · {count} chat messages',
     label: 'Recording player', position: 'Playback position', play: 'Play', pause: 'Pause', rewind: 'Back 10 seconds',
     forward: 'Forward 10 seconds', chaseLive: 'Go to live recording', mute: 'Mute', unmute: 'Unmute', volume: 'Volume',
     fullscreen: 'Fullscreen', closePreview: 'Close preview', previewFailed: 'Unable to play this clip',
@@ -155,6 +161,9 @@ export const componentsJa: MessageSchema<typeof componentsZh> = {
     drawAt: '抽選日時 {date}', mystery: '匿名ユーザー', battery: '電池 {count} 個', intimacy: '親密度 {count}',
   },
   player: {
+    danmuHeat: 'コメント密度', eventCount: '{count} 件', itemQuantity: '数量 {count}', observedAmount: '確認済み金額 {amount}',
+    timelineLoading: 'リアクションを読み込み中', timelineLoadFailed: 'リアクションを読み込めませんでした',
+    markerSummary: '{kind} · {time} · {count} 件', heatSummary: '{time} · コメント {count} 件',
     label: '録画プレーヤー', position: '再生位置', play: '再生', pause: '一時停止', rewind: '10秒戻る', forward: '10秒進む',
     chaseLive: '録画中の位置へ', mute: 'ミュート', unmute: 'ミュート解除', volume: '音量', fullscreen: '全画面',
     closePreview: 'プレビューを閉じる', previewFailed: 'このクリップを再生できません', noVideo: 'この時間帯に再生可能な動画はありません',

@@ -1,5 +1,6 @@
 import { post, put, query, remove, request } from './APIBase'
 import { getServerUrl } from './ServerURL'
+import type { SessionTimeline } from '@/models/sessionTimeline'
 import type { Analytics, BroadcastSession, Clip, CreateJob, EventKind, EventPage, MediaJob, PlaybackWindow, SessionDetail, StorageVolume, Streamer, TrashEntry } from '@/models/media'
 import type { ServerPaths, ServerSettings } from '@/models/settings'
 
@@ -34,4 +35,5 @@ export const MediaAPI = {
   updateSettingsPaths: (body: { dataDirectory: string; recordsDirectory: string }) => put<ServerPaths>('settings/paths', body),
   updateSettings: (body: ServerSettings) => put<ServerSettings>('settings', body),
   analytics: (id: string) => request<Analytics>(`sessions/${encodeURIComponent(id)}/analytics`),
+  timeline: (id: string, bucketCount = 300, signal?: AbortSignal) => request<SessionTimeline>(`sessions/${encodeURIComponent(id)}/timeline${query({ bucketCount })}`, { signal }),
 }

@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Yohuke.DanmuCore.Apis;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Files;
@@ -16,6 +17,10 @@ public sealed class ArtworkCache(IHttpClientFactory clients, IAppPaths paths)
         {
             sourceUrl = "https:" + sourceUrl;
         }
+        if (sourceUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        {
+            sourceUrl = "https://" + sourceUrl[7..];
+        }
         if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out var uri) || uri.Scheme != "https" || !(uri.Host.EndsWith(".hdslb.com", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".bilibili.com", StringComparison.OrdinalIgnoreCase)))
         {
             return null;
@@ -31,7 +36,11 @@ public sealed class ArtworkCache(IHttpClientFactory clients, IAppPaths paths)
             {
                 return path;
             }
-            using var response = await clients.CreateClient("artwork").GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            using var client = clients.CreateClient("artwork");
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            request.Headers.TryAddWithoutValidation("User-Agent", BaseApi.DEFAULT_USER_AGENT);
+            request.Headers.Referrer = new("https://live.bilibili.com/");
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > 8 * 1024 * 1024)
             {
                 return null;
@@ -60,6 +69,14 @@ public sealed class ArtworkCache(IHttpClientFactory clients, IAppPaths paths)
             File.Move(path + ".type.tmp", path + ".type", true);
             File.Move(temporary, path, true);
             return path;
+        }
+        catch (HttpRequestException)
+        {
+            return null;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
         }
         finally
         {

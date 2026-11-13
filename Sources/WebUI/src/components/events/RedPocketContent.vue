@@ -1,9 +1,9 @@
 <template>
   <div class="red-pocket-content">
     <div class="pocket-heading"><span>{{ textValue(data.danmu) || event.text || t('components.events.redPocket') }}</span><span class="pocket-status">{{ hasResult ? t('components.events.drawn') : event.payload?.isDrawn === true ? t('components.events.drawnWithoutResult') : t('components.events.pendingDraw') }}</span></div>
-    <div v-if="awards.length" class="pocket-awards"><div v-for="(award, index) in awards" :key="index" class="pocket-award"><img v-if="safeImageUrl(award.imageUrl)" :src="safeImageUrl(award.imageUrl)" :alt="textValue(award.name)" loading="lazy" /><span>{{ textValue(award.name) || textValue(award.giftId) || t('components.events.award') }}<span v-if="numberValue(award.quantity)"> ×{{ formatNumber(Number(award.quantity)) }}</span></span></div></div>
+    <div v-if="awards.length" class="pocket-awards"><div v-for="(award, index) in awards" :key="index" class="pocket-award"><EventImage v-if="safeImageUrl(award.imageUrl)" :sources="[safeImageUrl(award.imageUrl)!]" :alt="textValue(award.name)" /><span>{{ textValue(award.name) || textValue(award.giftId) || t('components.events.award') }}<span v-if="numberValue(award.quantity)"> ×{{ formatNumber(Number(award.quantity)) }}</span></span></div></div>
     <div v-if="totalCount !== undefined || endTime" class="pocket-meta"><span v-if="totalCount !== undefined">{{ t('components.events.awardCount', { count: formatNumber(totalCount) }) }}</span><span v-if="endTime">{{ t('components.events.drawAt', { date: formatDate(endTime) }) }}</span></div>
-    <div v-if="hasResult && winners.length" class="pocket-winners"><div v-for="(winner, index) in winners" :key="index" class="pocket-winner"><img v-if="safeImageUrl(winner.avatarUrl)" :src="safeImageUrl(winner.avatarUrl)" alt="" class="winner-avatar" loading="lazy" /><span class="winner-name">{{ winner.isMystery === true ? t('components.events.mystery') : textValue(winner.userName) || (winner.uid ? `UID ${winner.uid}` : t('components.events.guest')) }}</span><span>{{ winnerAward(winner) }}<span v-if="numberValue(winner.quantity) && Number(winner.quantity) > 1"> ×{{ formatNumber(Number(winner.quantity)) }}</span></span></div></div>
+    <div v-if="hasResult && winners.length" class="pocket-winners"><div v-for="(winner, index) in winners" :key="index" class="pocket-winner"><EventAvatar :sources="winnerSources(winner)" :name="winnerName(winner)" class="winner-avatar" /><span class="winner-name">{{ winnerName(winner) }}</span><span>{{ winnerAward(winner) }}<span v-if="numberValue(winner.quantity) && Number(winner.quantity) > 1"> ×{{ formatNumber(Number(winner.quantity)) }}</span></span></div></div>
   </div>
 </template>
 
@@ -13,6 +13,9 @@ import { computed } from 'vue'
 import type { RecordedEvent } from '@/models/media'
 import { formatDate, formatNumber } from '@/utilities/format'
 import { numberValue, objectValue, redPocketData, safeImageUrl, textValue } from '@/utilities/eventPresentation'
+import { audienceAvatarUrl } from '@/utilities/eventAssets'
+import EventAvatar from '@/components/events/EventAvatar.vue'
+import EventImage from '@/components/events/EventImage.vue'
 
 const { t } = useI18n()
 const props = defineProps<{ event: RecordedEvent }>()
@@ -27,6 +30,15 @@ const endTime = computed(() =>
   const date = seconds && seconds > 0 ? new Date(seconds * 1000) : undefined
   return date && Number.isFinite(date.getTime()) ? date.toISOString() : undefined
 })
+function winnerName(winner: Record<string, unknown>): string
+{
+  return winner.isMystery === true ? t('components.events.mystery') : textValue(winner.userName) || (winner.uid ? `UID ${winner.uid}` : t('components.events.guest'))
+}
+function winnerSources(winner: Record<string, unknown>): string[]
+{
+  const source = winner.isMystery === true ? undefined : audienceAvatarUrl(winner.uid)
+  return source ? [source] : []
+}
 function winnerAward(winner: Record<string, unknown>): string
 {
   return textValue(winner.giftName) || textValue(awards.value.find(award => award.giftId === winner.giftId)?.name) ||
@@ -35,4 +47,4 @@ function winnerAward(winner: Record<string, unknown>): string
 }
 </script>
 
-<style scoped>.red-pocket-content { border: 1px solid rgba(var(--v-theme-error), .2); border-radius: 8px; padding: 10px; }.pocket-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 7px; color: rgb(var(--v-theme-error)); }.pocket-status { font-size: .65rem; white-space: nowrap; }.pocket-awards { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 9px; }.pocket-award { display: flex; align-items: center; gap: 6px; }.pocket-award img { width: 24px; height: 24px; object-fit: contain; }.pocket-meta { display: flex; flex-wrap: wrap; gap: 12px; color: rgba(var(--v-theme-on-surface), .4); font-size: .65rem; margin-top: 9px; }.pocket-winners { border-top: 1px solid rgba(var(--v-theme-on-surface), .07); margin-top: 10px; padding-top: 5px; }.pocket-winner { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 7px; font-size: .7rem; }.winner-avatar { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }.winner-name { color: rgba(var(--v-theme-on-surface), .55); margin-right: auto; }</style>
+<style scoped>.red-pocket-content { border: 1px solid rgba(var(--v-theme-error), .2); border-radius: 8px; padding: 10px; }.pocket-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 7px; color: rgb(var(--v-theme-error)); }.pocket-status { font-size: .65rem; white-space: nowrap; }.pocket-awards { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 9px; }.pocket-award { display: flex; align-items: center; gap: 6px; }.pocket-award :deep(img) { width: 24px; height: 24px; object-fit: contain; }.pocket-meta { display: flex; flex-wrap: wrap; gap: 12px; color: rgba(var(--v-theme-on-surface), .4); font-size: .65rem; margin-top: 9px; }.pocket-winners { border-top: 1px solid rgba(var(--v-theme-on-surface), .07); margin-top: 10px; padding-top: 5px; }.pocket-winner { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 7px; font-size: .7rem; }.winner-avatar { --event-avatar-size: 20px; }.winner-name { color: rgba(var(--v-theme-on-surface), .55); margin-right: auto; }</style>

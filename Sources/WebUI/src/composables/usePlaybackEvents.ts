@@ -1,0 +1,44 @@
+import { computed, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
+import type { EventKind, RecordedEvent } from '@/models/media'
+import { displayEvents, isDisplayEventKind } from '@/utilities/eventPresentation'
+
+export function usePlaybackEvents(events: MaybeRefOrGetter<readonly RecordedEvent[]>, offsetMs: MaybeRefOrGetter<number>, kind: MaybeRefOrGetter<EventKind | 'all'>): ComputedRef<RecordedEvent[]>
+{
+  const eventSource = computed(() => toValue(events))
+  const orderedEvents = computed(() =>
+  {
+    const selected = toValue(kind)
+    return eventSource.value.filter(item => isDisplayEventKind(item.kind) && (selected === 'all' || item.kind === selected)).sort((a, b) => a.offsetMs - b.offsetMs || a.sequence - b.sequence)
+  })
+  const reachedCount = computed(() =>
+  {
+    const source = orderedEvents.value
+    const offset = toValue(offsetMs)
+    let start = 0
+    let end = source.length
+    while (start < end)
+    {
+      const middle = Math.floor((start + end) / 2)
+      if (source[middle]!.offsetMs <= offset)
+      {
+        start = middle + 1
+      }
+      else
+      {
+        end = middle
+      }
+    }
+    return start
+  })
+  const reachedEvents = computed<RecordedEvent[]>((previous) =>
+  {
+    const source = orderedEvents.value
+    const count = reachedCount.value
+    if (previous && previous.length === count && previous.every((item, index) => item === source[index]))
+    {
+      return previous
+    }
+    return source.slice(0, count)
+  })
+  return computed(() => displayEvents(reachedEvents.value, Number.POSITIVE_INFINITY))
+}

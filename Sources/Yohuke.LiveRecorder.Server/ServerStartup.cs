@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.Extensions.FileProviders;
 using MongoDB.Driver;
+using Yohuke.DanmuCore.Services;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Application.Localization;
@@ -100,6 +101,10 @@ public static class ServerStartup
         builder.Services.AddSingleton<MediaJobService>();
         builder.Services.AddSingleton<AnalyticsService>();
         builder.Services.AddSingleton<ArtworkCache>();
+        builder.Services.AddSingleton<IUserAvatarSource>(services => new BilibiliUserAvatarSource(services.GetRequiredService<IHttpClientFactory>().CreateClient("bilibili")));
+        builder.Services.AddSingleton<AudienceAvatarService>();
+        builder.Services.AddSingleton<EventArtworkService>();
+        builder.Services.AddSingleton<SessionTimelineService>();
         builder.Services.AddSingleton<StatusConnections>();
         builder.Services.AddSingleton<IStatusPublisher, SignalRStatusPublisher>();
         builder.Services.AddHttpClient("artwork", client => client.Timeout = TimeSpan.FromSeconds(15)).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
@@ -272,6 +277,8 @@ public static class ServerStartup
         app.MapIdentityEndpoints(developmentOrigins);
         app.MapBilibiliEndpoints();
         app.MapLibraryEndpoints();
+        app.MapEventArtworkEndpoints();
+        app.MapSessionTimelineEndpoints();
         app.MapManagementEndpoints();
         app.MapHub<StatusHub>("/hubs/status", options => options.CloseOnAuthenticationExpiration = true).RequireAuthorization();
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
