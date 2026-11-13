@@ -28,7 +28,7 @@ public static class LibraryEndpoints
     public static IEndpointRouteBuilder MapLibraryEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var api = endpoints.MapGroup("/api").RequireAuthorization();
-        api.MapGet("/streamers", async (IMongoContext context, CancellationToken ct) => Results.Ok((await context.Collection<Streamer>("streamers").Find(FilterDefinition<Streamer>.Empty).SortBy(x => x.Name).ToListAsync(ct)).Select(LocalizedState.ForResponse)));
+        api.MapGet("/streamers", async (LibraryService library, CancellationToken ct) => Results.Ok((await library.GetStreamersAsync(ct)).Select(LocalizedState.ForResponse)));
         api.MapGet("/streamers/{id}/avatar", async (string id, IMongoContext context, ArtworkCache artwork, IAppPaths paths, CancellationToken ct) =>
         {
             var streamer = await context.Collection<Streamer>("streamers").Find(x => x.Id == id).FirstOrDefaultAsync(ct);

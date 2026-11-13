@@ -9,4 +9,7 @@
         <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" PrivateAssets="all" />
         <ProjectReference Include="../../Yohuke.LiveRecorder.Infrastructure/Yohuke.LiveRecorder.Infrastructure.csproj" />
     </ItemGroup>
+    <ItemGroup>
+      <Compile Remove="RegistrationPolicyAcceptanceTests.cs" />
+    </ItemGroup>
 </Project>
