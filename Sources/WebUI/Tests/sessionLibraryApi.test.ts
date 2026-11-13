@@ -28,11 +28,12 @@ describe('录播删除API', () =>
     expect(new Headers(options.headers).get('X-CSRF-TOKEN')).toBe('session-trash-token')
   })
 
-  it('设置永久保留使用编码ID、PUT和显式布尔值', async () =>
+  it('设置永久保留使用编码ID、PUT和显式布尔值，并读取服务端的新期限', async () =>
   {
-    const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    const updated = { id: 'session /1', isPermanent: false, expiresAtUtc: '2026-11-20T01:00:00Z' }
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(updated), { headers: { 'Content-Type': 'application/json' } }))
     vi.stubGlobal('fetch', fetcher)
-    await MediaAPI.setSessionPermanent('session /1', false)
+    expect(await MediaAPI.setSessionPermanent('session /1', false)).toEqual(updated)
     const [url, options] = fetcher.mock.calls[0]!
     expect(url).toBe('http://127.0.0.1:5784/api/sessions/session%20%2F1/retention')
     expect(options.method).toBe('PUT')

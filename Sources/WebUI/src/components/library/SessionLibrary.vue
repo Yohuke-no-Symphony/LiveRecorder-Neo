@@ -49,7 +49,7 @@ import SessionLibraryToolbar from './SessionLibraryToolbar.vue'
 
 const MAX_SELECTION = 200
 const props = withDefaults(defineProps<{ sessions: BroadcastSession[]; streamerNames?: Record<string, string>; allowSelection?: boolean }>(), { allowSelection: true })
-const emit = defineEmits<{ removed: [ids: string[]]; retentionChanged: [id: string, isPermanent: boolean] }>()
+const emit = defineEmits<{ removed: [ids: string[]]; retentionChanged: [session: BroadcastSession] }>()
 const { t } = useI18n()
 const router = useRouter()
 const auth = useAuthStore()
@@ -135,8 +135,8 @@ async function setPermanent(): Promise<void>
   const isPermanent = !session.isPermanent
   await run(async () =>
   {
-    await MediaAPI.setSessionPermanent(session.id, isPermanent)
-    emit('retentionChanged', session.id, isPermanent)
+    const updated = await MediaAPI.setSessionPermanent(session.id, isPermanent)
+    emit('retentionChanged', updated)
   })
 }
 

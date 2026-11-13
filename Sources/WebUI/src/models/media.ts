@@ -39,6 +39,7 @@ export interface BroadcastSession extends Entity
   isTrashed: boolean
   isPermanent: boolean
   retentionStartedAtUtc?: string | null
+  expiresAtUtc?: string | null
   mediaRevision: number
   isHidden?: boolean
 }

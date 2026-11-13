@@ -18,6 +18,7 @@
             <v-icon v-if="session.hasDanmu" icon="mdi-comment-text-outline" size="15" color="secondary" :aria-label="t('components.library.hasDanmu')" />
           </div>
           <div v-if="streamerName" class="text-caption muted">{{ formatDate(session.startedAtUtc) }}</div>
+          <SessionExpiry :session="session" />
         </div>
       </a>
     </router-link>
@@ -32,6 +33,7 @@ import { computed } from 'vue'
 import { MediaAPI } from '@/apis/MediaAPI'
 import type { BroadcastSession } from '@/models/media'
 import { formatDate, formatDuration } from '@/utilities/format'
+import SessionExpiry from './SessionExpiry.vue'
 
 const { t } = useI18n()
 

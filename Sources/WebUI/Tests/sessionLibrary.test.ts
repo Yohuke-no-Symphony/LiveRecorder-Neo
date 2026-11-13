@@ -44,7 +44,7 @@ function session(id: string, recording = false): BroadcastSession
     id, streamerId: 'streamer', roomId: 42, title: `录播 ${id}`, coverUrl: '', createdAtUtc: '2026-11-13T00:00:00Z',
     startedAtUtc: '2026-11-13T00:00:00Z', endedAtUtc: recording ? null : '2026-11-13T01:00:00Z',
     lastMediaAtUtc: '2026-11-13T01:00:00Z', state: recording ? 'Recording' : 'Completed', hasDanmu: true,
-    totalBytes: 42, isTrashed: false, isPermanent: false, mediaRevision: 1,
+    totalBytes: 42, isTrashed: false, isPermanent: false, expiresAtUtc: recording ? null : '2026-11-20T01:00:00Z', mediaRevision: 1,
   }
 }
 
@@ -56,7 +56,7 @@ async function start(sessions = [session('a'), session('b'), session('live', tru
   let wrapper: VueWrapper<InstanceType<typeof SessionLibrary>>
   wrapper = mount(SessionLibrary, {
     props: { sessions,
-      onRetentionChanged: (id: string, isPermanent: boolean) => { void wrapper.setProps({ sessions: wrapper.props('sessions').map((item: BroadcastSession) => item.id === id ? { ...item, isPermanent } : item) }) },
+      onRetentionChanged: (updated: BroadcastSession) => { void wrapper.setProps({ sessions: wrapper.props('sessions').map((item: BroadcastSession) => item.id === updated.id ? { ...item, isPermanent: updated.isPermanent, expiresAtUtc: updated.expiresAtUtc } : item) }) },
       onRemoved: (ids: string[]) => { void wrapper.setProps({ sessions: wrapper.props('sessions').filter((item: BroadcastSession) => !ids.includes(item.id)) }) } },
     global: { plugins: [router, i18n], stubs },
   })
@@ -82,7 +82,7 @@ beforeEach(() =>
   authState.isAdmin = true
   authState.manageRecordings = false
   authState.viewAnalytics = false
-  setSessionPermanent.mockReset().mockResolvedValue(undefined)
+  setSessionPermanent.mockReset().mockImplementation(async (id: string, isPermanent: boolean) => ({ ...session(id), isPermanent, expiresAtUtc: isPermanent ? null : '2026-11-20T01:00:00Z' }))
   i18n.global.locale.value = 'zh-CN'
   deleteSession.mockReset().mockResolvedValue(undefined)
   trashSessions.mockReset().mockImplementation(async (ids: string[]) => ids.map(sessionId => ({ sessionId, success: true })))
@@ -255,6 +255,8 @@ describe('录播库操作', () =>
     authState.isAdmin = false
     const { wrapper, router } = await start([session('a')])
     expect(wrapper.find('button').exists()).toBe(false)
+    expect(wrapper.get('time').attributes('datetime')).toBe('2026-11-20T01:00:00Z')
+    expect(wrapper.get('time').text()).toContain('到期')
     const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
     wrapper.get('a').element.dispatchEvent(event)
     await nextTick()
@@ -282,22 +284,29 @@ describe('录播库操作', () =>
     authState.isAdmin = false
     authState.manageRecordings = true
     const { wrapper } = await start([session('a')])
+    expect(wrapper.get('time').attributes('datetime')).toBe('2026-11-20T01:00:00Z')
     await wrapper.get('a').trigger('contextmenu')
     expect(wrapper.text()).not.toContain('直播分析')
     await button(wrapper, '设为永久保留').trigger('click')
     await flushPromises()
     expect(setSessionPermanent).toHaveBeenCalledExactlyOnceWith('a', true)
     expect(wrapper.props('sessions')[0]?.isPermanent).toBe(true)
+    expect(wrapper.props('sessions')[0]?.expiresAtUtc).toBeNull()
+    expect(wrapper.find('time').exists()).toBe(false)
     await wrapper.get('a').trigger('contextmenu')
     setSessionPermanent.mockRejectedValueOnce(new Error('无法保存'))
     await button(wrapper, '取消永久保留').trigger('click')
     await flushPromises()
     expect(wrapper.props('sessions')[0]?.isPermanent).toBe(true)
     expect(wrapper.get('[role="alert"]').text()).toContain('无法保存')
+    expect(wrapper.find('time').exists()).toBe(false)
+    const updated = { ...session('a'), expiresAtUtc: '2026-12-01T01:00:00Z' }
+    setSessionPermanent.mockResolvedValueOnce(updated)
     await wrapper.get('a').trigger('contextmenu')
     await button(wrapper, '取消永久保留').trigger('click')
     await flushPromises()
     expect(wrapper.props('sessions')[0]?.isPermanent).toBe(false)
+    expect(wrapper.get('time').attributes('datetime')).toBe(updated.expiresAtUtc)
   })
 
   it('相同卡片组件在三语下提供明确的操作名称', async () =>

@@ -42,7 +42,7 @@ public static class LibraryEndpoints
             }
             return await ImageAsync(streamer?.AvatarUrl, artwork, ct);
         });
-        api.MapGet("/sessions", async (string? streamerId, string? search, string? before, int? take, IMongoContext context, CancellationToken ct) =>
+        api.MapGet("/sessions", async (string? streamerId, string? search, string? before, int? take, IMongoContext context, ISettingsStore settingsStore, CancellationToken ct) =>
         {
             var collection = context.Collection<BroadcastSession>("sessions");
             var filter = Builders<BroadcastSession>.Filter.Where(x => !x.IsTrashed && !x.IsHidden && x.ProjectionReady);
@@ -60,9 +60,20 @@ public static class LibraryEndpoints
                 filter &= Builders<BroadcastSession>.Filter.Lt(x => x.CreatedAtUtc, previous.CreatedAtUtc) |
                           (Builders<BroadcastSession>.Filter.Eq(x => x.CreatedAtUtc, previous.CreatedAtUtc) & Builders<BroadcastSession>.Filter.Lt(x => x.Id, previous.Id));
             }
-            return Results.Ok((await collection.Find(filter).Sort(Builders<BroadcastSession>.Sort.Descending(x => x.CreatedAtUtc).Descending(x => x.Id)).Limit(Math.Clamp(take ?? 50, 1, 200)).ToListAsync(ct)).Select(LocalizedState.ForResponse));
+            var settings = await settingsStore.GetAsync(ct);
+            var sessions = await collection.Find(filter)
+                .Sort(Builders<BroadcastSession>.Sort.Descending(x => x.CreatedAtUtc).Descending(x => x.Id))
+                .Limit(Math.Clamp(take ?? 50, 1, 200)).ToListAsync(ct);
+            return Results.Ok(sessions.Select(session => new SessionResponse(LocalizedState.ForResponse(session),
+                SessionRetentionPolicy.GetExpiresAtUtc(session, settings))));
         });
-        api.MapGet("/sessions/{id}", async (string id, LibraryService library, CancellationToken ct) => Results.Ok(LocalizedState.ForResponse(await library.GetAsync(id, ct))));
+        api.MapGet("/sessions/{id}", async (string id, LibraryService library, ISettingsStore settingsStore, CancellationToken ct) =>
+        {
+            var detail = LocalizedState.ForResponse(await library.GetAsync(id, ct));
+            var settings = await settingsStore.GetAsync(ct);
+            return Results.Ok(new SessionDetailResponse(detail,
+                SessionRetentionPolicy.GetExpiresAtUtc(detail.Session, settings)));
+        });
         api.MapGet("/sessions/{id}/segments/{segmentId}/download", async (string id, string segmentId, LibraryService library, IAppPaths paths, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
@@ -271,10 +282,11 @@ public static class LibraryEndpoints
             }
             return Results.Ok(results);
         });
-        recordings.MapPut("/sessions/{id}/retention", async (string id, SessionRetentionRequest request, SessionTrashService sessionTrash, CancellationToken ct) =>
+        recordings.MapPut("/sessions/{id}/retention", async (string id, SessionRetentionRequest request, SessionTrashService sessionTrash, ISettingsStore settingsStore, CancellationToken ct) =>
         {
-            await sessionTrash.SetPermanentAsync(id, request.IsPermanent, ct);
-            return Results.NoContent();
+            var session = LocalizedState.ForResponse(await sessionTrash.SetPermanentAsync(id, request.IsPermanent, ct));
+            var settings = await settingsStore.GetAsync(ct);
+            return Results.Ok(new SessionResponse(session, SessionRetentionPolicy.GetExpiresAtUtc(session, settings)));
         });
 
         var admin = api.MapGroup("").RequireAuthorization(policy => policy.RequireRole("Admin"));

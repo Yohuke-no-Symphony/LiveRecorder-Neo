@@ -26,6 +26,8 @@ export const shellZh = {
     keepPermanent: '设为永久保留',
     cancelPermanent: '取消永久保留',
     noAutoPurge: '不自动删除',
+    expiresAt: '到期 {date}',
+    expiryDescription: '到期后自动移入回收站。',
   },
   settings: {
     recordingRetention: '录像自动删除周期（天）',
@@ -82,6 +84,8 @@ export const shellEn: MessageSchema<typeof shellZh> = {
     keepPermanent: 'Keep permanently',
     cancelPermanent: 'Cancel permanent retention',
     noAutoPurge: 'Automatic deletion disabled',
+    expiresAt: 'Expires {date}',
+    expiryDescription: 'Automatically moves to trash after expiration.',
   },
   settings: {
     recordingRetention: 'Recording auto-delete period (days)',
@@ -138,6 +142,8 @@ export const shellJa: MessageSchema<typeof shellZh> = {
     keepPermanent: '永久保存に設定',
     cancelPermanent: '永久保存を解除',
     noAutoPurge: '自動削除しない',
+    expiresAt: '有効期限 {date}',
+    expiryDescription: '期限後に自動でゴミ箱へ移動します。',
   },
   settings: {
     recordingRetention: '録画の自動削除期間（日）',

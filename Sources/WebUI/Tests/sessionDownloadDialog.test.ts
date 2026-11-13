@@ -110,7 +110,7 @@ describe('录播原始分段下载', () =>
         id: 'session-1', createdAtUtc: '2026-11-13T00:00:00Z', streamerId: 'streamer-1', roomId: 100,
         title: '测试录播', coverUrl: '', startedAtUtc: '2026-11-13T00:00:00Z', endedAtUtc: '2026-11-13T00:00:10Z',
         lastMediaAtUtc: '2026-11-13T00:00:10Z', state: 'Completed', hasDanmu: false,
-        totalBytes: 2048, isTrashed: false, isPermanent: false, mediaRevision: 1,
+        totalBytes: 2048, isTrashed: false, isPermanent: false, expiresAtUtc: '2026-11-20T00:00:10Z', mediaRevision: 1,
       },
       segments, durationMs: 10000, gaps: [],
     }
@@ -134,6 +134,8 @@ describe('录播原始分段下载', () =>
     try
     {
       await flushPromises()
+      expect(wrapper.get('.session-meta time').attributes('datetime')).toBe(detail.session.expiresAtUtc)
+      expect(wrapper.get('.session-meta time').text()).toContain('到期')
       const download = wrapper.find('button[aria-label="下载全片"]')
       expect(download.exists()).toBe(true)
       await download.trigger('click')

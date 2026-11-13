@@ -131,9 +131,11 @@ export function useSessionPages(parameters: () => { streamerId?: string; search?
     }
   }
 
-  function updateSessionRetention(id: string, isPermanent: boolean): void
+  function updateSessionRetention(updated: BroadcastSession): void
   {
-    sessions.value = sessions.value.map(session => session.id === id ? { ...session, isPermanent } : session)
+    sessions.value = sessions.value.map(session => session.id === updated.id
+      ? { ...session, isPermanent: updated.isPermanent, expiresAtUtc: updated.expiresAtUtc }
+      : session)
   }
 
   function removeSessions(ids: readonly string[]): void

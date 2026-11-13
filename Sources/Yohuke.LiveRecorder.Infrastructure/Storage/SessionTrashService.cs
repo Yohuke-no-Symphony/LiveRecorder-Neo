@@ -24,7 +24,7 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
     }
 
     /// <summary>更新正常场次的永久保留标记，并同步保存可重建的场次清单。</summary>
-    public async Task SetPermanentAsync(string id, bool isPermanent, CancellationToken cancellationToken = default)
+    public async Task<BroadcastSession> SetPermanentAsync(string id, bool isPermanent, CancellationToken cancellationToken = default)
     {
         await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
         var session = await context.Collection<BroadcastSession>("sessions")
@@ -45,6 +45,8 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
         await context.Collection<BroadcastSession>("sessions").UpdateOneAsync(x => x.Id == id,
             Builders<BroadcastSession>.Update.Set(x => x.IsPermanent, isPermanent),
             cancellationToken: cancellationToken);
+        session.IsPermanent = isPermanent;
+        return session;
     }
 
     private async Task TrashCoreAsync(string id, string ownerId, bool expiredOnly,
@@ -293,10 +295,7 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
 
     private static bool IsExpired(BroadcastSession session, ServerSettings settings, DateTime now)
     {
-        return settings.RecordingRetentionDays > 0 && !session.IsTrashed && !session.IsHidden &&
-               session.ProjectionReady && !session.IsPermanent && session.EndedAtUtc is { } endedAt &&
-               endedAt <= now.AddDays(-settings.RecordingRetentionDays) &&
-               (session.RetentionStartedAtUtc ?? endedAt) <= now.AddDays(-settings.RecordingRetentionDays);
+        return SessionRetentionPolicy.IsExpired(session, settings, now);
     }
 
     /// <summary>启动重建只扫描正式录播目录，不把回收目录和操作日志作为新录播导入。</summary>

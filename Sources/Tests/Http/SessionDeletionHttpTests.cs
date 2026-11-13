@@ -199,7 +199,7 @@ public sealed class SessionDeletionHttpTests
         await SetPermissionsAsync(fixture, user.Id, manage: true);
 
         using var retained = await browser.SendAsync(HttpMethod.Put, "/api/sessions/" + manifest.Session.Id + "/retention", new { isPermanent = true });
-        Assert.Equal(HttpStatusCode.NoContent, retained.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, retained.StatusCode);
         var detail = await browser.Client.GetFromJsonAsync<JsonObject>("/api/sessions/" + manifest.Session.Id);
         Assert.True(detail!["session"]!["isPermanent"]!.GetValue<bool>());
         var saved = await File.ReadAllTextAsync(Path.Combine(fixture.StoragePath, manifest.Session.DirectoryPath, "场次.json"));
@@ -298,7 +298,7 @@ public sealed class SessionDeletionHttpTests
         Assert.Equal(HttpStatusCode.Forbidden, revoked.StatusCode);
         using var adminRetained = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/sessions/" + manifest.Session.Id + "/retention", new { isPermanent = true });
         using var adminAnalysis = await fixture.Admin.Client.GetAsync("/api/sessions/" + manifest.Session.Id + "/analytics");
-        Assert.Equal(HttpStatusCode.NoContent, adminRetained.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, adminRetained.StatusCode);
         Assert.Equal(HttpStatusCode.OK, adminAnalysis.StatusCode);
     }
 
@@ -328,6 +328,110 @@ public sealed class SessionDeletionHttpTests
             settings["trashRetentionDays"] = trashDays;
             using var response = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/settings", settings);
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+    }
+
+    /// <summary>普通成员可读取当前周期推导的列表与详情期限，无需访问管理员设置，录制中录像没有期限。</summary>
+    [MongoHttpFact]
+    public async Task MembersReadCurrentExpirationWithoutSettingsOrManagementPermissions()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+        var recorder = fixture.App.Services.GetServices<IHostedService>().OfType<RecordingSupervisor>().Single();
+        await recorder.StopAsync(CancellationToken.None);
+        var completed = await SeedAsync(fixture);
+        var recording = await SeedAsync(fixture, true);
+        var user = await fixture.CreateUserAsync("expiration-viewer@example.test");
+        var browser = fixture.NewBrowser();
+        await browser.LoginAsync(user.Email, HttpServerFixture.USER_PASSWORD);
+        using var forbiddenSettings = await browser.Client.GetAsync("/api/settings");
+        Assert.Equal(HttpStatusCode.Forbidden, forbiddenSettings.StatusCode);
+        var settings = await fixture.Admin.Client.GetFromJsonAsync<JsonObject>("/api/settings");
+
+        foreach (var days in new[] { 0, 7, 30, 0 })
+        {
+            settings!["recordingRetentionDays"] = days;
+            using var saved = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/settings", settings);
+            Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+            await AssertSessionExpirationAsync(browser, completed.Session.Id,
+                days == 0 ? null : completed.Session.EndedAtUtc!.Value.AddDays(days));
+            await AssertSessionExpirationAsync(browser, recording.Session.Id, null);
+        }
+    }
+
+    /// <summary>保护接口立即返回最新期限，取消保护保持原期限，恢复后列表与详情采用新的保留起点。</summary>
+    [MongoHttpFact]
+    public async Task ProtectionResponsesAndRestorationKeepProjectedExpirationCurrent()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+        var manifest = await SeedAsync(fixture);
+        var settings = await fixture.Admin.Client.GetFromJsonAsync<JsonObject>("/api/settings");
+        settings!["recordingRetentionDays"] = 7;
+        using var saved = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/settings", settings);
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        var originalExpiration = manifest.Session.EndedAtUtc!.Value.AddDays(7);
+        await AssertSessionExpirationAsync(fixture.Admin, manifest.Session.Id, originalExpiration);
+
+        using var retained = await fixture.Admin.SendAsync(HttpMethod.Put,
+            "/api/sessions/" + manifest.Session.Id + "/retention", new { isPermanent = true });
+        Assert.Equal(HttpStatusCode.OK, retained.StatusCode);
+        var retainedSession = await retained.Content.ReadFromJsonAsync<JsonObject>();
+        Assert.Equal(manifest.Session.Id, retainedSession!["id"]!.GetValue<string>());
+        Assert.Equal(manifest.Session.Title, retainedSession["title"]!.GetValue<string>());
+        Assert.True(retainedSession["isPermanent"]!.GetValue<bool>());
+        AssertProjectedExpiration(retainedSession, null);
+        await AssertSessionExpirationAsync(fixture.Admin, manifest.Session.Id, null);
+
+        using var unprotected = await fixture.Admin.SendAsync(HttpMethod.Put,
+            "/api/sessions/" + manifest.Session.Id + "/retention", new { isPermanent = false });
+        Assert.Equal(HttpStatusCode.OK, unprotected.StatusCode);
+        var unprotectedSession = await unprotected.Content.ReadFromJsonAsync<JsonObject>();
+        Assert.Equal(manifest.Session.Id, unprotectedSession!["id"]!.GetValue<string>());
+        Assert.False(unprotectedSession["isPermanent"]!.GetValue<bool>());
+        AssertProjectedExpiration(unprotectedSession, originalExpiration);
+        await AssertSessionExpirationAsync(fixture.Admin, manifest.Session.Id, originalExpiration);
+
+        using var deleted = await fixture.Admin.SendAsync(HttpMethod.Delete, "/api/sessions/" + manifest.Session.Id);
+        Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
+        var entry = await fixture.Context.Collection<TrashEntry>("trash")
+            .Find(x => x.EntityId == manifest.Session.Id).SingleAsync();
+        using var restored = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/trash/" + entry.Id + "/restore");
+        Assert.Equal(HttpStatusCode.NoContent, restored.StatusCode);
+        var restoredSession = await fixture.Context.Collection<BroadcastSession>("sessions")
+            .Find(x => x.Id == manifest.Session.Id).SingleAsync();
+        Assert.NotNull(restoredSession.RetentionStartedAtUtc);
+        var restoredExpiration = restoredSession.RetentionStartedAtUtc.Value.AddDays(7);
+        Assert.True(restoredExpiration > originalExpiration);
+        await AssertSessionExpirationAsync(fixture.Admin, manifest.Session.Id, restoredExpiration);
+    }
+
+    private static async Task AssertSessionExpirationAsync(HttpBrowser browser, string id, DateTime? expiresAtUtc)
+    {
+        var sessions = await browser.Client.GetFromJsonAsync<JsonArray>("/api/sessions");
+        Assert.NotNull(sessions);
+        var listed = Assert.Single(sessions, item => item!["id"]!.GetValue<string>() == id)!.AsObject();
+        AssertProjectedExpiration(listed, expiresAtUtc);
+        var detail = await browser.Client.GetFromJsonAsync<JsonObject>("/api/sessions/" + id);
+        Assert.NotNull(detail);
+        Assert.Equal(id, detail["session"]!["id"]!.GetValue<string>());
+        AssertProjectedExpiration(detail["session"]!.AsObject(), expiresAtUtc);
+    }
+
+    private static void AssertProjectedExpiration(JsonObject session, DateTime? expiresAtUtc)
+    {
+        Assert.True(session.ContainsKey("expiresAtUtc"));
+        if (expiresAtUtc is { } expected)
+        {
+            Assert.NotNull(session["expiresAtUtc"]);
+            var actual = session["expiresAtUtc"]!.GetValue<DateTime>();
+            Assert.InRange(actual, expected.AddMilliseconds(-1), expected.AddMilliseconds(1));
+        }
+        else
+        {
+            Assert.Null(session["expiresAtUtc"]);
         }
     }
 

@@ -15,6 +15,7 @@
             <span class="text-caption mono muted">{{ formatDuration(detail.durationMs, true) }}</span>
             <span class="text-caption muted">{{ formatBytes(detail.session.totalBytes) }}</span>
             <v-chip v-if="detail.session.isPermanent" color="primary" size="small" prepend-icon="mdi-shield-check-outline">{{ t('shell.retention.permanent') }}</v-chip>
+            <SessionExpiry :session="detail.session" />
             <v-spacer />
             <v-tooltip v-if="auth.canManageRecordings" :text="t(detail.session.isPermanent ? 'shell.retention.cancelPermanent' : 'shell.retention.keepPermanent')" location="top">
               <template #activator="{ props: tooltipProps }">
@@ -91,6 +92,7 @@ import SessionBookmarkDialog from '@/components/player/SessionBookmarkDialog.vue
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import ContentCard from '@/components/common/ContentCard.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
+import SessionExpiry from '@/components/library/SessionExpiry.vue'
 import SessionGroupDialog from '@/components/library/SessionGroupDialog.vue'
 import SessionSplitDialog from '@/components/library/SessionSplitDialog.vue'
 
@@ -148,10 +150,10 @@ async function setPermanent(): Promise<void>
   const isPermanent = !detail.value.session.isPermanent
   await runRetention(async () =>
   {
-    await MediaAPI.setSessionPermanent(id, isPermanent)
+    const updated = await MediaAPI.setSessionPermanent(id, isPermanent)
     if (detail.value)
     {
-      detail.value = { ...detail.value, session: { ...detail.value.session, isPermanent } }
+      detail.value = { ...detail.value, session: { ...detail.value.session, isPermanent: updated.isPermanent, expiresAtUtc: updated.expiresAtUtc } }
     }
   })
 }
