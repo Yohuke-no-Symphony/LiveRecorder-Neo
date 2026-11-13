@@ -59,7 +59,8 @@ public sealed class RecordingProgressSink : IProgress<MediaRecordingUpdate>, IAs
             segment.DurationMs = Math.Max(segment.DurationMs, value.DurationMs);
             segment.IsClosed |= value.Kind == "Closed";
             segment.Codec = value.Codec;
-            session.LastMediaAtUtc = session.StartedAtUtc.AddMilliseconds(segments.Values.Max(x => x.StartOffsetMs + x.DurationMs));
+            session.LastMediaAtUtc = session.StartedAtUtc.AddMilliseconds(segments.Values
+                .Where(x => x.DurationMs > 0).Select(x => x.StartOffsetMs + x.DurationMs).DefaultIfEmpty(0).Max());
             session.TotalBytes = segments.Values.Sum(x => x.CommittedBytes);
             dirty = true;
             dirtySegments.Add(segment.Id);

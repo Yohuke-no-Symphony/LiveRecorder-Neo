@@ -47,6 +47,7 @@ export interface ServerSettings
   playbackConcurrency: number
   monitorIntervalSeconds: number
   sessionGraceMinutes: number
+  streamDisconnectTimeoutMinutes: number
   registrationEnabled: boolean
   registrationApprovalRequired: boolean
   registrationInvitationRequired: boolean

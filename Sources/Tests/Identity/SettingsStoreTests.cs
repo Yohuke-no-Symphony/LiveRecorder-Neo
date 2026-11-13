@@ -12,6 +12,15 @@ namespace Yohuke.LiveRecorder.Identity.Tests;
 public sealed class SettingsStoreTests
 {
     [Fact]
+    public void LegacySettingsUseFiniteStreamDisconnectTimeout()
+    {
+        var settings = JsonSerializer.Deserialize<ServerSettings>("""{"quality":400}""", JsonFiles.Options)!;
+
+        Assert.Equal(5, settings.StreamDisconnectTimeoutMinutes);
+        Assert.Equal(10, settings.SessionGraceMinutes);
+    }
+
+    [Fact]
     public async Task CancelledPrivateFileReplacementPreservesTheOriginalAndRemovesItsTemporaryFile()
     {
         var directory = Path.Combine(Path.GetTempPath(), "live-recorder-settings-tests", Guid.NewGuid().ToString("N"));
@@ -77,19 +86,24 @@ public sealed class SettingsStoreTests
             var startup = CreateStartupConfiguration(paths);
             var context = new MongoContext(bootstrap);
             var store = new SettingsStore(startup, bootstrap, context, paths);
-            var input = new ServerSettings { Quality = 400 };
+            var input = new ServerSettings { Quality = 400, StreamDisconnectTimeoutMinutes = 17 };
             input.Smtp.Password = protector.Protect("local-settings-secret");
             await store.SaveAsync(input);
             input.Quality = 250;
+            input.StreamDisconnectTimeoutMinutes = 1;
             var snapshot = await store.GetAsync();
             Assert.Equal(400, snapshot.Quality);
+            Assert.Equal(17, snapshot.StreamDisconnectTimeoutMinutes);
             snapshot.Quality = 80;
+            snapshot.StreamDisconnectTimeoutMinutes = 3;
             snapshot.Smtp.Password = "unsaved";
 
             var reloaded = await new SettingsStore(new StartupConfigurationStore(startup.ConfigFile), bootstrap, context, paths).GetAsync();
 
             Assert.Equal(400, (await store.GetAsync()).Quality);
             Assert.Equal(400, reloaded.Quality);
+            Assert.Equal(17, (await store.GetAsync()).StreamDisconnectTimeoutMinutes);
+            Assert.Equal(17, reloaded.StreamDisconnectTimeoutMinutes);
             Assert.Equal("local-settings-secret", protector.Unprotect(reloaded.Smtp.Password));
             var persisted = await File.ReadAllTextAsync(startup.ConfigFile);
             Assert.DoesNotContain("local-settings-secret", persisted);

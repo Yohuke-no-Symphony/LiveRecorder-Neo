@@ -18,7 +18,17 @@
       </v-card>
     </div>
     <div v-else-if="tab === 'recording'" class="settings-grid">
-      <v-card class="form-section"><h2>{{ t('shell.settings.recordingSettings') }}</h2><div class="form-stack"><v-select v-model="settings.quality" :label="t('shell.settings.quality')" :items="qualityOptions" /><v-switch v-model="settings.recordDanmu" :label="t('shell.settings.recordDanmu')" /><v-text-field v-model.number="segmentGiB" :label="t('shell.settings.segmentSize')" type="number" min="0.1" step="0.5" /><v-text-field v-model.number="settings.monitorIntervalSeconds" :label="t('shell.settings.monitorInterval')" type="number" min="5" /><v-text-field v-model.number="settings.sessionGraceMinutes" :label="t('shell.settings.sessionGrace')" type="number" min="1" /></div></v-card>
+      <v-card class="form-section">
+        <h2>{{ t('shell.settings.recordingSettings') }}</h2>
+        <div class="form-stack">
+          <v-select v-model="settings.quality" :label="t('shell.settings.quality')" :items="qualityOptions" />
+          <v-switch v-model="settings.recordDanmu" :label="t('shell.settings.recordDanmu')" />
+          <v-text-field v-model.number="segmentGiB" :label="t('shell.settings.segmentSize')" type="number" min="0.1" step="0.5" />
+          <v-text-field v-model.number="settings.monitorIntervalSeconds" :label="t('shell.settings.monitorInterval')" type="number" min="5" />
+          <v-text-field v-model.number="settings.sessionGraceMinutes" :label="t('shell.settings.sessionGrace')" type="number" min="1" />
+          <v-text-field v-model.number="settings.streamDisconnectTimeoutMinutes" :label="t('shell.settings.streamDisconnectTimeout')" :hint="t('shell.settings.streamDisconnectTimeoutDescription')" persistent-hint type="number" min="1" max="1440" step="1" />
+        </div>
+      </v-card>
       <v-card class="form-section"><h2>{{ t('shell.settings.filesAndTools') }}</h2><div class="form-stack"><v-text-field v-model="settings.timeZone" :label="t('shell.settings.timeZone')" /><v-text-field v-model="settings.ffmpegPath" :label="t('shell.settings.ffmpeg')" /><v-text-field v-model="settings.ffprobePath" :label="t('shell.settings.ffprobe')" /></div></v-card>
     </div>
     <div v-else-if="tab === 'media'" class="settings-grid">
@@ -117,6 +127,10 @@ async function save(): Promise<void>
   await runSave(async () =>
   {
     if (!Number.isFinite(settings.value!.segmentBytes) || settings.value!.segmentBytes <= 0) { throw new Error(t('shell.settings.invalidSegmentSize')) }
+    if (!Number.isInteger(settings.value!.streamDisconnectTimeoutMinutes) || settings.value!.streamDisconnectTimeoutMinutes < 1 || settings.value!.streamDisconnectTimeoutMinutes > 1440)
+    {
+      throw new Error(t('shell.settings.invalidStreamDisconnectTimeout'))
+    }
     if (settings.value!.oauthProviders.some(provider => !provider.id.trim() || !provider.name.trim())) { throw new Error(t('shell.settings.invalidProvider')) }
     await MediaAPI.updateSettings(settings.value!)
     settings.value = clearSecrets(await MediaAPI.settings())

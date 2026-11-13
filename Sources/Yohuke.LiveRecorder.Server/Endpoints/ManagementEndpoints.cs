@@ -66,6 +66,10 @@ public static class ManagementEndpoints
 
     private static void Validate(ServerSettings settings)
     {
+        if (settings.StreamDisconnectTimeoutMinutes is < 1 or > 1440)
+        {
+            throw new InfrastructureException(MessageCode.SETTINGS_INVALID);
+        }
         if (!SupportedLanguages.IsSupported(settings.DefaultLanguage))
         {
             throw new InfrastructureException(MessageCode.LANGUAGE_UNSUPPORTED);

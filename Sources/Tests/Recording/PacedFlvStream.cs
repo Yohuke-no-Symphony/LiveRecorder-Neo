@@ -31,6 +31,7 @@ internal sealed class PacedFlvStream : Stream
     {
         cancellationToken.ThrowIfCancellationRequested();
         ObjectDisposedException.ThrowIf(disposed != 0, this);
+        await room.BeforeReadAsync(cancellationToken);
         if (buffer.Length == 0 || chunkIndex >= chunks.Count)
         {
             return 0;

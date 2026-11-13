@@ -165,6 +165,7 @@
   <data name="JOB_OUTPUT_INVALID" xml:space="preserve"><value>媒体输出校验失败。</value></data>
   <data name="JOB_PROCESSING_FAILED" xml:space="preserve"><value>媒体处理失败：{0}</value></data>
   <data name="RECORDING_CAPTURE_FAILED" xml:space="preserve"><value>录制暂时中断：{0}</value></data>
+  <data name="RECORDING_STREAM_TIMEOUT" xml:space="preserve"><value>连续 {0} 分钟无有效音视频数据，已结束当前场次，等待直播恢复。</value></data>
   <data name="SETTINGS_DATA_DIRECTORY_INVALID" xml:space="preserve"><value>请填写有效的数据目录和录像目录，目标及其上级路径不能是普通文件。</value></data>
   <data name="STARTUP_CONFIGURATION_PATH_CONFLICT" xml:space="preserve"><value>录像目录不能包含配置文件、密钥或缓存，配置文件也不能覆盖安装状态或令牌。请调整目录位置。</value></data>
   <data name="BILIBILI_SEARCH_INVALID" xml:space="preserve"><value>搜索关键词最多 200 个字符，页码必须大于零。</value></data>

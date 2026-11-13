@@ -43,10 +43,11 @@ internal sealed class RecordingFixture : IAsyncDisposable
     internal SessionGroupingService Grouping { get; private set; } = null!;
     internal MediaJobService Jobs { get; private set; } = null!;
     internal long SampleBytes { get; private set; }
+    internal TimeProvider Clock { get; private init; } = TimeProvider.System;
 
-    internal static async Task<RecordingFixture> CreateAsync(double durationSeconds = 3, string size = "160x90", int fps = 10, IStatusPublisher? publisher = null)
+    internal static async Task<RecordingFixture> CreateAsync(double durationSeconds = 3, string size = "160x90", int fps = 10, IStatusPublisher? publisher = null, TimeProvider? timeProvider = null)
     {
-        var fixture = new RecordingFixture { Publisher = publisher ?? new NullRecordingPublisher() };
+        var fixture = new RecordingFixture { Publisher = publisher ?? new NullRecordingPublisher(), Clock = timeProvider ?? TimeProvider.System };
         try
         {
             fixture.Paths = new(Path.Combine(fixture.DirectoryPath, "data"), Path.Combine(fixture.DirectoryPath, "records"));
@@ -68,7 +69,7 @@ internal sealed class RecordingFixture : IAsyncDisposable
             fixture.Processes = new(options, fixture.Settings);
             fixture.Processor = new(fixture.Processes);
             fixture.Playback = new(fixture.Processes, options);
-            fixture.Library = new(fixture.Context, TimeProvider.System);
+            fixture.Library = new(fixture.Context, fixture.Clock);
             fixture.Grouping = new(fixture.Context, fixture.Library, fixture.Settings, fixture.Publisher, fixture.Paths);
             fixture.Jobs = new(fixture.Context, fixture.Library, fixture.Publisher, fixture.Paths);
             return fixture;
@@ -89,10 +90,10 @@ internal sealed class RecordingFixture : IAsyncDisposable
         return (target, room);
     }
 
-    internal async Task StartSupervisorAsync()
+    internal async Task StartSupervisorAsync(IMediaRecorder? mediaRecorder = null)
     {
         Assert.Null(supervisor);
-        supervisor = new(Context, Bootstrap, Settings, Bilibili, Recorder, Publisher, NullLogger<RecordingSupervisor>.Instance, Grouping, Paths);
+        supervisor = new(Context, Bootstrap, Settings, Bilibili, mediaRecorder ?? Recorder, Publisher, NullLogger<RecordingSupervisor>.Instance, Grouping, Paths, Clock);
         await supervisor.StartAsync(CancellationToken.None);
     }
 

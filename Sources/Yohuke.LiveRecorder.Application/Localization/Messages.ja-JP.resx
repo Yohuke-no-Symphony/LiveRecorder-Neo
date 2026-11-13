@@ -165,6 +165,7 @@
   <data name="JOB_OUTPUT_INVALID" xml:space="preserve"><value>メディアの出力検証に失敗しました。</value></data>
   <data name="JOB_PROCESSING_FAILED" xml:space="preserve"><value>メディア処理に失敗しました：{0}</value></data>
   <data name="RECORDING_CAPTURE_FAILED" xml:space="preserve"><value>録画が中断されました：{0}</value></data>
+  <data name="RECORDING_STREAM_TIMEOUT" xml:space="preserve"><value>{0} 分間、有効な音声・映像データを受信しなかったため、現在の録画セッションを終了しました。配信の復旧を待っています。</value></data>
   <data name="SETTINGS_DATA_DIRECTORY_INVALID" xml:space="preserve"><value>有効なデータおよび録画ディレクトリを入力してください。保存先とその親パスに通常のファイルは指定できません。</value></data>
   <data name="STARTUP_CONFIGURATION_PATH_CONFLICT" xml:space="preserve"><value>録画ディレクトリに設定、キー、キャッシュを含めることはできません。設定ファイルでインストール状態やトークンを上書きすることもできません。保存先を変更してください。</value></data>
   <data name="BILIBILI_SEARCH_INVALID" xml:space="preserve"><value>検索語は200文字以内、ページ番号は1以上で指定してください。</value></data>

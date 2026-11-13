@@ -22,6 +22,7 @@ public sealed class ServerSettings : Entity
     public int PlaybackConcurrency { get; set; } = 2;
     public int MonitorIntervalSeconds { get; set; } = 30;
     public int SessionGraceMinutes { get; set; } = 10;
+    public int StreamDisconnectTimeoutMinutes { get; set; } = 5;
     public bool RegistrationEnabled { get; set; }
     public bool RegistrationApprovalRequired { get; set; } = true;
     public bool RegistrationInvitationRequired { get; set; } = true;

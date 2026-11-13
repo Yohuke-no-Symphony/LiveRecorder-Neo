@@ -50,14 +50,15 @@ const tabs = defineComponent({
   },
 })
 const textField = defineComponent({
-  props: ['modelValue', 'label', 'readonly', 'disabled'],
+  props: ['modelValue', 'label', 'hint', 'readonly', 'disabled', 'type', 'min', 'max', 'step'],
   emits: ['update:modelValue'],
   setup(props, { emit })
   {
     return () => h('label', [props.label, h('input', {
       value: props.modelValue, 'aria-label': props.label, readonly: props.readonly, disabled: props.disabled,
+      type: props.type, min: props.min, max: props.max, step: props.step,
       onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value),
-    })])
+    }), props.hint])
   },
 })
 const stubs = {
@@ -92,6 +93,7 @@ function settings(defaultLanguage: AppLanguage): ServerSettings
     recordDanmu: true, segmentBytes: 1024 ** 3, clipRetentionDays: 7, trashRetentionDays: 7,
     cacheLimitBytes: 1024 ** 3, cacheRetentionMinutes: 30, minimumFreeBytes: 1024 ** 3,
     mediaConcurrency: 2, playbackConcurrency: 2, monitorIntervalSeconds: 15, sessionGraceMinutes: 5,
+    streamDisconnectTimeoutMinutes: 5,
     registrationEnabled: true, ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe',
     registrationApprovalRequired: true, registrationInvitationRequired: true, registrationEmailVerificationRequired: true,
     smtp: { host: '', port: 587, useSsl: true, checkCertificateRevocation: true, userName: '', password: '', fromAddress: '', fromName: '' },
@@ -349,6 +351,74 @@ describe('管理员默认语言', () =>
     expect(i18n.global.locale.value).toBe('ja-JP')
     expect(wrapper.get('h1').text()).toBe('設定')
     expect(wrapper.get('[role="status"]').text()).toBe('設定を保存しました')
+  })
+})
+
+describe('录制断流超时', () =>
+{
+  async function openRecordingSettings(): Promise<VueWrapper>
+  {
+    const wrapper = mount(SettingsView, { global: { plugins: [pinia, i18n], stubs } })
+    mounted.push(wrapper)
+    await flushPromises()
+    wrapper.findComponent(tabs).vm.$emit('update:modelValue', 'recording')
+    await nextTick()
+    return wrapper
+  }
+
+  it.each([1, 17, 1440])('保存 %s 分钟并在重新加载后显示已保存的值', async minutes =>
+  {
+    let current = settings('zh-CN')
+    vi.spyOn(MediaAPI, 'settings').mockImplementation(async () => structuredClone(current))
+    const update = vi.spyOn(MediaAPI, 'updateSettings').mockImplementation(async value =>
+    {
+      current = JSON.parse(JSON.stringify(value)) as ServerSettings
+      return current
+    })
+    const wrapper = await openRecordingSettings()
+    const input = wrapper.get<HTMLInputElement>('input[aria-label="断流后结束录制（分钟）"]')
+    expect(input.element.value).toBe('5')
+    expect(input.attributes()).toMatchObject({ min: '1', max: '1440', step: '1' })
+
+    await input.setValue(String(minutes))
+    await wrapper.get('header button').trigger('click')
+    await flushPromises()
+
+    expect(update).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ streamDisconnectTimeoutMinutes: minutes }))
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="断流后结束录制（分钟）"]').element.value).toBe(String(minutes))
+    expect(wrapper.get('[role="status"]').text()).toBe('设置已保存')
+    const reopened = await openRecordingSettings()
+    expect(reopened.get<HTMLInputElement>('input[aria-label="断流后结束录制（分钟）"]').element.value).toBe(String(minutes))
+  })
+
+  it.each(['', '0', '-1', '1441', '1.5'])('拒绝无效时长 %s 并保留待编辑值', async value =>
+  {
+    vi.spyOn(MediaAPI, 'settings').mockResolvedValue(settings('zh-CN'))
+    const update = vi.spyOn(MediaAPI, 'updateSettings')
+    const wrapper = await openRecordingSettings()
+    await wrapper.get('input[aria-label="断流后结束录制（分钟）"]').setValue(value)
+    await wrapper.get('header button').trigger('click')
+    await flushPromises()
+
+    expect(update).not.toHaveBeenCalled()
+    expect(wrapper.get('[role="alert"]').text()).toBe('断流结束时长必须为 1 至 1440 分钟的整数')
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="断流后结束录制（分钟）"]').element.value).toBe(value)
+  })
+
+  it.each([
+    ['zh-CN', '断流后结束录制（分钟）', '恢复后开启新场次'],
+    ['en-US', 'End recording after stream loss (minutes)', 'starts a new session'],
+    ['ja-JP', '配信切断後に録画を終了するまで（分）', '新しい録画セッション'],
+  ] as const)('%s 显示断流时长和恢复行为说明', async (language, label, explanation) =>
+  {
+    vi.spyOn(MediaAPI, 'settings').mockResolvedValue(settings('zh-CN'))
+    const wrapper = await openRecordingSettings()
+    i18n.global.locale.value = language
+    await nextTick()
+
+    expect(wrapper.get<HTMLInputElement>(`input[aria-label="${label}"]`).element.value).toBe('5')
+    expect(wrapper.text()).toContain(explanation)
   })
 })
 
