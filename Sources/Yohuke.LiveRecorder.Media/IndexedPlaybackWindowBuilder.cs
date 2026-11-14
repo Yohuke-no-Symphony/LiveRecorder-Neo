@@ -9,17 +9,30 @@ public sealed class IndexedPlaybackWindowBuilder : IPlaybackWindowBuilder
 {
     private readonly MediaProcessRunner processes;
     private readonly MediaToolOptions options;
+    private readonly PlaybackWindowOptions windowOptions;
 
     /// <summary>Creates the window builder with its shared media process limiter.</summary>
-    public IndexedPlaybackWindowBuilder(MediaProcessRunner processes, IOptions<MediaToolOptions> options)
+    public IndexedPlaybackWindowBuilder(MediaProcessRunner processes, IOptions<MediaToolOptions> options, IOptions<PlaybackWindowOptions> windowOptions)
     {
         this.processes = processes;
         this.options = options.Value;
+        this.windowOptions = windowOptions.Value;
     }
 
     /// <inheritdoc />
-    public async Task<PlaybackWindowResult> BuildAsync(PlaybackWindowRequest request, CancellationToken cancellationToken)
+    public Task<PlaybackWindowResult> BuildAsync(PlaybackWindowRequest request, CancellationToken cancellationToken) =>
+        BuildCoreAsync(request, null, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<PlaybackWindowResult?> TryPrefetchAsync(PlaybackWindowRequest request, CancellationToken cancellationToken)
     {
+        using var reservation = await processes.TryAcquirePlaybackPrefetchAsync(cancellationToken);
+        return reservation is null ? null : await BuildCoreAsync(request, reservation, cancellationToken);
+    }
+
+    private async Task<PlaybackWindowResult> BuildCoreAsync(PlaybackWindowRequest request, MediaProcessReservation? reservation, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!double.IsFinite(request.SourceStartMs) || request.SourceStartMs < 0
             || !double.IsFinite(request.DurationMs) || request.DurationMs <= 0)
         {
@@ -34,7 +47,7 @@ public sealed class IndexedPlaybackWindowBuilder : IPlaybackWindowBuilder
         {
             throw new InvalidOperationException("The requested playback position has not been committed yet.");
         }
-        var desiredEnd = Math.Min(request.SourceStartMs + Math.Min(request.DurationMs, options.PlaybackWindowDuration.TotalMilliseconds), index.DurationMs);
+        var desiredEnd = Math.Min(request.SourceStartMs + Math.Min(request.DurationMs, windowOptions.Duration.TotalMilliseconds), index.DurationMs);
         var after = index.Keyframes.FirstOrDefault(frame => frame.TimestampMs >= desiredEnd && frame.Offset > first.Offset);
         var endOffset = after?.Offset ?? committed;
         var sourceEndMs = after?.TimestampMs ?? index.DurationMs;
@@ -63,7 +76,15 @@ public sealed class IndexedPlaybackWindowBuilder : IPlaybackWindowBuilder
                 "-hls_segment_type", "fmp4", "-hls_playlist_type", "vod", "-hls_flags", "independent_segments+temp_file",
                 "-hls_fmp4_init_filename", "init.mp4", "-hls_segment_filename", Path.Combine(temporary, "chunk_%05d.m4s"), playlist
             ]);
-            await processes.RunAsync(MediaProcessKind.Playback, arguments, cancellationToken, (output, token) => IndexedFlvRange.CopyAsync(request.SourcePath, index, first, endOffset, output, token));
+            Task Input(Stream output, CancellationToken token) => IndexedFlvRange.CopyAsync(request.SourcePath, index, first, endOffset, output, token);
+            if (reservation is null)
+            {
+                await processes.RunAsync(MediaProcessKind.Playback, arguments, cancellationToken, Input);
+            }
+            else
+            {
+                await reservation.RunAsync(arguments, cancellationToken, Input);
+            }
             var lines = await File.ReadAllLinesAsync(playlist, cancellationToken);
             var duration = lines.Where(line => line.StartsWith("#EXTINF:", StringComparison.Ordinal))
                 .Sum(line => double.Parse(line.AsSpan(8).TrimEnd(','), CultureInfo.InvariantCulture)) * 1000;
@@ -71,6 +92,7 @@ public sealed class IndexedPlaybackWindowBuilder : IPlaybackWindowBuilder
             {
                 throw new InvalidDataException("The playback process did not produce any playable fragments.");
             }
+            cancellationToken.ThrowIfCancellationRequested();
             PlaybackWindowPublisher.Publish(temporary, directory);
             return new()
             {

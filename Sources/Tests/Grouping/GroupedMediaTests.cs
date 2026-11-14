@@ -25,7 +25,7 @@ public sealed class GroupedMediaTests
         var source = MediaPaths.ResolveSegment(fixture.Root, grouped.DirectoryPath, segment);
         var index = MediaPaths.ResolveSegmentIndex(fixture.Root, grouped.DirectoryPath, segment);
         Assert.Equal("h264", (await fixture.Processor.ProbeAsync(source)).VideoCodec);
-        var window = await new IndexedPlaybackWindowBuilder(fixture.Processes, Options.Create(new MediaToolOptions())).BuildAsync(new()
+        var window = await new IndexedPlaybackWindowBuilder(fixture.Processes, Options.Create(new MediaToolOptions()), Options.Create(new PlaybackWindowOptions())).BuildAsync(new()
         {
             SourcePath = source, IndexPath = index, CommittedBytes = segment.CommittedBytes, IsClosed = true,
             SourceStartMs = 200, DurationMs = 500, OutputDirectory = Path.Combine(fixture.Root, ".derived", "window")

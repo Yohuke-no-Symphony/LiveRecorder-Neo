@@ -1,7 +1,7 @@
 <template>
   <section ref="player" class="media-player" tabindex="0" :aria-label="t('components.player.label')" @keydown="onKeydown">
     <div class="video-stage" @dblclick="fullscreen" @click="togglePlay">
-      <video ref="video" crossorigin="use-credentials" playsinline preload="metadata" :muted="muted" @loadedmetadata="syncVideo" @canplay="onCanPlay" @waiting="onWaiting" @ended="onEnded" @error="onVideoError" />
+      <video ref="video" crossorigin="use-credentials" playsinline preload="metadata" :muted="muted" />
       <div v-if="gap" class="video-overlay gap-overlay"><v-icon icon="mdi-video-off-outline" size="40" /><span>{{ t('components.events.gap') }}</span></div>
       <div v-else-if="error" class="video-overlay error-overlay" @click.stop><v-icon icon="mdi-alert-circle-outline" size="38" /><span>{{ error }}</span><v-btn variant="tonal" color="white" size="small" @click="retry">{{ t('components.common.retry') }}</v-btn></div>
       <div v-else-if="loading" class="video-overlay"><v-progress-circular indeterminate color="primary" size="38" /></div>
@@ -28,228 +28,35 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import Hls from 'hls.js'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ApiError } from '@/apis/APIBase'
-import { getServerUrl } from '@/apis/ServerURL'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import PlaybackTimeline from '@/components/player/PlaybackTimeline.vue'
+import { usePlaybackController } from '@/composables/usePlaybackController'
 import type { SessionTimeline } from '@/models/sessionTimeline'
 import type { SessionBookmark } from '@/models/sessionBookmark'
 import type { ClipSelection } from '@/models/clipSelection'
 import type { PlaybackWindow, TimelineGap } from '@/models/media'
+import type { PlaybackLoadOptions } from '@/models/playbackLoadOptions'
 import { formatDuration, formatNumber } from '@/utilities/format'
-import { clampOffset, findGap, normalizeTimelineGaps, playbackPosition, windowPosition } from '@/utilities/timeline'
 
 const { t } = useI18n()
-
-const props = defineProps<{ durationMs: number; gaps: TimelineGap[]; isLive: boolean; initialOffsetMs?: number; loadWindow: (offsetMs: number) => Promise<PlaybackWindow>; timeline?: SessionTimeline; bookmarks?: SessionBookmark[]; selection?: ClipSelection; timelineLoading?: boolean; timelineError?: string }>()
+const props = defineProps<{ durationMs: number; gaps: TimelineGap[]; isLive: boolean; initialOffsetMs?: number; loadWindow: (offsetMs: number, options?: PlaybackLoadOptions) => Promise<PlaybackWindow | undefined>; timeline?: SessionTimeline; bookmarks?: SessionBookmark[]; selection?: ClipSelection; timelineLoading?: boolean; timelineError?: string }>()
 const emit = defineEmits<{ navigate: []; refreshTimeline: [] }>()
 const currentMs = defineModel<number>({ required: true })
 const player = ref<HTMLElement>()
 const video = ref<HTMLVideoElement>()
-const playing = ref(false)
-const loading = ref(false)
-const error = ref('')
-const volume = ref(0.8)
-const muted = ref(false)
-const rate = ref(1)
 const sliderOffset = ref(0)
 const scrubbing = ref(false)
-const currentWindow = ref<PlaybackWindow>()
-const serverGap = ref<TimelineGap>()
-const normalizedGaps = computed(() => normalizeTimelineGaps(props.gaps, props.durationMs))
-const gap = computed(() => findGap(currentMs.value, normalizedGaps.value) ?? (serverGap.value && currentMs.value >= serverGap.value.startMs && currentMs.value < serverGap.value.endMs ? serverGap.value : undefined))
-let hls: Hls | undefined
-let generation = 0
-let sourceGeneration = -1
-let frame = 0
-let lastFrameAt = 0
-let pendingOffsetMs = 0
+const { playing, loading, error, volume, muted, rate, gap, seek, togglePlay, retry } = usePlaybackController({
+  video, currentMs, scrubbing,
+  durationMs: () => props.durationMs,
+  gaps: () => props.gaps,
+  isLive: () => props.isLive,
+  initialOffsetMs: () => props.initialOffsetMs ?? 0,
+  loadWindow: (offsetMs, options) => props.loadWindow(offsetMs, options),
+})
 let seekTimer: ReturnType<typeof setTimeout> | undefined
-let disposed = false
 
 watch(currentMs, value => { if (!scrubbing.value) { sliderOffset.value = value } })
-watch(() => props.durationMs, (value, previous) => { if (previous <= 0 && value > 0 && !currentWindow.value) { void seek(props.initialOffsetMs ?? 0) } })
-watch(muted, value => { if (video.value) { video.value.muted = value } })
-
-function syncVideo(): void
-{
-  const element = video.value
-  if (!element || !currentWindow.value || gap.value || sourceGeneration !== generation)
-  {
-    return
-  }
-  element.currentTime = windowPosition(pendingOffsetMs, currentWindow.value.startOffsetMs)
-  element.volume = volume.value
-  element.playbackRate = rate.value
-  if (playing.value)
-  {
-    void element.play().catch(() => { playing.value = false })
-  }
-}
-
-async function seek(value: number, force = false): Promise<void>
-{
-  const offset = clampOffset(value, props.durationMs)
-  const operation = ++generation
-  sourceGeneration = -1
-  currentMs.value = offset
-  pendingOffsetMs = offset
-  error.value = ''
-  if (offset >= props.durationMs && props.durationMs > 0)
-  {
-    playing.value = false
-    video.value?.pause()
-    return
-  }
-  const knownGap = findGap(offset, normalizedGaps.value)
-  if (knownGap)
-  {
-    video.value?.pause()
-    hls?.stopLoad()
-    loading.value = false
-    return
-  }
-  if (!force && currentWindow.value && offset >= currentWindow.value.startOffsetMs && offset < currentWindow.value.endOffsetMs && !currentWindow.value.isGap)
-  {
-    sourceGeneration = operation
-    hls?.startLoad(windowPosition(offset, currentWindow.value.startOffsetMs))
-    syncVideo()
-    return
-  }
-  loading.value = true
-  video.value?.pause()
-  hls?.stopLoad()
-  try
-  {
-    let playback: PlaybackWindow | undefined
-    for (let attempt = 0; attempt < 4; attempt++)
-    {
-      try
-      {
-        playback = await props.loadWindow(offset)
-        break
-      }
-      catch (value)
-      {
-        if (!(value instanceof ApiError) || ![409, 425].includes(value.status) || attempt === 3)
-        {
-          throw value
-        }
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        if (disposed || operation !== generation) { return }
-      }
-    }
-    if (!playback || disposed || operation !== generation)
-    {
-      return
-    }
-    if (playback.isGap)
-    {
-      currentWindow.value = playback
-      serverGap.value = { startMs: offset, endMs: playback.gapEndMs ?? playback.endOffsetMs }
-      loading.value = false
-      return
-    }
-    const sourceUrl = playback.url?.trim()
-    if (!sourceUrl) { throw new Error(t('components.player.noVideo')) }
-    currentWindow.value = playback
-    serverGap.value = undefined
-    hls?.destroy()
-    hls = undefined
-    await nextTick()
-    const element = video.value
-    if (!element) { return }
-    sourceGeneration = operation
-    if (Hls.isSupported())
-    {
-      const instance = new Hls({ startPosition: windowPosition(offset, playback.startOffsetMs), maxBufferLength: 30, xhrSetup: xhr => { xhr.withCredentials = true } })
-      hls = instance
-      instance.on(Hls.Events.MANIFEST_PARSED, () => { if (hls === instance) { syncVideo() } })
-      instance.on(Hls.Events.ERROR, (_, data) =>
-      {
-        if (data.fatal && hls === instance && sourceGeneration === generation)
-        {
-          loading.value = false
-          playing.value = false
-          error.value = t('components.player.loadFailed')
-        }
-      })
-      instance.attachMedia(element)
-      instance.loadSource(getServerUrl(sourceUrl))
-    }
-    else if (element.canPlayType('application/vnd.apple.mpegurl'))
-    {
-      element.src = getServerUrl(sourceUrl)
-      element.load()
-    }
-    else
-    {
-      throw new Error(t('components.player.unsupported'))
-    }
-  }
-  catch (value)
-  {
-    if (operation === generation)
-    {
-      error.value = value instanceof Error ? value.message : t('components.player.loadFailed')
-      loading.value = false
-      playing.value = false
-    }
-  }
-}
-
-function tick(now: number): void
-{
-  const elapsed = lastFrameAt ? now - lastFrameAt : 0
-  lastFrameAt = now
-  if (playing.value && !scrubbing.value)
-  {
-    const activeGap = gap.value
-    if (activeGap)
-    {
-      const target = clampOffset(currentMs.value + elapsed * rate.value, props.durationMs)
-      currentMs.value = target
-      if (target >= activeGap.endMs)
-      {
-        void seek(target)
-      }
-    }
-    else if (video.value && currentWindow.value && !loading.value)
-    {
-      const position = playbackPosition(video.value.currentTime, currentWindow.value.startOffsetMs, props.durationMs)
-      currentMs.value = Math.min(position, currentWindow.value.endOffsetMs)
-      if (position >= currentWindow.value.endOffsetMs - 30)
-      {
-        void seek(currentWindow.value.endOffsetMs)
-      }
-    }
-  }
-  frame = requestAnimationFrame(tick)
-}
-
-async function togglePlay(): Promise<void>
-{
-  if (error.value) { return }
-  playing.value = !playing.value
-  if (!playing.value)
-  {
-    video.value?.pause()
-    return
-  }
-  if (currentMs.value >= props.durationMs)
-  {
-    await seek(props.isLive ? Math.max(0, props.durationMs - 2000) : 0)
-  }
-  else if (!gap.value && (!currentWindow.value || currentWindow.value.isGap || currentMs.value >= currentWindow.value.endOffsetMs - 30 || currentMs.value < currentWindow.value.startOffsetMs))
-  {
-    await seek(currentMs.value)
-  }
-  if (!gap.value && !loading.value && video.value)
-  {
-    void video.value.play().catch(() => { playing.value = false })
-  }
-}
 
 async function navigate(value: number): Promise<void>
 {
@@ -282,38 +89,10 @@ function finishScrub(): void
 function setRate(value: number): void
 {
   rate.value = value
-  if (video.value) { video.value.playbackRate = value }
 }
 function setVolume(value: number): void
 {
-  if (video.value) { video.value.volume = value }
   if (value > 0) { muted.value = false }
-}
-function onCanPlay(): void
-{
-  if (sourceGeneration !== generation || gap.value) { return }
-  loading.value = false
-  if (playing.value && !gap.value) { void video.value?.play().catch(() => { playing.value = false }) }
-}
-function onWaiting(): void
-{
-  if (!gap.value && sourceGeneration === generation) { loading.value = true }
-}
-function onEnded(): void
-{
-  if (currentWindow.value && sourceGeneration === generation) { void seek(currentWindow.value.endOffsetMs) }
-}
-function onVideoError(): void
-{
-  if (!loading.value && !hls)
-  {
-    error.value = t('components.player.loadFailed')
-    playing.value = false
-  }
-}
-function retry(): void
-{
-  void seek(currentMs.value, true)
 }
 function fullscreen(): void
 {
@@ -327,21 +106,7 @@ function onKeydown(event: KeyboardEvent): void
   else if (event.key === 'ArrowRight') { event.preventDefault(); void navigate(currentMs.value + 10000) }
   else if (event.key === 'ArrowLeft') { event.preventDefault(); void navigate(currentMs.value - 10000) }
 }
-onMounted(() =>
-{
-  currentMs.value = clampOffset(props.initialOffsetMs ?? 0, props.durationMs)
-  void seek(currentMs.value)
-  frame = requestAnimationFrame(tick)
-})
-onBeforeUnmount(() =>
-{
-  disposed = true
-  generation++
-  cancelAnimationFrame(frame)
-  clearTimeout(seekTimer)
-  hls?.destroy()
-  video.value?.pause()
-})
+onBeforeUnmount(() => clearTimeout(seekTimer))
 defineExpose({ seek: navigate })
 </script>
 

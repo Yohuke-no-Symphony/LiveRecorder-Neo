@@ -17,6 +17,7 @@ using Yohuke.LiveRecorder.Infrastructure.Library;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Infrastructure.Playback;
 using Yohuke.LiveRecorder.Infrastructure.Storage;
+using Yohuke.LiveRecorder.Server.Bandwidth;
 using Yohuke.LiveRecorder.Server.Contracts;
 using Yohuke.LiveRecorder.Server.Localization;
 
@@ -102,7 +103,13 @@ public static class LibraryEndpoints
             }
             return await ImageAsync(session.CoverUrl, artwork, ct);
         });
-        viewing.MapPost("/sessions/{id}/playback", async (string id, PlaybackRequest request, PlaybackService playback, CancellationToken ct) => Results.Ok(await playback.OpenAsync(id, request.OffsetMs, ct)));
+        viewing.MapPost("/sessions/{id}/playback", async (string id, PlaybackRequest request, PlaybackService playback, CancellationToken ct) =>
+        {
+            var window = request.Prefetch
+                ? await playback.TryPrefetchAsync(id, request.OffsetMs, ct)
+                : await playback.OpenAsync(id, request.OffsetMs, ct);
+            return window is null ? Results.NoContent() : Results.Ok(window);
+        });
         viewing.MapGet("/sessions/{id}/events", async (string id, double? fromMs, double? toMs, string? kind, long? cursor, int? limit, bool? translationsOnly, LibraryService library, IAppPaths paths, SessionEventReader reader, ISettingsStore settingsStore, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
@@ -152,7 +159,7 @@ public static class LibraryEndpoints
         {
             var path = await playback.ResolveAssetAsync(key, generation, fileName, ct);
             var type = Path.GetExtension(path) switch { ".m3u8" => "application/vnd.apple.mpegurl", ".m4s" => "video/iso.segment", ".mp4" => "video/mp4", ".ts" => "video/mp2t", _ => "application/octet-stream" };
-            return Results.File(path, type, enableRangeProcessing: true);
+            return new MediaFileResult(path, type, MediaTrafficKind.Playback);
         });
         api.MapGet("/jobs", async (HttpContext http, IMongoContext context, CancellationToken ct) =>
         {
@@ -238,7 +245,7 @@ public static class LibraryEndpoints
             {
                 throw new InfrastructureException(MessageCode.LIBRARY_FILE_NOT_FOUND, 410);
             }
-            return Results.File(path, "video/mp4", enableRangeProcessing: true);
+            return new MediaFileResult(path, "video/mp4", MediaTrafficKind.Playback);
         });
         api.MapDelete("/clips/{id}", async (string id, HttpContext http, IMongoContext context, StorageService storage, CancellationToken ct) =>
         {
@@ -448,7 +455,7 @@ public static class LibraryEndpoints
         {
             throw new InfrastructureException(MessageCode.LIBRARY_FILE_NOT_FOUND, 410);
         }
-        return Results.File(path, Path.GetExtension(path) == ".flv" ? "video/x-flv" : "video/mp4", name, enableRangeProcessing: true);
+        return new MediaFileResult(path, Path.GetExtension(path) == ".flv" ? "video/x-flv" : "video/mp4", MediaTrafficKind.Download, name);
     }
 
     private static async Task<IResult> ImageAsync(string? source, ArtworkCache artwork, CancellationToken ct)

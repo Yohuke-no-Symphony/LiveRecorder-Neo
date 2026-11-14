@@ -19,7 +19,7 @@ internal sealed class MediaFixture : IDisposable
         Processor = new(Processes);
     }
 
-    internal async Task<string> CreateSampleAsync(string name = "sample.flv", string size = "160x90", double duration = 4)
+    internal async Task<string> CreateSampleAsync(string name = "sample.flv", string size = "160x90", double duration = 4, int keyframeInterval = 10)
     {
         var path = Path.Combine(DirectoryPath, name);
         var start = new ProcessStartInfo("ffmpeg")
@@ -32,7 +32,8 @@ internal sealed class MediaFixture : IDisposable
         {
             "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", $"testsrc=size={size}:rate=10",
             "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000", "-t", duration.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "-c:v", "libx264", "-preset", "ultrafast", "-g", "10", "-pix_fmt", "yuv420p", "-c:a", "aac", "-y", path
+            "-c:v", "libx264", "-preset", "ultrafast", "-g", keyframeInterval.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "-sc_threshold", "0", "-pix_fmt", "yuv420p", "-c:a", "aac", "-y", path
         })
         {
             start.ArgumentList.Add(argument);

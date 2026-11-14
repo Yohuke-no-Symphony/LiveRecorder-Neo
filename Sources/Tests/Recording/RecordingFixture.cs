@@ -68,7 +68,7 @@ internal sealed class RecordingFixture : IAsyncDisposable
             fixture.Recorder = new(fixture.client, options, fixture.Settings);
             fixture.Processes = new(options, fixture.Settings);
             fixture.Processor = new(fixture.Processes);
-            fixture.Playback = new(fixture.Processes, options);
+            fixture.Playback = new(fixture.Processes, options, Options.Create(new PlaybackWindowOptions()));
             fixture.Library = new(fixture.Context, fixture.Clock);
             fixture.Grouping = new(fixture.Context, fixture.Library, fixture.Settings, fixture.Publisher, fixture.Paths);
             fixture.Jobs = new(fixture.Context, fixture.Library, fixture.Publisher, fixture.Paths);

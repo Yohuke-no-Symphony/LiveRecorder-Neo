@@ -46,6 +46,25 @@ public sealed class MediaProcessRunner : IDisposable
         };
         using var lease = await gate.AcquireAsync(limit, cancellationToken);
         var tool = kind == MediaProcessKind.Probe ? currentSettings.FfprobePath : currentSettings.FfmpegPath;
+        return await RunProcessAsync(tool, arguments, cancellationToken, input, progress, expectedDuration);
+    }
+
+    internal async Task<MediaProcessReservation?> TryAcquirePlaybackPrefetchAsync(CancellationToken cancellationToken)
+    {
+        var currentSettings = await settings.GetAsync(cancellationToken);
+        var lease = playbacks.TryAcquirePrefetch(currentSettings.PlaybackConcurrency, cancellationToken);
+        return lease is null ? null : new(currentSettings.FfmpegPath, lease);
+    }
+
+    internal static async Task<MediaProcessResult> RunProcessAsync(
+        string tool,
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken,
+        Func<Stream, CancellationToken, Task>? input = null,
+        IProgress<double>? progress = null,
+        TimeSpan? expectedDuration = null)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         var startInfo = new ProcessStartInfo(tool)
         {
             UseShellExecute = false,

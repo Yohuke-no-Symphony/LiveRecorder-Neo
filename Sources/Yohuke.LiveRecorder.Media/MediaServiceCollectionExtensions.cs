@@ -13,8 +13,11 @@ public static class MediaServiceCollectionExtensions
             .Validate(options => options.ProbeConcurrency > 0
                 && options.StreamConnectTimeout > TimeSpan.Zero
                 && options.StreamReadTimeout > TimeSpan.Zero
-                && options.PlaybackWindowDuration > TimeSpan.Zero
                 && options.HlsSegmentDuration > TimeSpan.Zero, "Media deadlines, probe concurrency, and playback durations must be positive.")
+            .ValidateOnStart();
+        services.AddOptions<PlaybackWindowOptions>()
+            .Validate(options => options.Duration >= TimeSpan.FromSeconds(1)
+                && options.Duration <= TimeSpan.FromMinutes(2), "Playback window duration must be between one second and two minutes.")
             .ValidateOnStart();
         if (configure is not null)
         {

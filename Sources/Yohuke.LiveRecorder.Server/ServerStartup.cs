@@ -30,6 +30,7 @@ using Yohuke.LiveRecorder.Infrastructure.Playback;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
 using Yohuke.LiveRecorder.Infrastructure.Storage;
 using Yohuke.LiveRecorder.Media;
+using Yohuke.LiveRecorder.Server.Bandwidth;
 using Yohuke.LiveRecorder.Server.Endpoints;
 using Yohuke.LiveRecorder.Server.Realtime;
 using Yohuke.LiveRecorder.Server.Configuration;
@@ -96,6 +97,9 @@ public static class ServerStartup
         builder.Services.AddSingleton<IMongoContext, CurrentMongoContext>();
         builder.Services.AddSingleton<ISettingsStore, SettingsStore>();
         builder.Services.AddSingleton(TimeProvider.System);
+        builder.Services.AddSingleton<MediaBandwidthScheduler>();
+        builder.Services.AddSingleton<IMediaBandwidthScheduler>(provider => provider.GetRequiredService<MediaBandwidthScheduler>());
+        builder.Services.AddHostedService(provider => provider.GetRequiredService<MediaBandwidthScheduler>());
         builder.Services.AddSingleton<EventArchiveReader>();
         builder.Services.AddSingleton<LibraryService>();
         builder.Services.AddSingleton<SessionBookmarkService>();

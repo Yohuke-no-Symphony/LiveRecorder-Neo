@@ -7,6 +7,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <InternalsVisibleTo Include="Yohuke.LiveRecorder.Http.Tests" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12"/>
         <ProjectReference Include="../Yohuke.LiveRecorder.Infrastructure/Yohuke.LiveRecorder.Infrastructure.csproj" />
         <ProjectReference Include="../Yohuke.LiveRecorder.Media/Yohuke.LiveRecorder.Media.csproj" />

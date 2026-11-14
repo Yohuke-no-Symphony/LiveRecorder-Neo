@@ -1,4 +1,5 @@
 import { AuthAPI } from '../src/apis/AuthAPI'
+import { MediaAPI } from '../src/apis/MediaAPI'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, post, query, request, setCsrfToken } from '../src/apis/APIBase'
 import { i18n } from '../src/plugins/i18n'
@@ -108,5 +109,21 @@ describe('直播间搜索 API', () =>
     expect(url.searchParams.get('accountId')).toBe('account-1')
     expect(options.signal).toBe(controller.signal)
     expect(options.body).toBeUndefined()
+  })
+})
+
+describe('播放窗口 API', () =>
+{
+  it('预取携带取消信号和请求标记，并接受 204 跳过', async () =>
+  {
+    const controller = new AbortController()
+    const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetcher)
+    expect(await MediaAPI.playback('session/a', 30000, { signal: controller.signal, prefetch: true })).toBeUndefined()
+    const [path, options] = fetcher.mock.calls[0]!
+    expect(new URL(path).pathname).toBe('/api/sessions/session%2Fa/playback')
+    expect(options.method).toBe('POST')
+    expect(options.signal).toBe(controller.signal)
+    expect(JSON.parse(options.body)).toEqual({ offsetMs: 30000, prefetch: true })
   })
 })

@@ -121,6 +121,7 @@ import { useAction } from '@/composables/useAction'
 import { usePolling } from '@/composables/usePolling'
 import { useSessionTimeline } from '@/composables/useSessionTimeline'
 import type { SessionDetail, Streamer } from '@/models/media'
+import type { PlaybackLoadOptions } from '@/models/playbackLoadOptions'
 import type { SessionBookmark } from '@/models/sessionBookmark'
 import type { SessionConfiguration } from '@/models/sessionConfiguration'
 import type { ClipSelection } from '@/models/clipSelection'
@@ -184,7 +185,7 @@ const { busy: maintenanceBusy, error: maintenanceError, run: runMaintenance } = 
 const isLive = computed(() => detail.value?.session.state === 'Recording')
 const { timeline, loading: timelineLoading, error: timelineError, refresh: refreshTimeline } = useSessionTimeline(() => id, () => !!detail.value?.session.hasDanmu, isLive)
 const isFinished = computed(() => !!detail.value?.session.endedAtUtc && !isLive.value)
-const loadWindow = (value: number) => MediaAPI.playback(id, value)
+const loadWindow = (value: number, options?: PlaybackLoadOptions) => MediaAPI.playback(id, value, options)
 usePolling(async () => { await run(async () => { detail.value = await MediaAPI.session(id) }) }, 10000)
 onMounted(async () =>
 {

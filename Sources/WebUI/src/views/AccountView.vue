@@ -4,7 +4,6 @@
   <ContentCard class="mb-6" style="max-width: 720px" :title="t('shell.account.language')">
     <div class="form-stack">
       <LanguageSelect :model-value="auth.user?.language ?? null" allow-default :disabled="saving" :loading="saving" @update:model-value="saveLanguage" />
-      <p class="text-body-2 muted">{{ t('shell.account.languageDescription') }}</p>
     </div>
   </ContentCard>
   <h2 class="section-heading">{{ t('shell.account.loginMethods') }}</h2>

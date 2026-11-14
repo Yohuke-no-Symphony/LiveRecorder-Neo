@@ -5,4 +5,7 @@ public interface IPlaybackWindowBuilder
 {
     /// <summary>只读取目标附近的媒体并构建播放产物。</summary>
     Task<PlaybackWindowResult> BuildAsync(PlaybackWindowRequest request, CancellationToken cancellationToken);
+
+    /// <summary>Generates a speculative window only when spare playback capacity is available, otherwise returns null.</summary>
+    Task<PlaybackWindowResult?> TryPrefetchAsync(PlaybackWindowRequest request, CancellationToken cancellationToken);
 }

@@ -11,6 +11,7 @@ using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.AI;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Server.Configuration;
+using Yohuke.LiveRecorder.Server.Bandwidth;
 using Yohuke.LiveRecorder.Server.Contracts;
 using HttpJsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 
@@ -139,6 +140,7 @@ public static class ManagementEndpoints
 
     private static void Validate(ServerSettings settings)
     {
+        BandwidthSettingsPolicy.Validate(settings.Bandwidth);
         if (settings.Ai is null)
         {
             throw AiErrors.CreateException("AI_SETTINGS_INVALID");

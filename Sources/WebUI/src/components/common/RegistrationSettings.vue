@@ -2,9 +2,9 @@
   <ContentCard :title="t('shell.settings.registrationSettings')" style="max-width: 660px">
     <div class="form-stack">
       <v-switch v-model="settings.registrationEnabled" :disabled="disabled" :label="t('shell.settings.registrationEnabled')" />
-      <v-switch v-model="settings.registrationApprovalRequired" :disabled="disabled" :label="t('shell.settings.registrationApprovalRequired')" :hint="t('shell.settings.registrationApprovalDescription')" persistent-hint />
-      <v-switch v-model="settings.registrationInvitationRequired" :disabled="disabled" :label="t('shell.settings.registrationInvitationRequired')" :hint="t('shell.settings.registrationInvitationDescription')" persistent-hint />
-      <v-switch v-model="settings.registrationEmailVerificationRequired" :disabled="disabled" :label="t('shell.settings.registrationEmailVerificationRequired')" :hint="t('shell.settings.registrationEmailVerificationDescription')" persistent-hint />
+      <v-switch v-model="settings.registrationApprovalRequired" :disabled="disabled" :label="t('shell.settings.registrationApprovalRequired')" />
+      <v-switch v-model="settings.registrationInvitationRequired" :disabled="disabled" :label="t('shell.settings.registrationInvitationRequired')" />
+      <v-switch v-model="settings.registrationEmailVerificationRequired" :disabled="disabled" :label="t('shell.settings.registrationEmailVerificationRequired')" />
     </div>
     <v-divider class="my-4" />
     <h2 class="section-heading">{{ t('shell.permissions.defaults') }}</h2>

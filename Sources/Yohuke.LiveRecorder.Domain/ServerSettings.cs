@@ -36,6 +36,7 @@ public sealed class ServerSettings : Entity
     public string FfprobePath { get; set; } = "ffprobe";
     public SmtpSettings Smtp { get; set; } = new();
     public AiSettings Ai { get; set; } = new();
+    public BandwidthSettings Bandwidth { get; set; } = new();
     [System.Text.Json.Serialization.JsonPropertyName("oauthProviders")]
     public List<OAuthProviderSettings> OAuthProviders { get; set; } = [];
 }
