@@ -35,6 +35,7 @@ export const viewsZh = {
   library: { title: '录播库', search: '搜索录播', streamers: '主播', results: '搜索结果', recent: '最近录播', addRecording: '添加录制' },
   streamer: { room: '直播间 {roomId}', search: '搜索标题' },
   session: {
+    startedAt: '录制开始时间',
     createClip: '创建切片', actions: '录播操作', group: '归组场次', split: '拆分场次', repair: '修复时间码', merge: '合并片段',
     segments: '录制片段 · {count}', segment: '片段', start: '开始', duration: '时长', segmentDescription: '片段 {number} · {start} · {size}',
     createJob: '创建任务', jobCreated: '后台任务已创建', view: '查看',
@@ -121,6 +122,7 @@ export const viewsEn: MessageSchema<typeof viewsZh> = {
   library: { title: 'Recording library', search: 'Search recordings', streamers: 'Streamers', results: 'Search results', recent: 'Recent recordings', addRecording: 'Add a recording target' },
   streamer: { room: 'Room {roomId}', search: 'Search titles' },
   session: {
+    startedAt: 'Recording started',
     createClip: 'Create clip', actions: 'Recording actions', group: 'Group sessions', split: 'Split session', repair: 'Repair timestamps', merge: 'Merge segments',
     segments: 'Recording segments · {count}', segment: 'Segment', start: 'Start', duration: 'Duration', segmentDescription: 'Segment {number} · {start} · {size}',
     createJob: 'Create job', jobCreated: 'Background job created', view: 'View',
@@ -207,6 +209,7 @@ export const viewsJa: MessageSchema<typeof viewsZh> = {
   library: { title: '録画ライブラリ', search: '録画を検索', streamers: '配信者', results: '検索結果', recent: '最近の録画', addRecording: '録画対象を追加' },
   streamer: { room: '配信ルーム {roomId}', search: 'タイトルを検索' },
   session: {
+    startedAt: '録画開始日時',
     createClip: 'クリップを作成', actions: '録画の操作', group: '配信をグループ化', split: '配信を分割', repair: 'タイムスタンプを修復', merge: 'セグメントを結合',
     segments: '録画セグメント · {count}', segment: 'セグメント', start: '開始', duration: '長さ', segmentDescription: 'セグメント {number} · {start} · {size}',
     createJob: 'タスクを作成', jobCreated: 'バックグラウンドタスクを作成しました', view: '表示',

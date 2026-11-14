@@ -10,48 +10,87 @@
         </MediaPlayer>
         <div class="session-meta">
           <h1>{{ detail.session.title }}</h1>
-          <div class="d-flex align-center flex-wrap ga-3 mt-3">
-            <span class="text-caption muted">{{ formatDate(detail.session.startedAtUtc) }}</span>
-            <span class="text-caption mono muted">{{ formatDuration(detail.durationMs, true) }}</span>
-            <span class="text-caption muted">{{ formatBytes(detail.session.totalBytes) }}</span>
-            <v-chip v-if="detail.session.isPermanent" color="primary" size="small" prepend-icon="mdi-shield-check-outline">{{ t('shell.retention.permanent') }}</v-chip>
-            <SessionExpiry :session="detail.session" />
-            <v-spacer />
-            <v-tooltip v-if="auth.canManageRecordings" :text="t(detail.session.isPermanent ? 'shell.retention.cancelPermanent' : 'shell.retention.keepPermanent')" location="top">
-              <template #activator="{ props: tooltipProps }">
-                <v-btn v-bind="tooltipProps" icon="mdi-shield-check-outline" size="small" variant="text" :aria-label="t(detail.session.isPermanent ? 'shell.retention.cancelPermanent' : 'shell.retention.keepPermanent')" :loading="retentionBusy" @click="setPermanent" />
-              </template>
-            </v-tooltip>
-            <v-tooltip v-if="auth.canDownloadRecordings" :text="t('components.download.open')" location="top">
-              <template #activator="{ props: tooltipProps }">
-                <v-btn v-bind="tooltipProps" icon="mdi-download" size="small" variant="tonal" :aria-label="t('components.download.open')" @click="downloadOpen = true" />
-              </template>
-            </v-tooltip>
-            <v-tooltip v-if="auth.canCreateClips" :text="t('views.session.createClip')" location="top">
-              <template #activator="{ props: tooltipProps }">
-                <v-btn v-bind="tooltipProps" icon="mdi-content-cut" size="small" color="primary" :aria-label="t('views.session.createClip')" :disabled="detail.durationMs <= 0 || clipSelectionInvalid" @click="clipOpen = true" />
-              </template>
-            </v-tooltip>
-            <v-menu v-if="auth.isAdmin && isFinished">
-              <template #activator="{ props: menuProps }">
-                <v-tooltip :text="t('views.session.actions')" location="top">
-                  <template #activator="{ props: tooltipProps }">
-                    <v-btn v-bind="mergeProps(menuProps, tooltipProps)" icon="mdi-dots-horizontal" size="small" variant="text" :aria-label="t('views.session.actions')" />
-                  </template>
-                </v-tooltip>
-              </template>
-              <v-list density="compact">
-                <v-list-item :title="t('views.session.group')" prepend-icon="mdi-folder-multiple-outline" @click="groupOpen = true" />
-                <v-list-item :title="t('views.session.split')" prepend-icon="mdi-call-split" :disabled="detail.segments.length < 2" @click="splitOpen = true" />
-                <v-divider />
-                <v-list-item :title="t('views.session.repair')" prepend-icon="mdi-wrench-outline" @click="openMaintenance('Repair')" />
-                <v-list-item :title="t('views.session.merge')" prepend-icon="mdi-call-merge" @click="openMaintenance('Merge')" />
-              </v-list>
-            </v-menu>
+          <div class="session-details">
+            <div class="session-info">
+              <v-tooltip :text="t('views.session.startedAt')" location="top">
+                <template #activator="{ props: tooltipProps }">
+                  <span v-bind="tooltipProps" class="session-info-item" tabindex="0"><v-icon icon="mdi-calendar-clock-outline" size="16" />{{ formatDate(detail.session.startedAtUtc) }}</span>
+                </template>
+              </v-tooltip>
+              <v-tooltip :text="t('views.session.duration')" location="top">
+                <template #activator="{ props: tooltipProps }">
+                  <span v-bind="tooltipProps" class="session-info-item" tabindex="0"><v-icon icon="mdi-timer-outline" size="16" /><span class="mono">{{ formatDuration(detail.durationMs, true) }}</span></span>
+                </template>
+              </v-tooltip>
+              <v-tooltip :text="t('views.common.size')" location="top">
+                <template #activator="{ props: tooltipProps }">
+                  <span v-bind="tooltipProps" class="session-info-item" tabindex="0"><v-icon icon="mdi-harddisk" size="16" />{{ formatBytes(detail.session.totalBytes) }}</span>
+                </template>
+              </v-tooltip>
+              <v-tooltip v-if="detail.session.isPermanent" :text="t('shell.retention.noAutoPurge')" location="top">
+                <template #activator="{ props: tooltipProps }">
+                  <v-chip v-bind="tooltipProps" color="primary" size="small" prepend-icon="mdi-shield-check-outline" tabindex="0">{{ t('shell.retention.permanent') }}</v-chip>
+                </template>
+              </v-tooltip>
+              <v-tooltip v-else-if="detail.session.expiresAtUtc" :text="t('shell.retention.expiryDescription')" location="top">
+                <template #activator="{ props: tooltipProps }">
+                  <SessionExpiry v-bind="tooltipProps" :session="detail.session" title="" tabindex="0" />
+                </template>
+              </v-tooltip>
+            </div>
+            <div class="session-actions">
+              <v-tooltip v-if="auth.canManageRecordings" :text="t(detail.session.isPermanent ? 'shell.retention.cancelPermanent' : 'shell.retention.keepPermanent')" location="top">
+                <template #activator="{ props: tooltipProps }">
+                  <v-btn v-bind="tooltipProps" icon="mdi-shield-check-outline" size="40" variant="tonal" :aria-label="t(detail.session.isPermanent ? 'shell.retention.cancelPermanent' : 'shell.retention.keepPermanent')" :loading="retentionBusy" @click="setPermanent" />
+                </template>
+              </v-tooltip>
+              <v-tooltip v-if="auth.canDownloadRecordings" :text="t('components.download.open')" location="top">
+                <template #activator="{ props: tooltipProps }">
+                  <v-btn v-bind="tooltipProps" icon="mdi-download" size="40" variant="tonal" :aria-label="t('components.download.open')" @click="downloadOpen = true" />
+                </template>
+              </v-tooltip>
+              <v-tooltip v-if="auth.canCreateClips" :text="t('views.session.createClip')" location="top">
+                <template #activator="{ props: tooltipProps }">
+                  <v-btn v-bind="tooltipProps" icon="mdi-content-cut" size="40" color="primary" :aria-label="t('views.session.createClip')" :disabled="detail.durationMs <= 0 || clipSelectionInvalid" @click="clipOpen = true" />
+                </template>
+              </v-tooltip>
+              <v-menu v-if="auth.isAdmin && isFinished">
+                <template #activator="{ props: menuProps }">
+                  <v-tooltip :text="t('views.session.actions')" location="top">
+                    <template #activator="{ props: tooltipProps }">
+                      <v-btn v-bind="mergeProps(menuProps, tooltipProps)" icon="mdi-dots-horizontal" size="40" variant="tonal" :aria-label="t('views.session.actions')" />
+                    </template>
+                  </v-tooltip>
+                </template>
+                <v-list density="compact">
+                  <v-list-item :title="t('views.session.group')" prepend-icon="mdi-folder-multiple-outline" @click="groupOpen = true" />
+                  <v-list-item :title="t('views.session.split')" prepend-icon="mdi-call-split" :disabled="detail.segments.length < 2" @click="splitOpen = true" />
+                  <v-divider />
+                  <v-list-item :title="t('views.session.repair')" prepend-icon="mdi-wrench-outline" @click="openMaintenance('Repair')" />
+                  <v-list-item :title="t('views.session.merge')" prepend-icon="mdi-call-merge" @click="openMaintenance('Merge')" />
+                </v-list>
+              </v-menu>
+            </div>
           </div>
         </div>
-        <SessionBookmarkList class="mt-6" :bookmarks="bookmarks" :loading="bookmarksLoading" :saving="bookmarkSaving" :error="bookmarksError" :editable="bookmarksEditable" @seek="player?.seek($event)" @start="setClipStart" @end="setClipEnd" @edit="editBookmark" @delete="confirmBookmarkDelete" @refresh="refreshBookmarks" />
-        <v-expansion-panels v-if="detail.segments.length" variant="accordion" class="mt-6"><v-expansion-panel :title="t('views.session.segments', { count: formatNumber(detail.segments.length) })"><v-expansion-panel-text><v-table density="comfortable"><thead><tr><th>{{ t('views.session.segment') }}</th><th>{{ t('views.session.start') }}</th><th>{{ t('views.session.duration') }}</th><th>{{ t('views.common.size') }}</th><th>{{ t('views.common.status') }}</th></tr></thead><tbody><tr v-for="(segment, index) in detail.segments" :key="segment.id" class="clickable-row" @click="player?.seek(segment.startOffsetMs)"><td>{{ String(index + 1).padStart(2, '0') }}</td><td class="mono text-caption">{{ formatDuration(segment.startOffsetMs, true) }}</td><td class="mono text-caption">{{ formatDuration(segment.durationMs) }}</td><td class="mono text-caption">{{ formatBytes(segment.committedBytes) }}</td><td><StatusChip :status="segment.isClosed ? 'completed' : 'recording'" /></td></tr></tbody></v-table></v-expansion-panel-text></v-expansion-panel></v-expansion-panels>
+        <SessionBookmarkList class="mt-4" :bookmarks="bookmarks" :loading="bookmarksLoading" :saving="bookmarkSaving" :error="bookmarksError" :editable="bookmarksEditable" @seek="player?.seek($event)" @start="setClipStart" @end="setClipEnd" @edit="editBookmark" @delete="confirmBookmarkDelete" @refresh="refreshBookmarks" />
+        <v-card v-if="detail.segments.length" class="session-segments mt-4" variant="flat">
+          <v-expansion-panels variant="accordion" flat>
+            <v-expansion-panel>
+              <v-expansion-panel-title class="session-segments-title" static>{{ t('views.session.segments', { count: formatNumber(detail.segments.length) }) }}</v-expansion-panel-title>
+              <v-expansion-panel-text>
+                <v-table density="comfortable">
+                  <thead><tr><th>{{ t('views.session.segment') }}</th><th>{{ t('views.session.start') }}</th><th>{{ t('views.session.duration') }}</th><th>{{ t('views.common.size') }}</th><th>{{ t('views.common.status') }}</th></tr></thead>
+                  <tbody>
+                    <tr v-for="(segment, index) in detail.segments" :key="segment.id" class="clickable-row" @click="player?.seek(segment.startOffsetMs)">
+                      <td>{{ String(index + 1).padStart(2, '0') }}</td><td class="mono text-caption">{{ formatDuration(segment.startOffsetMs, true) }}</td><td class="mono text-caption">{{ formatDuration(segment.durationMs) }}</td><td class="mono text-caption">{{ formatBytes(segment.committedBytes) }}</td><td><StatusChip :status="segment.isClosed ? 'completed' : 'recording'" /></td>
+                    </tr>
+                  </tbody>
+                </v-table>
+              </v-expansion-panel-text>
+            </v-expansion-panel>
+          </v-expansion-panels>
+        </v-card>
       </div>
       <SessionPlaybackSidebar class="playback-feed" :navigation-revision="feedNavigationRevision" :session-id="id" :offset-ms="offsetMs" :duration-ms="detail.durationMs" :has-danmu="detail.session.hasDanmu" :is-live="isLive" :editable="bookmarksEditable" @seek="player?.seek($event)" />
     </div>
@@ -223,7 +262,17 @@ async function createMaintenance(): Promise<void>
 .session-heading { display: flex; justify-content: space-between; align-items: center; }
 .playback-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 24px; align-items: start; }
 .playback-feed { position: sticky; top: calc(var(--v-layout-top, 0px) + 24px); height: calc(100dvh - var(--v-layout-top, 0px) - 120px); }
-.playback-main { min-width: 0; }.session-meta { padding: 24px 1px 0; }.session-meta h1 { font-size: 1.55rem; font-weight: 600; line-height: 1.5; letter-spacing: -.025em; }
+.playback-main { min-width: 0; }
+.session-meta { display: flex; flex-direction: column; gap: 10px; padding-top: 16px; }
+.session-meta h1 { margin: 0; font-size: 1.55rem; font-weight: 600; line-height: 1.4; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.session-details { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; }
+.session-info { display: flex; flex: 1 1 360px; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-width: 0; }
+.session-info-item { display: inline-flex; align-items: center; gap: 6px; color: rgba(var(--v-theme-on-surface), .65); font-size: .75rem; line-height: 1.5; white-space: nowrap; }
+.session-actions { display: flex; flex-shrink: 0; align-items: center; gap: 8px; margin-left: auto; }
+.session-segments :deep(.v-expansion-panels) { border-radius: inherit; }
+.session-segments-title { min-height: 56px; padding: var(--ui-card-header-padding) var(--ui-card-padding); font-size: var(--ui-card-title-size); font-weight: 600; line-height: 1.5; }
+.session-segments :deep(.v-expansion-panel-text__wrapper) { padding: 0 var(--ui-card-padding) 4px; }
+.session-segments :deep(.v-table) { border-top: 1px solid rgba(var(--v-theme-on-surface), .07); }
 .maintenance-segments { max-height: 380px; overflow-y: auto; }
 @media (min-width: 1600px) { .playback-layout { grid-template-columns: minmax(0, 1fr) 390px; } }
 @media (max-width: 1200px) { .playback-layout { grid-template-columns: minmax(0, 1fr); } .playback-feed { position: static; height: calc(100dvh - var(--v-layout-top, 0px) - 48px); } }

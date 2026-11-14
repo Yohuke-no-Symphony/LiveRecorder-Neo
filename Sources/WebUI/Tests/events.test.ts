@@ -110,6 +110,53 @@ describe('实际消息内容组件', () =>
     expect(wrapper.findAll('.pocket-award')).toHaveLength(1)
     expect(wrapper.findAll('.pocket-winner')).toHaveLength(1)
   })
+
+  it('电池红包展示总额和每人的实际中奖数，奖品名称不会遮住数值或重复乘数量', async () =>
+  {
+    const source = [
+      event({ kind: 'RedPocket', transactionId: 'battery-pocket', payload: { redPocket: { totalBattery: 12.5, totalAwardCount: 2, awards: [{ giftId: 'battery', name: '电池' }] } } }),
+      event({ kind: 'RedPocket', transactionId: 'battery-pocket', sequence: 2, offsetMs: 2000, payload: { isDrawn: true, redPocket: { hasResult: true, totalBattery: null, awards: [], winners: [
+        { uid: 20, userName: '用户乙', giftId: 'battery', giftName: '电池', batteryAmount: 10, quantity: 10 },
+        { uid: 30, userName: '用户丙', giftId: 'battery', batteryAmount: 2.5, quantity: 1 },
+      ] } } }),
+    ]
+    const wrapper = mount(RedPocketContent, { props: { event: displayEvents(source, 1500)[0]! } })
+    mounted.push(wrapper)
+    expect(wrapper.get('.pocket-meta').text()).toContain('共 12.5 电池')
+    expect(wrapper.get('.pocket-meta').text()).toContain('2 份')
+    expect(wrapper.find('.pocket-winner').exists()).toBe(false)
+
+    await wrapper.setProps({ event: displayEvents(source, 2500)[0]! })
+    expect(wrapper.get('.pocket-meta').text()).toContain('共 12.5 电池')
+    expect(wrapper.findAll('.pocket-winner').map(row => row.element.lastElementChild?.textContent)).toEqual(['10 电池', '2.5 电池'])
+  })
+
+  it.each([
+    ['zh-CN', '共 0 电池', '0 电池'],
+    ['en-US', '0 batteries total', '0 batteries'],
+    ['ja-JP', '電池 合計 0 個', '電池 0 個'],
+  ] as const)('电池总额独立显示且零值和中奖数遵循当前语言（%s）', (locale, totalText, winnerText) =>
+  {
+    i18n.global.locale.value = locale
+    const wrapper = mount(RedPocketContent, { props: { event: event({ kind: 'RedPocket', payload: { redPocket: { hasResult: true, totalBattery: 0, winners: [
+      { uid: 20, userName: '中奖用户', giftName: '电池', batteryAmount: 0 },
+    ] } } }) } })
+    mounted.push(wrapper)
+    expect(wrapper.get('.pocket-meta').text()).toBe(totalText)
+    expect(wrapper.get('.pocket-winner').element.lastElementChild?.textContent).toBe(winnerText)
+  })
+
+  it('缺少电池金额时保留奖品名，亲密度和普通礼物分别显示实际数值与数量', () =>
+  {
+    const wrapper = mount(RedPocketContent, { props: { event: event({ kind: 'RedPocket', payload: { redPocket: { hasResult: true, totalBattery: null, totalPrice: 1000, awards: [{ giftId: 'gift', name: '小电视' }], winners: [
+      { uid: 20, userName: '用户乙', giftName: '电池', batteryAmount: null, quantity: 1 },
+      { uid: 30, userName: '用户丙', giftName: '亲密度', intimacyAmount: 25, quantity: 25 },
+      { uid: 40, userName: '用户丁', giftId: 'gift', quantity: 2 },
+    ] } } }) } })
+    mounted.push(wrapper)
+    expect(wrapper.find('.pocket-meta').exists()).toBe(false)
+    expect(wrapper.findAll('.pocket-winner').map(row => row.element.lastElementChild?.textContent)).toEqual(['电池', '25 亲密度', '小电视 ×2'])
+  })
 })
 
 describe('红包聚合和默认消息过滤', () =>

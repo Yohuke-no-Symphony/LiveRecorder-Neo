@@ -70,7 +70,7 @@ export const componentsZh = {
     count: '{count} 条', messageCount: '{count} 条消息', loadFailed: '消息加载失败', roomAdmin: '房管',
     reply: '回复 {name}：', governor: '总督', admiral: '提督', captain: '舰长', membership: '大航海', quote: '报价',
     drawn: '已开奖', drawnWithoutResult: '已开奖，暂无结果', pendingDraw: '待开奖', award: '奖品',
-    awardCount: '{count} 份', drawAt: '开奖 {date}', mystery: '神秘人', battery: '{count} 电池', intimacy: '{count} 亲密度',
+    awardCount: '{count} 份', drawAt: '开奖 {date}', mystery: '神秘人', battery: '{count} 电池', totalBattery: '共 {count} 电池', intimacy: '{count} 亲密度',
   },
   player: {
     danmuHeat: '弹幕热度', eventCount: '{count} 条记录', itemQuantity: '数量 {count}', observedAmount: '金额 {amount}',
@@ -187,7 +187,7 @@ export const componentsEn: MessageSchema<typeof componentsZh> = {
     loadFailed: 'Failed to load messages', roomAdmin: 'Moderator', reply: 'Reply to {name}: ', governor: 'Governor',
     admiral: 'Admiral', captain: 'Captain', membership: 'Membership', quote: 'Quoted', drawn: 'Drawn',
     drawnWithoutResult: 'Drawn; results unavailable', pendingDraw: 'Awaiting draw', award: 'Prize', awardCount: '{count} prizes',
-    drawAt: 'Draw at {date}', mystery: 'Anonymous', battery: '{count} batteries', intimacy: '{count} affinity',
+    drawAt: 'Draw at {date}', mystery: 'Anonymous', battery: '{count} batteries', totalBattery: '{count} batteries total', intimacy: '{count} affinity',
   },
   player: {
     danmuHeat: 'Chat activity', eventCount: '{count} events', itemQuantity: 'Quantity {count}', observedAmount: 'Amount {amount}',
@@ -305,7 +305,7 @@ export const componentsJa: MessageSchema<typeof componentsZh> = {
     loadFailed: 'メッセージを読み込めませんでした', roomAdmin: 'モデレーター', reply: '{name} への返信：', governor: '総督',
     admiral: '提督', captain: '艦長', membership: '大航海', quote: '参考価格', drawn: '抽選済み',
     drawnWithoutResult: '抽選済み・結果未取得', pendingDraw: '抽選待ち', award: '賞品', awardCount: '{count} 個',
-    drawAt: '抽選日時 {date}', mystery: '匿名ユーザー', battery: '電池 {count} 個', intimacy: '親密度 {count}',
+    drawAt: '抽選日時 {date}', mystery: '匿名ユーザー', battery: '電池 {count} 個', totalBattery: '電池 合計 {count} 個', intimacy: '親密度 {count}',
   },
   player: {
     danmuHeat: 'コメント密度', eventCount: '{count} 件', itemQuantity: '数量 {count}', observedAmount: '金額 {amount}',
