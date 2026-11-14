@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -88,7 +89,7 @@ public sealed class ContinuousPlaybackService : IDisposable
     }
 
     /// <summary>验证当前录像版本后交付完整清单，生成清单不启动媒体进程。</summary>
-    public async Task<string> ResolvePlaylistAsync(string sessionId, string segmentId, string sourceKey, CancellationToken cancellationToken = default)
+    public async Task<ContinuousPlaybackAsset> ResolvePlaylistAsync(string sessionId, string segmentId, string sourceKey, CancellationToken cancellationToken = default)
     {
         var (identity, segment) = await ResolveSourceAsync(sessionId, segmentId, sourceKey, cancellationToken);
         var source = await GetSourceAsync(identity, segment.CommittedBytes, cancellationToken)
@@ -119,8 +120,10 @@ public sealed class ContinuousPlaybackService : IDisposable
                     File.Delete(temporary);
                 }
             }
+            var contentHash = await ContentHashAsync(playlist, cancellationToken);
+            RequireUnchanged(identity);
             cache.Touch(key, CACHE_GENERATION);
-            return playlist;
+            return new(playlist, contentHash);
         }
         finally
         {
@@ -129,7 +132,7 @@ public sealed class ContinuousPlaybackService : IDisposable
     }
 
     /// <summary>按清单序号生成或复用媒体片，每次请求重新校验场次和源版本。</summary>
-    public async Task<string> ResolveFragmentAsync(string sessionId, string segmentId, string sourceKey, int sequence,
+    public async Task<ContinuousPlaybackAsset> ResolveFragmentAsync(string sessionId, string segmentId, string sourceKey, int sequence,
         string fileName, CancellationToken cancellationToken = default)
     {
         if (sequence < 0 || fileName is not ("init.mp4" or "chunk_00000.m4s"))
@@ -151,6 +154,7 @@ public sealed class ContinuousPlaybackService : IDisposable
             using var protection = cache.ProtectBuild(key, CACHE_GENERATION);
             var directory = DirectoryPath(key);
             var marker = Path.Combine(directory, "fragment.json");
+            ContinuousPlaybackFragmentMetadata? metadata;
             if (!File.Exists(marker) || !File.Exists(Path.Combine(directory, "init.mp4")) || !File.Exists(Path.Combine(directory, "chunk_00000.m4s")))
             {
                 var fragment = source.Fragments[sequence];
@@ -167,7 +171,9 @@ public sealed class ContinuousPlaybackService : IDisposable
                     await source.BuildFragmentAsync(sequence, directory, cancellationToken);
                     cancellationToken.ThrowIfCancellationRequested();
                     RequireUnchanged(identity);
-                    await JsonFiles.WriteAsync(marker, new { sourceKey, sequence }, cancellationToken);
+                    metadata = await CreateFragmentMetadataAsync(directory, sourceKey, sequence, cancellationToken);
+                    RequireUnchanged(identity);
+                    await JsonFiles.WriteAsync(marker, metadata, cancellationToken);
                     published = true;
                 }
                 finally
@@ -182,8 +188,20 @@ public sealed class ContinuousPlaybackService : IDisposable
                     }
                 }
             }
+            else
+            {
+                metadata = await ReadFragmentMetadataAsync(marker, cancellationToken);
+                if (metadata is null || metadata.SourceKey != sourceKey || metadata.Sequence != sequence
+                    || !IsContentHash(metadata.InitializationContentHash) || !IsContentHash(metadata.MediaContentHash))
+                {
+                    metadata = await CreateFragmentMetadataAsync(directory, sourceKey, sequence, cancellationToken);
+                    RequireUnchanged(identity);
+                    await JsonFiles.WriteAsync(marker, metadata, cancellationToken);
+                }
+            }
+            RequireUnchanged(identity);
             cache.Touch(key, CACHE_GENERATION);
-            return Path.Combine(directory, fileName);
+            return new(Path.Combine(directory, fileName), fileName == "init.mp4" ? metadata.InitializationContentHash! : metadata.MediaContentHash!);
         }
         finally
         {
@@ -303,6 +321,41 @@ public sealed class ContinuousPlaybackService : IDisposable
     private static SemaphoreSlim Gate(SemaphoreSlim[] gates, string key) => gates[(int)(Convert.ToUInt32(key[..8], 16) % gates.Length)];
 
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+
+    private static async Task<string> ContentHashAsync(string path, CancellationToken cancellationToken)
+    {
+        await using var stream = new FileStream(path, new FileStreamOptions
+        {
+            Mode = FileMode.Open,
+            Access = FileAccess.Read,
+            Share = FileShare.Read,
+            Options = FileOptions.Asynchronous | FileOptions.SequentialScan
+        });
+        return Convert.ToHexString(await SHA256.HashDataAsync(stream, cancellationToken)).ToLowerInvariant();
+    }
+
+    private static async Task<ContinuousPlaybackFragmentMetadata> CreateFragmentMetadataAsync(string directory, string sourceKey,
+        int sequence, CancellationToken cancellationToken)
+    {
+        var initializationHash = await ContentHashAsync(Path.Combine(directory, "init.mp4"), cancellationToken);
+        var mediaHash = await ContentHashAsync(Path.Combine(directory, "chunk_00000.m4s"), cancellationToken);
+        return new(sourceKey, sequence, initializationHash, mediaHash);
+    }
+
+    private static async Task<ContinuousPlaybackFragmentMetadata?> ReadFragmentMetadataAsync(string path, CancellationToken cancellationToken)
+    {
+        await using var stream = File.OpenRead(path);
+        try
+        {
+            return await JsonSerializer.DeserializeAsync<ContinuousPlaybackFragmentMetadata>(stream, JsonFiles.Options, cancellationToken);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static bool IsContentHash(string? value) => value is { Length: 64 } && value.All(char.IsAsciiHexDigitLower);
 
     /// <summary>停止请求处理后释放索引计划和同步资源。</summary>
     public void Dispose()

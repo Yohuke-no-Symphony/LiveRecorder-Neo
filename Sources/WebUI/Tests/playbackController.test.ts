@@ -14,8 +14,11 @@ interface HlsDouble
 {
   config: Partial<HlsConfig>
   loadingEnabled: boolean
+  bufferingEnabled: boolean
   startLoad: ReturnType<typeof vi.fn>
   stopLoad: ReturnType<typeof vi.fn>
+  pauseBuffering: ReturnType<typeof vi.fn>
+  resumeBuffering: ReturnType<typeof vi.fn>
   destroy: ReturnType<typeof vi.fn>
   loadSource: ReturnType<typeof vi.fn>
   emit: (event: string, data?: unknown) => void
@@ -27,9 +30,12 @@ vi.mock('hls.js', () => ({ default: class
   static isSupported() { return hlsState.supported }
   static Events = { MANIFEST_PARSED: 'manifest', ERROR: 'error' }
   loadingEnabled = true
+  bufferingEnabled = true
   listeners = new Map<string, (event: string, data?: unknown) => void>()
-  startLoad = vi.fn(() => { this.loadingEnabled = true })
+  startLoad = vi.fn(() => { this.loadingEnabled = true; this.bufferingEnabled = true })
   stopLoad = vi.fn(() => { this.loadingEnabled = false })
+  pauseBuffering = vi.fn(() => { this.bufferingEnabled = false })
+  resumeBuffering = vi.fn(() => { this.bufferingEnabled = true })
   destroy = vi.fn()
   attachMedia = vi.fn()
   loadSource = vi.fn()
@@ -131,6 +137,210 @@ afterEach(() =>
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.useRealTimers()
+})
+
+describe('暂停预览的媒体预读', () =>
+{
+  it('首次暂停预览拿到当前帧即停止后续片段，不必等待 canplay', async () =>
+  {
+    const state = setupPlayer()
+    await flushPromises()
+    const instance = hlsState.instances[0]!
+    expect(instance.config.maxBufferLength).toBe(1)
+    expect(instance.config.maxMaxBufferLength).toBe(1)
+    expect(instance.bufferingEnabled).toBe(true)
+    expect(state.controller.loading.value).toBe(true)
+    Object.defineProperty(state.video.value!, 'readyState', { configurable: true, value: 1 })
+    state.video.value!.dispatchEvent(new Event('loadedmetadata'))
+    expect(instance.bufferingEnabled).toBe(true)
+    Object.defineProperty(state.video.value!, 'readyState', { configurable: true, value: 2 })
+    state.video.value!.dispatchEvent(new Event('loadeddata'))
+    expect(state.controller.loading.value).toBe(false)
+    expect(instance.bufferingEnabled).toBe(false)
+    state.video.value!.dispatchEvent(new Event('canplay'))
+    state.video.value!.dispatchEvent(new Event('seeked'))
+    expect(instance.bufferingEnabled).toBe(false)
+    expect(instance.stopLoad).not.toHaveBeenCalled()
+    expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
+  })
+
+  it('播放恢复预读，暂停保留在途片与媒体源，后台播放继续缓冲', async () =>
+  {
+    const state = setupPlayer()
+    await flushPromises()
+    ready(state)
+    const instance = hlsState.instances[0]!
+    expect(instance.bufferingEnabled).toBe(false)
+    instance.resumeBuffering.mockImplementationOnce(() =>
+    {
+      expect(instance.config.maxBufferLength).toBe(30)
+      expect(instance.config.maxMaxBufferLength).toBe(60)
+      instance.bufferingEnabled = true
+    })
+    await state.controller.togglePlay()
+    expect(instance.bufferingEnabled).toBe(true)
+    instance.config.maxMaxBufferLength = 20
+    state.video.value!.dispatchEvent(new Event('canplay'))
+    expect(instance.config.maxMaxBufferLength).toBe(20)
+    visibility = 'hidden'
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(instance.bufferingEnabled).toBe(true)
+    await state.controller.togglePlay()
+    expect(instance.bufferingEnabled).toBe(false)
+    expect(instance.loadingEnabled).toBe(true)
+    expect(instance.config.maxBufferLength).toBe(1)
+    expect(instance.config.maxMaxBufferLength).toBe(1)
+    await state.controller.togglePlay()
+    expect(instance.bufferingEnabled).toBe(true)
+    expect(instance.config.maxBufferLength).toBe(30)
+    expect(instance.config.maxMaxBufferLength).toBe(60)
+    expect(instance.config.backBufferLength).toBe(60)
+    expect(instance.config.frontBufferFlushThreshold).toBe(60)
+    expect(instance.stopLoad).not.toHaveBeenCalled()
+    expect(instance.startLoad).not.toHaveBeenCalled()
+    expect(instance.destroy).not.toHaveBeenCalled()
+    expect(state.loadWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it('首帧准备中先播放再暂停，仍完成目标预览后停止预读', async () =>
+  {
+    const state = setupPlayer()
+    await flushPromises()
+    const instance = hlsState.instances[0]!
+    await state.controller.togglePlay()
+    expect(instance.config.maxBufferLength).toBe(30)
+    expect(instance.config.maxMaxBufferLength).toBe(60)
+    await state.controller.togglePlay()
+    expect(state.controller.playing.value).toBe(false)
+    expect(instance.config.maxBufferLength).toBe(1)
+    expect(instance.config.maxMaxBufferLength).toBe(1)
+    expect(instance.bufferingEnabled).toBe(true)
+    ready(state)
+    expect(state.controller.loading.value).toBe(false)
+    expect(instance.bufferingEnabled).toBe(false)
+    expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
+  })
+
+  it('暂停跳转恢复目标所需加载，旧就绪事件不能提前停载，目标到位后再次暂停预读', async () =>
+  {
+    const state = setupPlayer()
+    await flushPromises()
+    ready(state)
+    const instance = hlsState.instances[0]!
+    expect(instance.bufferingEnabled).toBe(false)
+    instance.resumeBuffering.mockImplementationOnce(() =>
+    {
+      expect(instance.config.maxBufferLength).toBe(1)
+      expect(instance.config.maxMaxBufferLength).toBe(1)
+      instance.bufferingEnabled = true
+    })
+    Object.defineProperty(state.video.value!, 'readyState', { configurable: true, value: 1 })
+    await state.controller.seek(12000)
+    expect(instance.bufferingEnabled).toBe(true)
+    expect(state.controller.loading.value).toBe(true)
+    Object.defineProperty(state.video.value!, 'readyState', { configurable: true, value: 4 })
+    state.video.value!.currentTime = 2
+    state.video.value!.dispatchEvent(new Event('canplay'))
+    expect(instance.bufferingEnabled).toBe(true)
+    expect(state.controller.loading.value).toBe(true)
+    state.video.value!.currentTime = 12
+    state.video.value!.dispatchEvent(new Event('seeked'))
+    expect(instance.bufferingEnabled).toBe(false)
+    expect(state.controller.loading.value).toBe(false)
+    expect(state.currentMs.value).toBe(12000)
+    expect(state.loadWindow).toHaveBeenCalledTimes(1)
+    expect(instance.startLoad).not.toHaveBeenCalled()
+    expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
+  })
+
+  it.each(['hlsjs', 'native'])('%s 预览录像不足一秒的尾部，目标帧可用即可完成并恢复播放', async mode =>
+  {
+    hlsState.supported = mode === 'hlsjs'
+    const durationMs = 10250
+    const loadWindow = vi.fn<(offsetMs: number, options?: PlaybackLoadOptions) => Promise<PlaybackWindow | undefined>>()
+      .mockResolvedValue({ ...playback(0, durationMs), durationMs })
+    const state = setupPlayer(loadWindow, { durationMs, initialOffsetMs: 10000 })
+    await flushPromises()
+    const instance = hlsState.instances[0]
+    if (instance)
+    {
+      expect(instance.config.maxBufferLength).toBe(1)
+      expect(instance.config.maxMaxBufferLength).toBe(1)
+    }
+    Object.defineProperty(state.video.value!, 'readyState', { configurable: true, value: 1 })
+    state.video.value!.dispatchEvent(new Event('loadedmetadata'))
+    expect(state.video.value!.currentTime).toBe(10)
+    expect(state.controller.loading.value).toBe(true)
+    Object.defineProperty(state.video.value!, 'readyState', { configurable: true, value: 2 })
+    state.video.value!.dispatchEvent(new Event('seeked'))
+    expect(state.controller.loading.value).toBe(false)
+    expect(state.controller.playing.value).toBe(false)
+    if (instance) { expect(instance.bufferingEnabled).toBe(false) }
+    await state.controller.togglePlay()
+    expect(state.controller.playing.value).toBe(true)
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalled()
+    if (instance)
+    {
+      expect(instance.bufferingEnabled).toBe(true)
+      expect(instance.config.maxBufferLength).toBe(30)
+      expect(instance.config.maxMaxBufferLength).toBe(60)
+      expect(instance.stopLoad).not.toHaveBeenCalled()
+    }
+    expect(loadWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it('暂停时重复定位已显示画面，不依赖新媒体事件也不恢复预读', async () =>
+  {
+    const state = setupPlayer()
+    await flushPromises()
+    ready(state)
+    const instance = hlsState.instances[0]!
+    const resumeCount = instance.resumeBuffering.mock.calls.length
+    await state.controller.seek(0)
+    expect(state.controller.loading.value).toBe(false)
+    expect(instance.bufferingEnabled).toBe(false)
+    expect(instance.resumeBuffering.mock.calls.length).toBe(resumeCount)
+    expect(state.loadWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it('恢复播放时即使等待数据也先恢复加载，不会被 loading 状态挡住', async () =>
+  {
+    const state = setupPlayer()
+    await flushPromises()
+    ready(state)
+    const instance = hlsState.instances[0]!
+    Object.defineProperty(state.video.value!, 'readyState', { configurable: true, value: 1 })
+    state.video.value!.dispatchEvent(new Event('waiting'))
+    expect(state.controller.loading.value).toBe(true)
+    expect(instance.bufferingEnabled).toBe(false)
+    await state.controller.togglePlay()
+    expect(instance.bufferingEnabled).toBe(true)
+    expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
+    ready(state)
+    expect(state.controller.loading.value).toBe(false)
+    expect(state.controller.playing.value).toBe(true)
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalled()
+  })
+
+  it('有效播放请求被拒后停止追加预读，终态错误停止加载且迟到就绪事件不能重启', async () =>
+  {
+    const state = setupPlayer()
+    await flushPromises()
+    ready(state)
+    const instance = hlsState.instances[0]!
+    vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce(new DOMException('Denied', 'NotAllowedError'))
+    await state.controller.togglePlay()
+    await flushPromises()
+    expect(state.controller.playing.value).toBe(false)
+    expect(instance.bufferingEnabled).toBe(false)
+    expect(instance.stopLoad).not.toHaveBeenCalled()
+    await state.controller.togglePlay()
+    instance.emit('error', { fatal: true })
+    expect(instance.loadingEnabled).toBe(false)
+    ready(state)
+    expect(instance.loadingEnabled).toBe(false)
+    expect(state.controller.error.value).not.toBe('')
+  })
 })
 
 describe('播放源定位与请求取消', () =>

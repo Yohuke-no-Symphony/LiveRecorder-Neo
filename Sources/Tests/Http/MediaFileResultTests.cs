@@ -11,8 +11,10 @@ namespace Yohuke.LiveRecorder.Http.Tests;
 public sealed class MediaFileResultTests
 {
     /// <summary>首次取得配置失败时清除文件响应头，以便外层错误处理中间件输出完整问题响应。</summary>
-    [Fact]
-    public async Task InitialSchedulerFailureClearsFileHeadersBeforePropagating()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InitialSchedulerFailureClearsFileHeadersBeforePropagating(bool revalidateCache)
     {
         var path = Path.Combine(Path.GetTempPath(), "live-recorder-bandwidth-result-" + Guid.NewGuid().ToString("N") + ".mp4");
         try
@@ -23,7 +25,8 @@ public sealed class MediaFileResultTests
             var http = Context(services);
             http.Request.Headers.Range = "bytes=4-127";
 
-            await Assert.ThrowsAsync<IOException>(() => new MediaFileResult(path, "video/mp4", MediaTrafficKind.Download, "test.mp4").ExecuteAsync(http));
+            await Assert.ThrowsAsync<IOException>(() => new MediaFileResult(path, "video/mp4", MediaTrafficKind.Download, "test.mp4",
+                contentHash: revalidateCache ? new string('a', 64) : null).ExecuteAsync(http));
 
             Assert.Equal(1, scheduler.Calls);
             Assert.False(http.Response.HasStarted);
@@ -32,6 +35,7 @@ public sealed class MediaFileResultTests
             Assert.False(http.Response.Headers.ContainsKey(HeaderNames.ContentRange));
             Assert.False(http.Response.Headers.ContainsKey(HeaderNames.AcceptRanges));
             Assert.False(http.Response.Headers.ContainsKey(HeaderNames.LastModified));
+            Assert.False(http.Response.Headers.ContainsKey(HeaderNames.ETag));
             Assert.Equal("private, no-store", http.Response.Headers.CacheControl);
             Assert.Equal("no", http.Response.Headers["X-Accel-Buffering"]);
             Assert.Equal(0, http.Response.Body.Length);
@@ -48,6 +52,9 @@ public sealed class MediaFileResultTests
     [InlineData("GET", "modified", StatusCodes.Status304NotModified)]
     [InlineData("GET", "unmodified", StatusCodes.Status412PreconditionFailed)]
     [InlineData("GET", "range", StatusCodes.Status416RangeNotSatisfiable)]
+    [InlineData("GET", "matched", StatusCodes.Status304NotModified)]
+    [InlineData("HEAD", "matched", StatusCodes.Status304NotModified)]
+    [InlineData("GET", "mismatch", StatusCodes.Status412PreconditionFailed)]
     public async Task ResponsesWithoutBodiesNeverOpenBandwidthTransfers(string method, string condition, int expectedStatus)
     {
         var path = Path.Combine(Path.GetTempPath(), "live-recorder-bandwidth-result-" + Guid.NewGuid().ToString("N") + ".mp4");
@@ -60,6 +67,7 @@ public sealed class MediaFileResultTests
             await using var services = Services(scheduler);
             var http = Context(services);
             http.Request.Method = method;
+            var contentHash = condition is "matched" or "mismatch" ? new string('a', 64) : null;
             switch (condition)
             {
                 case "modified":
@@ -77,14 +85,24 @@ public sealed class MediaFileResultTests
                     http.Request.Headers.Range = "bytes=1000-2000";
                     break;
                 }
+                case "matched":
+                {
+                    http.Request.Headers.IfNoneMatch = "\"" + contentHash + "\"";
+                    break;
+                }
+                case "mismatch":
+                {
+                    http.Request.Headers.IfMatch = "\"different\"";
+                    break;
+                }
             }
 
-            await new MediaFileResult(path, "video/mp4", MediaTrafficKind.Download, "test.mp4").ExecuteAsync(http);
+            await new MediaFileResult(path, "video/mp4", MediaTrafficKind.Download, "test.mp4", contentHash).ExecuteAsync(http);
 
             Assert.Equal(expectedStatus, http.Response.StatusCode);
             Assert.Equal(0, scheduler.Calls);
             Assert.Equal(0, http.Response.Body.Length);
-            Assert.Equal("private, no-store", http.Response.Headers.CacheControl);
+            Assert.Equal(contentHash is null ? "private, no-store" : "private, no-cache, must-revalidate", http.Response.Headers.CacheControl);
         }
         finally
         {

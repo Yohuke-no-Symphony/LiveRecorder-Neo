@@ -103,17 +103,17 @@ public static class LibraryEndpoints
                 : await playback.OpenAsync(id, request.OffsetMs, ct);
             return window is null ? Results.NoContent() : Results.Ok(window);
         });
-        viewing.MapGet("/sessions/{id}/playback/{segmentId}/{sourceKey}/index.m3u8",
+        viewing.MapMethods("/sessions/{id}/playback/{segmentId}/{sourceKey}/index.m3u8", [HttpMethods.Get, HttpMethods.Head],
             async (string id, string segmentId, string sourceKey, ContinuousPlaybackService continuous, CancellationToken ct) =>
             {
-                var path = await continuous.ResolvePlaylistAsync(id, segmentId, sourceKey, ct);
-                return new MediaFileResult(path, "application/vnd.apple.mpegurl", MediaTrafficKind.Playback);
+                var asset = await continuous.ResolvePlaylistAsync(id, segmentId, sourceKey, ct);
+                return new MediaFileResult(asset.Path, "application/vnd.apple.mpegurl", MediaTrafficKind.Playback, contentHash: asset.ContentHash);
             });
-        viewing.MapGet("/sessions/{id}/playback/{segmentId}/{sourceKey}/{sequence:int}/{fileName}",
+        viewing.MapMethods("/sessions/{id}/playback/{segmentId}/{sourceKey}/{sequence:int}/{fileName}", [HttpMethods.Get, HttpMethods.Head],
             async (string id, string segmentId, string sourceKey, int sequence, string fileName, ContinuousPlaybackService continuous, CancellationToken ct) =>
             {
-                var path = await continuous.ResolveFragmentAsync(id, segmentId, sourceKey, sequence, fileName, ct);
-                return new MediaFileResult(path, "video/mp4", MediaTrafficKind.Playback);
+                var asset = await continuous.ResolveFragmentAsync(id, segmentId, sourceKey, sequence, fileName, ct);
+                return new MediaFileResult(asset.Path, "video/mp4", MediaTrafficKind.Playback, contentHash: asset.ContentHash);
             });
         viewing.MapGet("/sessions/{id}/events", async (string id, double? fromMs, double? toMs, string? kind, long? cursor, int? limit, bool? translationsOnly, LibraryService library, IAppPaths paths, SessionEventReader reader, ISettingsStore settingsStore, CancellationToken ct) =>
         {

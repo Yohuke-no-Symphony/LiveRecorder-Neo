@@ -10,6 +10,7 @@ import { clampOffset, findGap, normalizeTimelineGaps, playbackPosition, windowPo
 const PREFETCH_LEAD_MS = 10000
 const RETRY_DELAY_MS = 1000
 const WINDOW_START_TOLERANCE_MS = 100
+const PREVIEW_BUFFER_SECONDS = 1
 const BUFFER_TARGET_SECONDS = 30
 const BUFFER_LIMIT_SECONDS = 60
 
@@ -41,6 +42,7 @@ export function usePlaybackController(options: {
     hls: Hls | undefined
     needsPosition: boolean
     awaitingSeek: boolean
+    previewPending: boolean
     fromPrefetch: boolean
     cleanup: () => void
   } | undefined
@@ -125,6 +127,30 @@ export function usePlaybackController(options: {
     video.value.playbackRate = rate.value
   }
 
+  function syncBuffering(value: typeof source): void
+  {
+    if (!activeSource(value) || !value.hls || error.value) { return }
+    const bufferTarget = playing.value ? BUFFER_TARGET_SECONDS : PREVIEW_BUFFER_SECONDS
+    if (value.hls.config.maxBufferLength !== bufferTarget)
+    {
+      value.hls.config.maxBufferLength = bufferTarget
+      value.hls.config.maxMaxBufferLength = playing.value ? BUFFER_LIMIT_SECONDS : PREVIEW_BUFFER_SECONDS
+    }
+    if (!playing.value && !value.previewPending)
+    {
+      if (value.hls.bufferingEnabled) { value.hls.pauseBuffering() }
+      return
+    }
+    if (!value.hls.loadingEnabled)
+    {
+      value.hls.startLoad(windowPosition(currentMs.value, value.playback.startOffsetMs))
+    }
+    else if (!value.hls.bufferingEnabled)
+    {
+      value.hls.resumeBuffering()
+    }
+  }
+
   function playSource(value: typeof source): void
   {
     if (!activeSource(value) || !playing.value || loading.value || !video.value) { return }
@@ -136,6 +162,7 @@ export function usePlaybackController(options: {
       {
         playing.value = false
         cancelPrefetch(true)
+        syncBuffering(value)
       }
     })
   }
@@ -149,7 +176,9 @@ export function usePlaybackController(options: {
     value.needsPosition = false
     value.awaitingSeek = Math.abs(element.currentTime - target) > 0.001
     if (value.awaitingSeek) { element.currentTime = target }
-    loading.value = value.awaitingSeek || element.seeking || element.readyState < 3
+    loading.value = value.awaitingSeek || element.seeking || element.readyState < 2
+    if (!loading.value) { value.previewPending = false }
+    syncBuffering(value)
     playSource(value)
   }
 
@@ -160,7 +189,9 @@ export function usePlaybackController(options: {
     positionSource(value)
     if (value.needsPosition || element.seeking || element.readyState < 2 || (value.awaitingSeek && Math.abs(element.currentTime - windowPosition(pendingOffsetMs, value.playback.startOffsetMs)) > 0.25)) { return }
     value.awaitingSeek = false
+    value.previewPending = false
     loading.value = false
+    syncBuffering(value)
     playSource(value)
   }
 
@@ -176,6 +207,8 @@ export function usePlaybackController(options: {
     }
     loading.value = false
     playing.value = false
+    value.previewPending = false
+    value.hls?.stopLoad()
     error.value = t('components.player.loadFailed')
     cancelPrefetch()
   }
@@ -192,11 +225,12 @@ export function usePlaybackController(options: {
     source = undefined
     previous?.cleanup()
     previous?.hls?.destroy()
-    const installed = { playback, operation, hls: undefined as Hls | undefined, needsPosition: true, awaitingSeek: false, fromPrefetch, cleanup: () => {} }
+    const installed = { playback, operation, hls: undefined as Hls | undefined, needsPosition: true, awaitingSeek: false, previewPending: true, fromPrefetch, cleanup: () => {} }
     source = installed
     serverGap.value = undefined
     const handlers = {
       loadedmetadata: () => positionSource(installed),
+      loadeddata: () => sourceReady(installed),
       canplay: () => sourceReady(installed),
       seeked: () => sourceReady(installed),
       waiting: () => { if (activeSource(installed) && element.readyState < 3) { loading.value = true } },
@@ -210,8 +244,8 @@ export function usePlaybackController(options: {
     {
       const instance = new Hls({
         startPosition: windowPosition(offsetMs, playback.startOffsetMs),
-        maxBufferLength: BUFFER_TARGET_SECONDS,
-        maxMaxBufferLength: BUFFER_LIMIT_SECONDS,
+        maxBufferLength: playing.value ? BUFFER_TARGET_SECONDS : PREVIEW_BUFFER_SECONDS,
+        maxMaxBufferLength: playing.value ? BUFFER_LIMIT_SECONDS : PREVIEW_BUFFER_SECONDS,
         backBufferLength: BUFFER_LIMIT_SECONDS,
         frontBufferFlushThreshold: BUFFER_LIMIT_SECONDS,
         xhrSetup: xhr => { xhr.withCredentials = true },
@@ -264,8 +298,10 @@ export function usePlaybackController(options: {
       serverGap.value = undefined
       source.operation = operation
       source.needsPosition = true
-      if (source.hls && !source.hls.loadingEnabled) { source.hls.startLoad(windowPosition(offset, source.playback.startOffsetMs)) }
+      source.previewPending = true
+      loading.value = true
       positionSource(source)
+      syncBuffering(source)
       return
     }
     loading.value = true
@@ -380,6 +416,7 @@ export function usePlaybackController(options: {
     {
       video.value?.pause()
       cancelPrefetch(true)
+      syncBuffering(source)
       return
     }
     if (currentMs.value >= options.durationMs())
@@ -392,6 +429,7 @@ export function usePlaybackController(options: {
       await seek(currentMs.value)
       return
     }
+    syncBuffering(source)
     playSource(source)
   }
 

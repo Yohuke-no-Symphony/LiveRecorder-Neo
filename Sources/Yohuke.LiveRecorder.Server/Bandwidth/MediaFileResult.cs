@@ -3,7 +3,8 @@ using Microsoft.Net.Http.Headers;
 
 namespace Yohuke.LiveRecorder.Server.Bandwidth;
 
-internal sealed class MediaFileResult(string path, string contentType, MediaTrafficKind kind, string? downloadName = null) : IResult
+internal sealed class MediaFileResult(string path, string contentType, MediaTrafficKind kind, string? downloadName = null,
+    string? contentHash = null) : IResult
 {
     /// <inheritdoc />
     public async Task ExecuteAsync(HttpContext httpContext)
@@ -24,11 +25,12 @@ internal sealed class MediaFileResult(string path, string contentType, MediaTraf
             Options = FileOptions.Asynchronous | FileOptions.SequentialScan
         });
         await using var stream = new BandwidthReadStream(source, scheduler, userId, kind);
-        httpContext.Response.Headers.CacheControl = "private, no-store";
+        httpContext.Response.Headers.CacheControl = contentHash is null ? "private, no-store" : "private, no-cache, must-revalidate";
         httpContext.Response.Headers["X-Accel-Buffering"] = "no";
         try
         {
-            await Results.File(stream, contentType, downloadName, lastModified: fileInfo.LastWriteTimeUtc, enableRangeProcessing: true)
+            var entityTag = contentHash is null ? null : new EntityTagHeaderValue("\"" + contentHash + "\"");
+            await Results.File(stream, contentType, downloadName, lastModified: fileInfo.LastWriteTimeUtc, entityTag: entityTag, enableRangeProcessing: true)
                 .ExecuteAsync(httpContext);
         }
         catch when (!httpContext.Response.HasStarted)
@@ -38,6 +40,8 @@ internal sealed class MediaFileResult(string path, string contentType, MediaTraf
             httpContext.Response.Headers.Remove(HeaderNames.ContentRange);
             httpContext.Response.Headers.Remove(HeaderNames.AcceptRanges);
             httpContext.Response.Headers.Remove(HeaderNames.LastModified);
+            httpContext.Response.Headers.Remove(HeaderNames.ETag);
+            httpContext.Response.Headers.CacheControl = "private, no-store";
             throw;
         }
     }

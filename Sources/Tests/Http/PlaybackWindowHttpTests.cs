@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using MongoDB.Driver;
@@ -179,6 +180,110 @@ public sealed class PlaybackWindowHttpTests
         await PlaybackHttpMediaFixture.DownloadAndDecodeAsync(fixture, playback);
     }
 
+    /// <summary>连续资源以真实内容摘要逐次校验私有缓存，并保留 HEAD、Range 和 If-Range 语义。</summary>
+    [MongoHttpFact]
+    public async Task ContinuousAssetsRevalidatePrivateCachesAndPreserveConditionalRanges()
+    {
+        await using var fixture = await PlaybackHttpMediaFixture.CreateAsync();
+        var session = await PlaybackHttpMediaFixture.SeedRecordingAsync(fixture, 12);
+        var playback = await OpenAsync(fixture.Admin, $"/api/sessions/{session.Id}/playback", new { offsetMs = 1000 });
+        var resources = ResourceUris(fixture, playback, await ReadPlaylistAsync(fixture.Admin, playback.Url!));
+        foreach (var resource in resources)
+        {
+            using var original = await fixture.Admin.Client.GetAsync(resource);
+            Assert.Equal(HttpStatusCode.OK, original.StatusCode);
+            var content = await original.Content.ReadAsByteArrayAsync();
+            var entityTag = ContentEntityTag(content);
+            Assert.Equal(entityTag, original.Headers.ETag?.ToString());
+            AssertPrivateRevalidation(original);
+
+            using var unchangedRequest = new HttpRequestMessage(HttpMethod.Get, resource);
+            unchangedRequest.Headers.IfNoneMatch.ParseAdd(entityTag);
+            using var unchanged = await fixture.Admin.Client.SendAsync(unchangedRequest);
+            Assert.Equal(HttpStatusCode.NotModified, unchanged.StatusCode);
+            Assert.Empty(await unchanged.Content.ReadAsByteArrayAsync());
+            Assert.Equal(entityTag, unchanged.Headers.ETag?.ToString());
+            AssertPrivateRevalidation(unchanged);
+
+            using var head = await fixture.Admin.Client.SendAsync(new(HttpMethod.Head, resource));
+            Assert.Equal(HttpStatusCode.OK, head.StatusCode);
+            Assert.Equal(content.Length, head.Content.Headers.ContentLength);
+            Assert.Empty(await head.Content.ReadAsByteArrayAsync());
+            Assert.Equal(entityTag, head.Headers.ETag?.ToString());
+
+            using var rangeRequest = new HttpRequestMessage(HttpMethod.Get, resource);
+            rangeRequest.Headers.Range = new(4, 31);
+            rangeRequest.Headers.IfRange = new(System.Net.Http.Headers.EntityTagHeaderValue.Parse(entityTag));
+            using var range = await fixture.Admin.Client.SendAsync(rangeRequest);
+            Assert.Equal(HttpStatusCode.PartialContent, range.StatusCode);
+            Assert.Equal(content[4..32], await range.Content.ReadAsByteArrayAsync());
+            Assert.Equal($"bytes 4-31/{content.Length}", range.Content.Headers.ContentRange?.ToString());
+            Assert.Equal(entityTag, range.Headers.ETag?.ToString());
+
+            using var mismatchedRangeRequest = new HttpRequestMessage(HttpMethod.Get, resource);
+            mismatchedRangeRequest.Headers.Range = new(4, 31);
+            mismatchedRangeRequest.Headers.IfRange = new(new System.Net.Http.Headers.EntityTagHeaderValue("\"different\""));
+            using var mismatchedRange = await fixture.Admin.Client.SendAsync(mismatchedRangeRequest);
+            Assert.Equal(HttpStatusCode.OK, mismatchedRange.StatusCode);
+            Assert.Equal(content, await mismatchedRange.Content.ReadAsByteArrayAsync());
+
+            using var mismatchedRequest = new HttpRequestMessage(HttpMethod.Get, resource);
+            mismatchedRequest.Headers.IfNoneMatch.ParseAdd("\"different\"");
+            mismatchedRequest.Headers.IfModifiedSince = original.Content.Headers.LastModified;
+            using var mismatched = await fixture.Admin.Client.SendAsync(mismatchedRequest);
+            Assert.Equal(HttpStatusCode.OK, mismatched.StatusCode);
+            Assert.Equal(content, await mismatched.Content.ReadAsByteArrayAsync());
+        }
+    }
+
+    /// <summary>已有片段补充摘要时不重封装，磁盘回收后重新生成的真实内容仍可通过条件请求复用。</summary>
+    [MongoHttpFact]
+    public async Task ContinuousAssetsBackfillLegacyHashesAndRevalidateAfterEviction()
+    {
+        await using var fixture = await PlaybackHttpMediaFixture.CreateAsync();
+        var session = await PlaybackHttpMediaFixture.SeedRecordingAsync(fixture, 12);
+        var playback = await OpenAsync(fixture.Admin, $"/api/sessions/{session.Id}/playback", new { offsetMs = 1000 });
+        var resources = ResourceUris(fixture, playback, await ReadPlaylistAsync(fixture.Admin, playback.Url!));
+        using var original = await fixture.Admin.Client.GetAsync(resources[2]);
+        var entityTag = ContentEntityTag(await original.Content.ReadAsByteArrayAsync());
+        Assert.Equal(entityTag, original.Headers.ETag?.ToString());
+        var fragment = Assert.Single(Directory.EnumerateFiles(fixture.CachePath, "chunk_00000.m4s", SearchOption.AllDirectories));
+        var directory = Path.GetDirectoryName(fragment)!;
+        var marker = Path.Combine(directory, "fragment.json");
+        var metadata = JsonNode.Parse(await File.ReadAllTextAsync(marker))!.AsObject();
+        Assert.Equal(entityTag.Trim('"'), metadata["mediaContentHash"]!.GetValue<string>());
+        var initialization = await File.ReadAllBytesAsync(Path.Combine(directory, "init.mp4"));
+        Assert.Equal(ContentEntityTag(initialization).Trim('"'), metadata["initializationContentHash"]!.GetValue<string>());
+        metadata.Remove("initializationContentHash");
+        metadata.Remove("mediaContentHash");
+        await File.WriteAllTextAsync(marker, metadata.ToJsonString());
+        var modified = new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(fragment, modified);
+
+        using (var legacyRequest = new HttpRequestMessage(HttpMethod.Get, resources[2]))
+        {
+            legacyRequest.Headers.IfNoneMatch.ParseAdd(entityTag);
+            using var legacy = await fixture.Admin.Client.SendAsync(legacyRequest);
+            Assert.Equal(HttpStatusCode.NotModified, legacy.StatusCode);
+            Assert.Empty(await legacy.Content.ReadAsByteArrayAsync());
+        }
+        Assert.Equal(modified, File.GetLastWriteTimeUtc(fragment));
+        metadata = JsonNode.Parse(await File.ReadAllTextAsync(marker))!.AsObject();
+        Assert.Equal(entityTag.Trim('"'), metadata["mediaContentHash"]!.GetValue<string>());
+        Assert.Equal(ContentEntityTag(initialization).Trim('"'), metadata["initializationContentHash"]!.GetValue<string>());
+
+        Directory.Delete(directory, recursive: true);
+        using var rebuiltRequest = new HttpRequestMessage(HttpMethod.Get, resources[2]);
+        rebuiltRequest.Headers.IfNoneMatch.ParseAdd(entityTag);
+        using var rebuilt = await fixture.Admin.Client.SendAsync(rebuiltRequest);
+        Assert.Equal(HttpStatusCode.NotModified, rebuilt.StatusCode);
+        Assert.Empty(await rebuilt.Content.ReadAsByteArrayAsync());
+        Assert.Equal(entityTag, rebuilt.Headers.ETag?.ToString());
+        Assert.Equal(entityTag, ContentEntityTag(await File.ReadAllBytesAsync(fragment)));
+        metadata = JsonNode.Parse(await File.ReadAllTextAsync(marker))!.AsObject();
+        Assert.Equal(entityTag.Trim('"'), metadata["mediaContentHash"]!.GetValue<string>());
+    }
+
     /// <summary>连续播放清单、初始化段和片段逐次检查身份，已有地址不能绕过撤销后的观看权限。</summary>
     [MongoHttpFact]
     public async Task ContinuousAssetsRecheckViewingPermissionForEveryResource()
@@ -198,6 +303,9 @@ public sealed class PlaybackWindowHttpTests
             Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
             using var allowed = await browser.Client.GetAsync(resource);
             Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+            using var conditionalDenied = await GetConditionallyAsync(anonymous, resource);
+            Assert.Equal(HttpStatusCode.Unauthorized, conditionalDenied.StatusCode);
+            Assert.Null(conditionalDenied.Headers.ETag);
         }
         using (var revoked = await fixture.Admin.SendAsync(HttpMethod.Put, $"/api/admin/users/{user.Id}/permissions",
                    new PermissionSet(PermissionSet.MemberDefaults.Where(id => id != PermissionIds.VIEW_RECORDINGS))))
@@ -208,6 +316,9 @@ public sealed class PlaybackWindowHttpTests
         {
             using var denied = await browser.Client.GetAsync(resource);
             Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+            using var conditionalDenied = await GetConditionallyAsync(browser, resource);
+            Assert.Equal(HttpStatusCode.Forbidden, conditionalDenied.StatusCode);
+            Assert.Null(conditionalDenied.Headers.ETag);
         }
     }
 
@@ -234,6 +345,9 @@ public sealed class PlaybackWindowHttpTests
         {
             using var stale = await fixture.Admin.Client.GetAsync(resource);
             Assert.Equal(HttpStatusCode.Gone, stale.StatusCode);
+            using var conditionalStale = await GetConditionallyAsync(fixture.Admin, resource);
+            Assert.Equal(HttpStatusCode.Gone, conditionalStale.StatusCode);
+            Assert.Null(conditionalStale.Headers.ETag);
         }
         var updated = await OpenAsync(fixture.Admin, endpoint, new { offsetMs = 1000 });
         Assert.NotEqual(playback.Url, updated.Url);
@@ -246,7 +360,17 @@ public sealed class PlaybackWindowHttpTests
         {
             using var unavailable = await fixture.Admin.Client.GetAsync(resource);
             Assert.Equal(HttpStatusCode.NotFound, unavailable.StatusCode);
+            using var conditionalUnavailable = await GetConditionallyAsync(fixture.Admin, resource);
+            Assert.Equal(HttpStatusCode.NotFound, conditionalUnavailable.StatusCode);
+            Assert.Null(conditionalUnavailable.Headers.ETag);
         }
+    }
+
+    private static async Task<HttpResponseMessage> GetConditionallyAsync(HttpBrowser browser, Uri resource)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, resource);
+        request.Headers.IfNoneMatch.ParseAdd("*");
+        return await browser.Client.SendAsync(request);
     }
 
     private static async Task<string> ReadPlaylistAsync(HttpBrowser browser, string url)
@@ -258,6 +382,18 @@ public sealed class PlaybackWindowHttpTests
         Assert.StartsWith("#EXTM3U", playlist);
         Assert.Contains("#EXT-X-ENDLIST", playlist);
         return playlist;
+    }
+
+    private static string ContentEntityTag(byte[] content) => "\"" + Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant() + "\"";
+
+    private static void AssertPrivateRevalidation(HttpResponseMessage response)
+    {
+        Assert.NotNull(response.Headers.CacheControl);
+        Assert.True(response.Headers.CacheControl.Private);
+        Assert.True(response.Headers.CacheControl.NoCache);
+        Assert.True(response.Headers.CacheControl.MustRevalidate);
+        Assert.False(response.Headers.CacheControl.NoStore);
+        Assert.Null(response.Headers.CacheControl.MaxAge);
     }
 
     private static Uri[] ResourceUris(HttpServerFixture fixture, PlaybackResponse playback, string playlist)
