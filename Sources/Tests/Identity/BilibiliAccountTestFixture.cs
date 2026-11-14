@@ -18,8 +18,11 @@ internal sealed class BilibiliAccountTestFixture : IAsyncDisposable
     internal ControlledBilibiliEventConnection Connection { get; } = new();
     internal BilibiliService Service { get; }
     internal HashSet<long> ExpiredUids { get; } = [];
+    internal HashSet<long> UnavailableUids { get; } = [];
+    internal ConcurrentQueue<(string Path, string Cookie)> Requests { get; } = new();
     internal ConcurrentQueue<string> RoomCookies { get; } = new();
     internal long LoginUid { get; set; } = 42;
+    internal long RoomLiveStartTime { get; set; } = 1800000000;
     internal Func<HttpRequestMessage, Task<HttpResponseMessage?>>? BeforeRequest { get; set; }
 
     private BilibiliAccountTestFixture(IdentityFixture identity)
@@ -54,11 +57,16 @@ internal sealed class BilibiliAccountTestFixture : IAsyncDisposable
 
     private async Task<HttpResponseMessage> RespondAsync(HttpRequestMessage request)
     {
+        var cookie = request.Headers.TryGetValues("Cookie", out var cookies) ? string.Join(";", cookies) : "";
+        Requests.Enqueue((request.RequestUri!.AbsolutePath, cookie));
+        if (request.RequestUri.AbsolutePath == "/xlive/web-room/v2/index/getRoomPlayInfo")
+        {
+            RoomCookies.Enqueue(cookie);
+        }
         if (BeforeRequest is not null && await BeforeRequest(request) is { } response)
         {
             return response;
         }
-        var cookie = request.Headers.TryGetValues("Cookie", out var cookies) ? string.Join(";", cookies) : "";
         var uidText = ApiCookieHelper.GetValue(cookie, "DedeUserID");
         var uid = long.TryParse(uidText, out var parsed) ? parsed : LoginUid;
         switch (request.RequestUri!.AbsolutePath)
@@ -80,6 +88,10 @@ internal sealed class BilibiliAccountTestFixture : IAsyncDisposable
             case "/x/passport-login/web/sms/send":
                 return Json("""{"code":0,"data":{"captcha_key":"sms-key"}}""");
             case "/x/web-interface/nav":
+                if (UnavailableUids.Contains(uid))
+                {
+                    return Json("""{"code":-412,"message":"temporarily unavailable"}""");
+                }
                 return ExpiredUids.Contains(uid) && !cookie.Contains("renewed-", StringComparison.Ordinal)
                     ? Json("""{"code":-101,"message":"expired"}""")
                     : Json(JsonSerializer.Serialize(new { code = 0, data = new { isLogin = true, mid = uid, uname = $"重新登录 {uid}", wbi_img = new { img_url = "https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png", sub_url = "https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png" } } }));
@@ -87,9 +99,18 @@ internal sealed class BilibiliAccountTestFixture : IAsyncDisposable
                 return Json(JsonSerializer.Serialize(new { code = 0, data = new { card = new { mid = uid, name = $"账号 {uid}", face = "https://i0.hdslb.com/face.jpg" } } }));
             case "/x/passport-login/web/cookie/info":
                 return Json("""{"code":0,"data":{"refresh":false}}""");
+            case "/xlive/web-room/v1/index/getInfoByRoom":
+                return Json(JsonSerializer.Serialize(new
+                {
+                    code = 0,
+                    data = new
+                    {
+                        room_info = new { uid = 1000, room_id = 100, title = "测试直播", live_status = 1, live_start_time = RoomLiveStartTime },
+                        anchor_info = new { base_info = new { uname = "测试主播" } }
+                    }
+                }));
             case "/xlive/web-room/v2/index/getRoomPlayInfo":
-                RoomCookies.Enqueue(cookie);
-                return Json("""{"code":0,"data":{"room_id":100,"live_status":1,"playurl_info":{"playurl":{"stream":[{"protocol_name":"http_stream","format":[{"format_name":"flv","codec":[{"codec_name":"avc","current_qn":10000,"base_url":"/recording.flv","url_info":[{"host":"https://capture.example.test","extra":""}]}]}]}]}}}}""");
+                return Json("""{"code":0,"data":{"room_id":100,"live_status":1,"live_time":1800000000,"playurl_info":{"playurl":{"stream":[{"protocol_name":"http_stream","format":[{"format_name":"flv","codec":[{"codec_name":"avc","current_qn":10000,"base_url":"/recording.flv","url_info":[{"host":"https://capture.example.test","extra":""}]}]}]}]}}}}""");
             default:
                 throw new InvalidOperationException("Unexpected endpoint: " + request.RequestUri.AbsolutePath);
         }

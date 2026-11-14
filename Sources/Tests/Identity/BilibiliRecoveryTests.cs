@@ -256,6 +256,96 @@ public sealed class BilibiliRecoveryTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task SourceFailureDrainsAcceptedTailAndPreservesCause(bool authenticationFailure)
+    {
+        await using var fixture = new BilibiliCaptureFixture();
+        await fixture.StartAsync(async (_, token) => await Task.Delay(1, token));
+        for (var index = 0; index < 40; index++)
+        {
+            fixture.Socket.Emit("DANMU_MSG", Danmu("failed-tail-" + index, 1800000000000 + index));
+        }
+        Exception cause = authenticationFailure ? new BilibiliAuthenticationException("expired") : new HttpRequestException("connection failed");
+
+        fixture.Socket.Fail(cause);
+        var failure = await Assert.ThrowsAsync<BilibiliEventSourceException>(() => fixture.Run.WaitAsync(TimeSpan.FromSeconds(3)));
+
+        Assert.Same(cause, failure.InnerException);
+        Assert.Equal(authenticationFailure, failure.IsAuthenticationFailure);
+        Assert.Equal(40, fixture.Events.Count(item => item.Kind == "Danmu"));
+        Assert.Equal(1, fixture.Socket.StopCount);
+    }
+
+    [Fact]
+    public async Task UnexpectedSocketReturnIsReportedAsSourceFailure()
+    {
+        await using var fixture = new BilibiliCaptureFixture();
+        await fixture.StartAsync();
+
+        fixture.Socket.Finish();
+        var failure = await Assert.ThrowsAsync<BilibiliEventSourceException>(() => fixture.Run.WaitAsync(TimeSpan.FromSeconds(2)));
+
+        Assert.IsType<IOException>(failure.InnerException);
+        Assert.False(failure.IsAuthenticationFailure);
+    }
+
+    [Fact]
+    public async Task SocketDiagnosticsDoNotInterruptHealthyCapture()
+    {
+        await using var fixture = new BilibiliCaptureFixture();
+        await fixture.StartAsync();
+
+        fixture.Socket.ReportError(new InvalidDataException("single malformed packet"));
+        fixture.Socket.Emit("DANMU_MSG", Danmu("after-diagnostic", 1800000000123));
+        await fixture.WaitUntilAsync(() => fixture.Events.Any(item => item.Kind == "Danmu"));
+
+        Assert.False(fixture.Run.IsCompleted);
+        Assert.Equal(1, fixture.Socket.StartCount);
+        await fixture.StopAsync();
+    }
+
+    [Fact]
+    public async Task LocalFileConsumerFailureIsNotWrappedAsSourceFailure()
+    {
+        await using var fixture = new BilibiliCaptureFixture();
+        var cause = new IOException("local archive failed");
+        await fixture.StartAsync((_, _) => Task.FromException(cause));
+
+        fixture.Socket.Emit("DANMU_MSG", Danmu("local-failure", 1800000000123));
+        var failure = await Assert.ThrowsAsync<IOException>(() => fixture.Run.WaitAsync(TimeSpan.FromSeconds(2)));
+
+        Assert.Same(cause, failure);
+    }
+
+    [Theory]
+    [InlineData("gethistory")]
+    [InlineData("RedPocketActiveList")]
+    [InlineData("RedPocketGetInfo")]
+    [InlineData("RedPocketGetWinners")]
+    public async Task RecoveryAuthenticationFailureStopsSourceForAccountReplacement(string endpoint)
+    {
+        await using var fixture = new BilibiliCaptureFixture((request, token) =>
+        {
+            return request.RequestUri!.AbsolutePath.EndsWith(endpoint, StringComparison.Ordinal)
+                ? Task.FromResult(RecoveryHttpHandler.Json("{\"code\":-101,\"message\":\"expired\"}"))
+                : RecoveryHttpHandler.EmptyAsync(request, token);
+        });
+        await fixture.StartAsync();
+        if (endpoint is "RedPocketGetInfo" or "RedPocketGetWinners")
+        {
+            var old = DateTimeOffset.UtcNow.AddMinutes(-2).ToUnixTimeSeconds();
+            fixture.Socket.Emit("POPULARITY_RED_POCKET_NEW", "{\"cmd\":\"POPULARITY_RED_POCKET_NEW\",\"data\":{\"lot_id\":99,\"start_time\":" + old + ",\"end_time\":" + (old + 60) + "}}");
+        }
+
+        var failure = await Assert.ThrowsAsync<BilibiliEventSourceException>(() => fixture.Run.WaitAsync(TimeSpan.FromSeconds(3)));
+
+        Assert.True(failure.IsAuthenticationFailure);
+        Assert.IsType<BilibiliAuthenticationException>(failure.InnerException);
+        Assert.Equal(1, fixture.Socket.StopCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task StopOrCredentialRotationCancelsHttpAndDrainsAlreadyReceivedTail(bool rotateCredentials)
     {
         var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -153,7 +153,7 @@ public sealed class BilibiliEventSubscription : IDisposable
             await socket.StartAsync(lifetime.Token);
             if (!lifetime.IsCancellationRequested)
             {
-                Enqueue(new() { Raw = Diagnostic("RECORDER_DISCONNECTED", "弹幕连接意外结束，期间完整性未知。") });
+                channel.Writer.TryComplete(new BilibiliEventSourceException(new IOException("弹幕来源连接意外结束。")));
             }
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
@@ -161,7 +161,7 @@ public sealed class BilibiliEventSubscription : IDisposable
         }
         catch (Exception exception)
         {
-            channel.Writer.TryComplete(exception);
+            channel.Writer.TryComplete(new BilibiliEventSourceException(exception));
         }
         finally
         {
@@ -197,6 +197,10 @@ public sealed class BilibiliEventSubscription : IDisposable
                     {
                         throw;
                     }
+                    catch (BilibiliAuthenticationException exception)
+                    {
+                        throw new BilibiliEventSourceException(exception);
+                    }
                     catch (Exception exception)
                     {
                         logger.LogWarning("直播间 {RoomId} 红包 {LotId} 补录暂不可用：{ErrorType}", roomId, request.LotId, exception.GetType().Name);
@@ -228,6 +232,10 @@ public sealed class BilibiliEventSubscription : IDisposable
         {
             throw;
         }
+        catch (BilibiliAuthenticationException exception)
+        {
+            throw new BilibiliEventSourceException(exception);
+        }
         catch (Exception exception)
         {
             failed = true;
@@ -245,6 +253,10 @@ public sealed class BilibiliEventSubscription : IDisposable
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
+        }
+        catch (BilibiliAuthenticationException exception)
+        {
+            throw new BilibiliEventSourceException(exception);
         }
         catch (Exception exception)
         {

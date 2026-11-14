@@ -1,9 +1,12 @@
 using Yohuke.LiveRecorder.Application.Localization;
 using System.Collections.Concurrent;
+using System.Runtime.ExceptionServices;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 using Yohuke.DanmuCore.Apis;
+using Yohuke.DanmuCore.Errors;
 using Yohuke.DanmuCore.Models.Accounts;
 using Yohuke.DanmuCore.Services;
 using Yohuke.LiveRecorder.Application;
@@ -21,7 +24,7 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
     private readonly ConcurrentBag<CancellationTokenSource> retiredLifetimes = [];
     private readonly SemaphoreSlim accountGate = new(1, 1);
     private readonly object lifetimeGate = new();
-    private CancellationTokenSource defaultLifetime = new();
+    private TaskCompletionSource accountChanges = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int disposed;
     private IMongoCollection<BilibiliAccount> Accounts => context.Collection<BilibiliAccount>("bilibili_accounts");
 
@@ -40,10 +43,13 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
         {
             throw new InfrastructureException(MessageCode.BILIBILI_ROOM_ID_INVALID);
         }
-        var (_, credentials) = await GetCredentialsAsync(accountId, cancellationToken);
-        using var client = httpClientFactory.CreateClient("bilibili");
-        using var api = new BilibiliApi(credentials.Cookie, httpClient: client);
-        var response = await api.GetRoomInfoAsync(roomId, cancellationToken: cancellationToken);
+        return await ExecuteRecordingRequestAsync(accountId, (api, credentials, token) => GetRoomCoreAsync(api, credentials, roomId, token), cancellationToken);
+    }
+
+    private static async Task<LiveRoomSnapshot> GetRoomCoreAsync(BilibiliApi api, BilibiliLoginCredentials credentials, long roomId, CancellationToken cancellationToken)
+    {
+        var response = await api.GetRoomInfoWithCredentialsAsync(roomId, credentials.Cookie, cancellationToken: cancellationToken);
+        RequireAuthenticatedResponse(response.Code);
         if (response.Code != 0 || response.Data?.RoomInfo is not { } room)
         {
             throw new InfrastructureException(MessageCode.BILIBILI_ROOM_UNAVAILABLE, 502, response.Code);
@@ -53,7 +59,12 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
         if (room.LiveStatus == 1 && started <= 0)
         {
             var play = await api.GetRoomPlayInfoAsync(room.RoomId, cookie: credentials.Cookie, cancellationToken: cancellationToken);
-            started = play.Data?.LiveTime ?? 0;
+            RequireAuthenticatedResponse(play.Code);
+            if (play.Code != 0 || play.Data is null)
+            {
+                throw new InfrastructureException(MessageCode.BILIBILI_ROOM_UNAVAILABLE, 502, play.Code);
+            }
+            started = play.Data.LiveTime;
         }
         return new(room.RoomId, room.Uid, anchor?.Name ?? room.Uid.ToString(), NormalizeImage(anchor?.Face), room.Title ?? "直播录像", NormalizeImage(room.CoverUrl ?? room.UserCoverUrl), room.LiveStatus == 1, started is > 0 and <= 253402300799 ? DateTimeOffset.FromUnixTimeSeconds(started).UtcDateTime : null);
     }
@@ -61,22 +72,29 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
     /// <inheritdoc />
     public async Task<LiveStreamDescriptor> ResolveStreamAsync(long roomId, int quality, string? accountId = null, CancellationToken cancellationToken = default)
     {
-        var (_, credentials) = await GetCredentialsAsync(accountId, cancellationToken);
-        using var client = httpClientFactory.CreateClient("bilibili");
-        using var api = new BilibiliApi(credentials.Cookie, httpClient: client);
+        if (roomId <= 0)
+        {
+            throw new InfrastructureException(MessageCode.BILIBILI_ROOM_ID_INVALID);
+        }
+        return await ExecuteRecordingRequestAsync(accountId, (api, credentials, token) => ResolveStreamCoreAsync(api, credentials, roomId, quality, token), cancellationToken);
+    }
+
+    private static async Task<LiveStreamDescriptor> ResolveStreamCoreAsync(BilibiliApi api, BilibiliLoginCredentials credentials, long roomId, int quality, CancellationToken cancellationToken)
+    {
         var response = await api.GetRoomPlayInfoAsync(roomId, quality, credentials.Cookie, cancellationToken: cancellationToken);
+        RequireAuthenticatedResponse(response.Code);
         if (response.Code != 0 || response.Data?.LiveStatus != 1)
         {
             throw new InfrastructureException(MessageCode.BILIBILI_STREAM_UNAVAILABLE, 503, response.Code);
         }
-        var streams = response.Data.PlayUrlInfo?.PlayUrl?.Streams ?? [];
+        var streams = NonNullItems(response.Data.PlayUrlInfo?.PlayUrl?.Streams);
         foreach (var stream in streams.Where(x => x.ProtocolName == "http_stream"))
         {
-            foreach (var format in stream.Formats.Where(x => x.FormatName == "flv"))
+            foreach (var format in NonNullItems(stream.Formats).Where(x => x.FormatName == "flv"))
             {
-                foreach (var codec in format.Codecs.OrderByDescending(x => x.CodecName == "avc"))
+                foreach (var codec in NonNullItems(format.Codecs).OrderByDescending(x => x.CodecName == "avc"))
                 {
-                    foreach (var host in codec.UrlInfos)
+                    foreach (var host in NonNullItems(codec.UrlInfos))
                     {
                         var value = host.Host + codec.BaseUrl + host.Extra;
                         if (Uri.TryCreate(value, UriKind.Absolute, out var url) && url.Scheme is "http" or "https" && string.IsNullOrEmpty(url.UserInfo))
@@ -90,36 +108,12 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
         throw new InfrastructureException(MessageCode.BILIBILI_FLV_STREAM_MISSING, 503);
     }
 
+    private static IEnumerable<T> NonNullItems<T>(IEnumerable<T?>? items) where T : class => items?.OfType<T>() ?? [];
+
     /// <inheritdoc />
-    public async Task SubscribeEventsAsync(long roomId, string? accountId, Func<RecordedEventEnvelope, CancellationToken, Task> onEvent, CancellationToken cancellationToken = default)
-    {
-        var reconciliation = new BilibiliDanmuReconciliation();
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            var defaultChanged = accountId is null ? GetLifetimeToken(null) : CancellationToken.None;
-            var (account, credentials) = await GetCredentialsAsync(accountId, cancellationToken);
-            var accountChanged = account is null ? CancellationToken.None : GetLifetimeToken(account.Id);
-            using var changes = CancellationTokenSource.CreateLinkedTokenSource(defaultChanged, accountChanged);
-            var changed = changes.Token;
-            if (changed.IsCancellationRequested)
-            {
-                continue;
-            }
-            if (account is not null)
-            {
-                var current = await Accounts.Find(x => x.Id == account.Id).FirstOrDefaultAsync(cancellationToken);
-                if (current is null || current.ProtectedCredentials != account.ProtectedCredentials || current.Status == "Expired")
-                {
-                    continue;
-                }
-            }
-            await eventConnection.RunAsync(roomId, credentials.Cookie, onEvent, reconciliation, cancellationToken, changed);
-            if (!changed.IsCancellationRequested)
-            {
-                return;
-            }
-        }
-    }
+    public Task SubscribeEventsAsync(long roomId, string? accountId, Func<RecordedEventEnvelope, CancellationToken, Task> onEvent, CancellationToken cancellationToken = default) =>
+        new BilibiliEventAccountRunner(eventConnection, token => GetRecordingSelectionAsync(accountId, token), ReadRecordingCredentials,
+            (account, token) => SaveValidationAsync(account, "Expired", token), GetAccountChanges, logger).RunAsync(roomId, onEvent, cancellationToken);
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<BilibiliAccountSummary>> ListAccountsAsync(CancellationToken cancellationToken = default)
@@ -145,13 +139,12 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
             {
                 RequireValidAccount(await RequireAccountAsync(accountId, cancellationToken));
             }
-            var previous = await EffectiveAccountIdAsync(cancellationToken);
             await settingsStore.UpdateAsync(settings =>
             {
                 settings.DefaultBilibiliAccountId = accountId;
                 return settings;
             }, cancellationToken);
-            await NotifyDefaultChangeAsync(previous, CancellationToken.None);
+            NotifyAccountChanges();
             return await ListAccountsCoreAsync(cancellationToken);
         }
         finally
@@ -308,7 +301,6 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
             {
                 throw new InfrastructureException(MessageCode.BILIBILI_ACCOUNT_IN_USE, 409);
             }
-            var previous = await EffectiveAccountIdAsync(cancellationToken);
             await settingsStore.UpdateAsync(settings =>
             {
                 if (settings.DefaultBilibiliAccountId == id)
@@ -323,7 +315,6 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
                 session.Invalidate();
             }
             RotateLifetime(id);
-            await NotifyDefaultChangeAsync(previous, CancellationToken.None);
         }
         finally
         {
@@ -339,16 +330,12 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
         {
             try
             {
+                var validationLifetime = GetLifetimeToken(account.Id);
                 var credentials = DeserializeCredentials(account);
                 using var http = httpClientFactory.CreateClient("bilibili");
                 var validation = await new BilibiliAccountValidationService(http).ValidateAsync(credentials.Cookie, cancellationToken: cancellationToken);
-                var status = validation.Status switch
-                {
-                    AccountValidationStatus.Valid => "Valid",
-                    AccountValidationStatus.Expired or AccountValidationStatus.Incomplete => "Expired",
-                    _ => "Unavailable"
-                };
-                if (!await SaveValidationAsync(account, status, cancellationToken) || status != "Valid")
+                var status = ValidationStatus(validation.Status);
+                if (!await SaveValidationAsync(account, status, cancellationToken, validationLifetime) || status != "Valid")
                 {
                     continue;
                 }
@@ -357,19 +344,12 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
                 var refreshed = await client.RefreshAsync(credentials, cancellationToken);
                 if (refreshed != credentials)
                 {
-                    await accountGate.WaitAsync(cancellationToken);
-                    try
+                    var saved = await SaveRefreshedCredentialsAsync(account, refreshed);
+                    if (saved is not null && refreshed.Cookie != credentials.Cookie)
                     {
-                        var saved = await Accounts.UpdateOneAsync(x => x.Id == account.Id && x.ProtectedCredentials == account.ProtectedCredentials,
-                            Builders<BilibiliAccount>.Update.Set(x => x.ProtectedCredentials, protector.Protect(JsonSerializer.Serialize(refreshed))), cancellationToken: CancellationToken.None);
-                        if (saved.ModifiedCount > 0)
-                        {
-                            RotateLifetime(account.Id);
-                        }
-                    }
-                    finally
-                    {
-                        accountGate.Release();
+                        var refreshedLifetime = GetLifetimeToken(saved.Id);
+                        var refreshedValidation = await new BilibiliAccountValidationService(http).ValidateAsync(refreshed.Cookie, cancellationToken: cancellationToken);
+                        await SaveValidationAsync(saved, ValidationStatus(refreshedValidation.Status), cancellationToken, refreshedLifetime);
                     }
                 }
             }
@@ -397,7 +377,8 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
         }
         lock (lifetimeGate)
         {
-            foreach (var lifetime in credentialLifetimes.Values.Concat(retiredLifetimes).Append(defaultLifetime))
+            accountChanges.TrySetCanceled();
+            foreach (var lifetime in credentialLifetimes.Values.Concat(retiredLifetimes))
             {
                 lifetime.Cancel();
                 lifetime.Dispose();
@@ -436,7 +417,6 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
         try
         {
             RequireAvailableSession(session);
-            var previous = await EffectiveAccountIdAsync(cancellationToken);
             await Accounts.Indexes.CreateOneAsync(new CreateIndexModel<BilibiliAccount>(Builders<BilibiliAccount>.IndexKeys.Ascending(x => x.Uid), new CreateIndexOptions { Unique = true }), cancellationToken: cancellationToken);
             var account = session.AccountId is { } accountId
                 ? await RequireAccountAsync(accountId, cancellationToken)
@@ -455,7 +435,6 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
             account.LastValidatedAtUtc = DateTime.UtcNow;
             await Accounts.ReplaceOneAsync(x => x.Id == account.Id, account, new ReplaceOptions { IsUpsert = session.AccountId is null }, cancellationToken);
             RotateLifetime(account.Id);
-            await NotifyDefaultChangeAsync(previous, CancellationToken.None);
             return (await ListAccountsCoreAsync(cancellationToken)).Single(x => x.Id == account.Id);
         }
         finally
@@ -484,6 +463,103 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
         using var source = new BilibiliUserAvatarSource(client);
         return await source.GetAvatarUrlAsync(uid, cancellationToken);
     }
+
+    private async Task<T> ExecuteRecordingRequestAsync<T>(string? preferredId, Func<BilibiliApi, BilibiliLoginCredentials, CancellationToken, Task<T>> request, CancellationToken cancellationToken)
+    {
+        var selection = await GetRecordingSelectionAsync(preferredId, cancellationToken);
+        if (selection.AllowsAnonymous)
+        {
+            return await SendRecordingRequestAsync(null, request, cancellationToken);
+        }
+        ExceptionDispatchInfo? failure = null;
+        foreach (var candidate in selection.Candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var account = await ReadCurrentAccountAsync(candidate.Id, cancellationToken);
+            if (account is not { Status: "Valid" })
+            {
+                continue;
+            }
+            try
+            {
+                return await SendRecordingRequestAsync(account, request, cancellationToken);
+            }
+            catch (Exception error) when (!cancellationToken.IsCancellationRequested && IsRecordingRequestFailure(error))
+            {
+                if (IsAuthenticationFailure(error))
+                {
+                    await SaveValidationAsync(account, "Expired", cancellationToken);
+                    failure = ExceptionDispatchInfo.Capture(new InfrastructureException(MessageCode.BILIBILI_ACCOUNT_EXPIRED, 409));
+                }
+                else
+                {
+                    failure = ExceptionDispatchInfo.Capture(error);
+                }
+                logger.LogWarning("B站账号 {AccountId} 采集请求失败，尝试下一有效账号：{ErrorType}", account.Id, error.GetType().Name);
+            }
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        failure?.Throw();
+        var current = await GetRecordingSelectionAsync(preferredId, cancellationToken);
+        throw new InfrastructureException(current.UnavailableCode, 409);
+    }
+
+    private async Task<T> SendRecordingRequestAsync<T>(BilibiliAccount? account, Func<BilibiliApi, BilibiliLoginCredentials, CancellationToken, Task<T>> request, CancellationToken cancellationToken)
+    {
+        var credentials = account is null ? new BilibiliLoginCredentials() : ReadRecordingCredentials(account);
+        using var client = httpClientFactory.CreateClient("bilibili");
+        using var api = new BilibiliApi(credentials.Cookie, httpClient: client);
+        return await request(api, credentials, cancellationToken);
+    }
+
+    private async Task<BilibiliAccountSelection> GetRecordingSelectionAsync(string? preferredId, CancellationToken cancellationToken)
+    {
+        await accountGate.WaitAsync(cancellationToken);
+        try
+        {
+            var accounts = await ReadAccountsAsync(cancellationToken);
+            var selected = (await settingsStore.GetAsync(cancellationToken)).DefaultBilibiliAccountId;
+            return new(accounts, preferredId, selected);
+        }
+        finally
+        {
+            accountGate.Release();
+        }
+    }
+
+    private async Task<BilibiliAccount?> ReadCurrentAccountAsync(string accountId, CancellationToken cancellationToken)
+    {
+        await accountGate.WaitAsync(cancellationToken);
+        try
+        {
+            return await Accounts.Find(account => account.Id == accountId).FirstOrDefaultAsync(cancellationToken);
+        }
+        finally
+        {
+            accountGate.Release();
+        }
+    }
+
+    private static void RequireAuthenticatedResponse(int code)
+    {
+        if (code == -101)
+        {
+            throw new InfrastructureException(MessageCode.BILIBILI_ACCOUNT_EXPIRED, 409);
+        }
+    }
+
+    private static bool IsAuthenticationFailure(Exception error) => error is BilibiliAuthenticationException
+        or InfrastructureException { Code: nameof(MessageCode.BILIBILI_ACCOUNT_EXPIRED) };
+
+    private static bool IsRecordingRequestFailure(Exception error) => error is HttpRequestException or OperationCanceledException
+        or Newtonsoft.Json.JsonException or BilibiliAuthenticationException
+        or InfrastructureException
+        {
+            Code: nameof(MessageCode.BILIBILI_ACCOUNT_EXPIRED) or nameof(MessageCode.BILIBILI_ROOM_UNAVAILABLE)
+                or nameof(MessageCode.BILIBILI_STREAM_UNAVAILABLE) or nameof(MessageCode.BILIBILI_FLV_STREAM_MISSING)
+                or nameof(MessageCode.BILIBILI_CREDENTIALS_CORRUPT)
+        }
+        || CoreExceptionInfo.TryGet(error, out _);
 
     private async Task<(BilibiliAccount? Account, BilibiliLoginCredentials Credentials)> GetCredentialsAsync(string? accountId, CancellationToken cancellationToken)
     {
@@ -517,7 +593,7 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
     {
         var accounts = await ReadAccountsAsync(cancellationToken);
         var selected = (await settingsStore.GetAsync(cancellationToken)).DefaultBilibiliAccountId;
-        var effective = SelectDefaultAccount(accounts, selected) is { Status: not "Expired" } usable ? usable.Id : null;
+        var effective = SelectDefaultAccount(accounts, selected) is { Status: "Valid" } usable ? usable.Id : null;
         return accounts.Select(account => Profile(account, selected, effective)).ToArray();
     }
 
@@ -539,37 +615,24 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
         }
     }
 
-    private async Task<string?> EffectiveAccountIdAsync(CancellationToken cancellationToken)
-    {
-        var accounts = await ReadAccountsAsync(cancellationToken);
-        var selected = (await settingsStore.GetAsync(cancellationToken)).DefaultBilibiliAccountId;
-        return SelectDefaultAccount(accounts, selected) is { Status: not "Expired" } usable ? usable.Id : null;
-    }
-
-    private async Task NotifyDefaultChangeAsync(string? previous, CancellationToken cancellationToken)
-    {
-        if (previous != await EffectiveAccountIdAsync(cancellationToken))
-        {
-            lock (lifetimeGate)
-            {
-                if (disposed != 0)
-                {
-                    return;
-                }
-                var retired = defaultLifetime;
-                defaultLifetime = new();
-                retiredLifetimes.Add(retired);
-                retired.Cancel();
-            }
-        }
-    }
-
-    private async Task<bool> SaveValidationAsync(BilibiliAccount account, string status, CancellationToken cancellationToken)
+    private async Task<bool> SaveValidationAsync(BilibiliAccount account, string status, CancellationToken cancellationToken, CancellationToken validationLifetime = default)
     {
         await accountGate.WaitAsync(cancellationToken);
         try
         {
-            var previous = await EffectiveAccountIdAsync(cancellationToken);
+            if (validationLifetime.IsCancellationRequested)
+            {
+                return false;
+            }
+            var current = await Accounts.Find(x => x.Id == account.Id && x.ProtectedCredentials == account.ProtectedCredentials).FirstOrDefaultAsync(cancellationToken);
+            if (current is null)
+            {
+                return false;
+            }
+            if (current.Status == "Expired" && status == "Unavailable")
+            {
+                status = "Expired";
+            }
             var saved = await Accounts.FindOneAndUpdateAsync(x => x.Id == account.Id && x.ProtectedCredentials == account.ProtectedCredentials,
                 Builders<BilibiliAccount>.Update.Set(x => x.Status, status).Set(x => x.LastValidatedAtUtc, DateTime.UtcNow),
                 cancellationToken: cancellationToken);
@@ -581,7 +644,10 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
             {
                 RotateLifetime(account.Id);
             }
-            await NotifyDefaultChangeAsync(previous, CancellationToken.None);
+            else
+            {
+                NotifyAccountChanges();
+            }
             return true;
         }
         finally
@@ -590,7 +656,58 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
         }
     }
 
-    private BilibiliLoginCredentials DeserializeCredentials(BilibiliAccount account) => JsonSerializer.Deserialize<BilibiliLoginCredentials>(protector.Unprotect(account.ProtectedCredentials)) ?? throw new InfrastructureException(MessageCode.BILIBILI_CREDENTIALS_CORRUPT, 503);
+    private async Task<BilibiliAccount?> SaveRefreshedCredentialsAsync(BilibiliAccount account, BilibiliLoginCredentials credentials)
+    {
+        var protectedCredentials = protector.Protect(JsonSerializer.Serialize(credentials));
+        await accountGate.WaitAsync();
+        try
+        {
+            var saved = await Accounts.FindOneAndUpdateAsync(x => x.Id == account.Id && x.ProtectedCredentials == account.ProtectedCredentials,
+                Builders<BilibiliAccount>.Update.Set(x => x.ProtectedCredentials, protectedCredentials),
+                new FindOneAndUpdateOptions<BilibiliAccount> { ReturnDocument = ReturnDocument.After }, CancellationToken.None);
+            if (saved is not null)
+            {
+                RotateLifetime(account.Id);
+            }
+            return saved;
+        }
+        finally
+        {
+            accountGate.Release();
+        }
+    }
+
+    private static string ValidationStatus(AccountValidationStatus status) => status switch
+    {
+        AccountValidationStatus.Valid => "Valid",
+        AccountValidationStatus.Expired or AccountValidationStatus.Incomplete => "Expired",
+        _ => "Unavailable"
+    };
+
+    private BilibiliLoginCredentials ReadRecordingCredentials(BilibiliAccount account)
+    {
+        var credentials = DeserializeCredentials(account);
+        if (string.IsNullOrWhiteSpace(credentials.Cookie)
+            || string.IsNullOrWhiteSpace(ApiCookieHelper.GetValue(credentials.Cookie, "SESSDATA"))
+            || string.IsNullOrWhiteSpace(ApiCookieHelper.GetValue(credentials.Cookie, "bili_jct")))
+        {
+            throw new InfrastructureException(MessageCode.BILIBILI_CREDENTIALS_CORRUPT, 503);
+        }
+        return credentials;
+    }
+
+    private BilibiliLoginCredentials DeserializeCredentials(BilibiliAccount account)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<BilibiliLoginCredentials>(protector.Unprotect(account.ProtectedCredentials))
+                ?? throw new InfrastructureException(MessageCode.BILIBILI_CREDENTIALS_CORRUPT, 503);
+        }
+        catch (Exception error) when (error is CryptographicException or JsonException or FormatException)
+        {
+            throw new InfrastructureException(MessageCode.BILIBILI_CREDENTIALS_CORRUPT, 503);
+        }
+    }
 
     private async Task<BilibiliBindingSession> CreateSessionAsync(string? accountId, CancellationToken cancellationToken)
     {
@@ -677,14 +794,38 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
                 previous.Cancel();
             }
         }
+        NotifyAccountChanges();
     }
 
-    private CancellationToken GetLifetimeToken(string? accountId)
+    private Task GetAccountChanges()
     {
         lock (lifetimeGate)
         {
             ObjectDisposedException.ThrowIf(disposed != 0, this);
-            return accountId is null ? defaultLifetime.Token : credentialLifetimes.GetOrAdd(accountId, _ => new()).Token;
+            return accountChanges.Task;
+        }
+    }
+
+    private void NotifyAccountChanges()
+    {
+        lock (lifetimeGate)
+        {
+            if (disposed != 0)
+            {
+                return;
+            }
+            var previous = accountChanges;
+            accountChanges = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            previous.TrySetResult();
+        }
+    }
+
+    private CancellationToken GetLifetimeToken(string accountId)
+    {
+        lock (lifetimeGate)
+        {
+            ObjectDisposedException.ThrowIf(disposed != 0, this);
+            return credentialLifetimes.GetOrAdd(accountId, _ => new()).Token;
         }
     }
 

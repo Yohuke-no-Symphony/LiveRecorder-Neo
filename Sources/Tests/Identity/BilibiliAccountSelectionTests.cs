@@ -33,7 +33,7 @@ public sealed class BilibiliAccountSelectionTests
         Assert.Null((await fixture.Identity.Settings.GetAsync()).DefaultBilibiliAccountId);
     }
 
-    /// <summary>首选账号失效后仅默认目标切换，恢复后重新优先原账号。</summary>
+    /// <summary>首选账号失效后默认与显式目标均替补，恢复后重新优先原账号。</summary>
     [MongoFact]
     public async Task ExpiredDefaultFallsBackAndRecoversWithoutChangingPreference()
     {
@@ -50,8 +50,8 @@ public sealed class BilibiliAccountSelectionTests
         Assert.Equal(fallback.Id, Assert.Single(accounts, account => account.IsEffectiveDefault).Id);
         await fixture.Service.ResolveStreamAsync(100, 10000);
         Assert.Contains("original-1", fixture.RoomCookies.Last());
-        var error = await Assert.ThrowsAsync<InfrastructureException>(() => fixture.Service.ResolveStreamAsync(100, 10000, preferred.Id));
-        Assert.Equal("BILIBILI_ACCOUNT_EXPIRED", error.Code);
+        await fixture.Service.ResolveStreamAsync(100, 10000, preferred.Id);
+        Assert.Contains("original-1", fixture.RoomCookies.Last());
         fixture.ExpiredUids.Clear();
         await fixture.MaintainAsync();
         await fixture.Service.ResolveStreamAsync(100, 10000);
@@ -136,10 +136,10 @@ public sealed class BilibiliAccountSelectionTests
         Assert.Equal("BILIBILI_ACCOUNT_NOT_FOUND", (await Assert.ThrowsAsync<InfrastructureException>(() => fixture.Service.SetDefaultAccountAsync("missing"))).Code);
         var unavailable = await fixture.AddAccountAsync(2, "Unavailable");
         Assert.Equal("BILIBILI_ACCOUNT_UNAVAILABLE", (await Assert.ThrowsAsync<InfrastructureException>(() => fixture.Service.SetDefaultAccountAsync(unavailable.Id))).Code);
-        Assert.Equal("BILIBILI_ACCOUNT_EXPIRED", (await Assert.ThrowsAsync<InfrastructureException>(() => fixture.Service.ResolveStreamAsync(100, 10000))).Code);
+        Assert.Equal("BILIBILI_ACCOUNT_UNAVAILABLE", (await Assert.ThrowsAsync<InfrastructureException>(() => fixture.Service.ResolveStreamAsync(100, 10000))).Code);
         await fixture.Service.DeleteAccountAsync(expired.Id);
-        await fixture.Service.ResolveStreamAsync(100, 10000);
-        Assert.Contains("original-2", fixture.RoomCookies.Last());
-        Assert.True(Assert.Single(await fixture.Service.ListAccountsAsync()).IsEffectiveDefault);
+        Assert.Equal("BILIBILI_ACCOUNT_UNAVAILABLE", (await Assert.ThrowsAsync<InfrastructureException>(() => fixture.Service.ResolveStreamAsync(100, 10000))).Code);
+        Assert.Single(fixture.RoomCookies);
+        Assert.False(Assert.Single(await fixture.Service.ListAccountsAsync()).IsEffectiveDefault);
     }
 }

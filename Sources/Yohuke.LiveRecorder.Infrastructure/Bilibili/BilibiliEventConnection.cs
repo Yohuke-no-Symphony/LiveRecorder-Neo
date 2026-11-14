@@ -12,7 +12,7 @@ public sealed class BilibiliEventConnection(IHttpClientFactory httpClientFactory
     public async Task RunAsync(long roomId, string cookie, Func<RecordedEventEnvelope, CancellationToken, Task> onEvent,
         BilibiliDanmuReconciliation reconciliation, CancellationToken cancellationToken, CancellationToken credentialsChanged)
     {
-        using var socket = new BilibiliLiveWebSocket(roomId, cookie);
+        using var socket = new BilibiliLiveWebSocket(roomId, cookie) { ReconnectMode = LiveDanmuReconnectMode.CallerManaged };
         using var recoveryHttp = httpClientFactory.CreateClient("bilibili");
         using var subscription = new BilibiliEventSubscription(socket, socket, roomId, cookie,
             new BilibiliDanmuHistoryService(recoveryHttp), new BilibiliRedPocketService(recoveryHttp), logger,

@@ -81,6 +81,9 @@ internal sealed class BilibiliCaptureFixture : IAsyncDisposable
         catch (IOException)
         {
         }
+        catch (BilibiliEventSourceException)
+        {
+        }
         finally
         {
             subscription.Dispose();
