@@ -7,12 +7,12 @@ using Yohuke.LiveRecorder.Infrastructure.Files;
 
 namespace Yohuke.LiveRecorder.Http.Tests;
 
-/// <summary>验证分析统计排除同传、账号规则隔离以及权限和本地化错误。</summary>
+/// <summary>验证分析统计排除同传、共享规则一致性以及权限和本地化错误。</summary>
 public sealed class AnalyticsTranslationHttpTests
 {
-    /// <summary>同一归档按当前账号规则生成统计，规则修改和继承立即生效且缓存不会跨账号串用。</summary>
+    /// <summary>同一归档对所有账号生成相同统计，录像覆盖、全局修改和恢复继承使缓存立即更新。</summary>
     [MongoHttpFact]
-    public async Task AnalyticsExcludeOnlyMatchingDanmuAndKeepEffectivePatternsIsolated()
+    public async Task AnalyticsExcludeOnlyMatchingDanmuWithSharedRecordingOverrides()
     {
         await using var fixture = await HttpServerFixture.CreateAsync();
         await fixture.InstallAsync();
@@ -40,7 +40,7 @@ public sealed class AnalyticsTranslationHttpTests
             Danmu("paying-translation", "203", "【付费用户同传】", 4000),
             superChat,
             gift,
-            Danmu("english", "204", "EN: personal translation", 6000),
+            Danmu("english", "204", "EN: recording translation", 6000),
             Danmu("japanese", "205", "JP: global translation", 7000),
             Danmu("playback-boundary", "201", "【播放终点之外】", 180000));
         var initial = await ReportAsync(fixture.Admin, session);
@@ -81,25 +81,25 @@ public sealed class AnalyticsTranslationHttpTests
         var viewer = fixture.NewBrowser();
         await viewer.LoginAsync(account.Email, HttpServerFixture.USER_PASSWORD);
         await SetPermissionsAsync(fixture, account.Id, PermissionIds.VIEW_RECORDINGS, PermissionIds.VIEW_ANALYTICS);
-        await SetPersonalPatternAsync(viewer, "^EN:");
+        await SetRecordingPatternAsync(fixture.Admin, session, "^EN:");
         var personal = await ReportAsync(viewer, session);
         Assert.Equal(7, personal["danmuCount"]!.GetValue<int>());
         Assert.Equal(new[] { "204" }, TranslationUsers(personal));
-        Assert.Equal(4, (await ReportAsync(fixture.Admin, session))["translations"]!["count"]!.GetValue<int>());
+        Assert.Equal(new[] { "204" }, TranslationUsers(await ReportAsync(fixture.Admin, session)));
 
         await SetGlobalPatternAsync(fixture, "^JP:");
         var global = await ReportAsync(fixture.Admin, session);
         Assert.Equal(7, global["danmuCount"]!.GetValue<int>());
-        Assert.Equal(new[] { "205" }, TranslationUsers(global));
+        Assert.Equal(new[] { "204" }, TranslationUsers(global));
         Assert.Equal(new[] { "204" }, TranslationUsers(await ReportAsync(viewer, session)));
-        Assert.Equal(new[] { "205" }, TranslationUsers(await ReportAsync(fixture.Admin, session)));
+        Assert.Equal(new[] { "204" }, TranslationUsers(await ReportAsync(fixture.Admin, session)));
 
-        await SetPersonalPatternAsync(viewer, "^(?:EN|JP):");
+        await SetRecordingPatternAsync(fixture.Admin, session, "^(?:EN|JP):");
         var updated = await ReportAsync(viewer, session);
         Assert.Equal(6, updated["danmuCount"]!.GetValue<int>());
         Assert.Equal(2, updated["translations"]!["count"]!.GetValue<int>());
         Assert.Equal(new[] { "204", "205" }, TranslationUsers(updated).Order(StringComparer.Ordinal));
-        await SetPersonalPatternAsync(viewer, null);
+        await SetRecordingPatternAsync(fixture.Admin, session, null);
         Assert.Equal(new[] { "205" }, TranslationUsers(await ReportAsync(viewer, session)));
         await SetGlobalPatternAsync(fixture, "^(?:EN|JP):");
         Assert.Equal(2, (await ReportAsync(viewer, session))["translations"]!["count"]!.GetValue<int>());
@@ -137,7 +137,7 @@ public sealed class AnalyticsTranslationHttpTests
         var initial = await ReportAsync(viewer, session);
         Assert.Equal(1, initial["danmuCount"]!.GetValue<int>());
         Assert.Equal(0, initial["translations"]!["count"]!.GetValue<int>());
-        await SetPersonalPatternAsync(viewer, "(a+)+$");
+        await SetRecordingPatternAsync(fixture.Admin, session, "(a+)+$");
         foreach (var (language, detail) in new[]
                  {
                      ("zh-CN", "同传正则匹配超时，请简化表达式后重试。"),
@@ -154,7 +154,7 @@ public sealed class AnalyticsTranslationHttpTests
             Assert.Equal(detail, problem["detail"]!.GetValue<string>());
             Assert.Equal(language, Assert.Single(timeout.Content.Headers.ContentLanguage));
         }
-        await SetPersonalPatternAsync(viewer, "^译：");
+        await SetRecordingPatternAsync(fixture.Admin, session, "^译：");
         var recovered = await ReportAsync(viewer, session);
         Assert.Equal(1, recovered["danmuCount"]!.GetValue<int>());
         Assert.Equal(0, recovered["translations"]!["count"]!.GetValue<int>());
@@ -216,9 +216,12 @@ public sealed class AnalyticsTranslationHttpTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    private static async Task SetPersonalPatternAsync(HttpBrowser browser, string? pattern)
+    private static async Task SetRecordingPatternAsync(HttpBrowser browser, BroadcastSession session, string? pattern)
     {
-        using var response = await browser.SendAsync(HttpMethod.Put, "/api/auth/translation-danmu-pattern", new { pattern });
+        var path = $"/api/sessions/{session.Id}/configuration";
+        var current = (await browser.Client.GetFromJsonAsync<JsonObject>(path))!;
+        using var response = await browser.SendAsync(HttpMethod.Put, path,
+            new { translationDanmuPatternOverride = pattern, expectedRevision = current["revision"]!.GetValue<int>() });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 

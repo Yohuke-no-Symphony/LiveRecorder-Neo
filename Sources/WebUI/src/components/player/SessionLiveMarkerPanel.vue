@@ -3,6 +3,7 @@
     <CardHeader :title="t('liveMarkers.title')">
       <template #suffix><span v-if="detail" class="text-caption muted mono">{{ formatNumber(detail.entries.length) }}</span></template>
       <template #actions>
+        <AiLiveMarkerActions v-if="auth.canViewRecordings" :can-generate="canGenerateAi && editable" :can-start="canStartAi && !saving" @generate="generateAi" @details="aiDetailsOpen = true" />
         <v-btn icon="mdi-refresh" variant="text" size="small" :loading="loadingFiles" :disabled="saving" :aria-label="t('liveMarkers.refresh')" @click="refresh()" />
         <v-btn v-if="auth.canUploadLiveMarkers && editable" icon="mdi-upload" color="primary" variant="tonal" size="small" :disabled="saving || !defaultTimeZoneId" :aria-label="t('liveMarkers.upload')" @click="openUpload" />
       </template>
@@ -62,16 +63,18 @@
       <span>{{ files.length ? t('liveMarkers.emptyEntries') : t('liveMarkers.emptyFiles') }}</span>
     </div>
     <SessionLiveMarkerUploadDialog v-model="uploadOpen" :default-time-zone-id="defaultTimeZoneId" :busy="saving" :error="actionError" @upload="uploadFile" />
+    <AiAnalysisDetailsDialog v-model="aiDetailsOpen" purpose="LiveMarkers" :status="aiStatus" :loading="aiLoading" :busy="aiBusy" :error="aiError" :ended="ended" :can-cancel="canCancelAi" @refresh="refreshAi" @cancel="cancelAi" />
     <SessionLiveMarkerAlignmentDialog v-model="alignmentOpen" :file="editingFile" :busy="saving" :error="actionError" @save="saveAlignment" />
     <ConfirmDialog v-model="deleteOpen" :persistent="saving" :title="t('liveMarkers.delete')" :message="t('liveMarkers.deleteConfirm', { name: deletingFile?.originalFileName ?? '' })" :action-label="t('liveMarkers.delete')" :busy="saving" :error="actionError" danger @confirm="deleteFile" />
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useSessionLiveMarkers } from '@/composables/useSessionLiveMarkers'
+import { useAiLiveMarkers } from '@/composables/useAiLiveMarkers'
 import type { LiveMarkerEntry, LiveMarkerFile, LiveMarkerUpload } from '@/models/liveMarkers'
 import { formatDate, formatNumber } from '@/utilities/format'
 import { canSeekLiveMarker, formatCompactLiveMarkerTime, formatLiveMarkerOffset } from '@/utilities/liveMarkers'
@@ -79,12 +82,22 @@ import CardHeader from '@/components/common/CardHeader.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import SessionLiveMarkerUploadDialog from './SessionLiveMarkerUploadDialog.vue'
 import SessionLiveMarkerAlignmentDialog from './SessionLiveMarkerAlignmentDialog.vue'
+import AiLiveMarkerActions from './AiLiveMarkerActions.vue'
+import AiAnalysisDetailsDialog from '@/components/analytics/AiAnalysisDetailsDialog.vue'
 
-const props = withDefaults(defineProps<{ sessionId: string; durationMs: number; active?: boolean; editable?: boolean }>(), { active: true, editable: true })
+const props = withDefaults(defineProps<{ sessionId: string; durationMs: number; active?: boolean; editable?: boolean; ended?: boolean; fileId?: string }>(), { active: true, editable: true, ended: false })
 const emit = defineEmits<{ seek: [offsetMs: number] }>()
 const { t } = useI18n()
 const auth = useAuthStore()
-const { files, selectedId, detail, defaultTimeZoneId, loadingFiles, loadingEntries, saving, error, actionError, refresh, select, upload, align, remove, clearActionError } = useSessionLiveMarkers(() => props.sessionId, () => props.active)
+const {
+  status: aiStatus, job: aiJob, loading: aiLoading, busy: aiBusy, error: aiError,
+  canGenerate: canGenerateAi, canStart: canStartAi, canCancel: canCancelAi, initiatedJobId, scope: aiScope,
+  generate: startAi, cancel: cancelAi, refresh: refreshAi,
+} = useAiLiveMarkers(() => props.sessionId, () => props.ended && props.editable, () => props.active)
+const { files, selectedId, detail, defaultTimeZoneId, loadingFiles, loadingEntries, saving, error, actionError, refresh, select, reveal, upload, align, remove, clearActionError } = useSessionLiveMarkers(() => props.sessionId, () => props.active && auth.canViewRecordings, () => props.fileId, aiScope)
+const aiDetailsOpen = ref(false)
+let localJobId = ''
+let completedJobKey = ''
 const selectedFile = computed(() => files.value.find(file => file.id === selectedId.value))
 const fileOptions = computed(() => files.value.map(file => ({ value: file.id, title: `${file.originalFileName} · ${file.uploaderName || t('liveMarkers.unknownUploader')} · ${formatDate(file.uploadedAtUtc)}` })))
 const uploadOpen = ref(false)
@@ -92,6 +105,45 @@ const alignmentOpen = ref(false)
 const deleteOpen = ref(false)
 const editingFile = ref<LiveMarkerFile>()
 const deletingFile = ref<LiveMarkerFile>()
+
+function generateAi(): void
+{
+  if (canStartAi.value && !saving.value)
+  {
+    aiDetailsOpen.value = true
+    void startAi()
+  }
+}
+
+watch([() => props.sessionId, aiScope], () =>
+{
+  localJobId = ''
+  completedJobKey = ''
+  aiDetailsOpen.value = false
+}, { flush: 'sync' })
+watch(initiatedJobId, value => { if (value) { localJobId = value } }, { flush: 'sync' })
+watch(aiJob, value =>
+{
+  if (value?.state !== 'Completed' || !value.liveMarkerFileId)
+  {
+    return
+  }
+  const key = `${value.id}:${value.liveMarkerFileId}`
+  if (key === completedJobKey)
+  {
+    return
+  }
+  completedJobKey = key
+  if (localJobId === value.id)
+  {
+    localJobId = ''
+    void reveal(value.liveMarkerFileId)
+  }
+  else
+  {
+    void refresh(false)
+  }
+}, { flush: 'sync' })
 
 function fileInfo(file: LiveMarkerFile): string
 {

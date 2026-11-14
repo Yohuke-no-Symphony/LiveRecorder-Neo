@@ -18,14 +18,38 @@ internal static class SessionManifestFiles
         CancellationToken cancellationToken)
     {
         await using var fileLock = await AcquireAsync(path, cancellationToken);
-        if (preserveRetention && File.Exists(path))
+        if (File.Exists(path))
         {
             var current = await ReadCoreAsync(path, cancellationToken);
-            manifest.Session.IsPermanent = current.Session.IsPermanent;
-            manifest.Session.RetentionStartedAtUtc = current.Session.RetentionStartedAtUtc;
+            manifest.Session.TranslationDanmuPatternOverride = current.Session.TranslationDanmuPatternOverride;
+            manifest.Session.ConfigurationRevision = current.Session.ConfigurationRevision;
+            if (preserveRetention)
+            {
+                manifest.Session.IsPermanent = current.Session.IsPermanent;
+                manifest.Session.RetentionStartedAtUtc = current.Session.RetentionStartedAtUtc;
+            }
         }
 
         await JsonFiles.WriteAsync(path, manifest, cancellationToken);
+    }
+
+    internal static async Task<BroadcastSession> SetConfigurationAsync(SessionManifest fallback, string directory,
+        string? pattern, int expectedRevision, CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(directory, "场次.json");
+        await using var fileLock = await AcquireAsync(path, cancellationToken);
+        var manifest = File.Exists(path) ? await ReadCoreAsync(path, cancellationToken) : fallback;
+        if (expectedRevision != manifest.Session.ConfigurationRevision)
+        {
+            throw new InfrastructureException(MessageCode.SESSION_CONFIGURATION_CHANGED, 409);
+        }
+        if (!string.Equals(pattern, manifest.Session.TranslationDanmuPatternOverride, StringComparison.Ordinal))
+        {
+            manifest.Session.TranslationDanmuPatternOverride = pattern;
+            manifest.Session.ConfigurationRevision = checked(manifest.Session.ConfigurationRevision + 1);
+        }
+        await JsonFiles.WriteAsync(path, manifest, cancellationToken);
+        return manifest.Session;
     }
 
     internal static async Task SetPermanentAsync(SessionManifest fallback, string directory, bool isPermanent,

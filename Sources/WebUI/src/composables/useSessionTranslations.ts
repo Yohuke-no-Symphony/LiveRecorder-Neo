@@ -94,7 +94,7 @@ export function useSessionTranslations(sessionId: MaybeRefOrGetter<string>, dura
     }
   }
 
-  watch([() => toValue(sessionId), () => toValue(enabled), () => auth.user?.id, () => auth.user?.translationDanmuPattern], () =>
+  watch([() => toValue(sessionId), () => toValue(enabled), () => auth.user?.id], () =>
   {
     cancel()
     entries.value = []

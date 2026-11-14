@@ -20,7 +20,11 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
     private readonly LiveMarkerFileStore liveMarkers = new(paths);
 
     /// <summary>将同主播、不重叠的已结束场次归为一个目录条目。</summary>
-    public async Task<BroadcastSession> GroupAsync(string id, IReadOnlyCollection<string> otherIds, string? title, CancellationToken cancellationToken = default)
+    public Task<BroadcastSession> GroupAsync(string id, IReadOnlyCollection<string> otherIds, string? title, CancellationToken cancellationToken = default) =>
+        GroupAsync(id, otherIds, title, null, cancellationToken);
+
+    /// <summary>归组并在来源配置冲突时要求调用方明确提供统一配置。</summary>
+    public async Task<BroadcastSession> GroupAsync(string id, IReadOnlyCollection<string> otherIds, string? title, SessionGroupConfiguration? configuration, CancellationToken cancellationToken = default)
     {
         await gate.WaitAsync(cancellationToken);
         try
@@ -50,7 +54,17 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
                 }
             }
             var first = details[0].Session;
+            var patterns = details.Select(detail => detail.Session.TranslationDanmuPatternOverride).Distinct(StringComparer.Ordinal).ToArray();
+            if (configuration is null && patterns.Length > 1)
+            {
+                throw new InfrastructureException(MessageCode.GROUPING_CONFIGURATION_REQUIRED, 409);
+            }
+            if (configuration?.TranslationDanmuPatternOverride is { } pattern)
+            {
+                TranslationDanmuPattern.Create(pattern);
+            }
             var result = Projection(first, string.IsNullOrWhiteSpace(title) ? first.Title : title.Trim(), first.StartedAtUtc, details.Max(x => x.Session.EndedAtUtc!.Value), ids);
+            result.TranslationDanmuPatternOverride = configuration is null ? patterns[0] : configuration.TranslationDanmuPatternOverride;
             result.HasDanmu = details.Any(x => x.Session.HasDanmu);
             result.IsPermanent = details.Any(x => x.Session.IsPermanent);
             result.RetentionStartedAtUtc = details.Max(x => x.Session.RetentionStartedAtUtc);
@@ -228,6 +242,7 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
         LastMediaAtUtc = end,
         State = "Completed",
         HasDanmu = original.HasDanmu,
+        TranslationDanmuPatternOverride = original.TranslationDanmuPatternOverride,
         IsPermanent = original.IsPermanent,
         RetentionStartedAtUtc = original.RetentionStartedAtUtc,
         ProjectionReady = false,

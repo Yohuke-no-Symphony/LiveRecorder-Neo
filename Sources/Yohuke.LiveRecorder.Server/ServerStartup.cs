@@ -10,12 +10,14 @@ using Microsoft.AspNetCore.Localization;
 using Microsoft.Extensions.FileProviders;
 using MongoDB.Driver;
 using Yohuke.DanmuCore.Services;
+using Yohuke.LiveRecorder.AI;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Application.Library.LiveMarkers;
 using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Domain.Localization;
 using Yohuke.LiveRecorder.Infrastructure.Analytics;
+using Yohuke.LiveRecorder.Infrastructure.AI;
 using Yohuke.LiveRecorder.Infrastructure.Auth;
 using Yohuke.LiveRecorder.Infrastructure.Bilibili;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
@@ -101,6 +103,7 @@ public static class ServerStartup
         builder.Services.AddSingleton<LiveMarkerYamlParser>();
         builder.Services.AddSingleton<ISessionLiveMarkerService, SessionLiveMarkerService>();
         builder.Services.AddSingleton<SessionGroupingService>();
+        builder.Services.AddSingleton<SessionConfigurationService>();
         builder.Services.AddSingleton<SessionEventReader>();
         builder.Services.AddSingleton<StorageService>();
         builder.Services.AddSingleton<StorageUsageService>();
@@ -119,6 +122,8 @@ public static class ServerStartup
         builder.Services.AddHttpClient("artwork", client => client.Timeout = TimeSpan.FromSeconds(15)).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
         builder.Services.AddIdentityServices();
         builder.Services.AddLiveRecorderMedia();
+        builder.Services.AddLiveRecorderAi();
+        builder.Services.AddLiveRecorderAiInfrastructure();
         builder.Services.AddHostedService<DatabaseIndexWorker>();
         builder.Services.AddHostedService<RecordingSupervisor>();
         builder.Services.AddHostedService<MediaJobWorker>();
@@ -297,11 +302,13 @@ public static class ServerStartup
         app.MapIdentityEndpoints(developmentOrigins);
         app.MapBilibiliEndpoints();
         app.MapLibraryEndpoints();
+        app.MapSessionConfigurationEndpoints();
         app.MapSessionBookmarkEndpoints();
         app.MapSessionLiveMarkerEndpoints();
         app.MapEventArtworkEndpoints();
         app.MapSessionTimelineEndpoints();
         app.MapManagementEndpoints();
+        app.MapAiEndpoints();
         app.MapHub<StatusHub>("/hubs/status", options => options.CloseOnAuthenticationExpiration = true).RequireAuthorization();
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
         if (app.Environment.IsDevelopment())

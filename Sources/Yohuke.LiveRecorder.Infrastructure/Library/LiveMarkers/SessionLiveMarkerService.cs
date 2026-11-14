@@ -1,10 +1,14 @@
 using System.Globalization;
+using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
+using Yohuke.LiveRecorder.Application.AI;
 using Yohuke.LiveRecorder.Application.Library;
 using Yohuke.LiveRecorder.Application.Library.LiveMarkers;
 using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Domain.LiveMarkers;
+using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
+using Yohuke.LiveRecorder.Infrastructure.Persistence;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Library.LiveMarkers;
 
@@ -14,7 +18,8 @@ public sealed class SessionLiveMarkerService(
     ISettingsStore settingsStore,
     IAppPaths paths,
     LiveMarkerFileStore files,
-    LiveMarkerYamlParser parser) : ISessionLiveMarkerService
+    LiveMarkerYamlParser parser,
+    IMongoContext context) : ISessionLiveMarkerService
 {
     /// <inheritdoc/>
     public async Task<LiveMarkerFileListResponse> ListAsync(string sessionId, LiveMarkerActor actor,
@@ -104,6 +109,11 @@ public sealed class SessionLiveMarkerService(
         var detail = await RequireWritableAsync(sessionId, cancellationToken);
         var metadata = await files.ReadMetadataAsync(detail.Session.DirectoryPath, fileId, cancellationToken);
         RequireManager(metadata, actor);
+        if (metadata.GeneratedByAiJobId is { } jobId && await context.Collection<AiAnalysisJob>("ai_analysis_jobs")
+                .Find(job => job.Id == jobId && job.State == "Running" && job.PublicationStarted).AnyAsync(cancellationToken))
+        {
+            throw AiErrors.CreateException("AI_PUBLICATION_IN_PROGRESS", 409);
+        }
         cancellationToken.ThrowIfCancellationRequested();
         files.Delete(detail.Session.DirectoryPath, fileId);
     }

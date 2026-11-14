@@ -2,11 +2,13 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
+using Yohuke.LiveRecorder.Application.AI;
 using Yohuke.LiveRecorder.Application.Library;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Domain.Localization;
 using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Infrastructure.Files;
+using Yohuke.LiveRecorder.Infrastructure.AI;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Server.Configuration;
 using Yohuke.LiveRecorder.Server.Contracts;
@@ -44,6 +46,7 @@ public static class ManagementEndpoints
                 var request = ReadSettingsRequest(body, jsonOptions.Value.SerializerOptions);
                 Validate(request);
                 var previous = await settingsStore.GetAsync(ct);
+                request.Ai = AiSettingsSecrets.Protect(request.Ai, previous.Ai, protector);
                 request.Smtp.Password = string.IsNullOrEmpty(request.Smtp.Password)
                     ? previous.Smtp.Password
                     : protector.Protect(request.Smtp.Password);
@@ -58,6 +61,18 @@ public static class ManagementEndpoints
                 await settingsStore.SaveAsync(request, ct);
                 return Results.Ok(Redact(request));
             });
+        admin.MapPost("/ai/test", async (AiSettings request, ISettingsStore settingsStore, ISecretProtector protector, IAiConnectionTester tester, CancellationToken ct) =>
+        {
+            AiAnalysisPolicy.Validate(request);
+            if (string.IsNullOrWhiteSpace(request.Model))
+            {
+                throw AiErrors.CreateException("AI_MODEL_REQUIRED");
+            }
+            var previous = (await settingsStore.GetAsync(ct)).Ai;
+            var protectedSettings = AiSettingsSecrets.Protect(request, previous, protector);
+            var key = string.IsNullOrEmpty(protectedSettings.ApiKey) ? "" : protector.Unprotect(protectedSettings.ApiKey);
+            return Results.Ok(await tester.TestAsync(request, key, ct));
+        });
         return endpoints;
     }
 
@@ -110,6 +125,7 @@ public static class ManagementEndpoints
         var clone = JsonSerializer.Deserialize<ServerSettings>(JsonSerializer.Serialize(value, JsonFiles.Options),
             JsonFiles.Options)!;
         clone.Smtp.Password = "";
+        clone.Ai = AiSettingsSecrets.Redact(value.Ai);
         foreach (var provider in clone.OAuthProviders)
         {
             provider.ClientSecret = "";
@@ -120,6 +136,11 @@ public static class ManagementEndpoints
 
     private static void Validate(ServerSettings settings)
     {
+        if (settings.Ai is null)
+        {
+            throw AiErrors.CreateException("AI_SETTINGS_INVALID");
+        }
+        AiAnalysisPolicy.Validate(settings.Ai);
         TranslationDanmuPattern.Create(settings.TranslationDanmuPattern);
 
         if (settings.StreamDisconnectTimeoutMinutes is < 1 or > 1440)

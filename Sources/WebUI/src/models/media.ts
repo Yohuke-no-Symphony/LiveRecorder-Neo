@@ -34,6 +34,8 @@ export interface BroadcastSession extends Entity
   lastMediaAtUtc: string
   state: string
   hasDanmu: boolean
+  translationDanmuPatternOverride?: string | null
+  configurationRevision?: number
   totalBytes: number
   error?: string | null
   isTrashed: boolean
@@ -182,6 +184,9 @@ export interface StorageVolume
 
 export interface Analytics
 {
+  fromMs: number
+  toMs: number
+  online: OnlineAnalytics
   observedAmount: number
   goldGiftValue: number
   protocolPaidAmount: number
@@ -255,6 +260,28 @@ export interface AnalyticsBucket
   danmuUsers: number
   payingUsers: number
   superChatAmount: number
+  superChatCount: number
+  onlineAverage: number | null
+  onlinePeak: number | null
+  onlineObservedMs: number
+  durationMs: number
   giftAmount: number
   guardAmount: number
+}
+
+export interface OnlineAnalytics
+{
+  peak: number | null
+  average: number | null
+  observedMs: number
+  rangeMs: number
+  coverageRate: number
+  intervals: OnlineInterval[]
+}
+
+export interface OnlineInterval
+{
+  fromMs: number
+  toMs: number
+  count: number
 }

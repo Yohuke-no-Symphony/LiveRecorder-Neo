@@ -65,20 +65,6 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
     }
 
     /// <inheritdoc />
-    public async Task<UserProfile> SetTranslationDanmuPatternAsync(string id, TranslationDanmuPatternRequest request, CancellationToken cancellationToken = default)
-    {
-        if (request.Pattern is not null)
-        {
-            TranslationDanmuPattern.Create(request.Pattern);
-        }
-        var user = await Users.FindOneAndUpdateAsync(x => x.Id == id && x.Status == "Active",
-            Builders<UserAccount>.Update.Set(x => x.TranslationDanmuPattern, request.Pattern).Set(x => x.UpdatedAtUtc, DateTime.UtcNow),
-            new FindOneAndUpdateOptions<UserAccount> { ReturnDocument = ReturnDocument.After }, cancellationToken)
-            ?? throw new InfrastructureException(MessageCode.AUTH_USER_NOT_FOUND, 404);
-        return Profile(user);
-    }
-
-    /// <inheritdoc />
     public async Task<UserProfile?> ValidateSessionAsync(string id, CancellationToken cancellationToken = default)
     {
         var profile = await GetUserAsync(id, cancellationToken);
@@ -579,7 +565,6 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
     private static string ExternalId(string provider, string subject) => IdentityToken.Hash($"{provider}\n{subject}");
     private static UserProfile Profile(UserAccount user) => new(user.Id, user.Email, user.DisplayName, user.AvatarUrl, user.Role, user.Status, user.Language)
     {
-        TranslationDanmuPattern = user.TranslationDanmuPattern,
         Permissions = user.Role == "Admin"
             ? PermissionCatalog.All
             : user.Permissions

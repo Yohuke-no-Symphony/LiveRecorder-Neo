@@ -176,7 +176,7 @@ public sealed class LiveMarkerGroupingTests
     }
 
     private static SessionLiveMarkerService Records(GroupingFixture fixture) => new(fixture.Library, fixture.Settings,
-        fixture.Paths, new(fixture.Paths), new());
+        fixture.Paths, new(fixture.Paths), new(), fixture.Mongo);
 
     private static async Task<LiveMarkerFileSummary> UploadAsync(SessionLiveMarkerService service, string sessionId,
         LiveMarkerActor actor, long alignment = 0)

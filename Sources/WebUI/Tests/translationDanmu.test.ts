@@ -9,7 +9,7 @@ import SessionPlaybackSidebar from '../src/components/player/SessionPlaybackSide
 import type { EventPage, RecordedEvent } from '../src/models/media'
 import { i18n } from '../src/plugins/i18n'
 
-const auth = reactive({ user: { id: 'user-1', translationDanmuPattern: null as string | null } })
+const auth = reactive({ user: { id: 'user-1' }, canConfigureRecordings: false })
 vi.mock('../src/stores/auth', () => ({ useAuthStore: () => auth }))
 const mounted: VueWrapper[] = []
 const container = defineComponent({ setup: (_, { slots }) => () => h('div', slots.default?.()) })
@@ -55,7 +55,8 @@ function setupFeed(options: { active?: boolean; enabled?: boolean; live?: boolea
 
 beforeEach(() =>
 {
-  auth.user = { id: 'user-1', translationDanmuPattern: null }
+  auth.user = { id: 'user-1' }
+  auth.canConfigureRecordings = false
   i18n.global.locale.value = 'zh-CN'
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
 })
@@ -136,7 +137,7 @@ describe('全场同传查询', () =>
     expect(context.feed.loading.value).toBe(false)
   })
 
-  it.each(['session', 'account', 'pattern'] as const)('变更 %s 时清空旧列表且阻止旧请求回写', async scope =>
+  it.each(['session', 'account'] as const)('变更 %s 时清空旧列表且阻止旧请求回写', async scope =>
   {
     const old = deferred<EventPage>()
     const next = deferred<EventPage>()
@@ -145,8 +146,7 @@ describe('全场同传查询', () =>
     await flushPromises()
     void context.feed.refresh()
     if (scope === 'session') { context.id.value = 'session-2' }
-    else if (scope === 'account') { auth.user.id = 'user-2' }
-    else { auth.user.translationDanmuPattern = '^EN:' }
+    else { auth.user.id = 'user-2' }
     await nextTick()
     expect(context.feed.entries.value).toEqual([])
     expect(context.feed.hasSnapshot.value).toBe(false)
@@ -226,6 +226,22 @@ describe('全场同传查询', () =>
 
 describe('同传列表和播放侧栏', () =>
 {
+  it('仅配置授权者显示录像设置入口，版本变化后重查共享规则', async () =>
+  {
+    const read = vi.spyOn(MediaAPI, 'events').mockResolvedValue({ items: [] })
+    const wrapper = mount(SessionTranslationPanel, { props: { sessionId: 'session-1', durationMs: 180000, enabled: true, isLive: false, configurationRevision: 1 }, global: { plugins: [i18n], stubs } })
+    mounted.push(wrapper)
+    await flushPromises()
+    expect(wrapper.find('[aria-label="录像配置"]').exists()).toBe(false)
+    auth.canConfigureRecordings = true
+    await nextTick()
+    await wrapper.get('[aria-label="录像配置"]').trigger('click')
+    expect(wrapper.emitted('configure')).toEqual([[]])
+    await wrapper.setProps({ configurationRevision: 2 })
+    await flushPromises()
+    expect(read).toHaveBeenCalledTimes(2)
+  })
+
   it('显示全文与发送者，点击整行按毫秒发送跳转且不解释 HTML', async () =>
   {
     const text = '译者【<script>alert(1)</script>】后缀'

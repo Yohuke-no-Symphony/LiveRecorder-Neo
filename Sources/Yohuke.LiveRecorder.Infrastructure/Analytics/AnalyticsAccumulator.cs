@@ -14,7 +14,7 @@ public sealed class AnalyticsAccumulator
     private readonly HashSet<string> baselineRows = new(StringComparer.Ordinal);
     private readonly Dictionary<string, AnalyticsGiftCombo> combos = new(StringComparer.Ordinal);
     private readonly Dictionary<string, AnalyticsMoneyObservation> money = new(StringComparer.Ordinal);
-    private readonly HashSet<string> baselineRedPockets = new(StringComparer.Ordinal);
+    private readonly HashSet<string> baselineInteractions = new(StringComparer.Ordinal);
     private int coverageGaps;
     private long anonymous;
 
@@ -28,7 +28,7 @@ public sealed class AnalyticsAccumulator
         if (item.Kind is "Gap" or "Error")
         {
             var key = InteractionKey(item);
-            if (key.Length == 0 || events.Add(key))
+            if (!baselineInteractions.Contains(key) && (key.Length == 0 || events.Add(key)))
             {
                 coverageGaps++;
             }
@@ -58,6 +58,11 @@ public sealed class AnalyticsAccumulator
         {
             return;
         }
+        if (item.Kind is "Danmu" or "Gift" or "SuperChat" or "Guard" or "RedPocket" or "Gap" or "Error" &&
+            InteractionKey(item) is { Length: > 0 } interactionKey)
+        {
+            baselineInteractions.Add(interactionKey);
+        }
         if (item.Kind == "Gift")
         {
             AddGift(item, true);
@@ -66,16 +71,12 @@ public sealed class AnalyticsAccumulator
         {
             AddPayment(item, true);
         }
-        else if (item.Kind == "RedPocket" && InteractionKey(item) is { Length: > 0 } key)
-        {
-            baselineRedPockets.Add(key);
-        }
     }
 
     private void CountInteraction(RecordedEventEnvelope item, bool isTranslation)
     {
         var key = InteractionKey(item);
-        if (item.Kind == "RedPocket" && baselineRedPockets.Contains(key))
+        if (baselineInteractions.Contains(key))
         {
             return;
         }

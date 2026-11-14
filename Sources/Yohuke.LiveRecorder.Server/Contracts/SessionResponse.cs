@@ -19,6 +19,8 @@ public sealed class SessionResponse(BroadcastSession session, DateTime? expiresA
     public DateTime LastMediaAtUtc => session.LastMediaAtUtc;
     public string State => session.State;
     public bool HasDanmu => session.HasDanmu;
+    public string? TranslationDanmuPatternOverride => session.TranslationDanmuPatternOverride;
+    public int ConfigurationRevision => session.ConfigurationRevision;
     public long TotalBytes => session.TotalBytes;
     public string? Error => session.Error;
     public string? ErrorCode => session.ErrorCode;

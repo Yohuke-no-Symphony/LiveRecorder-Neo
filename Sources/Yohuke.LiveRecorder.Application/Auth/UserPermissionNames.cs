@@ -11,7 +11,10 @@ public static class UserPermissionNames
     public const string CREATE_CLIPS = PermissionIds.CREATE_CLIPS;
     public const string UPLOAD_LIVE_MARKERS = PermissionIds.UPLOAD_LIVE_MARKERS;
     public const string MANAGE_LIVE_MARKERS = PermissionIds.MANAGE_LIVE_MARKERS;
+    public const string GENERATE_LIVE_MARKERS = PermissionIds.GENERATE_LIVE_MARKERS;
     public const string MANAGE_RECORDINGS = PermissionIds.MANAGE_RECORDINGS;
+    public const string CONFIGURE_RECORDINGS = PermissionIds.CONFIGURE_RECORDINGS;
     public const string VIEW_ANALYTICS = PermissionIds.VIEW_ANALYTICS;
+    public const string GENERATE_ANALYTICS = PermissionIds.GENERATE_ANALYTICS;
     public const string PURGE_RECORDINGS = PermissionIds.PURGE_RECORDINGS;
 }

@@ -103,7 +103,7 @@ public static class LibraryEndpoints
             return await ImageAsync(session.CoverUrl, artwork, ct);
         });
         viewing.MapPost("/sessions/{id}/playback", async (string id, PlaybackRequest request, PlaybackService playback, CancellationToken ct) => Results.Ok(await playback.OpenAsync(id, request.OffsetMs, ct)));
-        viewing.MapGet("/sessions/{id}/events", async (string id, double? fromMs, double? toMs, string? kind, long? cursor, int? limit, bool? translationsOnly, HttpContext http, LibraryService library, IAppPaths paths, SessionEventReader reader, IIdentityService identity, ISettingsStore settingsStore, CancellationToken ct) =>
+        viewing.MapGet("/sessions/{id}/events", async (string id, double? fromMs, double? toMs, string? kind, long? cursor, int? limit, bool? translationsOnly, LibraryService library, IAppPaths paths, SessionEventReader reader, ISettingsStore settingsStore, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
             var from = fromMs ?? 0;
@@ -115,9 +115,7 @@ public static class LibraryEndpoints
             Regex? textPattern = null;
             if (translationsOnly == true)
             {
-                var user = await identity.GetUserAsync(Owner(http), ct)
-                    ?? throw new InfrastructureException(MessageCode.AUTH_USER_NOT_FOUND, 404);
-                var pattern = user.TranslationDanmuPattern ?? (await settingsStore.GetAsync(ct)).TranslationDanmuPattern;
+                var pattern = TranslationDanmuPattern.Resolve(detail.Session, await settingsStore.GetAsync(ct));
                 textPattern = TranslationDanmuPattern.Create(pattern);
                 kind = "Danmu";
             }
@@ -130,16 +128,19 @@ public static class LibraryEndpoints
                 throw new InfrastructureException(MessageCode.TRANSLATION_DANMU_PATTERN_TIMEOUT);
             }
         });
-        viewing.MapGet("/sessions/{id}/analytics", async (string id, HttpContext http, LibraryService library, IAppPaths paths, AnalyticsService analytics, IIdentityService identity, ISettingsStore settingsStore, CancellationToken ct) =>
+        viewing.MapGet("/sessions/{id}/analytics", async (string id, double? fromMs, double? toMs, LibraryService library, IAppPaths paths, AnalyticsService analytics, ISettingsStore settingsStore, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
-            var user = await identity.GetUserAsync(Owner(http), ct)
-                ?? throw new InfrastructureException(MessageCode.AUTH_USER_NOT_FOUND, 404);
-            var pattern = user.TranslationDanmuPattern ?? (await settingsStore.GetAsync(ct)).TranslationDanmuPattern;
+            if (fromMs is { } from && (!double.IsFinite(from) || from < 0 || from >= detail.DurationMs)
+                || toMs is { } to && (!double.IsFinite(to) || to <= (fromMs ?? 0) || to > detail.DurationMs))
+            {
+                throw new InfrastructureException(MessageCode.LIBRARY_EVENT_RANGE_INVALID);
+            }
+            var pattern = TranslationDanmuPattern.Resolve(detail.Session, await settingsStore.GetAsync(ct));
             try
             {
-                var report = await analytics.GetAsync(detail.Session, paths.RecordsDirectory, detail.DurationMs, pattern, ct);
-                report.CoverageGaps = Math.Max(report.CoverageGaps, detail.Gaps.Count);
+                var report = await analytics.GetAsync(detail.Session, paths.RecordsDirectory, detail.DurationMs, pattern, fromMs, toMs, ct);
+                report.CoverageGaps = Math.Max(report.CoverageGaps, detail.Gaps.Count(gap => gap.StartMs < (toMs ?? detail.DurationMs) && gap.EndMs > (fromMs ?? 0)));
                 return Results.Ok(report);
             }
             catch (RegexMatchTimeoutException)
@@ -336,8 +337,15 @@ public static class LibraryEndpoints
         var admin = api.MapGroup("").RequireAuthorization(policy => policy.RequireRole("Admin"));
         admin.MapGet("/storage/details", async (bool? refresh, StorageUsageService storage, StorageUsageMetadataService metadata, CancellationToken ct) =>
             Results.Ok(await metadata.EnrichAsync(await storage.GetDetailsAsync(refresh ?? false, ct), ct)));
-        admin.MapPost("/sessions/{id}/group", async (string id, SessionGroupRequest request, SessionGroupingService grouping, CancellationToken ct) => Results.Ok(await grouping.GroupAsync(id, request.SessionIds, request.Title, ct)));
-        admin.MapPost("/sessions/{id}/split", async (string id, SessionSplitRequest request, SessionGroupingService grouping, CancellationToken ct) => Results.Ok(new { sessions = await grouping.SplitAsync(id, request.BeforeSegmentId, ct) }));
+        recordings.MapPost("/sessions/{id}/group", async (string id, SessionGroupRequest request, HttpContext http, SessionGroupingService grouping, CancellationToken ct) =>
+        {
+            if (request.Configuration is not null && !http.User.IsInRole("Admin") && !http.User.HasClaim(UserPermissionNames.CLAIM_TYPE, PermissionIds.CONFIGURE_RECORDINGS))
+            {
+                return Results.Forbid();
+            }
+            return Results.Ok(await grouping.GroupAsync(id, request.SessionIds, request.Title, request.Configuration, ct));
+        });
+        recordings.MapPost("/sessions/{id}/split", async (string id, SessionSplitRequest request, SessionGroupingService grouping, CancellationToken ct) => Results.Ok(new { sessions = await grouping.SplitAsync(id, request.BeforeSegmentId, ct) }));
         admin.MapPost("/streamers", async (TargetRequest request, IMongoContext context, IBilibiliService bilibili, CancellationToken ct) =>
         {
             if (request.RoomId <= 0)

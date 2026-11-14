@@ -2,6 +2,9 @@ import type { MessageSchema } from '@/localization/types'
 
 export const liveMarkersZh = {
   title: '直播记录', eventsTab: '弹幕', recordsTab: '直播记录', selectFile: '记录文件',
+  generate: '生成直播记录', aiActions: 'AI直播记录', generationDetails: '直播记录生成详情',
+  generating: '生成中', cancelGeneration: '取消生成', viewGenerated: '查看直播记录',
+  aiEmpty: '尚无生成任务。', aiEndedOnly: '录像结束后可生成直播记录。', aiFailed: '生成未完成，可重新发起。',
   upload: '上传记录', uploadTitle: '上传直播记录', file: 'DanmuNeo 记录文件',
   fileHint: '支持 YAML / YML，最大 5 MiB、20,000 条记录。',
   sourceTimeZone: '无时区日期的来源时区', timeZoneHint: '仅用于未包含时区的日期，例如 Asia/Shanghai 或 UTC。',
@@ -10,6 +13,7 @@ export const liveMarkersZh = {
   align: '校准时间', alignmentTitle: '校准直播记录', save: '保存', cancel: '取消', refresh: '刷新记录',
   delete: '删除记录文件', deleteConfirm: '永久删除当前录像中的“{name}”及其导入记录？此操作不可恢复，不影响其他录像中的副本。',
   emptyFiles: '暂无直播记录', emptyEntries: '这份文件没有记录', loadFailed: '直播记录加载失败',
+  fileMissing: '记录文件已删除或不存在',
   fileInfo: '{uploader} · {uploadedAt} · {count} 条', unknownUploader: '已删除用户',
   liveTime: '直播内 {time}', recordingTime: '录像 {time}', outOfRange: '不在当前录像范围内',
   jump: '跳转到 {time}：{message}', count: '{count} 条记录', loading: '正在加载直播记录',
@@ -18,6 +22,9 @@ export const liveMarkersZh = {
 
 export const liveMarkersEn: MessageSchema<typeof liveMarkersZh> = {
   title: 'Live notes', eventsTab: 'Chat', recordsTab: 'Live notes', selectFile: 'Notes file',
+  generate: 'Generate live notes', aiActions: 'AI live notes', generationDetails: 'Live notes generation details',
+  generating: 'Generating', cancelGeneration: 'Cancel generation', viewGenerated: 'View live notes',
+  aiEmpty: 'No generation task yet.', aiEndedOnly: 'Live notes can be generated after recording ends.', aiFailed: 'Generation did not finish. You can try again.',
   upload: 'Upload notes', uploadTitle: 'Upload live notes', file: 'DanmuNeo notes file',
   fileHint: 'YAML / YML, up to 5 MiB and 20,000 entries.',
   sourceTimeZone: 'Time zone for dates without an offset', timeZoneHint: 'Only applies to dates without a time zone, e.g. Asia/Shanghai or UTC.',
@@ -26,6 +33,7 @@ export const liveMarkersEn: MessageSchema<typeof liveMarkersZh> = {
   align: 'Adjust timing', alignmentTitle: 'Adjust live notes timing', save: 'Save', cancel: 'Cancel', refresh: 'Refresh notes',
   delete: 'Delete notes file', deleteConfirm: 'Permanently delete “{name}” and its imported notes from this recording? This cannot be undone. Copies in other recordings are unaffected.',
   emptyFiles: 'No live notes yet', emptyEntries: 'This file has no entries', loadFailed: 'Failed to load live notes',
+  fileMissing: 'This notes file was deleted or does not exist.',
   fileInfo: '{uploader} · {uploadedAt} · {count} entries', unknownUploader: 'Deleted user',
   liveTime: 'Live {time}', recordingTime: 'Recording {time}', outOfRange: 'Outside this recording',
   jump: 'Jump to {time}: {message}', count: '{count} notes', loading: 'Loading live notes',
@@ -34,6 +42,9 @@ export const liveMarkersEn: MessageSchema<typeof liveMarkersZh> = {
 
 export const liveMarkersJa: MessageSchema<typeof liveMarkersZh> = {
   title: '配信記録', eventsTab: 'コメント', recordsTab: '配信記録', selectFile: '記録ファイル',
+  generate: '配信記録を生成', aiActions: 'AI配信記録', generationDetails: '配信記録生成の詳細',
+  generating: '生成中', cancelGeneration: '生成を中止', viewGenerated: '配信記録を見る',
+  aiEmpty: '生成タスクはまだありません。', aiEndedOnly: '録画終了後に配信記録を生成できます。', aiFailed: '生成が完了しませんでした。再実行できます。',
   upload: '記録をアップロード', uploadTitle: '配信記録をアップロード', file: 'DanmuNeo 記録ファイル',
   fileHint: 'YAML / YML、最大 5 MiB・20,000 件。',
   sourceTimeZone: '時差表記のない日時のタイムゾーン', timeZoneHint: 'タイムゾーンのない日時にのみ適用されます。例：Asia/Shanghai、UTC。',
@@ -42,6 +53,7 @@ export const liveMarkersJa: MessageSchema<typeof liveMarkersZh> = {
   align: '時間を調整', alignmentTitle: '配信記録の時間を調整', save: '保存', cancel: 'キャンセル', refresh: '記録を更新',
   delete: '記録ファイルを削除', deleteConfirm: 'この録画の「{name}」と取り込んだ記録を完全に削除しますか？元に戻せません。他の録画のコピーには影響しません。',
   emptyFiles: '配信記録はまだありません', emptyEntries: 'このファイルに記録はありません', loadFailed: '配信記録を読み込めませんでした',
+  fileMissing: 'この記録ファイルは削除されたか、存在しません。',
   fileInfo: '{uploader} · {uploadedAt} · {count} 件', unknownUploader: '削除されたユーザー',
   liveTime: '配信内 {time}', recordingTime: '録画 {time}', outOfRange: 'この録画の範囲外',
   jump: '{time} に移動：{message}', count: '記録 {count} 件', loading: '配信記録を読み込み中',

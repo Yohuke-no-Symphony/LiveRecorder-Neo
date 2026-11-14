@@ -18,9 +18,12 @@ export const PERMISSIONS = {
   downloadRecordings: 'recordings.download',
   createClips: 'clips.create',
   uploadLiveMarkers: 'live-markers.upload',
+  generateLiveMarkers: 'live-markers.generate',
   manageLiveMarkers: 'live-markers.manage',
   manageRecordings: 'recordings.manage',
+  configureRecordings: 'recordings.configure',
   viewAnalytics: 'analytics.view',
+  generateAnalytics: 'analytics.generate',
   purgeRecordings: 'recordings.purge',
 } as const
 
@@ -34,7 +37,6 @@ export interface UserProfile
   status: 'Active' | 'Pending' | 'Rejected' | 'Disabled'
   avatarUrl?: string | null
   language?: AppLanguage | null
-  translationDanmuPattern?: string | null
 }
 
 export interface UserSession

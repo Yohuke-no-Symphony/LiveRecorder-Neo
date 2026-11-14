@@ -39,6 +39,11 @@
               </v-tooltip>
             </div>
             <div class="session-actions">
+              <v-tooltip v-if="auth.canConfigureRecordings" :text="t('shell.recordingConfiguration.title')" location="top">
+                <template #activator="{ props: tooltipProps }">
+                  <v-btn v-bind="tooltipProps" icon="mdi-cog-outline" size="40" variant="tonal" :aria-label="t('shell.recordingConfiguration.title')" @click="configurationOpen = true" />
+                </template>
+              </v-tooltip>
               <v-tooltip v-if="auth.canManageRecordings" :text="t(detail.session.isPermanent ? 'shell.retention.cancelPermanent' : 'shell.retention.keepPermanent')" location="top">
                 <template #activator="{ props: tooltipProps }">
                   <v-btn v-bind="tooltipProps" icon="mdi-shield-check-outline" size="40" variant="tonal" :aria-label="t(detail.session.isPermanent ? 'shell.retention.cancelPermanent' : 'shell.retention.keepPermanent')" :loading="retentionBusy" @click="setPermanent" />
@@ -54,7 +59,7 @@
                   <v-btn v-bind="tooltipProps" icon="mdi-content-cut" size="40" color="primary" :aria-label="t('views.session.createClip')" :disabled="detail.durationMs <= 0 || clipSelectionInvalid" @click="clipOpen = true" />
                 </template>
               </v-tooltip>
-              <v-menu v-if="auth.isAdmin && isFinished">
+              <v-menu v-if="auth.canManageRecordings && isFinished">
                 <template #activator="{ props: menuProps }">
                   <v-tooltip :text="t('views.session.actions')" location="top">
                     <template #activator="{ props: tooltipProps }">
@@ -65,9 +70,9 @@
                 <v-list density="compact">
                   <v-list-item :title="t('views.session.group')" prepend-icon="mdi-folder-multiple-outline" @click="groupOpen = true" />
                   <v-list-item :title="t('views.session.split')" prepend-icon="mdi-call-split" :disabled="detail.segments.length < 2" @click="splitOpen = true" />
-                  <v-divider />
-                  <v-list-item :title="t('views.session.repair')" prepend-icon="mdi-wrench-outline" @click="openMaintenance('Repair')" />
-                  <v-list-item :title="t('views.session.merge')" prepend-icon="mdi-call-merge" @click="openMaintenance('Merge')" />
+                  <v-divider v-if="auth.isAdmin" />
+                  <v-list-item v-if="auth.isAdmin" :title="t('views.session.repair')" prepend-icon="mdi-wrench-outline" @click="openMaintenance('Repair')" />
+                  <v-list-item v-if="auth.isAdmin" :title="t('views.session.merge')" prepend-icon="mdi-call-merge" @click="openMaintenance('Merge')" />
                 </v-list>
               </v-menu>
             </div>
@@ -92,14 +97,15 @@
           </v-expansion-panels>
         </v-card>
       </div>
-      <SessionPlaybackSidebar class="playback-feed" :navigation-revision="feedNavigationRevision" :session-id="id" :offset-ms="offsetMs" :duration-ms="detail.durationMs" :has-danmu="detail.session.hasDanmu" :is-live="isLive" :editable="bookmarksEditable" @seek="player?.seek($event)" />
+      <SessionPlaybackSidebar class="playback-feed" :navigation-revision="feedNavigationRevision" :session-id="id" :offset-ms="offsetMs" :duration-ms="detail.durationMs" :has-danmu="detail.session.hasDanmu" :is-live="isLive" :editable="bookmarksEditable" :configuration-revision="detail.session.configurationRevision" :ended="isFinished" :live-marker-file-id="requestedMarkerFileId" :show-live-markers="route.query.panel === 'markers'" @seek="player?.seek($event)" @configure="configurationOpen = true" />
     </div>
     <ClipDialog v-if="auth.canCreateClips" v-model="clipOpen" :session-id="id" :session-title="detail.session.title" :current-ms="offsetMs" :duration-ms="detail.durationMs" :selection="clipSelection" :bookmarks="bookmarks" @created="onClipCreated" />
     <SessionDownloadDialog v-if="auth.canDownloadRecordings" v-model="downloadOpen" :session-id="id" :session-title="detail.session.title" :segments="detail.segments" />
     <SessionBookmarkDialog v-model="bookmarkOpen" :bookmark="editingBookmark" :offset-ms="bookmarkOffsetMs" :duration-ms="detail.durationMs" :busy="bookmarkSaving" :error="bookmarksError" @save="saveBookmark" />
     <ConfirmDialog :model-value="!!deletingBookmark" :title="t('components.bookmarks.delete')" :message="t('components.bookmarks.deleteConfirm', { title: deletingBookmark?.title ?? '' })" :action-label="t('components.bookmarks.delete')" :busy="bookmarkSaving" :error="bookmarksError" danger @update:model-value="!$event && (deletingBookmark = undefined)" @confirm="deleteBookmark" />
-    <SessionGroupDialog v-if="groupOpen && auth.isAdmin && isFinished" v-model="groupOpen" :session="detail.session" @grouped="router.replace(`/sessions/${$event.id}`)" />
-    <SessionSplitDialog v-if="splitOpen && auth.isAdmin && isFinished" v-model="splitOpen" :session-id="id" :segments="detail.segments" @split="router.replace(`/streamers/${detail.session.streamerId}`)" />
+    <SessionConfigurationDialog v-if="auth.canConfigureRecordings" v-model="configurationOpen" :session-id="id" @saved="onConfigurationSaved" />
+    <SessionGroupDialog v-if="groupOpen && auth.canManageRecordings && isFinished" v-model="groupOpen" :session="detail.session" @grouped="router.replace(`/sessions/${$event.id}`)" />
+    <SessionSplitDialog v-if="splitOpen && auth.canManageRecordings && isFinished" v-model="splitOpen" :session-id="id" :segments="detail.segments" @split="router.replace(`/streamers/${detail.session.streamerId}`)" />
     <v-dialog v-model="maintenanceOpen" max-width="580" :aria-label="maintenanceKind === 'Repair' ? t('views.session.repair') : t('views.session.merge')"><ContentCard :title="maintenanceKind === 'Repair' ? t('views.session.repair') : t('views.session.merge')"><div class="maintenance-segments"><v-checkbox v-for="(segment, index) in detail.segments.filter(item => item.isClosed)" :key="segment.id" v-model="selectedSegments" :value="segment.id" :label="t('views.session.segmentDescription', { number: String(index + 1).padStart(2, '0'), start: formatDuration(segment.startOffsetMs, true), size: formatBytes(segment.committedBytes) })" /></div><v-alert v-if="maintenanceError" type="error" class="mt-4">{{ maintenanceError }}</v-alert><template #actions><v-btn variant="text" @click="maintenanceOpen = false">{{ t('views.common.cancel') }}</v-btn><v-btn color="primary" :loading="maintenanceBusy" :disabled="!selectedSegments.length" @click="createMaintenance">{{ t('views.session.createJob') }}</v-btn></template></ContentCard></v-dialog>
     <v-snackbar v-model="jobCreated" color="surface-variant">{{ t('views.session.jobCreated') }}<template #actions><v-btn color="primary" to="/jobs">{{ t('views.session.view') }}</v-btn></template></v-snackbar>
   </template>
@@ -116,6 +122,7 @@ import { usePolling } from '@/composables/usePolling'
 import { useSessionTimeline } from '@/composables/useSessionTimeline'
 import type { SessionDetail, Streamer } from '@/models/media'
 import type { SessionBookmark } from '@/models/sessionBookmark'
+import type { SessionConfiguration } from '@/models/sessionConfiguration'
 import type { ClipSelection } from '@/models/clipSelection'
 import { useSessionBookmarks } from '@/composables/useSessionBookmarks'
 import { clampOffset } from '@/utilities/timeline'
@@ -134,6 +141,7 @@ import StatusChip from '@/components/common/StatusChip.vue'
 import SessionExpiry from '@/components/library/SessionExpiry.vue'
 import SessionGroupDialog from '@/components/library/SessionGroupDialog.vue'
 import SessionSplitDialog from '@/components/library/SessionSplitDialog.vue'
+import SessionConfigurationDialog from '@/components/library/SessionConfigurationDialog.vue'
 
 const { t } = useI18n()
 
@@ -147,9 +155,11 @@ const streamer = computed(() => streamers.value.find(item => item.id === detail.
 const offsetMs = ref(0)
 const feedNavigationRevision = ref(0)
 const initialOffset = Math.max(0, Number(route.query.at) || 0)
+const requestedMarkerFileId = computed(() => typeof route.query.liveMarkerFileId === 'string' && route.query.liveMarkerFileId ? route.query.liveMarkerFileId : undefined)
 const player = ref<InstanceType<typeof MediaPlayer>>()
 const clipOpen = ref(false)
 const downloadOpen = ref(false)
+const configurationOpen = ref(false)
 const clipSelection = ref<ClipSelection>({})
 const clipSelectionInvalid = computed(() =>
 {
@@ -195,6 +205,20 @@ async function setPermanent(): Promise<void>
       detail.value = { ...detail.value, session: { ...detail.value.session, isPermanent: updated.isPermanent, expiresAtUtc: updated.expiresAtUtc } }
     }
   })
+}
+function onConfigurationSaved(configuration: SessionConfiguration): void
+{
+  if (detail.value)
+  {
+    detail.value = {
+      ...detail.value,
+      session: {
+        ...detail.value.session,
+        translationDanmuPatternOverride: configuration.translationDanmuPatternOverride,
+        configurationRevision: configuration.revision,
+      },
+    }
+  }
 }
 function setClipStart(value: number): void
 {

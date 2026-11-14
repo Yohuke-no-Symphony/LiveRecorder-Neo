@@ -5,7 +5,6 @@
       <v-card class="card-content" data-stat="translationCount"><div class="stat-label">{{ t('views.analytics.translationTotal') }}</div><div class="stat-value mt-3">{{ formatNumber(report.count) }}</div></v-card>
       <v-card class="card-content" data-stat="translationUsers"><div class="stat-label">{{ t('views.analytics.translationUsers') }}</div><div class="stat-value mt-3">{{ formatNumber(report.users) }}</div></v-card>
     </div>
-    <p class="text-caption muted mb-6">{{ t('views.analytics.translationExplanation') }}</p>
     <ContentCard class="mb-6"><ActivityChart mode="translations" :buckets="report.buckets" :duration-ms="durationMs" /></ContentCard>
     <v-card class="translation-ranking">
       <CardHeader :title="t('views.analytics.translationUsers')"><template #suffix><span class="text-caption muted">{{ t('views.analytics.leaderboardLimit') }}</span></template></CardHeader>

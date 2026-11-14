@@ -12,8 +12,9 @@ import SessionLiveMarkerUploadDialog from '../src/components/player/SessionLiveM
 import SessionLiveMarkerAlignmentDialog from '../src/components/player/SessionLiveMarkerAlignmentDialog.vue'
 import { canSeekLiveMarker, formatLiveMarkerOffset, parseLiveMarkerCalibration } from '../src/utilities/liveMarkers'
 
-const auth = vi.hoisted(() => ({ canUploadLiveMarkers: true }))
+const auth = vi.hoisted(() => ({ canUploadLiveMarkers: true, canViewRecordings: true, canGenerateLiveMarkers: false }))
 vi.mock('../src/stores/auth', () => ({ useAuthStore: () => auth }))
+vi.mock('../src/apis/AiAnalysisAPI', () => ({ AiAnalysisAPI: { liveMarkerStatus: vi.fn().mockResolvedValue({ enabled: false, canGenerate: false, currentJob: null, latestCompleted: null, latestPartial: null, stale: false }) } }))
 
 const mounted: VueWrapper[] = []
 const container = defineComponent({ setup: (_, { slots }) => () => h('div', slots.default?.()) })
@@ -69,6 +70,7 @@ const stubs = {
   VCard: container, VCardText: container, VDialog: dialog, VBtn: button, VAlert: container,
   VFileInput: fileInput, VTextField: textField, VSelect: select, VVirtualScroll: virtualScroll,
   VIcon: true, VProgressLinear: true, VTooltip: { template: '<slot name="activator" :props="{}" />' },
+  AiLiveMarkerActions: true, AiAnalysisDetailsDialog: true,
 }
 
 function file(id: string, values: Partial<LiveMarkerFile> = {}): LiveMarkerFile

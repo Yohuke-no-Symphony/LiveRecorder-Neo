@@ -11,7 +11,6 @@ export const AuthAPI = {
   permissions: () => request<PermissionDefinition[]>('auth/permissions'),
   me: () => request<UserSession>('auth/me'),
   setLanguage: (language: AppLanguage | null) => put<UserProfile>('auth/language', { language }),
-  setTranslationDanmuPattern: (pattern: string | null) => put<UserProfile>('auth/translation-danmu-pattern', { pattern }),
   login: (email: string, password: string) => post<UserSession>('auth/login', { email, password }),
   logout: () => post<void>('auth/logout'),
   emailCode: (email: string) => post<void>('auth/email-code', { email, purpose: 'register' }),

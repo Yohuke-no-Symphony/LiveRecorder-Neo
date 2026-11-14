@@ -21,10 +21,13 @@ const definitions: PermissionDefinition[] = [
   ['recordings.download', 'recordings', 'downloadRecordings'],
   ['clips.create', 'recordings', 'createClips'],
   ['recordings.manage', 'recordings', 'manageRecordings'],
+  ['recordings.configure', 'recordings', 'configureRecordings'],
   ['recordings.purge', 'recordings', 'purgeRecordings'],
   ['live-markers.upload', 'liveMarkers', 'uploadLiveMarkers'],
+  ['live-markers.generate', 'liveMarkers', 'generateLiveMarkers'],
   ['live-markers.manage', 'liveMarkers', 'manageLiveMarkers'],
   ['analytics.view', 'analytics', 'viewAnalytics'],
+  ['analytics.generate', 'analytics', 'generateAnalytics'],
 ].map(([id, group, label]) => ({ id: id!, group: group!, labelKey: `shell.permissions.${label}`, descriptionKey: null, icon: 'mdi-check', isDangerous: id === 'recordings.purge' || id === 'live-markers.manage', defaultGranted: false }))
 const mounted: VueWrapper[] = []
 let pinia: Pinia
@@ -79,6 +82,36 @@ afterEach(() =>
 
 describe('独立权限与管理入口', () =>
 {
+  it('直播记录生成权限独立于上传、管理和话题分析，只依赖录像观看权限', () =>
+  {
+    const auth = useAuthStore()
+    auth.user = user(['recordings.view', 'live-markers.upload', 'live-markers.manage', 'analytics.view', 'analytics.generate'])
+    expect(auth.canGenerateLiveMarkers).toBe(false)
+    auth.user = user(['live-markers.generate'])
+    expect(auth.canGenerateLiveMarkers).toBe(false)
+    auth.user = user(['recordings.view', 'live-markers.generate'])
+    expect(auth.canGenerateLiveMarkers).toBe(true)
+    expect(auth.canUploadLiveMarkers).toBe(false)
+    expect(auth.canGenerateAnalytics).toBe(false)
+    auth.user = { ...user(), role: 'Admin' }
+    expect(auth.canGenerateLiveMarkers).toBe(true)
+  })
+
+  it('录像配置和 AI 生成独立授权，依赖观看与分析读取能力', () =>
+  {
+    const auth = useAuthStore()
+    auth.user = user(['recordings.view', 'recordings.manage', 'analytics.view'])
+    expect([auth.canConfigureRecordings, auth.canGenerateAnalytics]).toEqual([false, false])
+    auth.user = user(['recordings.configure', 'analytics.generate'])
+    expect([auth.canConfigureRecordings, auth.canGenerateAnalytics]).toEqual([false, false])
+    auth.user = user(['recordings.view', 'recordings.configure', 'analytics.generate'])
+    expect([auth.canConfigureRecordings, auth.canGenerateAnalytics]).toEqual([true, false])
+    auth.user = user(['recordings.view', 'analytics.view', 'analytics.generate'])
+    expect([auth.canConfigureRecordings, auth.canGenerateAnalytics]).toEqual([false, true])
+    auth.user = { ...user(), role: 'Admin' }
+    expect([auth.canConfigureRecordings, auth.canGenerateAnalytics]).toEqual([true, true])
+  })
+
   it.each(Array.from({ length: 8 }, (_, value) => [value] as const))('普通用户权限组合 %i 互不提升', value =>
   {
     const auth = useAuthStore()

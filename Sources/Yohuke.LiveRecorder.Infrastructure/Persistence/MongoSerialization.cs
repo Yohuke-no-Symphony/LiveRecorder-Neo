@@ -1,4 +1,5 @@
 using MongoDB.Bson.Serialization;
+using Yohuke.LiveRecorder.Domain;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Persistence;
 
@@ -8,6 +9,11 @@ public static class MongoSerialization
     static MongoSerialization()
     {
         BsonSerializer.RegisterSerializer(new PermissionSetBsonSerializer());
+        BsonClassMap.RegisterClassMap<UserAccount>(mapping =>
+        {
+            mapping.AutoMap();
+            mapping.SetIgnoreExtraElements(true);
+        });
     }
 
     /// <summary>触发线程安全的进程级序列化初始化。</summary>

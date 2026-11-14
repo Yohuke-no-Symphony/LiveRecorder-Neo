@@ -4,7 +4,7 @@
       <template #suffix><span v-if="hasSnapshot" class="text-caption muted mono">{{ formatNumber(entries.length) }}</span></template>
       <template #actions>
         <v-btn icon="mdi-refresh" variant="text" size="small" :loading="loading" :disabled="!enabled" :aria-label="t('translations.refresh')" @click="refresh()" />
-        <v-btn icon="mdi-cog-outline" variant="text" size="small" to="/account" :aria-label="t('translations.settings')" />
+        <v-btn v-if="auth.canConfigureRecordings" icon="mdi-cog-outline" variant="text" size="small" :aria-label="t('shell.recordingConfiguration.title')" @click="emit('configure')" />
       </template>
     </CardHeader>
     <v-progress-linear v-if="loading" indeterminate color="primary" :aria-label="t('translations.loading')" />
@@ -23,14 +23,18 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import { watch } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 import CardHeader from '@/components/common/CardHeader.vue'
 import { useSessionTranslations } from '@/composables/useSessionTranslations'
 import { formatDuration, formatNumber } from '@/utilities/format'
 
-const props = withDefaults(defineProps<{ sessionId: string; durationMs: number; enabled: boolean; isLive: boolean; active?: boolean }>(), { active: true })
-const emit = defineEmits<{ seek: [offsetMs: number] }>()
+const props = withDefaults(defineProps<{ sessionId: string; durationMs: number; enabled: boolean; isLive: boolean; active?: boolean; configurationRevision?: number }>(), { active: true })
+const emit = defineEmits<{ seek: [offsetMs: number]; configure: [] }>()
 const { t } = useI18n()
+const auth = useAuthStore()
 const { entries, loading, hasSnapshot, error, refresh } = useSessionTranslations(() => props.sessionId, () => props.durationMs, () => props.active, () => props.enabled, () => props.isLive)
+watch(() => props.configurationRevision, () => { void refresh() })
 
 function canSeek(offsetMs: number): boolean
 {

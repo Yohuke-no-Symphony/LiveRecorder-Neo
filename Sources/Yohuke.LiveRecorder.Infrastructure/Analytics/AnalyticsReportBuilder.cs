@@ -119,6 +119,7 @@ internal sealed class AnalyticsReportBuilder
                 break;
             case "SuperChat":
                 report.SuperChatCount++;
+                bucket.Value.SuperChatCount++;
                 categories["SuperChat"].Quantity++;
                 if (user is not null)
                 {

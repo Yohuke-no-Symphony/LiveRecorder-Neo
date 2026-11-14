@@ -15,6 +15,8 @@ public sealed class BroadcastSession : Entity
     public DateTime LastMediaAtUtc { get; set; }
     public string State { get; set; } = "Recording";
     public bool HasDanmu { get; set; }
+    public string? TranslationDanmuPatternOverride { get; set; }
+    public int ConfigurationRevision { get; set; } = 1;
     public long TotalBytes { get; set; }
     public string? Error { get; set; }
     public string? ErrorCode { get; set; }

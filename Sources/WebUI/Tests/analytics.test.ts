@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { defineComponent, h, nextTick } from 'vue'
+import { createPinia } from 'pinia'
+import RelationshipCharts from '../src/components/analytics/RelationshipCharts.vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import AnalyticsView from '../src/views/AnalyticsView.vue'
 import ActivityChart from '../src/components/analytics/ActivityChart.vue'
@@ -12,11 +14,13 @@ import { i18n } from '../src/plugins/i18n'
 
 const { sessions, streamers, analytics, sessionDetail } = vi.hoisted(() => ({ sessions: vi.fn(), streamers: vi.fn(), analytics: vi.fn(), sessionDetail: vi.fn() }))
 vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { sessions, streamers, analytics, session: sessionDetail } }))
+const { aiStatus } = vi.hoisted(() => ({ aiStatus: vi.fn() }))
+vi.mock('../src/apis/AiAnalysisAPI', () => ({ AiAnalysisAPI: { status: aiStatus } }))
 const card = defineComponent({ setup: (_, { slots }) => () => h('div', slots.default?.()) })
 const table = defineComponent({ setup: (_, { slots }) => () => h('table', slots.default?.()) })
 const select = defineComponent({ props: ['modelValue', 'items', 'label'], emits: ['update:modelValue'], setup: (props, { emit }) => () => h('select', { value: props.modelValue, 'aria-label': props.label, onChange: (event: Event) => emit('update:modelValue', (event.target as HTMLSelectElement).value) }, props.items.map((item: { value: string; title: string }) => h('option', { value: item.value }, item.title))) })
 const button = defineComponent({ emits: ['click'], setup: (_, { slots, emit }) => () => h('button', { onClick: () => emit('click') }, slots.default?.()) })
-const stubs = { VCard: card, VTable: table, VSelect: select, VAlert: card, VProgressLinear: true, VMenu: true, VTooltip: true, VBtn: button, VBtnToggle: card, VDivider: true, VListItem: true, VProgressCircular: true, VIcon: true }
+const stubs = { RelationshipCharts: true, AiAnalysisPanel: true, AiAnalysisToolbar: true, AiAnalysisDetailsDialog: true, VCard: card, VTable: table, VSelect: select, VAlert: card, VProgressLinear: true, VMenu: true, VTooltip: true, VBtn: button, VBtnToggle: card, VDivider: true, VListItem: true, VProgressCircular: true, VIcon: true }
 const mounted: VueWrapper[] = []
 
 function source(id = 's1'): BroadcastSession
@@ -29,12 +33,13 @@ function user(id: string, name: string)
 }
 function activityBucket(offsetMs: number, amount = 0): Analytics['buckets'][number]
 {
-  return { offsetMs, messages: 1, paidAmount: amount, danmuCount: 1, activeUsers: 1, danmuUsers: 1, payingUsers: amount > 0 ? 1 : 0, superChatAmount: amount, giftAmount: 0, guardAmount: 0 }
+  return { offsetMs, messages: 1, paidAmount: amount, danmuCount: 1, activeUsers: 1, danmuUsers: 1, payingUsers: amount > 0 ? 1 : 0, superChatAmount: amount, superChatCount: amount > 0 ? 1 : 0, onlineAverage: null, onlinePeak: null, onlineObservedMs: 0, durationMs: 60000, giftAmount: 0, guardAmount: 0 }
 }
 function report(): Analytics
 {
   const first = user('u1', '用户甲')
   return {
+    fromMs: 0, toMs: 60000, online: { peak: null, average: null, observedMs: 0, rangeMs: 60000, coverageRate: 0, intervals: [] },
     observedAmount: 1.001, goldGiftValue: 0.001, protocolPaidAmount: 1, quotedAmount: 138, paidRevenue: 999,
     unknownAmountCount: 2, unknownGiftQuantity: 3, unidentifiedFinancialEvents: 4, giftQuantity: 5,
     activeUsers: 2, payingUsers: 1, danmuUsers: 1, danmuCount: 2, giftCount: 3, superChatCount: 1, guardCount: 1, redPocketCount: 1, coverageGaps: 0,
@@ -54,7 +59,7 @@ async function mountView(path = '/analytics')
 {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/analytics', component: { render: () => null } }, { path: '/sessions/:id', component: { render: () => null } }] })
   await router.push(path)
-  const wrapper = mount(AnalyticsView, { global: { plugins: [router, i18n], stubs } })
+  const wrapper = mount(AnalyticsView, { global: { plugins: [createPinia(), router, i18n], stubs } })
   mounted.push(wrapper)
   await flushPromises()
   return { wrapper, router }
@@ -62,16 +67,61 @@ async function mountView(path = '/analytics')
 beforeEach(() =>
 {
   vi.resetAllMocks()
+  aiStatus.mockResolvedValue({ enabled: false, canGenerate: false, currentJob: null, latestCompleted: null, latestPartial: null, stale: false })
   i18n.global.locale.value = 'zh-CN'
   sessions.mockResolvedValue([source()])
   streamers.mockResolvedValue([])
   analytics.mockResolvedValue(report())
   sessionDetail.mockImplementation(async (id: string) => ({ session: source(id), durationMs: 60000, segments: [], gaps: [] }))
 })
-afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()); vi.restoreAllMocks(); i18n.global.locale.value = 'zh-CN' })
+afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()); vi.useRealTimers(); vi.restoreAllMocks(); i18n.global.locale.value = 'zh-CN' })
 
 describe('分析流水与分类', () =>
 {
+  it('在线人数区分零与未知，并显示观测覆盖率', async () =>
+  {
+    const data = report()
+    data.online = { peak: 0, average: 0, observedMs: 30000, rangeMs: 60000, coverageRate: .5, intervals: [] }
+    analytics.mockResolvedValue(data)
+    const { wrapper } = await mountView()
+    expect(wrapper.get('[data-stat="peakOnline"]').text()).toContain('0')
+    expect(wrapper.get('[data-stat="averageOnline"]').text()).not.toContain('无数据')
+    expect(wrapper.text()).toContain('50%')
+  })
+
+  it('选区请求使用后端统计，恢复全场后忽略迟到的选区响应', async () =>
+  {
+    vi.useFakeTimers()
+    const { wrapper } = await mountView()
+    const pending = deferred<Analytics>()
+    analytics.mockReturnValueOnce(pending.promise)
+    wrapper.findComponent(RelationshipCharts).vm.$emit('range', { fromMs: 10000, toMs: 50000 })
+    await vi.advanceTimersByTimeAsync(250)
+    expect(analytics).toHaveBeenLastCalledWith('s1', { fromMs: 10000, toMs: 50000 }, expect.any(AbortSignal))
+    wrapper.findComponent(RelationshipCharts).vm.$emit('range', undefined)
+    pending.resolve({ ...report(), danmuCount: 999 })
+    await flushPromises()
+    expect(wrapper.get('[data-stat="danmuCount"] .stat-value').text()).toBe('2')
+  })
+
+  it('选区请求失败时回到统计数字对应的上一个有效范围', async () =>
+  {
+    vi.useFakeTimers()
+    const { wrapper } = await mountView()
+    const firstRange = { fromMs: 10000, toMs: 30000 }
+    analytics.mockResolvedValueOnce({ ...report(), ...firstRange, danmuCount: 7 })
+    wrapper.findComponent(RelationshipCharts).vm.$emit('range', firstRange)
+    await vi.advanceTimersByTimeAsync(250)
+    await flushPromises()
+    analytics.mockRejectedValueOnce(new Error('选区读取失败'))
+    wrapper.findComponent(RelationshipCharts).vm.$emit('range', { fromMs: 30000, toMs: 50000 })
+    await vi.advanceTimersByTimeAsync(250)
+    await flushPromises()
+    expect(wrapper.text()).toContain('选区读取失败')
+    expect(wrapper.get('[data-stat="danmuCount"] .stat-value').text()).toBe('7')
+    expect(wrapper.findComponent(RelationshipCharts).props('range')).toEqual(firstRange)
+  })
+
   it('保留一瓜子的0.001元面值，同时维持普通金额两位小数', () =>
   {
     expect(formatMoney(0.001)).toContain('0.001')
@@ -241,7 +291,6 @@ describe('独立同传统计', () =>
       buckets: [{ offsetMs: 0, count: 80 }, { offsetMs: 60000, count: 50 }],
     } })
     const { wrapper } = await mountView()
-    expect(wrapper.get('.analytics-filter-note').text()).toContain('已剔除同传弹幕')
     expect(wrapper.get('[data-stat="danmuCount"] .stat-value').text()).toBe('2')
     expect(wrapper.get('[data-stat="activeUsers"] .stat-value').text()).toBe('2')
     const section = wrapper.get('.translation-analytics')
@@ -351,8 +400,8 @@ describe('分时图表', () =>
   it('切换分类流水和累计流水时，键盘选中的数据点展示对应指标', async () =>
   {
     const buckets = [
-      { offsetMs: 0, messages: 4, paidAmount: 10, danmuCount: 2, activeUsers: 3, danmuUsers: 2, payingUsers: 1, superChatAmount: 10, giftAmount: 0, guardAmount: 0 },
-      { offsetMs: 60000, messages: 2, paidAmount: 5, danmuCount: 1, activeUsers: 1, danmuUsers: 1, payingUsers: 1, superChatAmount: 0, giftAmount: 5, guardAmount: 0 },
+      { ...activityBucket(0, 10), messages: 4, danmuCount: 2, activeUsers: 3, danmuUsers: 2 },
+      { ...activityBucket(60000, 5), messages: 2, superChatAmount: 0, giftAmount: 5 },
     ]
     const wrapper = mount(ActivityChart, { props: { buckets, durationMs: 120000 }, global: { plugins: [i18n], stubs } })
     mounted.push(wrapper)

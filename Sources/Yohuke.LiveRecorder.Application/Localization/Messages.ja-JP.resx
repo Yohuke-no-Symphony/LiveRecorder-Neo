@@ -193,4 +193,39 @@
   <data name="LIVE_MARKER_NOT_FOUND" xml:space="preserve"><value>記録ファイルが存在しないか、削除されています。</value></data>
   <data name="LIVE_MARKER_SESSION_NOT_AVAILABLE" xml:space="preserve"><value>この録画はグループ化中、非表示、またはごみ箱内のため、記録を利用できません。</value></data>
   <data name="LIVE_MARKER_FILE_CORRUPT" xml:space="preserve"><value>記録の添付ファイルが不完全か破損しています。録画フォルダーを確認してください。</value></data>
+  <data name="SESSION_CONFIGURATION_CHANGED" xml:space="preserve"><value>録画の設定が変更されました。更新して再試行してください。</value></data>
+  <data name="GROUPING_CONFIGURATION_REQUIRED" xml:space="preserve"><value>選択した録画の同時通訳設定が異なります。録画設定の変更権限を持つユーザーが共通のルールまたは全体設定を選択してください。</value></data>
+  <data name="AI_SETTINGS_INVALID" xml:space="preserve"><value>AI サービス設定、使用量の目安、または呼び出し設定が無効です。</value></data>
+  <data name="AI_ENDPOINT_INVALID" xml:space="preserve"><value>認証情報、クエリ、フラグメントを含まない HTTP または HTTPS の API URL を入力してください。</value></data>
+  <data name="AI_MODEL_REQUIRED" xml:space="preserve"><value>先に AI モデル名を入力してください。</value></data>
+  <data name="AI_DISABLED" xml:space="preserve"><value>管理者が AI 分析を有効にしていません。</value></data>
+  <data name="AI_RECORDING_NOT_FINISHED" xml:space="preserve"><value>録画終了後に AI 振り返りを生成できます。</value></data>
+  <data name="AI_RECORDING_EMPTY" xml:space="preserve"><value>分析できる録画時間がありません。</value></data>
+  <data name="AI_JOB_CONFLICT" xml:space="preserve"><value>分析ジョブが変更されました。更新して再試行してください。</value></data>
+  <data name="AI_JOB_NOT_FOUND" xml:space="preserve"><value>AI 分析ジョブが見つかりません。</value></data>
+  <data name="AI_FUNCTION_CALL_REQUIRED" xml:space="preserve"><value>有効な関数呼び出しが返されませんでした。モデルがツール呼び出しに対応しているか確認してください。</value></data>
+  <data name="AI_PROVIDER_REJECTED" xml:space="preserve"><value>AI サービスがリクエストを拒否しました（HTTP {0}）。API URL、モデル、キー、利用枠を確認してください。</value></data>
+  <data name="AI_REQUEST_FAILED" xml:space="preserve"><value>AI リクエストに失敗しました。サービス設定を確認して再試行してください。</value></data>
+  <data name="AI_NETWORK_UNKNOWN" xml:space="preserve"><value>AI 接続が切断され、完全な応答を受信できませんでした。</value></data>
+  <data name="AI_REQUEST_TIMEOUT" xml:space="preserve"><value>AI サービスからの応答データを待機中にタイムアウトしました。</value></data>
+  <data name="AI_RESPONSE_INTERRUPTED" xml:space="preserve"><value>AI 応答の転送が中断され、完全な結果を受信できませんでした。</value></data>
+  <data name="AI_RESPONSE_INVALID" xml:space="preserve"><value>AI サービスから無効な応答が返されました。</value></data>
+  <data name="AI_RESPONSE_TOO_LARGE" xml:space="preserve"><value>AI サービスの応答がサイズ上限を超えました。</value></data>
+  <data name="AI_BUDGET_EXHAUSTED" xml:space="preserve"><value>トークン予算を使い切りました。検証済みの話題は保存されています。</value></data>
+  <data name="AI_CALL_LIMIT_REACHED" xml:space="preserve"><value>呼び出し回数の上限に達しました。検証済みの話題は保存されています。</value></data>
+  <data name="AI_NO_EVIDENCE" xml:space="preserve"><value>分析できる翻訳、コメント、Super Chat の本文がありません。</value></data>
+  <data name="AI_CANCELLED" xml:space="preserve"><value>AI 分析をキャンセルしました。</value></data>
+  <data name="AI_EXECUTION_FAILED" xml:space="preserve"><value>AI 分析に失敗しました。保存済みの結果は引き続き閲覧できます。</value></data>
+  <data name="AI_PROCESS_INTERRUPTED" xml:space="preserve"><value>分析処理が中断されました。課金の可能性があるリクエストは自動再実行しません。</value></data>
+  <data name="AI_REQUEST_UNKNOWN" xml:space="preserve"><value>AI リクエストの結果が不明なため、自動再試行は行いません。</value></data>
+  <data name="AI_CONFIGURATION_CHANGED" xml:space="preserve"><value>管理者が AI サービスまたはキーを変更したため、分析を停止しました。</value></data>
+  <data name="AI_LEASE_LOST" xml:space="preserve"><value>分析ジョブの実行リースが失効したため、処理を停止しました。</value></data>
+  <data name="AI_SOURCE_UNAVAILABLE" xml:space="preserve"><value>録画が削除されたか利用できないため、分析を停止しました。</value></data>
+  <data name="AI_OUTPUT_LIMIT_REACHED" xml:space="preserve"><value>AI 応答が出力上限に達しました。上限を増やすか思考モードを調整して再試行してください。</value></data>
+  <data name="AI_CONTEXT_LENGTH_EXCEEDED" xml:space="preserve"><value>圧縮後もモデルのコンテキスト容量を超えています。モデルと出力設定を確認してください。</value></data>
+  <data name="AI_NO_PROGRESS" xml:space="preserve"><value>AI 分析が複数回進展しなかったため停止しました。完了した区間と話題は保存されています。</value></data>
+  <data name="AI_LIVE_MARKER_RESULT_INVALID" xml:space="preserve"><value>AI 配信記録の整合性検証に失敗したため、ファイルは保存されませんでした。</value></data>
+  <data name="AI_LIVE_MARKER_SAVE_FAILED" xml:space="preserve"><value>AI 配信記録の保存に失敗しました。生成済み下書きは保持されています。</value></data>
+  <data name="AI_LIVE_MARKER_FILE_MISSING" xml:space="preserve"><value>生成した配信記録は削除されています。再生成してください。</value></data>
+  <data name="AI_PUBLICATION_IN_PROGRESS" xml:space="preserve"><value>AI 配信記録を保存中です。保存完了後に操作してください。</value></data>
 </root>

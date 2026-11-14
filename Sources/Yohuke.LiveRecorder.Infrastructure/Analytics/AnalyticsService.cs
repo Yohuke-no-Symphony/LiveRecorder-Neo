@@ -2,7 +2,9 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Library;
+using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Library;
@@ -18,43 +20,66 @@ public sealed class AnalyticsService(EventArchiveReader reader)
     public Task<AnalyticsReport> GetAsync(BroadcastSession session, string storageRoot,
         CancellationToken cancellationToken = default)
     {
-        return GetSessionAsync(session, storageRoot, null, null, cancellationToken);
+        return GetSessionAsync(session, storageRoot, null, null, null, null, cancellationToken);
     }
 
     /// <summary>按统一播放终点排除已结束场次的尾部互动，再计算金融去重和用户统计。</summary>
     public Task<AnalyticsReport> GetAsync(BroadcastSession session, string storageRoot, double playbackEndMs,
         CancellationToken cancellationToken = default)
     {
-        return GetSessionAsync(session, storageRoot, playbackEndMs, null, cancellationToken);
+        return GetSessionAsync(session, storageRoot, playbackEndMs, null, null, null, cancellationToken);
     }
 
     /// <summary>按有效同传正文规则分流统计，并沿用播放边界及金融去重基线。</summary>
     public Task<AnalyticsReport> GetAsync(BroadcastSession session, string storageRoot, double playbackEndMs,
         string translationPattern, CancellationToken cancellationToken = default)
     {
-        return GetSessionAsync(session, storageRoot, playbackEndMs, TranslationDanmuPattern.Create(translationPattern), cancellationToken);
+        return GetSessionAsync(session, storageRoot, playbackEndMs, TranslationDanmuPattern.Create(translationPattern), null, null, cancellationToken);
+    }
+
+    /// <summary>按录像绝对偏移重新计算所选半开区间，选区结果不替换整场磁盘缓存。</summary>
+    public Task<AnalyticsReport> GetAsync(BroadcastSession session, string storageRoot, double playbackEndMs,
+        string translationPattern, double? fromMs, double? toMs, CancellationToken cancellationToken = default)
+    {
+        if (fromMs is { } from && (!double.IsFinite(from) || from < 0) ||
+            toMs is { } to && (!double.IsFinite(to) || to < 0 || to < (fromMs ?? 0)))
+        {
+            throw new InfrastructureException(MessageCode.LIBRARY_EVENT_RANGE_INVALID);
+        }
+        return GetSessionAsync(session, storageRoot, playbackEndMs, TranslationDanmuPattern.Create(translationPattern), fromMs, toMs, cancellationToken);
     }
 
     private Task<AnalyticsReport> GetSessionAsync(BroadcastSession session, string storageRoot, double? playbackEndMs,
-        Regex? translationPattern, CancellationToken cancellationToken)
+        Regex? translationPattern, double? fromMs, double? toMs, CancellationToken cancellationToken)
     {
         var sources = SessionGroupingService.Sources(session, playbackEndMs).Select(source =>
             (Path: Path.Combine(MediaPaths.Resolve(storageRoot, source.DirectoryPath), "弹幕", "事件.jsonl"),
                 Offset: source.StartOffsetMs, From: source.FromMs, To: source.ToMs)).ToList();
         var output = Path.Combine(MediaPaths.Resolve(storageRoot, session.DirectoryPath), "分析", "summary.json");
-        return ReadAsync(sources, output, translationPattern, cancellationToken);
+        double? fixedEndMs = session.EndedAtUtc is { } ended ? Math.Max(0, (ended - session.StartedAtUtc).TotalMilliseconds) : null;
+        if (fixedEndMs is { } end && playbackEndMs is { } playbackEnd)
+        {
+            fixedEndMs = Math.Min(end, double.IsFinite(playbackEnd) ? Math.Max(0, playbackEnd) : 0);
+        }
+        if (fixedEndMs is null && sources.All(source => source.To.HasValue))
+        {
+            fixedEndMs = sources.Select(source => Math.Max(0, source.Offset + source.To!.Value)).DefaultIfEmpty().Max();
+        }
+        var liveStart = fixedEndMs is null && session.StartedAtUtc != default ? session.StartedAtUtc : (DateTime?)null;
+        return ReadAsync(sources, output, translationPattern, fixedEndMs, liveStart, fromMs, toMs, cancellationToken);
     }
 
     /// <summary>读取完整场次文件统计，文件增长时最多每三十秒重建一次。</summary>
     public Task<AnalyticsReport> GetAsync(string sessionDirectory, CancellationToken cancellationToken = default)
     {
         return ReadAsync([(Path.Combine(sessionDirectory, "弹幕", "事件.jsonl"), 0d, 0d, null)],
-            Path.Combine(sessionDirectory, "分析", "summary.json"), null, cancellationToken);
+            Path.Combine(sessionDirectory, "分析", "summary.json"), null, null, null, null, null, cancellationToken);
     }
 
     private async Task<AnalyticsReport> ReadAsync(
         IReadOnlyList<(string Path, double Offset, double From, double? To)> sources, string output,
-        Regex? translationPattern, CancellationToken cancellationToken)
+        Regex? translationPattern, double? fixedEndMs, DateTime? liveStart, double? fromMs, double? toMs,
+        CancellationToken cancellationToken)
     {
         await gate.WaitAsync(cancellationToken);
         try
@@ -62,7 +87,11 @@ public sealed class AnalyticsService(EventArchiveReader reader)
             var identity = Hash(JsonSerializer.Serialize(new
             {
                 Sources = sources.Select(source => new { source.Path, source.Offset, source.From, source.To }),
-                TranslationPattern = translationPattern?.ToString()
+                TranslationPattern = translationPattern?.ToString(),
+                FixedEndMs = fixedEndMs,
+                LiveStart = liveStart,
+                FromMs = fromMs,
+                ToMs = toMs
             }, JsonFiles.Options));
             var files = sources.Select(source => new FileInfo(source.Path)).ToArray();
             var length = files.Where(file => file.Exists).Sum(file => file.Length);
@@ -71,24 +100,33 @@ public sealed class AnalyticsService(EventArchiveReader reader)
                 file.FullName, Length = file.Exists ? file.Length : 0,
                 Modified = file.Exists ? file.LastWriteTimeUtc.Ticks : 0
             }), JsonFiles.Options));
-            var saved = await ReadCacheAsync(output, cancellationToken);
+            var selection = fromMs.HasValue || toMs.HasValue;
+            var saved = selection ? null : await ReadCacheAsync(output, cancellationToken);
             var now = DateTime.UtcNow;
+            var fresh = saved is not null && saved.BuiltAtUtc <= now && now - saved.BuiltAtUtc < TimeSpan.FromSeconds(30);
             if (saved is not null && saved.SchemaVersion == AnalyticsReport.CURRENT_SCHEMA_VERSION &&
                 AnalyticsCacheValidator.IsComplete(saved) && saved.SourceIdentity == identity
-                && (saved.SourceFingerprint == fingerprint ||
-                    saved.BuiltAtUtc <= now && now - saved.BuiltAtUtc < TimeSpan.FromSeconds(30)))
+                && (fresh || liveStart is null && saved.SourceFingerprint == fingerprint))
             {
                 return saved;
             }
 
             var accumulator = new AnalyticsAccumulator();
+            var onlineSources = new List<(OnlineAnalyticsAccumulator Accumulator, double Offset, double From, double? To)>();
+            var fullEndMs = fixedEndMs ?? (liveStart is { } start ? Math.Max(0, (now - start).TotalMilliseconds) : 0);
+            var requestedFrom = Math.Min(fromMs ?? 0, fixedEndMs ?? double.MaxValue);
+            var requestedTo = Math.Min(toMs ?? double.MaxValue, fixedEndMs ?? double.MaxValue);
             foreach (var source in sources)
             {
-                if (source.From > 0)
+                var sourceFrom = Math.Max(source.From, Math.Max(0, requestedFrom - source.Offset));
+                var sourceTo = Math.Min(source.To ?? double.MaxValue, requestedTo - source.Offset);
+                var online = new OnlineAnalyticsAccumulator();
+                onlineSources.Add((online, source.Offset, sourceFrom, sourceTo));
+                if (sourceFrom > 0)
                 {
                     await foreach (var item in reader.EnumerateAsync(source.Path, cancellationToken))
                     {
-                        if (item.OffsetMs < source.From)
+                        if (item.OffsetMs >= 0 && item.OffsetMs < Math.Min(sourceFrom, source.To ?? double.MaxValue))
                         {
                             accumulator.SeedBaseline(item);
                         }
@@ -97,21 +135,46 @@ public sealed class AnalyticsService(EventArchiveReader reader)
 
                 await foreach (var item in reader.EnumerateAsync(source.Path, cancellationToken))
                 {
-                    if (item.OffsetMs < source.From || source.To is { } end && item.OffsetMs >= end)
+                    if (fixedEndMs is null && item.OffsetMs >= source.From &&
+                        (source.To is null || item.OffsetMs < source.To) && item.OffsetMs + source.Offset >= 0)
+                    {
+                        fullEndMs = Math.Max(fullEndMs, item.OffsetMs + source.Offset + 1);
+                    }
+                    if (item.OffsetMs < sourceTo)
+                    {
+                        online.Add(item);
+                    }
+                    if (item.OffsetMs < sourceFrom || item.OffsetMs >= sourceTo)
                     {
                         continue;
                     }
 
-                    item.OffsetMs += source.Offset;
+                    var projectedOffset = item.OffsetMs + source.Offset;
+                    if (projectedOffset < requestedFrom || projectedOffset >= requestedTo)
+                    {
+                        continue;
+                    }
+                    item.OffsetMs = projectedOffset;
                     accumulator.Add(item, item.Kind == "Danmu" && translationPattern?.IsMatch(item.Text) == true);
                 }
             }
 
             var result = accumulator.Build();
+            var rangeTo = Math.Min(requestedTo, fullEndMs);
+            var rangeFrom = Math.Min(requestedFrom, rangeTo);
+            var intervals = onlineSources.SelectMany(source =>
+            {
+                var end = Math.Min(source.To ?? double.MaxValue, rangeTo - source.Offset);
+                return end > source.From ? source.Accumulator.Build(source.From, end, source.Offset).Intervals : [];
+            });
+            OnlineAnalyticsProjection.Apply(result, rangeFrom, rangeTo, intervals);
             result.SourceBytes = length;
             result.SourceIdentity = identity;
             result.SourceFingerprint = fingerprint;
-            await JsonFiles.WriteAsync(output, result, cancellationToken);
+            if (!selection)
+            {
+                await JsonFiles.WriteAsync(output, result, cancellationToken);
+            }
             return result;
         }
         finally

@@ -1,0 +1,47 @@
+export const aiSettingsZh = {
+  title: 'AI 接入', enabled: '启用 AI 复盘', provider: '服务商', baseUrl: 'API 地址', model: '模型名称',
+  apiKey: 'API Key', keyStored: '已保存密钥；留空保留原值', keyEmpty: '未保存密钥', clearKey: '保存时删除已有密钥',
+  service: '模型服务', protocol: '服务需支持 Chat Completions 函数调用。可填写基础地址或完整的 /chat/completions 地址。',
+  tokenBudget: '用量参考', perHour: '每小时录像参考 token 数', minimum: '每场最低参考 token 数', maximum: '每场最高参考 token 数',
+  maxOutputTokens: '单次输出 token 数', maxModelRequests: '每场模型请求次数（0 不限）', maxToolCalls: '每场工具调用次数（0 不限）',
+  contextWindowTokens: '模型上下文窗口（0 自动）',
+  invalidContextWindow: '填 0，或至少 8192 且大于单次输出 token 数的整数',
+  requestTimeoutSeconds: '无响应超时（秒，0 不限）', maxRequestRetries: '单次请求重试上限（0 关闭）',
+  invalidRequestLimit: '超时和重试次数需为 0 至 2147483647 的整数',
+  thinkingMode: '思考模式', reasoningEffort: '思考强度', followModel: '跟随模型', thinkingEnabled: '启用', thinkingDisabled: '禁用',
+  effortLow: '低', effortHigh: '高', effortMax: '最大',
+  test: '测试连接与函数调用', testHint: '测试使用当前表单配置，会发出一次小额模型请求，不发送直播内容。',
+  tested: '连接和函数调用测试通过', used: '本次输入 {input}、输出 {output} tokens', unavailable: '服务商未返回用量',
+}
+
+export const aiSettingsEn = {
+  title: 'AI integration', enabled: 'Enable AI analysis', provider: 'Provider', baseUrl: 'API URL', model: 'Model',
+  apiKey: 'API key', keyStored: 'Key saved; leave empty to keep it', keyEmpty: 'No saved key', clearKey: 'Delete the saved key on save',
+  service: 'Model service', protocol: 'The service must support Chat Completions function calling. Enter a base URL or the full /chat/completions URL.',
+  tokenBudget: 'Reference usage', perHour: 'Reference tokens per recorded hour', minimum: 'Minimum reference tokens per session', maximum: 'Maximum reference tokens per session',
+  maxOutputTokens: 'Output tokens per request', maxModelRequests: 'Model requests per session (0 = unlimited)', maxToolCalls: 'Tool calls per session (0 = unlimited)',
+  contextWindowTokens: 'Model context window (0 = auto)',
+  invalidContextWindow: 'Use 0, or an integer of at least 8192 greater than output tokens per request',
+  requestTimeoutSeconds: 'Response idle timeout (seconds, 0 = unlimited)', maxRequestRetries: 'Retries per request (0 = disabled)',
+  invalidRequestLimit: 'Timeout and retry counts must be integers from 0 to 2147483647',
+  thinkingMode: 'Thinking mode', reasoningEffort: 'Reasoning effort', followModel: 'Model default', thinkingEnabled: 'Enabled', thinkingDisabled: 'Disabled',
+  effortLow: 'Low', effortHigh: 'High', effortMax: 'Maximum',
+  test: 'Test connection and function calling', testHint: 'Uses this form for one small model request without sending recording content.',
+  tested: 'Connection and function calling passed', used: 'Input: {input}; output: {output} tokens', unavailable: 'Provider did not report usage',
+}
+
+export const aiSettingsJa = {
+  title: 'AI 接続', enabled: 'AI 分析を有効にする', provider: 'サービス', baseUrl: 'API URL', model: 'モデル名',
+  apiKey: 'API キー', keyStored: 'キー保存済み。空欄で現在の値を保持します', keyEmpty: 'キー未保存', clearKey: '保存時に既存のキーを削除する',
+  service: 'モデルサービス', protocol: 'Chat Completions の関数呼び出しに対応するサービスが必要です。ベース URL または完全な /chat/completions URL を入力してください。',
+  tokenBudget: '使用量の目安', perHour: '録画 1 時間あたりの token 数の目安', minimum: '各配信の最低 token 数の目安', maximum: '各配信の最大 token 数の目安',
+  maxOutputTokens: 'リクエストごとの出力 token 数', maxModelRequests: '各配信のモデルリクエスト回数（0 は無制限）', maxToolCalls: '各配信のツール呼び出し回数（0 は無制限）',
+  contextWindowTokens: 'モデルのコンテキスト長（0 は自動）',
+  invalidContextWindow: '0、または 8192 以上で出力 token 数より大きい整数を入力してください',
+  requestTimeoutSeconds: '無応答タイムアウト（秒、0 は無制限）', maxRequestRetries: 'リクエストの再試行上限（0 は無効）',
+  invalidRequestLimit: 'タイムアウトと再試行回数は 0～2147483647 の整数で入力してください',
+  thinkingMode: '思考モード', reasoningEffort: '推論強度', followModel: 'モデルの既定値', thinkingEnabled: '有効', thinkingDisabled: '無効',
+  effortLow: '低', effortHigh: '高', effortMax: '最大',
+  test: '接続と関数呼び出しをテスト', testHint: 'フォームの設定で小さなモデルリクエストを 1 回実行します。録画内容は送信しません。',
+  tested: '接続と関数呼び出しのテストに成功しました', used: '入力 {input}、出力 {output} tokens', unavailable: 'サービスから使用量が返されませんでした',
+}

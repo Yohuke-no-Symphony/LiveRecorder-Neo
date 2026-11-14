@@ -1,6 +1,6 @@
 <template>
   <div class="activity-chart">
-    <CardHeader class="pa-0 mb-3" :title="chartTitle">
+    <CardHeader embedded inline-actions class="mb-3" :title="chartTitle">
       <template #suffix><span class="text-caption muted">{{ t('views.analytics.perMinute') }}</span></template>
       <template v-if="mode !== 'translations'" #actions><div class="chart-metrics" role="group" :aria-label="chartTitle">
         <v-btn v-for="option in metricOptions" :key="option.value" :data-metric="option.value" :aria-pressed="metric === option.value" :variant="metric === option.value ? 'tonal' : 'text'" :color="metric === option.value ? 'primary' : undefined" size="small" @click="selectedMetric = option.value">{{ option.title }}</v-btn>

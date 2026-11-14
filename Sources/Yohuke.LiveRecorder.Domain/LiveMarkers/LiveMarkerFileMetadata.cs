@@ -13,4 +13,5 @@ public sealed record LiveMarkerFileMetadata
     public long CalibrationMs { get; init; }
     public string SourceTimeZoneId { get; init; } = "";
     public string ContentHash { get; init; } = "";
+    public string? GeneratedByAiJobId { get; init; }
 }

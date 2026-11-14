@@ -3,6 +3,7 @@ import { getServerUrl } from './ServerURL'
 import type { SessionTimeline } from '@/models/sessionTimeline'
 import type { SessionBookmark } from '@/models/sessionBookmark'
 import type { SessionTrashResult } from '@/models/sessionLibrary'
+import type { SessionGroupConfiguration } from '@/models/sessionConfiguration'
 import type { Analytics, BroadcastSession, Clip, CreateJob, EventKind, EventPage, MediaJob, PlaybackWindow, SessionDetail, StorageVolume, Streamer, TrashEntry } from '@/models/media'
 import type { ServerPaths, ServerSettings } from '@/models/settings'
 import type { StorageUsageReport } from '@/models/storage'
@@ -18,7 +19,7 @@ export const MediaAPI = {
   setSessionPermanent: (id: string, isPermanent: boolean) => put<BroadcastSession>(`sessions/${encodeURIComponent(id)}/retention`, { isPermanent }),
   deleteSession: (id: string) => remove(`sessions/${encodeURIComponent(id)}`),
   trashSessions: (sessionIds: string[]) => post<SessionTrashResult[]>('sessions/trash', { sessionIds }),
-  groupSessions: (id: string, sessionIds: string[], title?: string) => post<BroadcastSession>(`sessions/${encodeURIComponent(id)}/group`, { sessionIds, title }),
+  groupSessions: (id: string, sessionIds: string[], title?: string, configuration?: SessionGroupConfiguration) => post<BroadcastSession>(`sessions/${encodeURIComponent(id)}/group`, { sessionIds, title, configuration }),
   splitSession: (id: string, beforeSegmentId: string) => post<{ sessions: BroadcastSession[] }>(`sessions/${encodeURIComponent(id)}/split`, { beforeSegmentId }),
   cover: (id: string) => getServerUrl(`/api/sessions/${encodeURIComponent(id)}/cover`),
   downloadSegment: (id: string, segmentId: string) => getServerUrl(`/api/sessions/${encodeURIComponent(id)}/segments/${encodeURIComponent(segmentId)}/download`),
@@ -28,7 +29,7 @@ export const MediaAPI = {
   updateBookmark: (id: string, bookmarkId: string, body: { title: string; offsetMs: number }) => put<SessionBookmark>(`sessions/${encodeURIComponent(id)}/bookmarks/${encodeURIComponent(bookmarkId)}`, body),
   deleteBookmark: (id: string, bookmarkId: string) => remove(`sessions/${encodeURIComponent(id)}/bookmarks/${encodeURIComponent(bookmarkId)}`),
   events: (id: string, options: { fromMs: number; toMs: number; kind?: EventKind; cursor?: number; limit?: number; translationsOnly?: boolean }, signal?: AbortSignal) => request<EventPage>(`sessions/${encodeURIComponent(id)}/events${query(options)}`, { signal }),
-  jobs: () => request<MediaJob[]>('jobs'),
+  jobs: (signal?: AbortSignal) => request<MediaJob[]>('jobs', { signal }),
   createJob: (body: CreateJob) => post<MediaJob>('jobs', body),
   cancelJob: (id: string) => post<void>(`jobs/${encodeURIComponent(id)}/cancel`),
   retryJob: (id: string) => post<void>(`jobs/${encodeURIComponent(id)}/retry`),
@@ -46,6 +47,6 @@ export const MediaAPI = {
   settingsPaths: () => request<ServerPaths>('settings/paths'),
   updateSettingsPaths: (body: { dataDirectory: string; recordsDirectory: string }) => put<ServerPaths>('settings/paths', body),
   updateSettings: (body: ServerSettings) => put<ServerSettings>('settings', body),
-  analytics: (id: string) => request<Analytics>(`sessions/${encodeURIComponent(id)}/analytics`),
+  analytics: (id: string, range?: { fromMs: number; toMs: number }, signal?: AbortSignal) => request<Analytics>(`sessions/${encodeURIComponent(id)}/analytics${query(range ?? {})}`, { signal }),
   timeline: (id: string, bucketCount = 300, signal?: AbortSignal) => request<SessionTimeline>(`sessions/${encodeURIComponent(id)}/timeline${query({ bucketCount })}`, { signal }),
 }

@@ -47,7 +47,7 @@ internal static class AnalyticsCacheValidator
             }
         }
 
-        if (!HasValidBuckets(buckets) || !HasValidTranslations(report.Translations))
+        if (!HasValidBuckets(buckets) || !HasValidTranslations(report.Translations) || !HasValidOnline(report))
         {
             return false;
         }
@@ -66,6 +66,7 @@ internal static class AnalyticsCacheValidator
                    guard.Count == report.GuardCount && gift.Quantity == report.GiftQuantity &&
                    superChat.Quantity == report.SuperChatCount &&
                    buckets.Sum(bucket => (long)bucket.DanmuCount) == report.DanmuCount &&
+                   buckets.Sum(bucket => (long)bucket.SuperChatCount) == report.SuperChatCount &&
                    buckets.Sum(bucket => bucket.PaidAmount) == report.ObservedAmount &&
                    buckets.All(bucket =>
                        bucket.PaidAmount == bucket.SuperChatAmount + bucket.GiftAmount + bucket.GuardAmount) &&
@@ -88,7 +89,76 @@ internal static class AnalyticsCacheValidator
 
     private static bool HasValidBuckets(IEnumerable<AnalyticsBucket?>? buckets) =>
         buckets is not null && buckets.All(bucket =>
-            bucket is not null && double.IsFinite(bucket.OffsetMs) && bucket.OffsetMs >= 0);
+            bucket is not null && double.IsFinite(bucket.OffsetMs) && bucket.OffsetMs >= 0 && bucket.SuperChatCount >= 0);
+
+    private static bool HasValidOnline(AnalyticsReport report)
+    {
+        if (!double.IsFinite(report.FromMs) || !double.IsFinite(report.ToMs) || report.FromMs < 0 ||
+            report.ToMs < report.FromMs || report.Online is not { } online || online.Intervals is not { } intervals ||
+            online.ObservedMs < 0 || online.CoverageRate is < 0 or > 1 ||
+            !Near(online.RangeMs, report.ToMs - report.FromMs))
+        {
+            return false;
+        }
+        var previousEnd = report.FromMs;
+        foreach (var interval in intervals)
+        {
+            if (interval is null || !double.IsFinite(interval.FromMs) || !double.IsFinite(interval.ToMs) ||
+                interval.FromMs < previousEnd || interval.ToMs > report.ToMs || interval.ToMs <= interval.FromMs || interval.Count < 0)
+            {
+                return false;
+            }
+            previousEnd = interval.ToMs;
+        }
+        var expected = OnlineAnalyticsProjection.Summarize(intervals, report.ToMs - report.FromMs);
+        if (online.Peak != expected.Peak || !SameAverage(online.Average, expected.Average) ||
+            !Near(online.ObservedMs, expected.ObservedMs) || !Near(online.CoverageRate, expected.CoverageRate))
+        {
+            return false;
+        }
+        var previousOffset = -1d;
+        var intervalIndex = 0;
+        var bucketObserved = 0d;
+        foreach (var bucket in report.Buckets)
+        {
+            var from = Math.Max(report.FromMs, bucket.OffsetMs);
+            var to = Math.Min(report.ToMs, bucket.OffsetMs + OnlineAnalyticsProjection.BUCKET_WIDTH_MS);
+            if (bucket.OffsetMs <= previousOffset || bucket.OffsetMs % OnlineAnalyticsProjection.BUCKET_WIDTH_MS != 0 ||
+                to <= from || !Near(bucket.DurationMs, to - from))
+            {
+                return false;
+            }
+            while (intervalIndex < intervals.Count && intervals[intervalIndex].ToMs <= from)
+            {
+                intervalIndex++;
+            }
+            var observed = 0d;
+            var area = 0d;
+            long? peak = null;
+            for (var index = intervalIndex; index < intervals.Count && intervals[index].FromMs < to; index++)
+            {
+                var interval = intervals[index];
+                var duration = Math.Min(to, interval.ToMs) - Math.Max(from, interval.FromMs);
+                observed += duration;
+                area += interval.Count * duration;
+                peak = Math.Max(peak ?? 0, interval.Count);
+            }
+            if (bucket.OnlineObservedMs < 0 || !Near(bucket.OnlineObservedMs, observed) || bucket.OnlinePeak != peak ||
+                !SameAverage(bucket.OnlineAverage, observed > 0 ? area / observed : null))
+            {
+                return false;
+            }
+            bucketObserved += observed;
+            previousOffset = bucket.OffsetMs;
+        }
+        return Near(bucketObserved, online.ObservedMs);
+    }
+
+    private static bool SameAverage(double? actual, double? expected) =>
+        actual.HasValue == expected.HasValue && (!actual.HasValue || Near(actual.Value, expected!.Value));
+
+    private static bool Near(double actual, double expected) =>
+        double.IsFinite(actual) && double.IsFinite(expected) && Math.Abs(actual - expected) <= Math.Max(1, Math.Abs(expected)) * 0.000000001;
 
     private static bool HasValidTranslations(TranslationAnalyticsReport? translations)
     {

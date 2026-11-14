@@ -1,6 +1,6 @@
 <template>
   <v-card class="user-ranking">
-    <CardHeader class="ranking-header" :title="t('views.analytics.activeUsers')">
+    <CardHeader inline-actions class="ranking-header" :title="t('views.analytics.activeUsers')">
       <template #suffix><span class="text-caption muted">{{ t('views.analytics.leaderboardLimit') }}</span></template>
       <template #actions><v-select v-model="metric" :items="metricOptions" :label="t('views.analytics.rankBy')" density="compact" hide-details class="ranking-selector" /></template>
     </CardHeader>

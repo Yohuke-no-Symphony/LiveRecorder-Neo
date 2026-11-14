@@ -12,6 +12,9 @@ import type { UserProfile } from '../src/models/auth'
 import type { ServerSettings } from '../src/models/settings'
 import AccountView from '../src/views/AccountView.vue'
 import SettingsView from '../src/views/SettingsView.vue'
+import SessionConfigurationDialog from '../src/components/library/SessionConfigurationDialog.vue'
+import { SessionConfigurationAPI } from '../src/apis/SessionConfigurationAPI'
+import type { SessionConfiguration } from '../src/models/sessionConfiguration'
 
 const container = { template: '<div><slot /></div>' }
 const textField = defineComponent({
@@ -52,16 +55,16 @@ const snackbar = defineComponent({
   },
 })
 const stubs = {
-  VBtn: button, VCard: container, VCardText: container, VList: container, VListItem: container,
+  VDialog: container, VBtn: button, VCard: container, VCardText: container, VList: container, VListItem: container,
   VTabs: container, VTab: container, VSnackbar: snackbar, VTextField: textField, VSwitch: toggle,
   VSelect: true, VAlert: { template: '<div role="alert"><slot /></div>' }, VProgressLinear: true, VIcon: true, VDivider: true,
 }
 const mounted: VueWrapper[] = []
 let pinia: Pinia
 
-function user(translationDanmuPattern: string | null = null, id = 'user-1'): UserProfile
+function user(id = 'user-1'): UserProfile
 {
-  return { id, email: `${id}@example.test`, displayName: id, role: 'User', status: 'Active', permissions: [], language: null, translationDanmuPattern }
+  return { id, email: `${id}@example.test`, displayName: id, role: 'User', status: 'Active', permissions: [], language: null }
 }
 
 function settings(translationDanmuPattern: string): ServerSettings
@@ -91,9 +94,9 @@ function deferred<T>()
   return { promise, resolve, reject }
 }
 
-async function openAccount(pattern: string | null = null): Promise<VueWrapper>
+async function openAccount(): Promise<VueWrapper>
 {
-  useAuthStore().user = user(pattern)
+  useAuthStore().user = user()
   const wrapper = mount(AccountView, { global: { plugins: [pinia, i18n], stubs } })
   mounted.push(wrapper)
   await flushPromises()
@@ -144,7 +147,7 @@ describe('全局同传规则', () =>
       return current
     })
     const wrapper = await openSettings()
-    const input = wrapper.get<HTMLInputElement>('input[aria-label="默认同传正则"]')
+    const input = wrapper.get<HTMLInputElement>('input[aria-label="全局同传正则"]')
     expect(input.element.value).toBe('^翻译：')
     const pattern = '(?i)translation[:：] .+'
     await input.setValue(pattern)
@@ -154,7 +157,7 @@ describe('全局同传规则', () =>
     expect(update).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ translationDanmuPattern: pattern }))
     expect(wrapper.get('[role="status"]').text()).toBe('设置已保存')
     const reopened = await openSettings()
-    expect(reopened.get<HTMLInputElement>('input[aria-label="默认同传正则"]').element.value).toBe(pattern)
+    expect(reopened.get<HTMLInputElement>('input[aria-label="全局同传正则"]').element.value).toBe(pattern)
   })
 
   it('服务端拒绝无效规则时保留编辑值并显示错误', async () =>
@@ -162,141 +165,132 @@ describe('全局同传规则', () =>
     vi.spyOn(MediaAPI, 'settings').mockResolvedValue(settings('.*?【.*?】'))
     const update = vi.spyOn(MediaAPI, 'updateSettings').mockRejectedValue(new Error('同传正则无效'))
     const wrapper = await openSettings()
-    await wrapper.get('input[aria-label="默认同传正则"]').setValue('[')
+    await wrapper.get('input[aria-label="全局同传正则"]').setValue('[')
     await wrapper.get('header button').trigger('click')
     await flushPromises()
     expect(update).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ translationDanmuPattern: '[' }))
     expect(wrapper.get('[role="alert"]').text()).toBe('同传正则无效')
-    expect(wrapper.get<HTMLInputElement>('input[aria-label="默认同传正则"]').element.value).toBe('[')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="全局同传正则"]').element.value).toBe('[')
     expect(wrapper.find('[role="status"]').exists()).toBe(false)
   })
 })
 
-describe('账户同传规则', () =>
+describe('录像共享同传配置', () =>
 {
-  it('默认跟随全局，输入个人规则后等待保存成功才更新账户', async () =>
+  async function openConfiguration(value: SessionConfiguration): Promise<VueWrapper>
+  {
+    vi.spyOn(SessionConfigurationAPI, 'get').mockResolvedValue(value)
+    const wrapper = mount(SessionConfigurationDialog, { props: { sessionId: 'session-1', modelValue: true }, global: { plugins: [pinia, i18n], stubs } })
+    mounted.push(wrapper)
+    await flushPromises()
+    return wrapper
+  }
+
+  function saveButton(wrapper: VueWrapper)
+  {
+    return wrapper.findAll('button').find(button => button.text() === '保存')!
+  }
+
+  it('个人账户不再显示或提供同传规则配置', async () =>
   {
     const wrapper = await openAccount()
-    const inherit = wrapper.get<HTMLInputElement>('input[aria-label="跟随全局默认"]')
-    const input = wrapper.get<HTMLInputElement>('input[aria-label="个人同传正则"]')
-    expect(inherit.element.checked).toBe(true)
+    expect(wrapper.text()).not.toContain('同传')
+    expect('setTranslationDanmuPattern' in AuthAPI).toBe(false)
+    expect('setTranslationDanmuPattern' in useAuthStore()).toBe(false)
+  })
+
+  it('保存显式覆盖携带版本，成功前保持窗口与已保存值', async () =>
+  {
+    const wrapper = await openConfiguration({ translationDanmuPatternOverride: null, effectiveTranslationDanmuPattern: '^全局', revision: 4 })
+    const input = wrapper.get<HTMLInputElement>('input[aria-label="本录像同传正则"]')
     expect(input.element.disabled).toBe(true)
-    expect(input.element.value).toBe('')
-    const pending = deferred<UserProfile>()
-    const save = vi.spyOn(AuthAPI, 'setTranslationDanmuPattern').mockReturnValue(pending.promise)
-    await inherit.setValue(false)
-    const pattern = '(?i)^译[:：] .+'
-    await input.setValue(pattern)
-    expect(save).not.toHaveBeenCalled()
-    expect(useAuthStore().user?.translationDanmuPattern).toBeNull()
-    await wrapper.get('form').trigger('submit')
-    expect(save).toHaveBeenCalledExactlyOnceWith(pattern)
+    const pending = deferred<SessionConfiguration>()
+    const save = vi.spyOn(SessionConfigurationAPI, 'update').mockReturnValue(pending.promise)
+    await wrapper.get('input[type="checkbox"]').setValue(false)
+    await input.setValue('(?i)^译')
+    await saveButton(wrapper).trigger('click')
+    expect(save).toHaveBeenCalledExactlyOnceWith('session-1', '(?i)^译', 4)
+    expect(wrapper.emitted('saved')).toBeUndefined()
     expect(input.element.disabled).toBe(true)
-    expect(useAuthStore().user?.translationDanmuPattern).toBeNull()
-    pending.resolve(user(pattern))
+    const saved = { translationDanmuPatternOverride: '(?i)^译', effectiveTranslationDanmuPattern: '(?i)^译', revision: 5 }
+    pending.resolve(saved)
     await flushPromises()
-    expect(useAuthStore().user?.translationDanmuPattern).toBe(pattern)
-    expect(input.element.disabled).toBe(false)
-    expect(wrapper.get('[role="status"]').text()).toBe('同传设置已保存')
+    expect(wrapper.emitted('saved')).toEqual([[saved]])
+    expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
   })
 
-  it('保存失败保留个人草稿和已生效规则，允许再次保存', async () =>
+  it('并发保存冲突保留草稿，重新读取后用新版本恢复跟随全局', async () =>
   {
-    const wrapper = await openAccount('^旧规则')
-    const input = wrapper.get<HTMLInputElement>('input[aria-label="个人同传正则"]')
-    const save = vi.spyOn(AuthAPI, 'setTranslationDanmuPattern').mockRejectedValueOnce(new Error('同传正则无效')).mockResolvedValueOnce(user('^新规则'))
-    await input.setValue('[')
-    await wrapper.get('form').trigger('submit')
+    const wrapper = await openConfiguration({ translationDanmuPatternOverride: '^旧', effectiveTranslationDanmuPattern: '^旧', revision: 2 })
+    const save = vi.spyOn(SessionConfigurationAPI, 'update').mockRejectedValueOnce(new Error('配置已由其他人修改')).mockResolvedValueOnce({ translationDanmuPatternOverride: null, effectiveTranslationDanmuPattern: '^全局', revision: 4 })
+    const input = wrapper.get<HTMLInputElement>('input[aria-label="本录像同传正则"]')
+    await input.setValue('^草稿')
+    await saveButton(wrapper).trigger('click')
     await flushPromises()
-    expect(input.element.value).toBe('[')
-    expect(input.element.disabled).toBe(false)
-    expect(useAuthStore().user?.translationDanmuPattern).toBe('^旧规则')
-    expect(wrapper.get('[role="alert"]').text()).toBe('同传正则无效')
-    expect(wrapper.find('[role="status"]').exists()).toBe(false)
-    await input.setValue('^新规则')
-    await wrapper.get('form').trigger('submit')
+    expect(wrapper.get('[role="alert"]').text()).toBe('配置已由其他人修改')
+    expect(input.element.value).toBe('^草稿')
+    vi.mocked(SessionConfigurationAPI.get).mockResolvedValue({ translationDanmuPatternOverride: '^他人', effectiveTranslationDanmuPattern: '^他人', revision: 3 })
+    await wrapper.findAll('button').find(button => button.text() === '重新读取配置')!.trigger('click')
     await flushPromises()
-    expect(save).toHaveBeenNthCalledWith(2, '^新规则')
-    expect(useAuthStore().user?.translationDanmuPattern).toBe('^新规则')
-    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    await wrapper.get('input[type="checkbox"]').setValue(true)
+    await saveButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(save).toHaveBeenLastCalledWith('session-1', null, 3)
+    expect(wrapper.emitted('saved')).toHaveLength(1)
   })
 
-  it('恢复跟随全局时提交 null，账号切换清除上一账号的未保存草稿', async () =>
+  it('切换录像后丢弃旧请求响应', async () =>
   {
-    const wrapper = await openAccount('^个人')
-    const input = wrapper.get<HTMLInputElement>('input[aria-label="个人同传正则"]')
-    const save = vi.spyOn(AuthAPI, 'setTranslationDanmuPattern').mockResolvedValue(user(null))
-    await wrapper.get('input[aria-label="跟随全局默认"]').setValue(true)
-    expect(save).not.toHaveBeenCalled()
-    await wrapper.get('form').trigger('submit')
+    const old = deferred<SessionConfiguration>()
+    vi.spyOn(SessionConfigurationAPI, 'get').mockReturnValueOnce(old.promise).mockResolvedValue({ translationDanmuPatternOverride: '^新录像', effectiveTranslationDanmuPattern: '^新录像', revision: 7 })
+    const wrapper = mount(SessionConfigurationDialog, { props: { sessionId: 'old', modelValue: true }, global: { plugins: [pinia, i18n], stubs } })
+    mounted.push(wrapper)
+    await wrapper.setProps({ sessionId: 'new' })
     await flushPromises()
-    expect(save).toHaveBeenCalledExactlyOnceWith(null)
-    expect(useAuthStore().user?.translationDanmuPattern).toBeNull()
-    await wrapper.get('input[aria-label="跟随全局默认"]').setValue(false)
-    await input.setValue('^未保存')
-    useAuthStore().user = user('^另一账号', 'user-2')
-    await nextTick()
-    expect(input.element.value).toBe('^另一账号')
-    expect(wrapper.get<HTMLInputElement>('input[aria-label="跟随全局默认"]').element.checked).toBe(false)
-  })
-
-  it('更新同一账号的语言不会覆盖尚未保存的同传草稿', async () =>
-  {
-    const wrapper = await openAccount('^个人')
-    const input = wrapper.get<HTMLInputElement>('input[aria-label="个人同传正则"]')
-    await input.setValue('^未保存')
-    useAuthStore().user = { ...user('^个人'), language: 'en-US' }
-    await nextTick()
-    expect(input.element.value).toBe('^未保存')
-  })
-
-  it('账号切换后忽略上一账号尚未完成的保存响应', async () =>
-  {
-    const wrapper = await openAccount('^个人')
-    const pending = deferred<UserProfile>()
-    vi.spyOn(AuthAPI, 'setTranslationDanmuPattern').mockReturnValue(pending.promise)
-    await wrapper.get('input[aria-label="个人同传正则"]').setValue('^保存中')
-    await wrapper.get('form').trigger('submit')
-    useAuthStore().user = user('^另一账号', 'user-2')
-    await nextTick()
-    pending.resolve(user('^保存中'))
+    old.resolve({ translationDanmuPatternOverride: '^旧录像', effectiveTranslationDanmuPattern: '^旧录像', revision: 1 })
     await flushPromises()
-    expect(useAuthStore().user?.id).toBe('user-2')
-    expect(useAuthStore().user?.translationDanmuPattern).toBe('^另一账号')
-    expect(wrapper.get<HTMLInputElement>('input[aria-label="个人同传正则"]').element.value).toBe('^另一账号')
-    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="本录像同传正则"]').element.value).toBe('^新录像')
   })
 
-  it('API 只提交规则并沿用当前身份与 CSRF，不接受目标账号 ID', async () =>
+  it('配置 API 使用录像路径、版本和 CSRF', async () =>
   {
-    const fetcher = vi.fn(async () => new Response(JSON.stringify(user('^个人')), { headers: { 'Content-Type': 'application/json' } }))
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ translationDanmuPatternOverride: '^录像', effectiveTranslationDanmuPattern: '^录像', revision: 2 }), { headers: { 'Content-Type': 'application/json' } }))
     vi.stubGlobal('fetch', fetcher)
     setCsrfToken('current-csrf')
-    const result = await AuthAPI.setTranslationDanmuPattern('^个人')
+    const result = await SessionConfigurationAPI.update('session /中文', '^录像', 1)
     const [url, request] = fetcher.mock.calls[0]! as unknown as [string, RequestInit]
-    expect(String(url)).toMatch(/\/api\/auth\/translation-danmu-pattern$/)
-    expect(request).toMatchObject({ method: 'PUT', credentials: 'include', body: JSON.stringify({ pattern: '^个人' }) })
+    expect(String(url)).toContain('/api/sessions/session%20%2F%E4%B8%AD%E6%96%87/configuration')
+    expect(request).toMatchObject({ method: 'PUT', credentials: 'include', body: JSON.stringify({ translationDanmuPatternOverride: '^录像', expectedRevision: 1 }) })
     expect(new Headers(request.headers).get('X-CSRF-TOKEN')).toBe('current-csrf')
-    expect(result.translationDanmuPattern).toBe('^个人')
+    expect(result.revision).toBe(2)
+  })
+
+  it('保存过程中切换录像不会阻塞新录像，迟到保存响应不关闭新窗口', async () =>
+  {
+    const wrapper = await openConfiguration({ translationDanmuPatternOverride: '^旧', effectiveTranslationDanmuPattern: '^旧', revision: 1 })
+    const old = deferred<SessionConfiguration>()
+    vi.spyOn(SessionConfigurationAPI, 'update').mockReturnValue(old.promise)
+    await saveButton(wrapper).trigger('click')
+    vi.mocked(SessionConfigurationAPI.get).mockResolvedValue({ translationDanmuPatternOverride: '^新', effectiveTranslationDanmuPattern: '^新', revision: 4 })
+    await wrapper.setProps({ sessionId: 'new' })
+    await flushPromises()
+    expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
+    old.resolve({ translationDanmuPatternOverride: '^旧', effectiveTranslationDanmuPattern: '^旧', revision: 1 })
+    await flushPromises()
+    expect(wrapper.emitted('saved')).toBeUndefined()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="本录像同传正则"]').element.value).toBe('^新')
   })
 })
 
 describe('同传设置三语文案', () =>
 {
-  it.each([
-    ['zh-CN', '默认同传正则', '个人同传正则', '跟随全局默认', '保存同传设置'],
-    ['en-US', 'Default translation pattern', 'Personal translation pattern', 'Use global default', 'Save translation settings'],
-    ['ja-JP', '既定の同時通訳の正規表現', '個人の同時通訳の正規表現', '全体の既定値を使用', '同時通訳設定を保存'],
-  ] as const)('%s 展示全局与个人设置', async (language, globalLabel, personalLabel, inheritLabel, saveLabel) =>
+  it.each(['zh-CN', 'en-US', 'ja-JP'] as const)('%s 的全局与录像设置文案已完整替换个人设置', async language =>
   {
-    vi.spyOn(MediaAPI, 'settings').mockResolvedValue(settings('^译'))
-    const admin = await openSettings()
-    const account = await openAccount()
     i18n.global.locale.value = language
     await nextTick()
-    expect(admin.get<HTMLInputElement>(`input[aria-label="${globalLabel}"]`).element.value).toBe('^译')
-    expect(account.get<HTMLInputElement>(`input[aria-label="${personalLabel}"]`).element.disabled).toBe(true)
-    expect(account.get<HTMLInputElement>(`input[aria-label="${inheritLabel}"]`).element.checked).toBe(true)
-    expect(account.get('form button').text()).toBe(saveLabel)
+    expect(i18n.global.te('shell.recordingConfiguration.title', language)).toBe(true)
+    expect(i18n.global.te('shell.recordingConfiguration.groupHint', language)).toBe(true)
+    expect(i18n.global.te('shell.account.personalTranslationPattern', language)).toBe(false)
   })
 })

@@ -3,7 +3,7 @@
   <v-alert v-if="error || saveError" type="error" class="mb-6">{{ error || saveError }}</v-alert>
   <v-progress-linear v-if="loading" indeterminate color="primary" />
   <template v-if="settings">
-    <v-tabs v-model="tab" color="primary" show-arrows class="mb-6"><v-tab value="general">{{ t('shell.settings.general') }}</v-tab><v-tab value="recording">{{ t('shell.settings.recording') }}</v-tab><v-tab value="media">{{ t('shell.settings.media') }}</v-tab><v-tab value="registration">{{ t('shell.settings.registration') }}</v-tab><v-tab value="smtp">{{ t('shell.settings.mail') }}</v-tab><v-tab value="oauth">{{ t('shell.settings.oauth') }}</v-tab></v-tabs>
+    <v-tabs v-model="tab" color="primary" show-arrows class="mb-6"><v-tab value="general">{{ t('shell.settings.general') }}</v-tab><v-tab value="recording">{{ t('shell.settings.recording') }}</v-tab><v-tab value="media">{{ t('shell.settings.media') }}</v-tab><v-tab value="registration">{{ t('shell.settings.registration') }}</v-tab><v-tab value="smtp">{{ t('shell.settings.mail') }}</v-tab><v-tab value="oauth">{{ t('shell.settings.oauth') }}</v-tab><v-tab value="ai">{{ t('aiSettings.title') }}</v-tab></v-tabs>
     <div v-if="tab === 'general'" class="settings-grid">
       <ContentCard :title="t('shell.settings.interface')">
         <div class="form-stack">
@@ -13,8 +13,7 @@
       </ContentCard>
       <ContentCard :title="t('shell.settings.playbackPreview')">
         <div class="form-stack">
-          <v-text-field v-model="settings.translationDanmuPattern" :label="t('shell.settings.translationDanmuPattern')" :hint="t('shell.settings.translationDanmuPatternHint')" persistent-hint :disabled="saving" spellcheck="false" autocomplete="off" />
-          <p class="text-body-2 muted">{{ t('shell.settings.translationDanmuPatternDescription') }}</p>
+          <v-text-field v-model="settings.translationDanmuPattern" :label="t('shell.settings.translationDanmuPattern')" :disabled="saving" spellcheck="false" autocomplete="off" />
         </div>
       </ContentCard>
       <ContentCard :title="t('components.dataDirectories.title')">
@@ -39,6 +38,7 @@
       <ContentCard :title="t('shell.settings.resourceLimits')"><div class="form-stack"><v-text-field v-model.number="cacheGiB" :label="t('shell.settings.cacheLimit')" type="number" min="1" /><v-text-field v-model.number="minimumFreeGiB" :label="t('shell.settings.minimumFree')" type="number" min="1" /><v-text-field v-model.number="settings.mediaConcurrency" :label="t('shell.settings.mediaConcurrency')" type="number" min="1" max="32" /><v-text-field v-model.number="settings.playbackConcurrency" :label="t('shell.settings.playbackConcurrency')" type="number" min="1" max="32" /></div></ContentCard>
     </div>
     <RegistrationSettings v-else-if="tab === 'registration'" v-model="settings" :disabled="saving" />
+    <AiSettingsPanel v-else-if="tab === 'ai' && settings.ai" v-model="settings.ai" :disabled="saving" />
     <ContentCard v-else-if="tab === 'smtp'" style="max-width: 800px" :title="t('shell.settings.smtp')">
       <div class="form-stack">
         <div class="d-flex flex-wrap ga-4">
@@ -72,12 +72,13 @@ import { useAuthStore } from '@/stores/auth'
 import { usePreferencesStore } from '@/stores/preferences'
 import type { AppLanguage } from '@/localization/types'
 import type { ServerPaths, ServerSettings } from '@/models/settings'
-import { QUALITY_OPTIONS } from '@/models/settings'
+import { QUALITY_OPTIONS, isValidAiContextWindow, isValidAiRequestLimit, normalizeAiSettings } from '@/models/settings'
 import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import LanguageSelect from '@/components/common/LanguageSelect.vue'
 import DataDirectorySettings from '@/components/common/DataDirectorySettings.vue'
 import RegistrationSettings from '@/components/common/RegistrationSettings.vue'
+import AiSettingsPanel from '@/components/common/AiSettingsPanel.vue'
 
 const { t } = useI18n()
 const preferences = usePreferencesStore()
@@ -107,6 +108,7 @@ function selectDefaultLanguage(language: AppLanguage | null): void
 function clearSecrets(value: ServerSettings): ServerSettings
 {
   value.smtp.password = ''
+  value.ai = { ...normalizeAiSettings(value.ai), apiKey: '', clearApiKey: false }
   value.oauthProviders ??= []
   for (const provider of value.oauthProviders) { provider.clientSecret = '' }
   return value
@@ -138,6 +140,14 @@ async function save(): Promise<void>
     if ([settings.value!.recordingRetentionDays, settings.value!.trashRetentionDays].some(value => !Number.isInteger(value) || value < 0 || value > 3650))
     {
       throw new Error(t('shell.settings.invalidRetention'))
+    }
+    if (settings.value!.ai && !isValidAiContextWindow(settings.value!.ai))
+    {
+      throw new Error(t('aiSettings.invalidContextWindow'))
+    }
+    if (settings.value!.ai && (!isValidAiRequestLimit(settings.value!.ai.requestTimeoutSeconds) || !isValidAiRequestLimit(settings.value!.ai.maxRequestRetries)))
+    {
+      throw new Error(t('aiSettings.invalidRequestLimit'))
     }
     await MediaAPI.updateSettings(settings.value!)
     settings.value = clearSecrets(await MediaAPI.settings())

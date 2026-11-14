@@ -200,8 +200,9 @@ public sealed class LiveMarkerFileStore(IAppPaths paths)
     /// <summary>计算不可变原文指纹，供副本去重及恢复校验使用。</summary>
     public static string Hash(ReadOnlySpan<byte> bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 
-    private async Task<byte[]> ReadOriginalAsync(string sessionDirectory, LiveMarkerFileMetadata file,
-        CancellationToken cancellationToken)
+    /// <summary>读取并校验不可变原文，缺失或内容哈希不符时拒绝恢复。</summary>
+    public async Task<byte[]> ReadOriginalAsync(string sessionDirectory, LiveMarkerFileMetadata file,
+        CancellationToken cancellationToken = default)
     {
         var originalPath = Path.Combine(FileDirectory(sessionDirectory, file.Id), ORIGINAL_FILE_NAME);
         if (!File.Exists(originalPath) || new FileInfo(originalPath).Length > LiveMarkerLimits.MAXIMUM_BYTES)

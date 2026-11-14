@@ -42,7 +42,8 @@ export const viewsZh = {
   },
   clips: { mine: '我的切片', expires: '到期 {date}', empty: '暂无切片', browse: '浏览录播', trashConfirm: '将切片移入回收站？' },
   jobs: {
-    active: '进行中', failed: '失败', count: '{count} 项', task: '任务', progress: '进度', fast: '快速', exact: '精确',
+    active: '进行中', failed: '未完成', count: '{count} 项', task: '任务', progress: '进度', fast: '快速', exact: '精确',
+    analysisResults: '查看分析', loadFailed: '后台任务加载失败',
     cancelling: '取消中', downloadFile: '下载文件', downloadNumberedFile: '下载文件 {number}', empty: '暂无后台任务',
   },
   targets: {
@@ -61,9 +62,7 @@ export const viewsZh = {
   },
   analytics: {
     title: '直播分析', selectRecording: '选择录播', loadMore: '加载更多', amountSources: '流水来源',
-    translationsExcluded: '互动统计已剔除同传弹幕，同传者的普通发言和付费互动仍计入统计。',
     translationsTitle: '同传统计', translationTotal: '同传总条数', translationUsers: '同传者', translationCount: '同传条数', translationVolume: '同传量',
-    translationExplanation: '按个人或全局同传规则识别。无法识别发送者的同传计入总条数，不计入同传者人数和榜单。',
     noTranslations: '暂无同传弹幕', noTranslationUsers: '暂无同传者数据',
     messageDistribution: '消息分布', coverageGaps: '录制中断 {count}', activeUsers: '活跃用户', messages: '消息', observedAmount: '流水',
     guest: '访客', noActiveUsers: '暂无活跃用户数据', empty: '暂无可分析的录播', observedTotal: '总流水', giftQuantity: '礼物数量',
@@ -129,7 +128,8 @@ export const viewsEn: MessageSchema<typeof viewsZh> = {
   },
   clips: { mine: 'My clips', expires: 'Expires {date}', empty: 'No clips yet', browse: 'Browse recordings', trashConfirm: 'Move this clip to trash?' },
   jobs: {
-    active: 'In progress', failed: 'Failed', count: '{count} jobs', task: 'Job', progress: 'Progress', fast: 'Fast', exact: 'Precise',
+    active: 'In progress', failed: 'Incomplete', count: '{count} jobs', task: 'Job', progress: 'Progress', fast: 'Fast', exact: 'Precise',
+    analysisResults: 'View analysis', loadFailed: 'Could not load background jobs',
     cancelling: 'Cancelling', downloadFile: 'Download file', downloadNumberedFile: 'Download file {number}', empty: 'No background jobs yet',
   },
   targets: {
@@ -148,9 +148,7 @@ export const viewsEn: MessageSchema<typeof viewsZh> = {
   },
   analytics: {
     title: 'Stream analytics', selectRecording: 'Select recording', loadMore: 'Load more', amountSources: 'Revenue sources',
-    translationsExcluded: 'Translated chat is excluded from interaction statistics. Translators’ regular chat and paid interactions are still included.',
     translationsTitle: 'Translation statistics', translationTotal: 'Total translated messages', translationUsers: 'Translators', translationCount: 'Translated messages', translationVolume: 'Translation volume',
-    translationExplanation: 'Identified using your personal pattern or the global default. Translations from unidentified senders count toward the total, but not translator counts or rankings.',
     noTranslations: 'No translated chat', noTranslationUsers: 'No translator data',
     messageDistribution: 'Message distribution', coverageGaps: 'Recording interruptions: {count}', activeUsers: 'Active users', messages: 'Messages', observedAmount: 'Revenue',
     guest: 'Guest', noActiveUsers: 'No active user data', empty: 'No recordings to analyze', observedTotal: 'Total revenue', giftQuantity: 'Gift quantity',
@@ -216,7 +214,8 @@ export const viewsJa: MessageSchema<typeof viewsZh> = {
   },
   clips: { mine: '自分のクリップ', expires: '有効期限 {date}', empty: 'クリップはまだありません', browse: '録画を見る', trashConfirm: 'このクリップをゴミ箱に移動しますか？' },
   jobs: {
-    active: '処理中', failed: '失敗', count: '{count} 件', task: 'タスク', progress: '進捗', fast: '高速', exact: '精密',
+    active: '処理中', failed: '未完了', count: '{count} 件', task: 'タスク', progress: '進捗', fast: '高速', exact: '精密',
+    analysisResults: '分析を見る', loadFailed: 'バックグラウンドタスクを読み込めませんでした',
     cancelling: 'キャンセル中', downloadFile: 'ファイルをダウンロード', downloadNumberedFile: 'ファイル {number} をダウンロード', empty: 'バックグラウンドタスクはありません',
   },
   targets: {
@@ -235,9 +234,7 @@ export const viewsJa: MessageSchema<typeof viewsZh> = {
   },
   analytics: {
     title: '配信分析', selectRecording: '録画を選択', loadMore: 'さらに読み込む', amountSources: '売上の内訳',
-    translationsExcluded: '参加統計から同時通訳コメントを除外しています。通訳者の通常コメントや有料の参加は引き続き集計します。',
     translationsTitle: '同時通訳の統計', translationTotal: '同時通訳コメント合計', translationUsers: '通訳者', translationCount: '同時通訳コメント数', translationVolume: '同時通訳コメントの推移',
-    translationExplanation: '個人設定または全体の規則で識別します。送信者を特定できない同時通訳コメントは合計数に含め、通訳者数とランキングには含めません。',
     noTranslations: '同時通訳コメントはありません', noTranslationUsers: '通訳者のデータはありません',
     messageDistribution: 'メッセージの内訳', coverageGaps: '録画の中断 {count} 回', activeUsers: 'アクティブユーザー', messages: 'メッセージ', observedAmount: '売上',
     guest: 'ゲスト', noActiveUsers: 'アクティブユーザーのデータはありません', empty: '分析できる録画がありません', observedTotal: '売上合計', giftQuantity: 'ギフト数',

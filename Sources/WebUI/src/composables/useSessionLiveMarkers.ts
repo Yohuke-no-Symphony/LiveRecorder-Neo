@@ -5,7 +5,7 @@ import { LiveMarkerAPI } from '@/apis/LiveMarkerAPI'
 import type { LiveMarkerDetail, LiveMarkerFile, LiveMarkerUpload } from '@/models/liveMarkers'
 import { usePolling } from './usePolling'
 
-export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, active: MaybeRefOrGetter<boolean>)
+export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, active: MaybeRefOrGetter<boolean>, preferredFileId?: MaybeRefOrGetter<string | undefined>, scopeKey?: MaybeRefOrGetter<string>)
 {
   const { t } = useI18n()
   const files = ref<LiveMarkerFile[]>([])
@@ -23,6 +23,8 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
   let listController: AbortController | undefined
   let entryController: AbortController | undefined
   let disposed = false
+  let requestedFileId = toValue(preferredFileId) ?? ''
+  let requestedFileMissing = false
 
   function cancelReads(): void
   {
@@ -96,7 +98,7 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
     listController = new AbortController()
     const signal = listController.signal
     loadingFiles.value = true
-    error.value = ''
+    error.value = requestedFileMissing ? t('liveMarkers.fileMissing') : ''
     try
     {
       const result = await LiveMarkerAPI.files(toValue(sessionId), signal)
@@ -106,7 +108,26 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
       }
       files.value = sortFiles(result.files)
       defaultTimeZoneId.value = result.defaultTimeZoneId
-      const selected = files.value.find(file => file.id === selectedId.value) ?? files.value[0]
+      const requested = files.value.find(file => file.id === requestedFileId)
+      if (requestedFileId && !requested)
+      {
+        requestedFileId = ''
+        requestedFileMissing = true
+        selectedId.value = ''
+        detail.value = undefined
+        entrySequence++
+        entryController?.abort()
+        loadingEntries.value = false
+        error.value = t('liveMarkers.fileMissing')
+        return
+      }
+      const selected = requested ?? files.value.find(file => file.id === selectedId.value) ?? (requestedFileMissing ? undefined : files.value[0])
+      if (requested) { requestedFileId = '' }
+      if (selected)
+      {
+        requestedFileMissing = false
+        error.value = ''
+      }
       selectedId.value = selected?.id ?? ''
       if (!selected)
       {
@@ -148,9 +169,18 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
       return
     }
     selectedId.value = fileId
+    requestedFileId = ''
+    requestedFileMissing = false
     detail.value = undefined
     error.value = ''
     await loadSelected()
+  }
+
+  async function reveal(fileId: string): Promise<void>
+  {
+    requestedFileId = fileId
+    requestedFileMissing = false
+    await refresh(false)
   }
 
   async function mutate<T>(action: (id: string) => Promise<T>, apply: (result: T) => void): Promise<T | undefined>
@@ -233,12 +263,14 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
     })
   }
 
-  watch(() => toValue(sessionId), () =>
+  watch([() => toValue(sessionId), () => toValue(scopeKey)], () =>
   {
     scope++
     cancelReads()
     files.value = []
     selectedId.value = ''
+    requestedFileId = toValue(preferredFileId) ?? ''
+    requestedFileMissing = false
     detail.value = undefined
     defaultTimeZoneId.value = ''
     saving.value = false
@@ -246,6 +278,13 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
     actionError.value = ''
     void refresh()
   }, { immediate: true })
+
+  watch(() => toValue(preferredFileId), value =>
+  {
+    requestedFileId = value ?? ''
+    requestedFileMissing = false
+    if (value) { void refresh(false) }
+  })
 
   watch(() => toValue(active), value =>
   {
@@ -260,5 +299,5 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
     cancelReads()
   })
 
-  return { files, selectedId, detail, defaultTimeZoneId, loadingFiles, loadingEntries, saving, error, actionError, refresh, select, upload, align, remove, clearActionError: () => { actionError.value = '' } }
+  return { files, selectedId, detail, defaultTimeZoneId, loadingFiles, loadingEntries, saving, error, actionError, refresh, select, reveal, upload, align, remove, clearActionError: () => { actionError.value = '' } }
 }

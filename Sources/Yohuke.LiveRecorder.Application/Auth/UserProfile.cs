@@ -6,5 +6,4 @@ namespace Yohuke.LiveRecorder.Application.Auth;
 public sealed record UserProfile(string Id, string Email, string DisplayName, string AvatarUrl, string Role, string Status, string? Language = null)
 {
     public PermissionSet Permissions { get; init; } = PermissionSet.Empty;
-    public string? TranslationDanmuPattern { get; init; }
 }

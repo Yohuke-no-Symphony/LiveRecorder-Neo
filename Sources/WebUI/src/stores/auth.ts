@@ -30,9 +30,12 @@ export const useAuthStore = defineStore('auth', () =>
   const canDownloadRecordings = computed(() => canViewRecordings.value && hasPermission(PERMISSIONS.downloadRecordings))
   const canCreateClips = computed(() => canViewRecordings.value && hasPermission(PERMISSIONS.createClips))
   const canUploadLiveMarkers = computed(() => canViewRecordings.value && hasPermission(PERMISSIONS.uploadLiveMarkers))
+  const canGenerateLiveMarkers = computed(() => canViewRecordings.value && hasPermission(PERMISSIONS.generateLiveMarkers))
   const canManageLiveMarkers = computed(() => canViewRecordings.value && hasPermission(PERMISSIONS.manageLiveMarkers))
   const canManageRecordings = computed(() => hasPermission(PERMISSIONS.manageRecordings))
+  const canConfigureRecordings = computed(() => canViewRecordings.value && hasPermission(PERMISSIONS.configureRecordings))
   const canViewAnalytics = computed(() => canViewRecordings.value && hasPermission(PERMISSIONS.viewAnalytics))
+  const canGenerateAnalytics = computed(() => canViewAnalytics.value && hasPermission(PERMISSIONS.generateAnalytics))
   const canPurgeRecordings = computed(() => hasPermission(PERMISSIONS.purgeRecordings))
   const homePath = computed(() => canViewRecordings.value ? '/' : '/account')
   let initialLoad: Promise<void> | undefined
@@ -93,15 +96,6 @@ export const useAuthStore = defineStore('auth', () =>
     user.value = await AuthAPI.setLanguage(language)
   }
 
-  async function setTranslationDanmuPattern(pattern: string | null): Promise<void>
-  {
-    const updated = await AuthAPI.setTranslationDanmuPattern(pattern)
-    if (user.value?.id === updated.id)
-    {
-      user.value = updated
-    }
-  }
-
   async function logout(): Promise<void>
   {
     await AuthAPI.logout()
@@ -110,5 +104,5 @@ export const useAuthStore = defineStore('auth', () =>
     await refresh()
   }
 
-  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canViewAnalytics, canPurgeRecordings, canViewRecordings, canDownloadRecordings, canCreateClips, canUploadLiveMarkers, canManageLiveMarkers, permissionDefinitions, hasPermission, homePath, bootstrap, refresh, login, logout, setLanguage, setTranslationDanmuPattern }
+  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canConfigureRecordings, canViewAnalytics, canGenerateAnalytics, canPurgeRecordings, canViewRecordings, canDownloadRecordings, canCreateClips, canUploadLiveMarkers, canGenerateLiveMarkers, canManageLiveMarkers, permissionDefinitions, hasPermission, homePath, bootstrap, refresh, login, logout, setLanguage }
 })

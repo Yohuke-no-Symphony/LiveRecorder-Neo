@@ -5,13 +5,19 @@ namespace Yohuke.LiveRecorder.Infrastructure.Analytics;
 /// <summary>从文件计算的协议支付与金币面值观察，不代表用户实际花费或主播结算收入。</summary>
 public sealed class AnalyticsReport
 {
-    public const int CURRENT_SCHEMA_VERSION = 5;
+    public const int CURRENT_SCHEMA_VERSION = 6;
     internal const int USER_RANKING_LIMIT = 100;
     public int SchemaVersion { get; set; }
     public long SourceBytes { get; set; }
     public string SourceIdentity { get; set; } = "";
     public string SourceFingerprint { get; set; } = "";
     public DateTime BuiltAtUtc { get; set; }
+    [JsonRequired]
+    public double FromMs { get; set; }
+    [JsonRequired]
+    public double ToMs { get; set; }
+    [JsonRequired]
+    public OnlineAnalyticsReport Online { get; set; } = new();
     public decimal ObservedAmount { get; set; }
     /// <summary>兼容旧接口的观测总额名称；仅等于金币面值加协议支付，不含报价。</summary>
     public decimal PaidRevenue { get => ObservedAmount; set => ObservedAmount = value; }

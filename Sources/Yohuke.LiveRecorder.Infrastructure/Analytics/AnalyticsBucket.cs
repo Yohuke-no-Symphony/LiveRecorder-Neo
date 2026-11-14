@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Yohuke.LiveRecorder.Infrastructure.Analytics;
 
 /// <summary>一分钟内观测到的互动与付费流水。</summary>
@@ -13,4 +15,14 @@ public sealed class AnalyticsBucket
     public decimal SuperChatAmount { get; set; }
     public decimal GiftAmount { get; set; }
     public decimal GuardAmount { get; set; }
+    [JsonRequired]
+    public int SuperChatCount { get; set; }
+    [JsonRequired]
+    public double DurationMs { get; set; } = 60000;
+    [JsonRequired]
+    public double? OnlineAverage { get; set; }
+    [JsonRequired]
+    public long? OnlinePeak { get; set; }
+    [JsonRequired]
+    public double OnlineObservedMs { get; set; }
 }

@@ -193,4 +193,39 @@ This code is valid for 10 minutes. Do not share it. If you did not request it, i
   <data name="LIVE_MARKER_NOT_FOUND" xml:space="preserve"><value>The record file does not exist or has been deleted.</value></data>
   <data name="LIVE_MARKER_SESSION_NOT_AVAILABLE" xml:space="preserve"><value>Live records are unavailable while this recording is being grouped, hidden or in the trash.</value></data>
   <data name="LIVE_MARKER_FILE_CORRUPT" xml:space="preserve"><value>The record attachment is incomplete or corrupt. Check the recording directory.</value></data>
+  <data name="SESSION_CONFIGURATION_CHANGED" xml:space="preserve"><value>The recording configuration changed. Refresh and try again.</value></data>
+  <data name="GROUPING_CONFIGURATION_REQUIRED" xml:space="preserve"><value>The recordings use different translation rules. A user with recording configuration permission must choose a shared rule or the global default.</value></data>
+  <data name="AI_SETTINGS_INVALID" xml:space="preserve"><value>The AI service, reference usage, or call settings are invalid.</value></data>
+  <data name="AI_ENDPOINT_INVALID" xml:space="preserve"><value>Enter an HTTP or HTTPS API URL without credentials, query parameters, or a fragment.</value></data>
+  <data name="AI_MODEL_REQUIRED" xml:space="preserve"><value>Enter an AI model name first.</value></data>
+  <data name="AI_DISABLED" xml:space="preserve"><value>AI analysis has not been enabled by an administrator.</value></data>
+  <data name="AI_RECORDING_NOT_FINISHED" xml:space="preserve"><value>AI analysis is available after the recording ends.</value></data>
+  <data name="AI_RECORDING_EMPTY" xml:space="preserve"><value>The recording has no usable duration to analyze.</value></data>
+  <data name="AI_JOB_CONFLICT" xml:space="preserve"><value>The analysis job changed. Refresh and try again.</value></data>
+  <data name="AI_JOB_NOT_FOUND" xml:space="preserve"><value>The AI analysis job was not found.</value></data>
+  <data name="AI_FUNCTION_CALL_REQUIRED" xml:space="preserve"><value>The model did not return a valid function call. Check that it supports tools.</value></data>
+  <data name="AI_PROVIDER_REJECTED" xml:space="preserve"><value>The AI provider rejected the request (HTTP {0}). Check the API URL, model, key, and quota.</value></data>
+  <data name="AI_REQUEST_FAILED" xml:space="preserve"><value>The AI request failed. Check the service settings and try again.</value></data>
+  <data name="AI_NETWORK_UNKNOWN" xml:space="preserve"><value>The AI connection was interrupted before a complete response was received.</value></data>
+  <data name="AI_REQUEST_TIMEOUT" xml:space="preserve"><value>The AI request timed out while waiting for response data.</value></data>
+  <data name="AI_RESPONSE_INTERRUPTED" xml:space="preserve"><value>The AI response was interrupted before a complete result was received.</value></data>
+  <data name="AI_RESPONSE_INVALID" xml:space="preserve"><value>The AI provider returned an invalid response.</value></data>
+  <data name="AI_RESPONSE_TOO_LARGE" xml:space="preserve"><value>The AI provider response exceeded the size limit.</value></data>
+  <data name="AI_BUDGET_EXHAUSTED" xml:space="preserve"><value>The token budget is exhausted. Validated topics have been saved.</value></data>
+  <data name="AI_CALL_LIMIT_REACHED" xml:space="preserve"><value>The call limit has been reached. Validated topics have been saved.</value></data>
+  <data name="AI_NO_EVIDENCE" xml:space="preserve"><value>This recording has no translation, chat, or Super Chat text to analyze.</value></data>
+  <data name="AI_CANCELLED" xml:space="preserve"><value>AI analysis was cancelled.</value></data>
+  <data name="AI_EXECUTION_FAILED" xml:space="preserve"><value>AI analysis failed. Previously saved results remain available.</value></data>
+  <data name="AI_PROCESS_INTERRUPTED" xml:space="preserve"><value>Analysis was interrupted. Potentially billable requests were not replayed automatically.</value></data>
+  <data name="AI_REQUEST_UNKNOWN" xml:space="preserve"><value>The AI request outcome is unknown. No automatic retry was made.</value></data>
+  <data name="AI_CONFIGURATION_CHANGED" xml:space="preserve"><value>The AI service or credentials changed. This analysis was stopped.</value></data>
+  <data name="AI_LEASE_LOST" xml:space="preserve"><value>The analysis execution lease expired. This worker has stopped.</value></data>
+  <data name="AI_SOURCE_UNAVAILABLE" xml:space="preserve"><value>The recording was removed or is unavailable. Analysis has stopped.</value></data>
+  <data name="AI_OUTPUT_LIMIT_REACHED" xml:space="preserve"><value>The AI response reached the output limit. Increase the limit or adjust thinking mode, then try again.</value></data>
+  <data name="AI_CONTEXT_LENGTH_EXCEEDED" xml:space="preserve"><value>The compacted request still exceeds the model context capacity. Check the model and output settings.</value></data>
+  <data name="AI_NO_PROGRESS" xml:space="preserve"><value>The AI made no new analysis progress for several rounds. Completed segments and topics have been saved.</value></data>
+  <data name="AI_LIVE_MARKER_RESULT_INVALID" xml:space="preserve"><value>The generated live record did not pass integrity validation. No file was saved.</value></data>
+  <data name="AI_LIVE_MARKER_SAVE_FAILED" xml:space="preserve"><value>The live record could not be saved. The generated draft has been retained.</value></data>
+  <data name="AI_LIVE_MARKER_FILE_MISSING" xml:space="preserve"><value>The generated live record was deleted. Generate a new record to continue.</value></data>
+  <data name="AI_PUBLICATION_IN_PROGRESS" xml:space="preserve"><value>The AI live record is being saved. Wait for publication to finish before this action.</value></data>
 </root>

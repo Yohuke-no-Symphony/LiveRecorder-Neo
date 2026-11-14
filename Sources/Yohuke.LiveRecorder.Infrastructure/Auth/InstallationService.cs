@@ -156,7 +156,7 @@ public sealed class InstallationService(CurrentInstanceStorage current, Instance
 
     private static async Task RequireOriginalKeysAsync(IMongoDatabase database, ServerSettings settings, ISecretProtector protector, CancellationToken cancellationToken)
     {
-        var secrets = settings.OAuthProviders.Select(provider => provider.ClientSecret).Append(settings.Smtp.Password);
+        var secrets = settings.OAuthProviders.Select(provider => provider.ClientSecret).Append(settings.Smtp.Password).Append(settings.Ai.ApiKey);
         var credentials = await database.GetCollection<BilibiliAccount>("bilibili_accounts").Find(FilterDefinition<BilibiliAccount>.Empty).Project(account => account.ProtectedCredentials).ToListAsync(cancellationToken);
         try
         {

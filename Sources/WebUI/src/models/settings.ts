@@ -33,6 +33,7 @@ export interface OAuthProviderSettings
 
 export interface ServerSettings
 {
+  ai?: AiSettings
   defaultLanguage: AppLanguage
   translationDanmuPattern: string
   id: string
@@ -60,6 +61,53 @@ export interface ServerSettings
   ffprobePath: string
   smtp: SmtpSettings
   oauthProviders: OAuthProviderSettings[]
+}
+
+export interface AiSettings
+{
+  enabled: boolean
+  provider: 'OpenAI' | 'DeepSeek' | 'Custom'
+  baseUrl: string
+  model: string
+  apiKey: string
+  hasApiKey: boolean
+  clearApiKey: boolean
+  tokensPerHour: number
+  minimumTokens: number
+  maximumTokens: number
+  maxOutputTokens: number
+  contextTokenTarget: number
+  contextWindowTokens: number
+  requestTimeoutSeconds: number
+  maxRequestRetries: number
+  maxModelRequests: number
+  maxToolCalls: number
+  thinkingMode: 'Default' | 'Enabled' | 'Disabled'
+  reasoningEffort: 'Default' | 'Low' | 'High' | 'Max'
+}
+
+export function defaultAiSettings(): AiSettings
+{
+  return { enabled: false, provider: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: '', apiKey: '', hasApiKey: false, clearApiKey: false, tokensPerHour: 20000, minimumTokens: 10000, maximumTokens: 1000000, maxOutputTokens: 2048, contextTokenTarget: 32000, contextWindowTokens: 0, requestTimeoutSeconds: 180, maxRequestRetries: 2, maxModelRequests: 0, maxToolCalls: 0, thinkingMode: 'Default', reasoningEffort: 'Default' }
+}
+
+export function normalizeAiSettings(value?: Partial<AiSettings> | null): AiSettings
+{
+  return {
+    ...defaultAiSettings(), ...value, contextWindowTokens: value?.contextWindowTokens ?? 0,
+    requestTimeoutSeconds: value?.requestTimeoutSeconds ?? 180, maxRequestRetries: value?.maxRequestRetries ?? 2,
+  }
+}
+
+export function isValidAiContextWindow(settings: Pick<AiSettings, 'contextWindowTokens' | 'maxOutputTokens'>): boolean
+{
+  return Number.isInteger(settings.contextWindowTokens) && (settings.contextWindowTokens === 0 ||
+    settings.contextWindowTokens >= 8192 && settings.contextWindowTokens > settings.maxOutputTokens)
+}
+
+export function isValidAiRequestLimit(value: number): boolean
+{
+  return Number.isInteger(value) && value >= 0 && value <= 2147483647
 }
 
 export interface ServerPaths

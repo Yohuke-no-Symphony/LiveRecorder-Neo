@@ -1,5 +1,5 @@
 <template>
-  <div class="card-header">
+  <div class="card-header" :class="{ 'card-header-embedded': embedded, 'card-header-inline': inlineActions }">
     <div class="card-header-title">
       <h2 :id="titleId" :title="title">{{ title }}</h2>
       <slot name="suffix" />
@@ -9,7 +9,7 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{ title: string; titleId?: string }>()
+defineProps<{ title: string; titleId?: string; embedded?: boolean; inlineActions?: boolean }>()
 </script>
 
 <style scoped>
@@ -18,4 +18,7 @@ defineProps<{ title: string; titleId?: string }>()
 .card-header-title h2 { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ui-card-title-size); line-height: 1.5; font-weight: 600; }
 .card-header-title :deep(> :not(h2)) { flex-shrink: 0; }
 .card-header-actions { display: flex; align-items: center; gap: 8px; max-width: 100%; }
+.card-header.card-header-embedded { padding: 0; }
+.card-header.card-header-inline { justify-content: flex-start; }
+.card-header-inline .card-header-title { flex: 0 1 auto; }
 </style>

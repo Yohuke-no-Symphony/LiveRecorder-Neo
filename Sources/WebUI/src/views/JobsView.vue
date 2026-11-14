@@ -1,57 +1,126 @@
 <template>
-  <PageHeader :title="t('views.common.jobs')"><v-btn variant="outlined" prepend-icon="mdi-refresh" :loading="busy" @click="load">{{ t('views.common.refresh') }}</v-btn></PageHeader>
+  <PageHeader :title="t('views.common.jobs')"><v-btn variant="outlined" prepend-icon="mdi-refresh" :loading="busy" :disabled="busy" @click="refresh">{{ t('views.common.refresh') }}</v-btn></PageHeader>
   <v-alert v-if="error" type="error" class="mb-6">{{ error }}</v-alert>
-  <v-card v-if="jobs.length">
+  <v-card v-if="jobs.length" class="jobs-card">
     <div class="table-toolbar"><v-chip-group v-model="filter" mandatory color="primary"><v-chip value="all">{{ t('views.common.all') }}</v-chip><v-chip value="active">{{ t('views.jobs.active') }}</v-chip><v-chip value="failed">{{ t('views.jobs.failed') }}</v-chip></v-chip-group><span class="text-caption muted">{{ t('views.jobs.count', { count: formatNumber(visibleJobs.length) }) }}</span></div>
-    <v-table><thead><tr><th>{{ t('views.jobs.task') }}</th><th>{{ t('views.common.status') }}</th><th style="min-width: 150px">{{ t('views.jobs.progress') }}</th><th>{{ t('views.common.createdAt') }}</th><th /></tr></thead>
-      <tbody><tr v-for="job in visibleJobs" :key="job.id">
-        <td class="py-4"><router-link :to="`/sessions/${job.sessionId}`" class="font-weight-medium">{{ job.title || kindLabels[job.kind] || job.kind }}</router-link><div class="text-caption muted mt-1">{{ kindLabels[job.kind] || job.kind }}<span v-if="job.kind === 'Clip'"> · {{ job.mode === 'Fast' ? t('views.jobs.fast') : t('views.jobs.exact') }}</span></div><div v-if="job.error" class="text-caption text-error mt-2">{{ job.error }}</div></td>
-        <td><StatusChip :status="job.state" /></td>
-        <td><v-progress-linear :model-value="progress(job)" :indeterminate="['Running', 'Publishing'].includes(job.state) && job.progress === 0" color="primary" height="4" rounded /><div class="text-caption mono muted mt-2">{{ progress(job) }}%</div></td>
-        <td class="text-caption muted text-no-wrap">{{ formatDate(job.createdAtUtc) }}</td>
-        <td><div class="action-buttons"><v-btn v-if="['Queued', 'Running', 'Publishing'].includes(job.state)" variant="text" size="small" :disabled="job.cancelRequested" :loading="actionId === job.id" @click="act(job, 'cancel')">{{ job.cancelRequested ? t('views.jobs.cancelling') : t('views.common.cancel') }}</v-btn><v-btn v-if="['Failed', 'Canceled', 'Cancelled', 'Interrupted'].includes(job.state) && (job.kind === 'Clip' ? auth.canCreateClips : auth.isAdmin)" variant="text" size="small" color="primary" :loading="actionId === job.id" @click="act(job, 'retry')">{{ t('views.common.retry') }}</v-btn><template v-if="auth.canDownloadRecordings && job.state === 'Completed' && ['Repair', 'Merge'].includes(job.kind)"><v-btn v-for="(_, index) in job.outputRelativePaths" :key="index" :href="MediaAPI.downloadJobOutput(job.id, index)" variant="text" size="small" color="primary" prepend-icon="mdi-download">{{ job.outputRelativePaths.length > 1 ? t('views.jobs.downloadNumberedFile', { number: formatNumber(index + 1) }) : t('views.jobs.downloadFile') }}</v-btn></template></div></td>
-      </tr></tbody>
+    <v-table class="jobs-table">
+      <thead><tr><th class="job-task">{{ t('views.jobs.task') }}</th><th class="job-status">{{ t('views.common.status') }}</th><th class="job-progress">{{ t('views.jobs.progress') }}</th><th class="job-created">{{ t('views.common.createdAt') }}</th><th class="job-actions" /></tr></thead>
+      <tbody>
+        <tr v-for="entry in visibleJobs" :key="jobKey(entry)" :data-job-kind="entry.kind" :data-job-id="entry.job.id">
+          <td class="job-task py-4">
+            <template v-if="entry.kind === 'ai'">
+              <a :href="recordingUrl(entry.job.sessionId)" target="_blank" rel="noopener noreferrer" class="job-title font-weight-medium">{{ entry.job.title || t('components.library.unnamedSession') }}</a>
+              <div class="job-type text-caption muted mt-1">{{ t(entry.job.purpose === 'LiveMarkers' ? 'liveMarkers.generate' : 'replay.taskType') }}</div>
+            </template>
+            <template v-else>
+              <router-link :to="`/sessions/${entry.job.sessionId}`" class="job-title font-weight-medium">{{ entry.job.title || kindLabels[entry.job.kind] || entry.job.kind }}</router-link>
+              <div class="job-type text-caption muted mt-1">{{ kindLabels[entry.job.kind] || entry.job.kind }}<span v-if="entry.job.kind === 'Clip'"> · {{ entry.job.mode === 'Fast' ? t('views.jobs.fast') : t('views.jobs.exact') }}</span></div>
+              <div v-if="entry.job.error" class="text-caption text-error mt-2">{{ entry.job.error }}</div>
+            </template>
+          </td>
+          <td class="job-status"><StatusChip :status="entry.job.state" /></td>
+          <td class="job-progress"><v-progress-linear :model-value="progress(entry.job)" :indeterminate="['Running', 'Publishing'].includes(entry.job.state) && entry.job.progress === 0" color="primary" height="4" rounded /><div class="text-caption mono muted mt-2">{{ progress(entry.job) }}%</div></td>
+          <td class="job-created text-caption muted text-no-wrap">{{ formatDate(entry.job.createdAtUtc) }}</td>
+          <td class="job-actions">
+            <div class="action-buttons">
+              <template v-if="entry.kind === 'ai'">
+                <v-btn variant="text" size="small" @click="selectedAiId = entry.job.id">{{ t(entry.job.purpose === 'LiveMarkers' ? 'liveMarkers.generationDetails' : 'replay.details') }}</v-btn>
+                <v-btn :href="router.resolve(aiJobResultLocation(entry.job)).href" target="_blank" rel="noopener noreferrer" variant="text" size="small" color="primary">{{ t(entry.job.purpose === 'LiveMarkers' ? 'liveMarkers.viewGenerated' : 'views.jobs.analysisResults') }}</v-btn>
+                <v-btn v-if="canGenerateAiJob(entry.job) && isActive(entry.job.state)" variant="text" size="small" :disabled="entry.job.cancelRequested || entry.job.phase === 'Publishing' || Boolean(actionKey)" :loading="actionKey === jobKey(entry)" @click="act(entry, 'cancel')">{{ entry.job.cancelRequested ? t('views.jobs.cancelling') : t('views.common.cancel') }}</v-btn>
+              </template>
+              <template v-else>
+                <v-btn v-if="isActive(entry.job.state)" variant="text" size="small" :disabled="entry.job.cancelRequested || Boolean(actionKey)" :loading="actionKey === jobKey(entry)" @click="act(entry, 'cancel')">{{ entry.job.cancelRequested ? t('views.jobs.cancelling') : t('views.common.cancel') }}</v-btn>
+                <v-btn v-if="['Failed', 'Canceled', 'Cancelled', 'Interrupted'].includes(entry.job.state) && (entry.job.kind === 'Clip' ? auth.canCreateClips : auth.isAdmin)" variant="text" size="small" color="primary" :disabled="Boolean(actionKey)" :loading="actionKey === jobKey(entry)" @click="act(entry, 'retry')">{{ t('views.common.retry') }}</v-btn>
+                <template v-if="auth.canDownloadRecordings && entry.job.state === 'Completed' && ['Repair', 'Merge'].includes(entry.job.kind)"><v-btn v-for="(_, index) in entry.job.outputRelativePaths" :key="index" :href="MediaAPI.downloadJobOutput(entry.job.id, index)" variant="text" size="small" color="primary" prepend-icon="mdi-download">{{ entry.job.outputRelativePaths.length > 1 ? t('views.jobs.downloadNumberedFile', { number: formatNumber(index + 1) }) : t('views.jobs.downloadFile') }}</v-btn></template>
+              </template>
+            </div>
+          </td>
+        </tr>
+      </tbody>
     </v-table>
   </v-card>
   <EmptyState v-else-if="!busy" :title="t('views.jobs.empty')" icon="mdi-progress-clock" />
+  <AiAnalysisDetailsDialog v-if="selectedAiJob" v-model="detailsOpen" :job="selectedAiJob" :can-generate="canGenerateAiJob(selectedAiJob)" :can-cancel="canCancelSelected" :loading="false" :busy="Boolean(actionKey)" :error="detailsError" :ended="true" @refresh="refresh" @cancel="cancelSelected" />
 </template>
 
 <script setup lang="ts">
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { MediaAPI } from '@/apis/MediaAPI'
 import { useAuthStore } from '@/stores/auth'
-import { useAction } from '@/composables/useAction'
-import { usePolling } from '@/composables/usePolling'
-import type { MediaJob } from '@/models/media'
+import { useBackgroundJobs } from '@/composables/useBackgroundJobs'
+import type { BackgroundJob } from '@/models/backgroundJob'
+import { aiJobResultLocation } from '@/utilities/aiJobs'
 import { formatDate, formatNumber } from '@/utilities/format'
 import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
+import AiAnalysisDetailsDialog from '@/components/analytics/AiAnalysisDetailsDialog.vue'
 
 const { t } = useI18n()
 const auth = useAuthStore()
-
-const jobs = ref<MediaJob[]>([])
+const router = useRouter()
+const { jobs, aiJobs, loading, actionKey, error, actionError, actionErrorKey, canGenerateAiJob, refresh, act } = useBackgroundJobs()
 const filter = ref('all')
-const actionId = ref('')
+const selectedAiId = ref('')
+const busy = computed(() => loading.value || Boolean(actionKey.value))
 const kindLabels = computed<Record<string, string>>(() => ({ Clip: t('views.common.clips'), Repair: t('views.session.repair'), Merge: t('views.session.merge') }))
-const { busy, error, run } = useAction()
-const visibleJobs = computed(() => jobs.value.filter(job => filter.value === 'all' || (filter.value === 'active' ? ['Queued', 'Running', 'Publishing'].includes(job.state) : job.state === 'Failed')))
-const progress = (job: MediaJob) => ['Completed', 'Succeeded'].includes(job.state) ? 100 : Math.round(Math.max(0, Math.min(100, job.progress)))
-async function load(): Promise<void>
+const visibleJobs = computed(() => jobs.value.filter(entry => filter.value === 'all' || (filter.value === 'active'
+  ? isActive(entry.job.state)
+  : ['Failed', 'Partial', 'Interrupted', 'Canceled', 'Cancelled'].includes(entry.job.state))))
+const selectedAiJob = computed(() => aiJobs.value.find(job => job.id === selectedAiId.value))
+const detailsOpen = computed({ get: () => Boolean(selectedAiJob.value), set: value => { if (!value) { selectedAiId.value = '' } } })
+const detailsError = computed(() => actionErrorKey.value === `ai:${selectedAiId.value}` ? actionError.value : '')
+const canCancelSelected = computed(() => Boolean(selectedAiJob.value && canGenerateAiJob(selectedAiJob.value) && isActive(selectedAiJob.value.state) && selectedAiJob.value.phase !== 'Publishing' && !selectedAiJob.value.cancelRequested && !actionKey.value))
+
+function isActive(state: string): boolean
 {
-  await run(async () => { jobs.value = (await MediaAPI.jobs()).sort((a, b) => b.createdAtUtc.localeCompare(a.createdAtUtc)) })
+  return ['Queued', 'Running', 'Publishing'].includes(state)
 }
-async function act(job: MediaJob, action: 'cancel' | 'retry'): Promise<void>
+
+function jobKey(entry: BackgroundJob): string
 {
-  actionId.value = job.id
-  await run(async () =>
+  return `${entry.kind}:${entry.job.id}`
+}
+
+function progress(job: { state: string; progress: number }): number
+{
+  return ['Completed', 'Succeeded'].includes(job.state) ? 100 : Math.round(Math.max(0, Math.min(100, job.progress)))
+}
+
+function recordingUrl(id: string): string
+{
+  return router.resolve({ path: `/sessions/${encodeURIComponent(id)}` }).href
+}
+
+function cancelSelected(): void
+{
+  if (selectedAiJob.value && canCancelSelected.value)
   {
-    await (action === 'cancel' ? MediaAPI.cancelJob(job.id) : MediaAPI.retryJob(job.id))
-    jobs.value = await MediaAPI.jobs()
-  })
-  actionId.value = ''
+    void act({ kind: 'ai', job: selectedAiJob.value }, 'cancel')
+  }
 }
-usePolling(load, 4000)
+
+watch(selectedAiJob, value =>
+{
+  if (!value)
+  {
+    selectedAiId.value = ''
+  }
+}, { flush: 'sync' })
 </script>
+
+<style scoped>
+.jobs-card { min-width: 0; max-width: 100%; }
+.jobs-table :deep(.v-table__wrapper) { overflow-x: auto; }
+.jobs-table :deep(table) { min-width: 920px; }
+.job-task { min-width: 220px; width: 28%; }
+.job-title { display: block; max-width: 360px; white-space: normal; overflow-wrap: anywhere; }
+.job-type, .job-status { white-space: nowrap; }
+.job-status { min-width: 110px; }
+.job-progress { min-width: 150px; }
+.job-created { min-width: 180px; }
+.job-actions { min-width: 240px; }
+.job-actions .action-buttons { flex-wrap: wrap; }
+</style>

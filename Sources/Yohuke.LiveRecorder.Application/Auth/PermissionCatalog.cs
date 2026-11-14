@@ -14,14 +14,20 @@ public static class PermissionCatalog
             true),
         new(PermissionIds.MANAGE_RECORDINGS, "recordings", "shell.permissions.manageRecordings",
             "shell.permissions.manageDescription", "mdi-shield-check-outline", false, false),
+        new(PermissionIds.CONFIGURE_RECORDINGS, "recordings", "shell.permissions.configureRecordings",
+            "shell.permissions.configureDescription", "mdi-cog-outline", false, false),
         new(PermissionIds.PURGE_RECORDINGS, "recordings", "shell.permissions.purgeRecordings",
             "shell.permissions.purgeDescription", "mdi-delete-forever-outline", true, false),
         new(PermissionIds.UPLOAD_LIVE_MARKERS, "liveMarkers", "shell.permissions.uploadLiveMarkers", null,
             "mdi-upload-outline", false, true),
         new(PermissionIds.MANAGE_LIVE_MARKERS, "liveMarkers", "shell.permissions.manageLiveMarkers",
             "shell.permissions.manageLiveMarkersDescription", "mdi-file-document-edit-outline", true, false),
+        new(PermissionIds.GENERATE_LIVE_MARKERS, "liveMarkers", "shell.permissions.generateLiveMarkers",
+            "shell.permissions.generateLiveMarkersDescription", "mdi-creation-outline", false, false),
         new(PermissionIds.VIEW_ANALYTICS, "analytics", "shell.permissions.viewAnalytics", null,
-            "mdi-chart-timeline-variant", false, false)
+            "mdi-chart-timeline-variant", false, false),
+        new(PermissionIds.GENERATE_ANALYTICS, "analytics", "shell.permissions.generateAnalytics",
+            "shell.permissions.generateDescription", "mdi-creation-outline", false, false)
     ]);
 
     public static PermissionSet All { get; } = new(Definitions.Select(item => item.Id));
