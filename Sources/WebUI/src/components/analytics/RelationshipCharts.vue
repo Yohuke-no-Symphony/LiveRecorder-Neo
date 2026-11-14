@@ -53,7 +53,12 @@ const rangeLabel = computed(() => props.range ? t('replay.selection', { from: fo
 const metricLabel = (metric: RelationshipMetric): string => t(metric === 'danmuCount' ? 'replay.danmu' : metric === 'superChatCount' ? 'replay.scCount' : 'replay.scAmount')
 const points = computed(() => relationshipPoints(props.report.buckets, scatterMetric.value, effectiveRange.value))
 const chartBounds = { left: 70, right: 48, outerBoundsMode: 'none' }
-const axis = (gridIndex: number) => ({ type: 'value', gridIndex, min: 0, max: Math.max(1, props.durationMs), boundaryGap: [0, 0], containShape: false, axisLabel: { formatter: (value: number) => formatDuration(value), color: '#8a98a7', hideOverlap: true }, splitLine: { show: false } })
+const axis = (gridIndex: number) => ({
+  type: 'value', gridIndex, min: 0, max: Math.max(1, props.durationMs), boundaryGap: [0, 0], containShape: false,
+  axisLabel: { formatter: (value: number) => formatDuration(value), color: '#8a98a7', hideOverlap: true },
+  axisPointer: { label: { formatter: ({ value }: { value: number }) => formatDuration(value) } },
+  splitLine: { show: false },
+})
 const timelineOption = computed<EChartsCoreOption>(() => ({
   animation: false,
   grid: [{ ...chartBounds, top: 35, height: 115 }, { ...chartBounds, top: 200, height: 105 }, { ...chartBounds, top: 355, height: 105 }],
@@ -61,7 +66,7 @@ const timelineOption = computed<EChartsCoreOption>(() => ({
   axisPointer: { link: [{ xAxisIndex: [0, 1, 2] }] },
   xAxis: [axis(0), axis(1), axis(2)],
   yAxis: [t('replay.online'), t('replay.danmu'), metricLabel(scMetric.value)].map((name, gridIndex) => ({ type: 'value', gridIndex, name, min: 0, nameTextStyle: { color: '#8a98a7', align: 'left' }, axisLabel: { color: '#8a98a7' }, splitLine: { lineStyle: { color: '#8090a020' } } })),
-  dataZoom: [{ type: 'slider', xAxisIndex: [0, 1, 2], left: chartBounds.left, right: chartBounds.right, bottom: 5, height: 24, startValue: effectiveRange.value.fromMs, endValue: effectiveRange.value.toMs, filterMode: 'none' }, { type: 'inside', xAxisIndex: [0, 1, 2], filterMode: 'none', zoomOnMouseWheel: 'ctrl' }],
+  dataZoom: [{ type: 'slider', xAxisIndex: [0, 1, 2], left: chartBounds.left, right: chartBounds.right, bottom: 5, height: 24, startValue: effectiveRange.value.fromMs, endValue: effectiveRange.value.toMs, filterMode: 'none', labelFormatter: (value: number) => formatDuration(value) }, { type: 'inside', xAxisIndex: [0, 1, 2], filterMode: 'none', zoomOnMouseWheel: 'ctrl' }],
   series: [
     { name: t('replay.online'), type: 'line', xAxisIndex: 0, yAxisIndex: 0, step: 'end', showSymbol: false, connectNulls: false, data: onlineLineData(props.report.online?.intervals ?? []), lineStyle: { color: '#54b9b0', width: 2 }, itemStyle: { color: '#54b9b0' },
       markLine: { silent: true, symbol: 'none', data: [{ xAxis: selectedPoint.value }], lineStyle: { color: '#9e96dd', type: 'dashed' }, label: { show: false } },
