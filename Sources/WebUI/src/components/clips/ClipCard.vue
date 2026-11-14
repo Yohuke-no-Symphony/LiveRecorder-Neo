@@ -15,8 +15,10 @@
         <time class="clip-expiry" :datetime="clip.expiresAtUtc">{{ t('views.clips.expires', { date: formatDate(clip.expiresAtUtc) }) }}</time>
       </div>
       <div class="clip-actions">
-        <v-btn color="primary" size="small" prepend-icon="mdi-play" :disabled="unavailable || !auth.canViewRecordings" @click="emit('preview')">{{ t('views.common.play') }}</v-btn>
-        <v-btn :href="MediaAPI.downloadClip(clip.id)" variant="tonal" size="small" prepend-icon="mdi-download" :disabled="unavailable || !auth.canDownloadRecordings">{{ t('views.common.download') }}</v-btn>
+        <div class="clip-primary-actions">
+          <v-btn color="primary" size="small" prepend-icon="mdi-play" :disabled="unavailable || !auth.canViewRecordings" @click="emit('preview')">{{ t('views.common.play') }}</v-btn>
+          <v-btn :href="MediaAPI.downloadClip(clip.id)" variant="tonal" size="small" prepend-icon="mdi-download" :disabled="unavailable || !auth.canDownloadRecordings">{{ t('views.common.download') }}</v-btn>
+        </div>
         <v-btn class="clip-delete" icon="mdi-delete-outline" size="small" variant="text" :aria-label="t('views.common.moveToTrash')" @click="emit('trash')" />
       </div>
     </div>
@@ -55,5 +57,6 @@ const unavailable = computed(() => props.clip.isTrashed || new Date(props.clip.e
 .clip-details { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
 .clip-size, .clip-expiry { white-space: nowrap; }
 .clip-actions { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 8px; }
+.clip-primary-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .clip-delete { margin-left: auto; }
 </style>
