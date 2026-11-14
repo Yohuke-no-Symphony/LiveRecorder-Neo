@@ -117,6 +117,7 @@ public static class ServerStartup
         builder.Services.AddSingleton<MediaJobService>();
         builder.Services.AddSingleton<AnalyticsService>();
         builder.Services.AddSingleton<ArtworkCache>();
+        builder.Services.AddSingleton<SessionCoverService>();
         builder.Services.AddSingleton<IUserAvatarSource>(services => new BilibiliUserAvatarSource(services.GetRequiredService<IHttpClientFactory>().CreateClient("bilibili")));
         builder.Services.AddSingleton<AudienceAvatarService>();
         builder.Services.AddSingleton<EventArtworkService>();

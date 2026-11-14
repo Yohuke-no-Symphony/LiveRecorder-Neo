@@ -8,8 +8,12 @@ using Yohuke.LiveRecorder.Infrastructure.Persistence;
 namespace Yohuke.LiveRecorder.Infrastructure.Files;
 
 /// <summary>在采集之外持久化主播头像和开播封面快照。</summary>
-public sealed class ArtworkMaintenanceWorker(IMongoContext context, IBootstrapStore bootstrap, ArtworkCache artwork, ILogger<ArtworkMaintenanceWorker> logger, IAppPaths paths) : BackgroundService
+public sealed class ArtworkMaintenanceWorker(IMongoContext context, IBootstrapStore bootstrap, ArtworkCache artwork,
+    SessionCoverService covers, ILogger<ArtworkMaintenanceWorker> logger, IAppPaths paths) : BackgroundService
 {
+    private const int COVER_BATCH_SIZE = 20;
+    private string? coverCursor;
+
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -19,16 +23,26 @@ public sealed class ArtworkMaintenanceWorker(IMongoContext context, IBootstrapSt
             {
                 if (bootstrap.IsInstalled)
                 {
-                    var sessions = await context.Collection<BroadcastSession>("sessions").Find(x => x.CoverRelativePath == null && x.CoverUrl != "").SortByDescending(x => x.CreatedAtUtc).Limit(20).ToListAsync(stoppingToken);
+                    var filter = Builders<BroadcastSession>.Filter.Where(x => !x.IsTrashed && !x.IsHidden && x.ProjectionReady && (x.CoverRelativePath == null || x.CoverRelativePath == ""));
+                    if (coverCursor is not null)
+                    {
+                        filter &= Builders<BroadcastSession>.Filter.Gt(x => x.Id, coverCursor);
+                    }
+                    var sessions = await context.Collection<BroadcastSession>("sessions").Find(filter).SortBy(x => x.Id).Limit(COVER_BATCH_SIZE).ToListAsync(stoppingToken);
+                    coverCursor = sessions.Count == COVER_BATCH_SIZE ? sessions[^1].Id : null;
                     foreach (var session in sessions)
                     {
-                        var saved = await SaveAsync(session.CoverUrl, Path.Combine(MediaPaths.Resolve(paths.RecordsDirectory, session.DirectoryPath), "直播封面"), stoppingToken);
-                        if (saved is not null)
+                        try
                         {
-                            session.CoverRelativePath = Path.GetRelativePath(paths.RecordsDirectory, saved);
-                            await context.Collection<BroadcastSession>("sessions").UpdateOneAsync(x => x.Id == session.Id, Builders<BroadcastSession>.Update.Set(x => x.CoverRelativePath, session.CoverRelativePath), cancellationToken: stoppingToken);
-                            var manifestPath = Path.Combine(MediaPaths.Resolve(paths.RecordsDirectory, session.DirectoryPath), "封面.json");
-                            await JsonFiles.WriteAsync(manifestPath, new { session.CoverRelativePath, session.CoverUrl }, stoppingToken);
+                            await covers.GetAsync(session.Id, stoppingToken);
+                        }
+                        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                        {
+                            throw;
+                        }
+                        catch (Exception error)
+                        {
+                            logger.LogWarning(error, "场次 {SessionId} 的封面将在稍后重试", session.Id);
                         }
                     }
                     var streamers = await context.Collection<Streamer>("streamers").Find(x => x.AvatarRelativePath == null && x.AvatarUrl != "" && x.DirectoryName != "").Limit(50).ToListAsync(stoppingToken);

@@ -3,7 +3,7 @@
     <router-link v-slot="{ href, navigate }" :to="`/sessions/${session.id}`" custom>
       <a :href="href" class="session-link" :role="selectionMode ? 'button' : undefined" :aria-pressed="selectionMode ? selected : undefined" :aria-disabled="selectionMode && !canSelect ? true : undefined" @click="onClick($event, navigate)" @keydown.space="onSelectionKeydown">
         <div class="session-cover">
-          <v-img :src="MediaAPI.cover(session.id)" :aspect-ratio="4 / 3" cover>
+          <v-img :src="imageSource" :aspect-ratio="4 / 3" cover @error="retry" @load="loaded">
             <template #error><div class="cover-fallback"><v-icon icon="mdi-play-box-outline" size="40" /></div></template>
           </v-img>
           <div class="cover-top"><v-chip v-if="session.state.toLowerCase() === 'recording'" color="error" variant="flat" size="x-small" prepend-icon="mdi-record">{{ t('components.status.recording') }}</v-chip></div>
@@ -31,6 +31,7 @@
 import { useI18n } from 'vue-i18n'
 import { computed } from 'vue'
 import { MediaAPI } from '@/apis/MediaAPI'
+import { useRetryableImage } from '@/composables/useRetryableImage'
 import type { BroadcastSession } from '@/models/media'
 import { formatDate, formatDuration } from '@/utilities/format'
 import SessionExpiry from './SessionExpiry.vue'
@@ -38,6 +39,7 @@ import SessionExpiry from './SessionExpiry.vue'
 const { t } = useI18n()
 
 const props = defineProps<{ session: BroadcastSession; streamerName?: string; allowActions?: boolean; selectionMode?: boolean; selected?: boolean; canSelect?: boolean; disabled?: boolean }>()
+const { imageSource, retry, loaded } = useRetryableImage(() => MediaAPI.cover(props.session.id))
 const emit = defineEmits<{ actions: [event: MouseEvent | KeyboardEvent]; toggle: [] }>()
 const duration = computed(() => formatDuration(Math.max(0, new Date(props.session.endedAtUtc ?? props.session.lastMediaAtUtc).getTime() - new Date(props.session.startedAtUtc).getTime())))
 

@@ -9,4 +9,5 @@ public sealed class MediaToolOptions
     public TimeSpan StreamConnectTimeout { get; set; } = TimeSpan.FromSeconds(20);
     public TimeSpan StreamReadTimeout { get; set; } = TimeSpan.FromSeconds(30);
     public TimeSpan HlsSegmentDuration { get; set; } = TimeSpan.FromSeconds(6);
+    public TimeSpan FrameExtractionTimeout { get; set; } = TimeSpan.FromSeconds(15);
 }

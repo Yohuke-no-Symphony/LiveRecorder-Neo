@@ -90,18 +90,10 @@ public static class LibraryEndpoints
             var path = MediaPaths.ResolveSegment(paths.RecordsDirectory, detail.Session.DirectoryPath, segment);
             return Download(path, Path.GetFileName(path));
         });
-        viewing.MapGet("/sessions/{id}/cover", async (string id, LibraryService library, ArtworkCache artwork, IAppPaths paths, CancellationToken ct) =>
+        viewing.MapGet("/sessions/{id}/cover", async (string id, SessionCoverService covers, CancellationToken ct) =>
         {
-            var session = (await library.GetAsync(id, ct)).Session;
-            if (session.CoverRelativePath is { } relative)
-            {
-                var path = MediaPaths.Resolve(paths.RecordsDirectory, relative);
-                if (File.Exists(path))
-                {
-                    return Results.File(path, ImageType(path));
-                }
-            }
-            return await ImageAsync(session.CoverUrl, artwork, ct);
+            var path = await covers.GetAsync(id, ct);
+            return path is null ? Results.NotFound() : Results.File(path, ImageType(path));
         });
         viewing.MapPost("/sessions/{id}/playback", async (string id, PlaybackRequest request, PlaybackService playback, CancellationToken ct) =>
         {

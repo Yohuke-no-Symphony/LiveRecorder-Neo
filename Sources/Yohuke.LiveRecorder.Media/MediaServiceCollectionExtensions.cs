@@ -13,6 +13,7 @@ public static class MediaServiceCollectionExtensions
             .Validate(options => options.ProbeConcurrency > 0
                 && options.StreamConnectTimeout > TimeSpan.Zero
                 && options.StreamReadTimeout > TimeSpan.Zero
+                && options.FrameExtractionTimeout > TimeSpan.Zero
                 && options.HlsSegmentDuration > TimeSpan.Zero, "Media deadlines, probe concurrency, and playback durations must be positive.")
             .ValidateOnStart();
         services.AddOptions<PlaybackWindowOptions>()
@@ -26,6 +27,7 @@ public static class MediaServiceCollectionExtensions
         services.AddSingleton<MediaProcessRunner>();
         services.AddSingleton<IMediaProcessor, FfmpegMediaProcessor>();
         services.AddSingleton<IPlaybackWindowBuilder, IndexedPlaybackWindowBuilder>();
+        services.AddSingleton<IVideoFrameExtractor, FfmpegVideoFrameExtractor>();
         services.AddHttpClient<FlvMediaRecorder>(client => client.Timeout = Timeout.InfiniteTimeSpan);
         services.AddTransient<IMediaRecorder>(provider => provider.GetRequiredService<FlvMediaRecorder>());
         return services;

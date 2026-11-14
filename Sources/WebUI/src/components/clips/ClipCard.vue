@@ -1,7 +1,7 @@
 <template>
   <v-card class="clip-card">
     <router-link :to="{ path: `/sessions/${encodeURIComponent(clip.sessionId)}`, query: { at: clip.startMs } }" class="clip-cover" :aria-label="clip.title">
-      <v-img :src="auth.canViewRecordings ? MediaAPI.cover(clip.sessionId) : undefined" :aspect-ratio="4 / 3" cover>
+      <v-img :src="imageSource" :aspect-ratio="4 / 3" cover @error="retry" @load="loaded">
         <template #error><div class="cover-fallback"><v-icon icon="mdi-play-box-outline" size="40" /></div></template>
       </v-img>
       <span class="clip-length mono">{{ duration }}</span>
@@ -29,6 +29,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MediaAPI } from '@/apis/MediaAPI'
+import { useRetryableImage } from '@/composables/useRetryableImage'
 import { useAuthStore } from '@/stores/auth'
 import type { Clip } from '@/models/media'
 import { formatBytes, formatDate, formatDuration } from '@/utilities/format'
@@ -37,6 +38,7 @@ const props = defineProps<{ clip: Clip }>()
 const emit = defineEmits<{ preview: []; trash: [] }>()
 const { t } = useI18n()
 const auth = useAuthStore()
+const { imageSource, retry, loaded } = useRetryableImage(() => auth.canViewRecordings ? MediaAPI.cover(props.clip.sessionId) : undefined)
 const duration = computed(() => formatDuration(props.clip.endMs - props.clip.startMs))
 const unavailable = computed(() => props.clip.isTrashed || new Date(props.clip.expiresAtUtc).getTime() <= Date.now())
 </script>
