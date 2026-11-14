@@ -13,7 +13,7 @@ public sealed class SignalRStatusPublisher(IHubContext<StatusHub> hub, StatusCon
     {
         foreach (var connection in connections.All)
         {
-            var user = await identity.ValidateSessionAsync(connection.UserId, cancellationToken);
+            var user = await identity.ValidateSessionAsync(connection.UserId, connection.SessionVersion, cancellationToken);
             if (user is null)
             {
                 connection.Abort();

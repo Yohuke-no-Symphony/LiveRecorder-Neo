@@ -18,30 +18,7 @@ public sealed class SettingsStore(StartupConfigurationStore configuration, IBoot
         await gate.WaitAsync(cancellationToken);
         try
         {
-            if (configuration.HasSettings)
-            {
-                return configuration.ReadSettings();
-            }
-            if (!bootstrap.IsInstalled)
-            {
-                return new() { DefaultUserPermissions = PermissionCatalog.Defaults };
-            }
-            var legacyFile = Path.Combine(paths.DataDirectory, "settings.json");
-            var comparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-            ServerSettings? legacy = null;
-            if (!string.Equals(legacyFile, configuration.ConfigFile, comparison) && File.Exists(legacyFile))
-            {
-                await using var stream = File.OpenRead(legacyFile);
-                legacy = await JsonSerializer.DeserializeAsync<ServerSettings>(stream, JsonFiles.Options, cancellationToken)
-                         ?? throw new InvalidDataException("旧全局设置无效。");
-            }
-            legacy ??= await LegacySettingsReader.ReadAsync(context.Database, cancellationToken);
-            if (legacy is null)
-            {
-                throw new InvalidDataException("已安装实例缺少全局设置，请恢复 settings.json。");
-            }
-            await configuration.SaveSettingsAsync(legacy, cancellationToken);
-            return configuration.ReadSettings();
+            return await ReadAsync(cancellationToken);
         }
         finally
         {
@@ -61,5 +38,49 @@ public sealed class SettingsStore(StartupConfigurationStore configuration, IBoot
         {
             gate.Release();
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<ServerSettings> UpdateAsync(Func<ServerSettings, ServerSettings> update, CancellationToken cancellationToken = default)
+    {
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var settings = update(await ReadAsync(cancellationToken));
+            await configuration.SaveSettingsAsync(settings, cancellationToken);
+            return configuration.ReadSettings();
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async Task<ServerSettings> ReadAsync(CancellationToken cancellationToken)
+    {
+        if (configuration.HasSettings)
+        {
+            return configuration.ReadSettings();
+        }
+        if (!bootstrap.IsInstalled)
+        {
+            return new() { DefaultUserPermissions = PermissionCatalog.Defaults };
+        }
+        var legacyFile = Path.Combine(paths.DataDirectory, "settings.json");
+        var comparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        ServerSettings? legacy = null;
+        if (!string.Equals(legacyFile, configuration.ConfigFile, comparison) && File.Exists(legacyFile))
+        {
+            await using var stream = File.OpenRead(legacyFile);
+            legacy = await JsonSerializer.DeserializeAsync<ServerSettings>(stream, JsonFiles.Options, cancellationToken)
+                     ?? throw new InvalidDataException("旧全局设置无效。");
+        }
+        legacy ??= await LegacySettingsReader.ReadAsync(context.Database, cancellationToken);
+        if (legacy is null)
+        {
+            throw new InvalidDataException("已安装实例缺少全局设置，请恢复 settings.json。");
+        }
+        await configuration.SaveSettingsAsync(legacy, cancellationToken);
+        return configuration.ReadSettings();
     }
 }

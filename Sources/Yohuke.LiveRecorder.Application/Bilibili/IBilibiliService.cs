@@ -15,12 +15,18 @@ public interface IBilibiliService
     Task SubscribeEventsAsync(long roomId, string? accountId, Func<RecordedEventEnvelope, CancellationToken, Task> onEvent, CancellationToken cancellationToken = default);
     /// <summary>列出管理员绑定的采集账号，不返回凭据。</summary>
     Task<IReadOnlyList<BilibiliAccountSummary>> ListAccountsAsync(CancellationToken cancellationToken = default);
+    /// <summary>设置首选采集账号；传空恢复自动选择。</summary>
+    Task<IReadOnlyList<BilibiliAccountSummary>> SetDefaultAccountAsync(string? accountId, CancellationToken cancellationToken = default);
     /// <summary>创建二维码登录流程。</summary>
     Task<BilibiliLoginSession> BeginQrAsync(CancellationToken cancellationToken = default);
+    /// <summary>为指定账号创建二维码重新登录流程。</summary>
+    Task<BilibiliLoginSession> BeginAccountQrAsync(string accountId, CancellationToken cancellationToken = default);
     /// <summary>轮询二维码状态并在成功后保存凭据。</summary>
     Task<BilibiliLoginSession> PollQrAsync(string sessionId, CancellationToken cancellationToken = default);
     /// <summary>创建短信流程与平台验证码挑战。</summary>
     Task<BilibiliLoginSession> BeginSmsAsync(BilibiliSmsRequest request, CancellationToken cancellationToken = default);
+    /// <summary>为指定账号创建短信重新登录流程。</summary>
+    Task<BilibiliLoginSession> BeginAccountSmsAsync(string accountId, BilibiliSmsRequest request, CancellationToken cancellationToken = default);
     /// <summary>提交用户完成的挑战并请求发送短信。</summary>
     Task<BilibiliLoginSession> SendSmsAsync(string sessionId, BilibiliChallengeResponse response, CancellationToken cancellationToken = default);
     /// <summary>校验短信验证码并保存成功绑定的凭据。</summary>

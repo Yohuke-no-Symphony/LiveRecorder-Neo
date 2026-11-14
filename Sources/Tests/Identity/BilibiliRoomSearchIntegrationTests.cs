@@ -74,7 +74,7 @@ public sealed class BilibiliRoomSearchIntegrationTests
 
     private static BilibiliService CreateService(IdentityFixture fixture)
     {
-        return new(fixture.Context, fixture.Protector, fixture.Http, NullLogger<BilibiliService>.Instance);
+        return new(fixture.Context, fixture.Protector, fixture.Http, NullLogger<BilibiliService>.Instance, fixture.Settings, new BilibiliEventConnection(fixture.Http, NullLogger<BilibiliEventConnection>.Instance));
     }
 
     private static async Task<BilibiliAccount> AddAccountAsync(IdentityFixture fixture, long uid, string session, string status = "Valid")

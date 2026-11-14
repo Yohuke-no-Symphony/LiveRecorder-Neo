@@ -118,6 +118,7 @@ public static class ServerStartup
         builder.Services.AddSingleton<EventArtworkService>();
         builder.Services.AddSingleton<SessionTimelineService>();
         builder.Services.AddSingleton<StatusConnections>();
+        builder.Services.AddSingleton<IUserSessionRevoker>(provider => provider.GetRequiredService<StatusConnections>());
         builder.Services.AddSingleton<IStatusPublisher, SignalRStatusPublisher>();
         builder.Services.AddHttpClient("artwork", client => client.Timeout = TimeSpan.FromSeconds(15)).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
         builder.Services.AddIdentityServices();
@@ -164,8 +165,9 @@ public static class ServerStartup
                     return;
                 }
                 var id = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+                var version = UserPrincipalFactory.GetSessionVersion(context.Principal);
                 var identity = context.HttpContext.RequestServices.GetRequiredService<IIdentityService>();
-                var user = id is null ? null : await identity.ValidateSessionAsync(id, context.HttpContext.RequestAborted);
+                var user = id is null || version is null ? null : await identity.ValidateSessionAsync(id, version.Value, context.HttpContext.RequestAborted);
                 if (user is null)
                 {
                     context.RejectPrincipal();
@@ -203,6 +205,9 @@ public static class ServerStartup
         });
         builder.Services.AddRateLimiter(options =>
         {
+            options.AddPolicy("password-reset", http => RateLimitPartition.GetFixedWindowLimiter(
+                http.Connection.RemoteIpAddress?.ToString() ?? "local",
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
             options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(http => http.Request.Path.StartsWithSegments("/api/auth") && !HttpMethods.IsGet(http.Request.Method)
                 ? RateLimitPartition.GetFixedWindowLimiter(http.Connection.RemoteIpAddress?.ToString() ?? "local", _ => new FixedWindowRateLimiterOptions { PermitLimit = 60, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })
                 : RateLimitPartition.GetNoLimiter("other"));

@@ -48,4 +48,8 @@ internal sealed class ControlledBilibiliService : IBilibiliService
     public Task<BilibiliLoginSession> SendSmsAsync(string sessionId, BilibiliChallengeResponse response, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<BilibiliLoginSession> CompleteSmsAsync(string sessionId, string code, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task DeleteAccountAsync(string id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<IReadOnlyList<BilibiliAccountSummary>> SetDefaultAccountAsync(string? accountId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<BilibiliLoginSession> BeginAccountQrAsync(string accountId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<BilibiliLoginSession> BeginAccountSmsAsync(string accountId, BilibiliSmsRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
 }

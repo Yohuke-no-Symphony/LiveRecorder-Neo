@@ -12,6 +12,48 @@ namespace Yohuke.LiveRecorder.Identity.Tests;
 /// <summary>验证本地设置在显式保存后才生效，且损坏文件不会被默认配置覆盖。</summary>
 public sealed class SettingsStoreTests
 {
+    /// <summary>并发局部更新基于最新快照，失败的变更不发布也不写入。</summary>
+    [Fact]
+    public async Task AtomicUpdatesPreserveConcurrentChangesAndDiscardFailedMutations()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "live-recorder-settings-tests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var paths = new AppPaths(Path.Combine(directory, "Data"), Path.Combine(directory, "records"));
+            paths.EnsureDirectories();
+            var protector = new DataProtectionSecretProtector(new EphemeralDataProtectionProvider());
+            var bootstrap = new BootstrapStore(paths, protector);
+            var startup = CreateStartupConfiguration(paths);
+            var store = new SettingsStore(startup, bootstrap, new MongoContext(bootstrap), paths);
+            await store.SaveAsync(new() { Quality = 400, DefaultBilibiliAccountId = "preferred" });
+
+            await Task.WhenAll(Enumerable.Range(0, 16).Select(_ => store.UpdateAsync(settings =>
+            {
+                settings.Quality++;
+                return settings;
+            })));
+            var saved = await store.GetAsync();
+            Assert.Equal(416, saved.Quality);
+            Assert.Equal("preferred", saved.DefaultBilibiliAccountId);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() => store.UpdateAsync(settings =>
+            {
+                settings.DefaultBilibiliAccountId = "unsaved";
+                throw new InvalidOperationException("Rejected update");
+            }));
+            var reloaded = await new SettingsStore(new StartupConfigurationStore(startup.ConfigFile), bootstrap, new MongoContext(bootstrap), paths).GetAsync();
+            Assert.Equal(416, reloaded.Quality);
+            Assert.Equal("preferred", reloaded.DefaultBilibiliAccountId);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, true);
+            }
+        }
+    }
+
     [Fact]
     public void LegacySettingsUseFiniteStreamDisconnectTimeout()
     {

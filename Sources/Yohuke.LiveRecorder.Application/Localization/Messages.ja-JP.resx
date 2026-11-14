@@ -137,6 +137,8 @@
   <data name="BILIBILI_IDENTITY_NOT_CONFIRMED" xml:space="preserve"><value>プラットフォームで有効なログインを確認できませんでした。もう一度ログインしてください。</value></data>
   <data name="BILIBILI_ACCOUNT_NOT_FOUND" xml:space="preserve"><value>収集用アカウントが存在しません。アカウントを選択し直してください。</value></data>
   <data name="BILIBILI_ACCOUNT_EXPIRED" xml:space="preserve"><value>収集用アカウントが期限切れです。管理者が再ログインする必要があります。</value></data>
+  <data name="BILIBILI_ACCOUNT_UNAVAILABLE" xml:space="preserve"><value>収集用アカウントは一時的に利用できません。後でもう一度試すか、再ログインしてください。</value></data>
+  <data name="BILIBILI_RELOGIN_IDENTITY_MISMATCH" xml:space="preserve"><value>選択したアカウントと異なる Bilibili アカウントです。元のアカウントで再ログインしてください。</value></data>
   <data name="BILIBILI_CREDENTIALS_CORRUPT" xml:space="preserve"><value>収集用の認証情報が破損しています。アカウントを連携し直してください。</value></data>
   <data name="BILIBILI_TOO_MANY_LOGIN_FLOWS" xml:space="preserve"><value>ログイン処理が多すぎます。しばらくしてからお試しください。</value></data>
   <data name="BILIBILI_LOGIN_EXPIRED" xml:space="preserve"><value>ログイン処理が期限切れです。最初からやり直してください。</value></data>
@@ -228,4 +230,14 @@
   <data name="AI_LIVE_MARKER_SAVE_FAILED" xml:space="preserve"><value>AI 配信記録の保存に失敗しました。生成済み下書きは保持されています。</value></data>
   <data name="AI_LIVE_MARKER_FILE_MISSING" xml:space="preserve"><value>生成した配信記録は削除されています。再生成してください。</value></data>
   <data name="AI_PUBLICATION_IN_PROGRESS" xml:space="preserve"><value>AI 配信記録を保存中です。保存完了後に操作してください。</value></data>
+  <data name="AUTH_SELF_BAN_FORBIDDEN" xml:space="preserve"><value>現在ログインしている管理者アカウントは利用停止にできません。</value></data>
+  <data name="AUTH_USER_STATUS_CONFLICT" xml:space="preserve"><value>アカウントの状態が変わったか、この操作を実行できません。更新して再試行してください。利用停止中のアカウントは明示的に解除する必要があります。</value></data>
+  <data name="AUTH_PASSWORD_RESET_PUBLIC_URL_INVALID" xml:space="preserve"><value>公開サイト URL には、ユーザー情報、パス、クエリ、フラグメントを含まない HTTPS のルートアドレスを指定してください。ローカル開発用アドレスでは HTTP を使用できます。</value></data>
+  <data name="AUTH_PASSWORD_RESET_UNAVAILABLE" xml:space="preserve"><value>管理者がパスワード再設定用のメールサービスを設定していません。</value></data>
+  <data name="AUTH_PASSWORD_RESET_TOKEN_INVALID" xml:space="preserve"><value>パスワード再設定リンクが無効、使用済み、または期限切れです。新しいリンクを申請してください。</value></data>
+  <data name="EMAIL_PASSWORD_RESET_SUBJECT" xml:space="preserve"><value>夜更けのレコーダー パスワード再設定</value></data>
+  <data name="EMAIL_PASSWORD_RESET_BODY" xml:space="preserve"><value>以下のリンクを開いて、このサイトの新しいパスワードを設定してください：
+{0}
+
+リンクは 30 分間有効です。再設定すると、それまでのログインとパスワード再設定リンクは無効になります。申請していない場合は、このメールを無視してください。</value></data>
 </root>

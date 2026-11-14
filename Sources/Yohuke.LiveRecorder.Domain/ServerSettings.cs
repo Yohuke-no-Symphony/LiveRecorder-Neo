@@ -9,9 +9,11 @@ public sealed class ServerSettings : Entity
     }
 
     public string DefaultLanguage { get; set; } = Localization.SupportedLanguages.DEFAULT;
+    public string PublicWebUrl { get; set; } = "";
     public string TranslationDanmuPattern { get; set; } = ".*?【.*?】";
     public string TimeZone { get; set; } = "Asia/Shanghai";
     public int Quality { get; set; } = 10000;
+    public string? DefaultBilibiliAccountId { get; set; }
     public bool RecordDanmu { get; set; } = true;
     public long SegmentBytes { get; set; } = 4L * 1024 * 1024 * 1024;
     public int RecordingRetentionDays { get; set; }

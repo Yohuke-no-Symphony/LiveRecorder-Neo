@@ -9,4 +9,6 @@ internal sealed class JobTestSettingsStore : ISettingsStore
 
     public Task<ServerSettings> GetAsync(CancellationToken cancellationToken = default) => Task.FromResult(Settings);
     public Task SaveAsync(ServerSettings settings, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<ServerSettings> UpdateAsync(Func<ServerSettings, ServerSettings> update, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
 }

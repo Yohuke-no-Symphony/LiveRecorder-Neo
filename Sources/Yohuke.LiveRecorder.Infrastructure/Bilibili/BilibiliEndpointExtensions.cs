@@ -18,6 +18,9 @@ public static class BilibiliEndpointExtensions
         var group = endpoints.MapGroup("/api/admin/bilibili").RequireAuthorization(policy => policy.RequireRole("Admin"));
         group.MapGet("/rooms/search", async (string? keyword, int? page, string? accountId, IBilibiliService service, CancellationToken ct) => Results.Ok(await service.SearchRoomsAsync(keyword ?? "", page ?? 1, accountId, ct)));
         group.MapGet("/accounts", async (IBilibiliService service, CancellationToken ct) => Results.Ok(await service.ListAccountsAsync(ct)));
+        group.MapPut("/accounts/default", async (BilibiliDefaultAccountRequest request, IBilibiliService service, CancellationToken ct) => Results.Ok(await service.SetDefaultAccountAsync(request.AccountId, ct)));
+        group.MapPost("/accounts/{id}/qr", async (string id, IBilibiliService service, CancellationToken ct) => Results.Ok(await service.BeginAccountQrAsync(id, ct)));
+        group.MapPost("/accounts/{id}/sms", async (string id, BilibiliSmsRequest request, IBilibiliService service, CancellationToken ct) => Results.Ok(await service.BeginAccountSmsAsync(id, request, ct)));
         group.MapGet("/accounts/{id}/avatar", async (string id, IMongoContext context, ArtworkCache artwork, CancellationToken ct) =>
         {
             var source = await context.Collection<BilibiliAccount>("bilibili_accounts").Find(x => x.Id == id).Project(x => x.AvatarUrl).FirstOrDefaultAsync(ct);

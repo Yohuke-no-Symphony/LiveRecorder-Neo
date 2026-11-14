@@ -11,7 +11,7 @@ export const viewsZh = {
 
   common: {
     email: '邮箱', password: '密码', cancel: '取消', save: '保存', refresh: '刷新', retry: '重试', close: '关闭', done: '完成',
-    login: '登录', logout: '退出登录', backToLogin: '返回登录', library: '媒体库', streamer: '主播', streamerRecordings: '主播录播',
+    login: '登录', logout: '退出登录', backToLogin: '返回登录', library: '@:shell.nav.library', streamer: '主播', streamerRecordings: '主播录播',
     noRecordings: '暂无录播', noMatchingRecordings: '没有匹配的录播', jobs: '后台任务', clips: '切片', recording: '录播',
     status: '状态', size: '大小', user: '用户', admin: '管理员', createdAt: '创建时间', expiresAt: '到期时间',
     all: '全部', pending: '待审核', approved: '已通过', enabled: '启用', quality: '清晰度', globalSettings: '全局设置',
@@ -32,7 +32,7 @@ export const viewsZh = {
   },
   oauth: { failed: '登录失败', signingIn: '正在登录', cancelled: '已取消授权', invalidCallback: '授权回调无效' },
   access: { rejected: '申请未通过', disabled: '账号已禁用', pending: '等待管理员审核', refresh: '刷新状态' },
-  library: { title: '录播库', search: '搜索录播', streamers: '主播', results: '搜索结果', recent: '最近录播', addRecording: '添加录制' },
+  library: { title: '@:shell.nav.library', search: '搜索录播', streamers: '主播', results: '搜索结果', recent: '最近录播', addRecording: '添加录制' },
   streamer: { room: '直播间 {roomId}', search: '搜索标题' },
   session: {
     startedAt: '录制开始时间',
@@ -97,7 +97,7 @@ export const viewsEn: MessageSchema<typeof viewsZh> = {
 
   common: {
     email: 'Email', password: 'Password', cancel: 'Cancel', save: 'Save', refresh: 'Refresh', retry: 'Retry', close: 'Close', done: 'Done',
-    login: 'Sign in', logout: 'Sign out', backToLogin: 'Back to sign in', library: 'Library', streamer: 'Streamer', streamerRecordings: 'Streamer recordings',
+    login: 'Sign in', logout: 'Sign out', backToLogin: 'Back to sign in', library: '@:shell.nav.library', streamer: 'Streamer', streamerRecordings: 'Streamer recordings',
     noRecordings: 'No recordings yet', noMatchingRecordings: 'No matching recordings', jobs: 'Background jobs', clips: 'Clips', recording: 'Recording',
     status: 'Status', size: 'Size', user: 'User', admin: 'Administrator', createdAt: 'Created', expiresAt: 'Expires',
     all: 'All', pending: 'Pending approval', approved: 'Approved', enabled: 'Enabled', quality: 'Quality', globalSettings: 'Global settings',
@@ -118,7 +118,7 @@ export const viewsEn: MessageSchema<typeof viewsZh> = {
   },
   oauth: { failed: 'Sign-in failed', signingIn: 'Signing in', cancelled: 'Authorization cancelled', invalidCallback: 'Invalid authorization callback' },
   access: { rejected: 'Application rejected', disabled: 'Account disabled', pending: 'Awaiting administrator approval', refresh: 'Refresh status' },
-  library: { title: 'Recording library', search: 'Search recordings', streamers: 'Streamers', results: 'Search results', recent: 'Recent recordings', addRecording: 'Add a recording target' },
+  library: { title: '@:shell.nav.library', search: 'Search recordings', streamers: 'Streamers', results: 'Search results', recent: 'Recent recordings', addRecording: 'Add a recording target' },
   streamer: { room: 'Room {roomId}', search: 'Search titles' },
   session: {
     startedAt: 'Recording started',
@@ -183,7 +183,7 @@ export const viewsJa: MessageSchema<typeof viewsZh> = {
 
   common: {
     email: 'メールアドレス', password: 'パスワード', cancel: 'キャンセル', save: '保存', refresh: '更新', retry: '再試行', close: '閉じる', done: '完了',
-    login: 'ログイン', logout: 'ログアウト', backToLogin: 'ログインに戻る', library: 'ライブラリ', streamer: '配信者', streamerRecordings: '配信者の録画',
+    login: 'ログイン', logout: 'ログアウト', backToLogin: 'ログインに戻る', library: '@:shell.nav.library', streamer: '配信者', streamerRecordings: '配信者の録画',
     noRecordings: '録画はまだありません', noMatchingRecordings: '一致する録画がありません', jobs: 'バックグラウンドタスク', clips: 'クリップ', recording: '録画',
     status: '状態', size: 'サイズ', user: 'ユーザー', admin: '管理者', createdAt: '作成日時', expiresAt: '有効期限',
     all: 'すべて', pending: '承認待ち', approved: '承認済み', enabled: '有効', quality: '画質', globalSettings: '全体設定',
@@ -204,7 +204,7 @@ export const viewsJa: MessageSchema<typeof viewsZh> = {
   },
   oauth: { failed: 'ログインに失敗しました', signingIn: 'ログイン中', cancelled: '認証をキャンセルしました', invalidCallback: '認証コールバックが無効です' },
   access: { rejected: '申請が却下されました', disabled: 'アカウントが無効です', pending: '管理者の承認待ち', refresh: '状態を更新' },
-  library: { title: '録画ライブラリ', search: '録画を検索', streamers: '配信者', results: '検索結果', recent: '最近の録画', addRecording: '録画対象を追加' },
+  library: { title: '@:shell.nav.library', search: '録画を検索', streamers: '配信者', results: '検索結果', recent: '最近の録画', addRecording: '録画対象を追加' },
   streamer: { room: '配信ルーム {roomId}', search: 'タイトルを検索' },
   session: {
     startedAt: '録画開始日時',

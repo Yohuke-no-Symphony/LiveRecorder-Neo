@@ -64,7 +64,18 @@ const adminLinks = computed(() => [
   { to: '/admin/storage', title: t('shell.nav.storage'), icon: 'mdi-harddisk' },
   { to: '/admin/settings', title: t('shell.nav.settings'), icon: 'mdi-cog-outline' },
 ])
-const breadcrumbs = computed(() => [{ title: t('shell.nav.library'), to: '/' }, ...(route.path === '/' ? [] : [{ title: [...links.value, ...adminLinks.value].find(link => route.path.startsWith(link.to) && link.to !== '/')?.title ?? (route.path === '/account' ? t('shell.nav.account') : route.path.startsWith('/sessions') ? t('shell.nav.playRecording') : t('shell.nav.streamerRecordings')) }])])
+const breadcrumbs = computed(() =>
+{
+  const definitions = route.meta.breadcrumbs ?? []
+  return definitions.map((item, index) =>
+  {
+    const current = index === definitions.length - 1
+    const target = !current && item.to ? router.resolve(item.to) : undefined
+    const allowed = target && (!target.meta.admin || auth.isAdmin)
+      && (!Array.isArray(target.meta.permissions) || target.meta.permissions.every(permission => auth.hasPermission(String(permission))))
+    return { title: t(item.titleKey), to: allowed ? item.to : undefined, disabled: !allowed, active: current }
+  })
+})
 usePolling(async () =>
 {
   try

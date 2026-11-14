@@ -9,6 +9,7 @@
         <div class="form-stack">
           <LanguageSelect :model-value="settings.defaultLanguage" :disabled="saving" @update:model-value="selectDefaultLanguage" />
           <p class="text-body-2 muted">{{ t('shell.settings.defaultLanguageDescription') }}</p>
+          <v-text-field v-model="settings.publicWebUrl" :label="t('passwordReset.publicWebUrl')" :hint="t('passwordReset.publicWebUrlDescription')" persistent-hint type="url" :disabled="saving" autocomplete="url" />
         </div>
       </ContentCard>
       <ContentCard :title="t('shell.settings.playbackPreview')">
@@ -107,6 +108,7 @@ function selectDefaultLanguage(language: AppLanguage | null): void
 }
 function clearSecrets(value: ServerSettings): ServerSettings
 {
+  value.publicWebUrl ??= ''
   value.smtp.password = ''
   value.ai = { ...normalizeAiSettings(value.ai), apiKey: '', clearApiKey: false }
   value.oauthProviders ??= []

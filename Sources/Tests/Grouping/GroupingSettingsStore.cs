@@ -8,4 +8,6 @@ internal sealed class GroupingSettingsStore : ISettingsStore
     internal ServerSettings Value { get; } = new() { MinimumFreeBytes = 0 };
     public Task<ServerSettings> GetAsync(CancellationToken cancellationToken = default) => Task.FromResult(Value);
     public Task SaveAsync(ServerSettings settings, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<ServerSettings> UpdateAsync(Func<ServerSettings, ServerSettings> update, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
 }

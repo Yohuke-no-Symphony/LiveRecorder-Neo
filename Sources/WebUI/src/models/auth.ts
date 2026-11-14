@@ -89,6 +89,8 @@ export interface BilibiliAccount
   avatarUrl: string
   status: string
   lastValidatedAtUtc?: string | null
+  isDefault?: boolean
+  isEffectiveDefault?: boolean
 }
 
 export interface BilibiliChallenge

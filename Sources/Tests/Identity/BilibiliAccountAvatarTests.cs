@@ -158,7 +158,7 @@ public sealed class BilibiliAccountAvatarTests
         Assert.Equal("", Assert.Single(await service.ListAccountsAsync()).AvatarUrl);
     }
 
-    private static BilibiliService CreateService(IdentityFixture fixture) => new(fixture.Context, fixture.Protector, fixture.Http, NullLogger<BilibiliService>.Instance);
+    private static BilibiliService CreateService(IdentityFixture fixture) => new(fixture.Context, fixture.Protector, fixture.Http, NullLogger<BilibiliService>.Instance, fixture.Settings, new BilibiliEventConnection(fixture.Http, NullLogger<BilibiliEventConnection>.Instance));
 
     private static Task MaintainAsync(BilibiliService service, CancellationToken cancellationToken = default) =>
         (Task)typeof(BilibiliService).GetMethod("MaintainAccountsAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [cancellationToken])!;

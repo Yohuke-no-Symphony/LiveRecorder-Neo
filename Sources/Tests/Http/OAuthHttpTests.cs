@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Infrastructure.Files;
 using Xunit;
 
 namespace Yohuke.LiveRecorder.Http.Tests;
@@ -37,6 +38,60 @@ public sealed class OAuthHttpTests
         Assert.Equal(1, await fixture.Context.Collection<UserAccount>("users").CountDocumentsAsync(FilterDefinition<UserAccount>.Empty));
         using var replay = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/auth/oauth/test/exchange", new { state = query["state"], code = "http-authorization-code" });
         Assert.Equal(HttpStatusCode.BadRequest, replay.StatusCode);
+    }
+
+    /// <summary>封禁后的外部身份换码不能创建会话，解封后必须通过新的授权流程登录。</summary>
+    [MongoHttpFact]
+    public async Task BannedExternalIdentityCannotSignInUntilUnbannedAndAuthorizedAgain()
+    {
+        await using var provider = await OAuthTestProvider.CreateAsync();
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+        await ConfigureProviderAsync(fixture, provider);
+        var user = await fixture.CreateUserAsync("oauth-member@example.test");
+        var linked = fixture.NewBrowser();
+        await linked.LoginAsync(user.Email, HttpServerFixture.USER_PASSWORD);
+        using (var binding = await ExchangeAsync(linked, provider, "bind"))
+        {
+            Assert.Equal(HttpStatusCode.OK, binding.StatusCode);
+            var result = await binding.Content.ReadFromJsonAsync<JsonObject>();
+            Assert.Equal(user.Id, result!["user"]!["id"]!.GetValue<string>());
+        }
+        using (var ban = await fixture.Admin.SendAsync(HttpMethod.Post, $"/api/admin/users/{user.Id}/ban"))
+        {
+            Assert.Equal(HttpStatusCode.OK, ban.StatusCode);
+        }
+        var browser = fixture.NewBrowser();
+        await browser.RefreshCsrfAsync();
+        using (var denied = await ExchangeAsync(browser, provider, "begin"))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        }
+        Assert.Null(browser.Cookies.GetCookies(fixture.Address)["lr.session"]);
+        Assert.Null((await browser.RefreshCsrfAsync())["user"]);
+        using (var recordings = await browser.Client.GetAsync("/api/sessions"))
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, recordings.StatusCode);
+        }
+        using (var unban = await fixture.Admin.SendAsync(HttpMethod.Post, $"/api/admin/users/{user.Id}/unban"))
+        {
+            Assert.Equal(HttpStatusCode.OK, unban.StatusCode);
+        }
+        using (var restored = await ExchangeAsync(browser, provider, "begin"))
+        {
+            Assert.Equal(HttpStatusCode.OK, restored.StatusCode);
+            var result = await restored.Content.ReadFromJsonAsync<JsonObject>();
+            Assert.Equal(user.Id, result!["user"]!["id"]!.GetValue<string>());
+            Assert.False(result["registrationRequired"]!.GetValue<bool>());
+        }
+        Assert.Equal(user.Id, (await browser.RefreshCsrfAsync())["user"]!["id"]!.GetValue<string>());
+        using (var recordings = await browser.Client.GetAsync("/api/sessions"))
+        {
+            Assert.Equal(HttpStatusCode.OK, recordings.StatusCode);
+        }
+        Assert.Equal(new[] { "test" }, await browser.Client.GetFromJsonAsync<string[]>("/api/auth/identities"));
+        Assert.Equal(2, await fixture.Context.Collection<UserAccount>("users").CountDocumentsAsync(FilterDefinition<UserAccount>.Empty));
     }
 
     [MongoHttpFact]
@@ -88,10 +143,20 @@ public sealed class OAuthHttpTests
 
     private static async Task ConfigureProviderAsync(HttpServerFixture fixture, OAuthTestProvider provider)
     {
-        var settings = await fixture.Admin.Client.GetFromJsonAsync<ServerSettings>("/api/settings") ?? throw new InvalidDataException("Missing settings.");
+        var settings = await fixture.Admin.Client.GetFromJsonAsync<ServerSettings>("/api/settings", JsonFiles.Options) ?? throw new InvalidDataException("Missing settings.");
         settings.OAuthProviders.Add(new() { Id = "test", Name = "Test provider", Enabled = true, ClientId = "http-client", AuthorizationEndpoint = new Uri(provider.Address, "/oauth2/authorize").AbsoluteUri, TokenEndpoint = new Uri(provider.Address, "/oauth2/token").AbsoluteUri, UserInfoEndpoint = new Uri(provider.Address, "/oauth2/userinfo").AbsoluteUri });
         using var response = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/settings", settings);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    private static async Task<HttpResponseMessage> ExchangeAsync(HttpBrowser browser, OAuthTestProvider provider, string action)
+    {
+        using var start = await browser.SendAsync(HttpMethod.Post, $"/api/auth/oauth/test/{action}");
+        Assert.Equal(HttpStatusCode.OK, start.StatusCode);
+        var payload = await start.Content.ReadFromJsonAsync<JsonObject>();
+        var query = Query(new Uri(payload!["authorizationUrl"]!.GetValue<string>()).Query);
+        provider.ExpectedChallenge = query["code_challenge"];
+        return await browser.SendAsync(HttpMethod.Post, "/api/auth/oauth/test/exchange", new { state = query["state"], code = "http-authorization-code" });
     }
 
     private static Dictionary<string, string> Query(string query) => query.TrimStart('?').Split('&').Select(x => x.Split('=', 2)).ToDictionary(x => Uri.UnescapeDataString(x[0]), x => Uri.UnescapeDataString(x[1]));

@@ -21,7 +21,7 @@ public sealed class BilibiliAccountIntegrationTests
         var credentials = new Yohuke.DanmuCore.Models.Accounts.BilibiliLoginCredentials { Cookie = "SESSDATA=expired;bili_jct=csrf;DedeUserID=42", RefreshToken = "old-refresh" };
         var account = new BilibiliAccount { Uid = 42, UserName = "采集账号", ProtectedCredentials = fixture.Protector.Protect(JsonSerializer.Serialize(credentials)) };
         await fixture.Context.Collection<BilibiliAccount>("bilibili_accounts").InsertOneAsync(account);
-        using var service = new BilibiliService(fixture.Context, fixture.Protector, fixture.Http, NullLogger<BilibiliService>.Instance);
+        using var service = new BilibiliService(fixture.Context, fixture.Protector, fixture.Http, NullLogger<BilibiliService>.Instance, fixture.Settings, new BilibiliEventConnection(fixture.Http, NullLogger<BilibiliEventConnection>.Instance));
         await (Task)typeof(BilibiliService).GetMethod("MaintainAccountsAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [CancellationToken.None])!;
         Assert.Equal("Expired", Assert.Single(await service.ListAccountsAsync()).Status);
         var error = await Assert.ThrowsAsync<Yohuke.LiveRecorder.Application.InfrastructureException>(() => service.ResolveStreamAsync(100, 10000));
@@ -70,7 +70,7 @@ public sealed class BilibiliAccountIntegrationTests
                     throw new InvalidOperationException("Unexpected endpoint: " + request.RequestUri.AbsolutePath);
             }
         };
-        using var service = new BilibiliService(fixture.Context, fixture.Protector, fixture.Http, NullLogger<BilibiliService>.Instance);
+        using var service = new BilibiliService(fixture.Context, fixture.Protector, fixture.Http, NullLogger<BilibiliService>.Instance, fixture.Settings, new BilibiliEventConnection(fixture.Http, NullLogger<BilibiliEventConnection>.Instance));
         var qr = await service.BeginQrAsync();
         var completed = await service.PollQrAsync(qr.SessionId);
         Assert.Equal("Complete", completed.Status);

@@ -17,6 +17,7 @@ internal sealed class IdentityFixture : IAsyncDisposable
     internal string DirectoryPath { get; } = Path.Combine(Path.GetTempPath(), "live-recorder-identity-tests", Guid.NewGuid().ToString("N"));
     internal string ConnectionString { get; } = Environment.GetEnvironmentVariable("LIVE_RECORDER_TEST_MONGO")!;
     internal CapturingEmailSender Email { get; } = new();
+    internal CapturingSessionRevoker SessionRevoker { get; } = new();
     internal TestHttpClientFactory Http { get; } = new();
     internal ISecretProtector Protector { get; private set; } = null!;
     internal AppPaths Paths { get; private set; } = null!;
@@ -47,7 +48,7 @@ internal sealed class IdentityFixture : IAsyncDisposable
             fixture.Bootstrap = current.Current.Bootstrap;
             fixture.Context = current.Current.Mongo;
             fixture.Protector = current.Current.SecretProtector;
-            fixture.Identity = new(fixture.Context, fixture.Settings, fixture.Email, fixture.Protector, hasher, fixture.Http);
+            fixture.Identity = new(fixture.Context, fixture.Settings, fixture.Email, fixture.Protector, hasher, fixture.Http, fixture.SessionRevoker);
             return fixture;
         }
         catch

@@ -33,6 +33,8 @@ export interface OAuthProviderSettings
 
 export interface ServerSettings
 {
+  publicWebUrl?: string
+  defaultBilibiliAccountId?: string | null
   ai?: AiSettings
   defaultLanguage: AppLanguage
   translationDanmuPattern: string

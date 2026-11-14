@@ -48,6 +48,27 @@ afterEach(() =>
 
 describe('B站账号卡片', () =>
 {
+  it('手动默认标记保持独立，取消默认发出空账号选择', async () =>
+  {
+    const wrapper = mountCard({ isDefault: true, isEffectiveDefault: false, status: 'Expired' })
+    expect(wrapper.text()).toContain('默认账号')
+    expect(wrapper.text()).not.toContain('当前使用')
+    await wrapper.findAll('button').find(button => button.text() === '取消默认')!.trigger('click')
+    expect(wrapper.emitted('setDefault')).toEqual([[null]])
+    await wrapper.findAll('button').find(button => button.text() === '重新登录')!.trigger('click')
+    expect(wrapper.emitted('relogin')?.[0]?.[0]).toMatchObject({ id: account.id, uid: account.uid })
+  })
+
+  it('临时回退账号不标为手动默认，有效账号可设为默认', async () =>
+  {
+    const wrapper = mountCard({ isDefault: false, isEffectiveDefault: true })
+    expect(wrapper.text()).toContain('当前使用')
+    await wrapper.findAll('button').find(button => button.text() === '设为默认')!.trigger('click')
+    expect(wrapper.emitted('setDefault')).toEqual([[account.id]])
+    await wrapper.setProps({ account: { ...account, status: 'Expired' } })
+    expect(wrapper.findAll('button').some(button => button.text() === '设为默认')).toBe(false)
+  })
+
   it('头像从本站鉴权端点加载，不直接访问远端 CDN', () =>
   {
     const wrapper = mountCard()

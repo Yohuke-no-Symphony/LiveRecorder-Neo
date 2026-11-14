@@ -54,6 +54,23 @@ public static class IdentityEndpointExtensions
             await identity.SendEmailCodeAsync(request, ct);
             return Results.NoContent();
         });
+        auth.MapGet("/password-reset/options", async (HttpContext http, IPasswordResetService reset, CancellationToken ct) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(await reset.GetOptionsAsync(ct));
+        });
+        auth.MapPost("/password-reset/request", async (PasswordResetRequest request, IPasswordResetService reset, CancellationToken ct) =>
+        {
+            await reset.RequestAsync(request, ct);
+            return Results.NoContent();
+        }).RequireRateLimiting("password-reset");
+        auth.MapPost("/password-reset/complete", async (PasswordResetCompleteRequest request, HttpContext http, IPasswordResetService reset, CancellationToken ct) =>
+        {
+            await reset.CompleteAsync(request, ct);
+            await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            http.User = new(new ClaimsIdentity());
+            return Results.NoContent();
+        });
         auth.MapGet("/registration-options", async (HttpContext http, ISettingsStore settingsStore, CancellationToken ct) =>
         {
             var settings = await settingsStore.GetAsync(ct);
@@ -99,6 +116,8 @@ public static class IdentityEndpointExtensions
         var admin = endpoints.MapGroup("/api/admin").RequireAuthorization(policy => policy.RequireRole("Admin"));
         admin.MapGet("/users", async (IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.ListUsersAsync(ct)));
         admin.MapPost("/users/{id}/approval", async (string id, ApprovalRequest request, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.SetApprovalAsync(id, request.Approved, ct)));
+        admin.MapPost("/users/{id}/ban", async (string id, HttpContext http, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.SetBannedAsync(http.User.FindFirstValue(ClaimTypes.NameIdentifier)!, id, true, ct)));
+        admin.MapPost("/users/{id}/unban", async (string id, HttpContext http, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.SetBannedAsync(http.User.FindFirstValue(ClaimTypes.NameIdentifier)!, id, false, ct)));
         admin.MapPost("/users/{id}/role", async (string id, RoleRequest request, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.SetRoleAsync(id, request.Role, ct)));
         admin.MapPut("/users/{id}/permissions", async (string id, PermissionSet request, IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.SetPermissionsAsync(id, request, ct)));
         admin.MapGet("/invitations", async (IIdentityService identity, CancellationToken ct) => Results.Ok(await identity.ListInvitationsAsync(ct)));

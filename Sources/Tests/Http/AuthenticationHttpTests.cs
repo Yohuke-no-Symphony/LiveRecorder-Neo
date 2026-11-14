@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Xunit;
 
@@ -25,7 +26,7 @@ public sealed class AuthenticationHttpTests
         Assert.Equal(fixture.DataDirectory, paths!["dataDirectory"]!.GetValue<string>());
         Assert.Equal(fixture.StoragePath, paths["recordsDirectory"]!.GetValue<string>());
         Assert.Equal(fixture.CachePath, paths["cacheDirectory"]!.GetValue<string>());
-        var settings = await fixture.Admin.Client.GetFromJsonAsync<ServerSettings>("/api/settings") ?? throw new InvalidDataException("Missing settings.");
+        var settings = await fixture.Admin.Client.GetFromJsonAsync<ServerSettings>("/api/settings", JsonFiles.Options) ?? throw new InvalidDataException("Missing settings.");
         settings.RegistrationEnabled = true;
         settings.Smtp.Password = "test-smtp-secret";
         settings.OAuthProviders.Add(new() { Id = "test-provider", Name = "Test", ClientSecret = "test-oauth-secret" });
@@ -34,7 +35,7 @@ public sealed class AuthenticationHttpTests
         var body = await update.Content.ReadAsStringAsync();
         Assert.DoesNotContain("test-smtp-secret", body);
         Assert.DoesNotContain("test-oauth-secret", body);
-        var saved = await update.Content.ReadFromJsonAsync<ServerSettings>() ?? throw new InvalidDataException("Missing saved settings.");
+        var saved = await update.Content.ReadFromJsonAsync<ServerSettings>(JsonFiles.Options) ?? throw new InvalidDataException("Missing saved settings.");
         Assert.True(saved.RegistrationEnabled);
         Assert.Equal("", saved.Smtp.Password);
         Assert.Equal("", Assert.Single(saved.OAuthProviders).ClientSecret);

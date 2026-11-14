@@ -16,4 +16,6 @@ internal sealed class TestSettingsStore : ISettingsStore
     {
         throw new NotSupportedException();
     }
+    public Task<ServerSettings> UpdateAsync(Func<ServerSettings, ServerSettings> update, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
 }

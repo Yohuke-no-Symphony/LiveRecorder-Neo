@@ -3,8 +3,8 @@
   <v-tabs v-model="tab" color="primary" class="mb-6"><v-tab value="users">{{ t('views.users.users') }}<v-chip v-if="pendingCount" color="primary" class="ml-2" size="x-small">{{ formatNumber(pendingCount) }}</v-chip></v-tab><v-tab value="invitations">{{ t('views.users.invitations') }}</v-tab></v-tabs>
   <v-alert v-if="error" type="error" class="mb-6">{{ error }}</v-alert>
   <template v-if="tab === 'users'">
-    <div class="filter-bar"><v-text-field v-model="search" :label="t('views.users.search')" prepend-inner-icon="mdi-magnify" clearable density="compact" style="max-width: 330px" /><v-chip-group v-model="userFilter" mandatory color="primary"><v-chip value="all">{{ t('views.common.all') }}</v-chip><v-chip value="Pending">{{ t('views.common.pending') }}</v-chip><v-chip value="Active">{{ t('views.common.approved') }}</v-chip></v-chip-group></div>
-    <v-card v-if="visibleUsers.length"><v-table><thead><tr><th>{{ t('views.common.user') }}</th><th>{{ t('views.common.email') }}</th><th>{{ t('views.users.role') }}</th><th>{{ t('views.common.status') }}</th><th /></tr></thead><tbody><tr v-for="user in visibleUsers" :key="user.id"><td class="py-5"><div class="d-flex align-center ga-3"><UserAvatar :name="user.displayName" :avatar-url="user.avatarUrl" size="34" />{{ user.displayName }}</div></td><td class="text-body-2 muted">{{ user.email }}</td><td><v-chip size="small" :color="user.role === 'Admin' ? 'primary' : undefined">{{ user.role === 'Admin' ? t('views.common.admin') : t('views.common.user') }}</v-chip></td><td><StatusChip :status="user.status === 'Active' ? 'approved' : user.status" /></td><td><div class="action-buttons"><v-btn v-if="user.role === 'User'" size="small" variant="text" :disabled="busy" @click="editPermissions(user)">{{ t('shell.permissions.title') }}</v-btn><template v-if="user.status === 'Pending'"><v-btn size="small" color="primary" variant="text" :disabled="busy" @click="approve(user, true)">{{ t('views.users.approve') }}</v-btn><v-btn size="small" color="error" variant="text" :disabled="busy" @click="approve(user, false)">{{ t('views.users.reject') }}</v-btn></template><v-menu v-else-if="user.id !== auth.user?.id"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-horizontal" variant="text" size="small" :aria-label="t('views.users.actions')" /></template><v-list density="compact"><v-list-item :title="user.role === 'Admin' ? t('views.users.makeUser') : t('views.users.makeAdmin')" @click="roleUser = user" /></v-list></v-menu></div></td></tr></tbody></v-table></v-card>
+    <div class="filter-bar"><v-text-field v-model="search" :label="t('views.users.search')" prepend-inner-icon="mdi-magnify" clearable density="compact" style="max-width: 330px" /><v-chip-group v-model="userFilter" mandatory color="primary"><v-chip value="all">{{ t('views.common.all') }}</v-chip><v-chip value="Pending">{{ t('views.common.pending') }}</v-chip><v-chip value="Active">{{ t('views.common.approved') }}</v-chip><v-chip value="Disabled">{{ t('accountManagement.banned') }}</v-chip></v-chip-group></div>
+    <v-card v-if="visibleUsers.length"><v-table><thead><tr><th>{{ t('views.common.user') }}</th><th>{{ t('views.common.email') }}</th><th>{{ t('views.users.role') }}</th><th>{{ t('views.common.status') }}</th><th /></tr></thead><tbody><tr v-for="user in visibleUsers" :key="user.id"><td class="py-5"><div class="d-flex align-center ga-3"><UserAvatar :name="user.displayName" :avatar-url="user.avatarUrl" size="34" />{{ user.displayName }}</div></td><td class="text-body-2 muted">{{ user.email }}</td><td><v-chip size="small" :color="user.role === 'Admin' ? 'primary' : undefined">{{ user.role === 'Admin' ? t('views.common.admin') : t('views.common.user') }}</v-chip></td><td><v-chip v-if="user.status === 'Disabled'" size="small" color="error">{{ t('accountManagement.banned') }}</v-chip><StatusChip v-else :status="user.status === 'Active' ? 'approved' : user.status" /></td><td><div class="action-buttons"><v-btn v-if="user.role === 'User'" size="small" variant="text" :disabled="busy" @click="editPermissions(user)">{{ t('shell.permissions.title') }}</v-btn><template v-if="user.status === 'Pending'"><v-btn size="small" color="primary" variant="text" :disabled="busy" @click="approve(user, true)">{{ t('views.users.approve') }}</v-btn><v-btn size="small" color="error" variant="text" :disabled="busy" @click="approve(user, false)">{{ t('views.users.reject') }}</v-btn></template><v-menu v-else-if="user.id !== auth.user?.id"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-horizontal" variant="text" size="small" :aria-label="t('views.users.actions')" /></template><v-list density="compact"><v-list-item :title="user.role === 'Admin' ? t('views.users.makeUser') : t('views.users.makeAdmin')" @click="roleUser = user" /><v-list-item v-if="user.status === 'Active' || user.status === 'Disabled'" :title="t(user.status === 'Disabled' ? 'accountManagement.unban' : 'accountManagement.ban')" :disabled="statusBusy" @click="selectStatusUser(user)" /></v-list></v-menu></div></td></tr></tbody></v-table></v-card>
     <EmptyState v-else-if="!busy" :title="t('views.users.empty')" icon="mdi-account-group-outline" />
   </template>
   <template v-else>
@@ -14,6 +14,7 @@
   </template>
   <v-dialog v-model="createOpen" max-width="440" :aria-label="t('views.users.createInvitation')"><ContentCard :title="t('views.users.createInvitation')"><form class="form-stack" @submit.prevent="create"><v-text-field v-model.number="maxUses" :label="t('views.users.maxUses')" type="number" min="1" max="10000" required /><v-text-field v-model="expiry" :label="t('views.common.expiresAt')" type="datetime-local" /><v-alert v-if="createError" type="error">{{ createError }}</v-alert><CardActions embedded><v-btn variant="text" @click="createOpen = false">{{ t('views.common.cancel') }}</v-btn><v-btn type="submit" color="primary" :loading="createBusy">{{ t('views.users.create') }}</v-btn></CardActions></form></ContentCard></v-dialog>
   <ConfirmDialog :model-value="!!roleUser" :title="roleUser?.role === 'Admin' ? t('views.users.confirmUser') : t('views.users.confirmAdmin')" :message="roleUser?.displayName" :busy="busy" :error="error" @update:model-value="!$event && (roleUser = undefined)" @confirm="changeRole" />
+  <ConfirmDialog :model-value="!!statusUser" :title="t(statusUser?.status === 'Disabled' ? 'accountManagement.unbanConfirm' : 'accountManagement.banConfirm')" :message="t(statusUser?.status === 'Disabled' ? 'accountManagement.unbanMessage' : 'accountManagement.banMessage', { name: statusUser?.displayName ?? '' })" :action-label="t(statusUser?.status === 'Disabled' ? 'accountManagement.unban' : 'accountManagement.ban')" :busy="statusBusy" :error="statusError" @update:model-value="!$event && (statusUser = undefined)" @confirm="changeStatus" />
   <v-dialog :model-value="!!permissionUser" max-width="520" scrollable :persistent="permissionsBusy" :aria-label="t('shell.permissions.title')" @update:model-value="!$event && (permissionUser = undefined)">
     <ContentCard :title="t('shell.permissions.title')">
       <template #suffix><span class="permission-subject muted">{{ permissionUser?.displayName }}</span></template>
@@ -53,6 +54,9 @@ const invitations = ref<Invitation[]>([])
 const search = ref('')
 const userFilter = ref('all')
 const roleUser = ref<UserProfile>()
+const statusUser = ref<UserProfile>()
+const { busy: statusBusy, error: statusError, run: runStatus } = useAction()
+let usersRevision = 0
 const permissionUser = ref<UserProfile>()
 const permissionDraft = ref<UserPermissions>([])
 const { busy: permissionsBusy, error: permissionsError, run: runPermissions } = useAction()
@@ -65,7 +69,33 @@ const { busy, error, run } = useAction()
 const { busy: createBusy, error: createError, run: runCreate } = useAction()
 const pendingCount = computed(() => users.value.filter(user => user.status === 'Pending').length)
 const visibleUsers = computed(() => users.value.filter(user => (userFilter.value === 'all' || user.status === userFilter.value) && `${user.displayName} ${user.email}`.toLowerCase().includes(search.value.toLowerCase())))
-usePolling(async () => { await run(async () => { [users.value, invitations.value] = await Promise.all([AuthAPI.users(), AuthAPI.invitations()]) }) }, 15000)
+usePolling(async () =>
+{
+  const revision = usersRevision
+  await run(async () =>
+  {
+    const [loadedUsers, loadedInvitations] = await Promise.all([AuthAPI.users(), AuthAPI.invitations()])
+    if (revision === usersRevision) { users.value = loadedUsers }
+    invitations.value = loadedInvitations
+  })
+}, 15000)
+function selectStatusUser(user: UserProfile): void
+{
+  statusUser.value = user
+  statusError.value = ''
+}
+async function changeStatus(): Promise<void>
+{
+  const user = statusUser.value
+  if (!user || statusBusy.value || user.id === auth.user?.id) { return }
+  await runStatus(async () =>
+  {
+    const updated = await (user.status === 'Disabled' ? AuthAPI.unbanUser(user.id) : AuthAPI.banUser(user.id))
+    usersRevision++
+    users.value = users.value.map(item => item.id === updated.id ? updated : item)
+    statusUser.value = undefined
+  })
+}
 function editPermissions(user: UserProfile): void
 {
   permissionUser.value = user

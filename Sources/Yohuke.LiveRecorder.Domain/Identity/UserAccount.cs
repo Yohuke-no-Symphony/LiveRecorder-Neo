@@ -9,6 +9,7 @@ public sealed class UserAccount : Entity
     public string? Language { get; set; }
     public string AvatarUrl { get; set; } = "";
     public string PasswordHash { get; set; } = "";
+    public long SessionVersion { get; set; }
     public string Role { get; set; } = "User";
     public PermissionSet Permissions { get; set; } = PermissionSet.MemberDefaults;
     public string Status { get; set; } = "Pending";

@@ -15,18 +15,25 @@
       </v-avatar>
       <div class="account-card-identity">
         <h2 class="account-card-name" :title="account.userName">{{ account.userName }}</h2>
-        <StatusChip :status="account.status" class="account-card-status" />
+        <div class="account-card-badges">
+          <StatusChip :status="account.status" />
+          <v-chip v-if="account.isDefault" size="small" color="primary">{{ t('accountManagement.default') }}</v-chip>
+          <v-chip v-if="account.isEffectiveDefault && !account.isDefault" size="small" color="info">{{ t('accountManagement.effective') }}</v-chip>
+        </div>
       </div>
       <v-menu>
         <template #activator="{ props: menuProps }">
           <v-btn v-bind="menuProps" icon="mdi-dots-horizontal" size="small" variant="text" :aria-label="t('views.accounts.actions')" />
         </template>
         <v-list density="compact">
-          <v-list-item :title="t('views.accounts.remove')" prepend-icon="mdi-delete-outline" @click="emit('remove', account)" />
+          <v-list-item v-if="account.isDefault || account.status === 'Valid'" :title="t(account.isDefault ? 'accountManagement.clearDefault' : 'accountManagement.setDefault')" prepend-icon="mdi-star-outline" :disabled="busy" @click="emit('setDefault', account.isDefault ? null : account.id)" />
+          <v-list-item :title="t('accountManagement.relogin')" prepend-icon="mdi-login" :disabled="busy" @click="emit('relogin', account)" />
+          <v-list-item :title="t('views.accounts.remove')" prepend-icon="mdi-delete-outline" :disabled="busy" @click="emit('remove', account)" />
         </v-list>
       </v-menu>
     </div>
     <div class="account-card-uid text-caption muted mono">UID {{ account.uid }}</div>
+    <v-btn v-if="account.status === 'Expired'" color="primary" variant="tonal" prepend-icon="mdi-login" class="mb-4" :disabled="busy" @click="emit('relogin', account)">{{ t('accountManagement.relogin') }}</v-btn>
     <div class="account-card-validation text-caption muted">
       <span class="account-card-validation-label">
         <v-icon icon="mdi-clock-check-outline" size="16" />
@@ -47,8 +54,8 @@ import { formatDate } from '@/utilities/format'
 import StatusChip from '@/components/common/StatusChip.vue'
 
 const { t } = useI18n()
-const props = defineProps<{ account: BilibiliAccount }>()
-const emit = defineEmits<{ remove: [account: BilibiliAccount] }>()
+const props = defineProps<{ account: BilibiliAccount; busy?: boolean }>()
+const emit = defineEmits<{ remove: [account: BilibiliAccount]; relogin: [account: BilibiliAccount]; setDefault: [accountId: string | null] }>()
 const avatarFailed = ref(false)
 
 watch(() => props.account.avatarUrl, () =>
@@ -95,8 +102,12 @@ watch(() => props.account.avatarUrl, () =>
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.account-card-status
+.account-card-badges
 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   margin-top: 6px;
 }
 .account-card-uid

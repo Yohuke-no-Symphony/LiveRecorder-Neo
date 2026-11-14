@@ -16,8 +16,10 @@ public static class IdentityServiceCollectionExtensions
         services.AddSingleton<IPasswordHasher<UserAccount>, PasswordHasher<UserAccount>>();
         services.AddSingleton<IEmailSender, SmtpEmailSender>();
         services.AddSingleton<IIdentityService, IdentityService>();
+        services.AddSingleton<IPasswordResetService, PasswordResetService>();
         services.AddSingleton<IInstallationService, InstallationService>();
         services.AddSingleton<BilibiliService>();
+        services.AddSingleton<IBilibiliEventConnection, BilibiliEventConnection>();
         services.AddSingleton<IBilibiliService>(provider => provider.GetRequiredService<BilibiliService>());
         services.AddHttpClient("identity", client => client.Timeout = TimeSpan.FromSeconds(20)).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
         services.AddHttpClient("bilibili", client => client.Timeout = TimeSpan.FromSeconds(20));

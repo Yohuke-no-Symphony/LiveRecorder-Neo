@@ -5,5 +5,5 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
-  test: { include: ['Tests/**/*.test.ts'], environment: 'node' },
+  test: { include: ['Tests/**/*.test.ts'], environment: 'node', server: { deps: { inline: ['vuetify'] } } },
 })

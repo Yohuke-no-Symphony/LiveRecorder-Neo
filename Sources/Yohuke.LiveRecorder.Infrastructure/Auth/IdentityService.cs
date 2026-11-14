@@ -17,7 +17,7 @@ using Yohuke.LiveRecorder.Infrastructure.Persistence;
 namespace Yohuke.LiveRecorder.Infrastructure.Auth;
 
 /// <summary>以 MongoDB 保存账号与单次身份流程，统一执行普通注册与外部注册要求。</summary>
-public sealed class IdentityService(IMongoContext context, ISettingsStore settingsStore, IEmailSender emailSender, ISecretProtector protector, IPasswordHasher<UserAccount> passwordHasher, IHttpClientFactory httpClientFactory) : IIdentityService
+public sealed class IdentityService(IMongoContext context, ISettingsStore settingsStore, IEmailSender emailSender, ISecretProtector protector, IPasswordHasher<UserAccount> passwordHasher, IHttpClientFactory httpClientFactory, IUserSessionRevoker sessionRevoker) : IIdentityService
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly SemaphoreSlim indexGate = new(1, 1);
@@ -65,10 +65,10 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
     }
 
     /// <inheritdoc />
-    public async Task<UserProfile?> ValidateSessionAsync(string id, CancellationToken cancellationToken = default)
+    public async Task<UserProfile?> ValidateSessionAsync(string id, long sessionVersion = 0, CancellationToken cancellationToken = default)
     {
         var profile = await GetUserAsync(id, cancellationToken);
-        return profile is { Status: "Active" } ? profile : null;
+        return profile is { Status: "Active" } && profile.SessionVersion == sessionVersion ? profile : null;
     }
 
     /// <inheritdoc />
@@ -157,13 +157,76 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         try
         {
             var user = await RequireUserAsync(id, cancellationToken);
+            if (user.Status == "Disabled")
+            {
+                throw new InfrastructureException(MessageCode.AUTH_USER_STATUS_CONFLICT, 409);
+            }
             if (!approved)
             {
                 await EnsureNotLastAdministratorAsync(user, cancellationToken);
             }
-            user.Status = approved ? "Active" : "Rejected";
-            user.UpdatedAtUtc = DateTime.UtcNow;
-            await Users.ReplaceOneAsync(x => x.Id == id, user, cancellationToken: cancellationToken);
+            var revoke = !approved && user.Status == "Active";
+            var update = Builders<UserAccount>.Update.Set(x => x.Status, approved ? "Active" : "Rejected").Set(x => x.UpdatedAtUtc, DateTime.UtcNow);
+            if (revoke)
+            {
+                update = update.Inc(x => x.SessionVersion, 1);
+            }
+            user = await Users.FindOneAndUpdateAsync(x => x.Id == id && x.Status == user.Status, update,
+                new FindOneAndUpdateOptions<UserAccount> { ReturnDocument = ReturnDocument.After }, cancellationToken)
+                ?? throw new InfrastructureException(MessageCode.AUTH_USER_STATUS_CONFLICT, 409);
+            if (revoke)
+            {
+                sessionRevoker.Revoke(id, user.SessionVersion);
+            }
+            return Profile(user);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<UserProfile> SetBannedAsync(string actorId, string id, bool banned, CancellationToken cancellationToken = default)
+    {
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var actor = await RequireUserAsync(actorId, cancellationToken);
+            if (actor is not { Role: "Admin", Status: "Active" })
+            {
+                throw new InfrastructureException(MessageCode.REQUEST_FORBIDDEN, 403);
+            }
+            if (banned && actorId == id)
+            {
+                throw new InfrastructureException(MessageCode.AUTH_SELF_BAN_FORBIDDEN, 409);
+            }
+            var user = await RequireUserAsync(id, cancellationToken);
+            var targetStatus = banned ? "Disabled" : "Active";
+            if (user.Status == targetStatus)
+            {
+                return Profile(user);
+            }
+            if (user.Status != (banned ? "Active" : "Disabled"))
+            {
+                throw new InfrastructureException(MessageCode.AUTH_USER_STATUS_CONFLICT, 409);
+            }
+            if (banned)
+            {
+                await EnsureNotLastAdministratorAsync(user, cancellationToken);
+            }
+            var update = Builders<UserAccount>.Update.Set(x => x.Status, targetStatus).Set(x => x.UpdatedAtUtc, DateTime.UtcNow);
+            if (banned)
+            {
+                update = update.Inc(x => x.SessionVersion, 1);
+            }
+            user = await Users.FindOneAndUpdateAsync(x => x.Id == id && x.Status == user.Status, update,
+                new FindOneAndUpdateOptions<UserAccount> { ReturnDocument = ReturnDocument.After }, cancellationToken)
+                ?? throw new InfrastructureException(MessageCode.AUTH_USER_STATUS_CONFLICT, 409);
+            if (banned)
+            {
+                sessionRevoker.Revoke(id, user.SessionVersion);
+            }
             return Profile(user);
         }
         finally
@@ -187,9 +250,10 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
             {
                 await EnsureNotLastAdministratorAsync(user, cancellationToken);
             }
-            user.Role = role;
-            user.UpdatedAtUtc = DateTime.UtcNow;
-            await Users.ReplaceOneAsync(x => x.Id == id, user, cancellationToken: cancellationToken);
+            user = await Users.FindOneAndUpdateAsync(x => x.Id == id,
+                Builders<UserAccount>.Update.Set(x => x.Role, role).Set(x => x.UpdatedAtUtc, DateTime.UtcNow),
+                new FindOneAndUpdateOptions<UserAccount> { ReturnDocument = ReturnDocument.After }, cancellationToken)
+                ?? throw new InfrastructureException(MessageCode.AUTH_USER_NOT_FOUND, 404);
             return Profile(user);
         }
         finally
@@ -565,6 +629,7 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
     private static string ExternalId(string provider, string subject) => IdentityToken.Hash($"{provider}\n{subject}");
     private static UserProfile Profile(UserAccount user) => new(user.Id, user.Email, user.DisplayName, user.AvatarUrl, user.Role, user.Status, user.Language)
     {
+        SessionVersion = user.SessionVersion,
         Permissions = user.Role == "Admin"
             ? PermissionCatalog.All
             : user.Permissions

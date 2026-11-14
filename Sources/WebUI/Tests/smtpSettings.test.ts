@@ -91,6 +91,30 @@ afterEach(() =>
 
 describe('SMTP 证书吊销检查', () =>
 {
+  it('常规设置保存站点公开地址，同时兼容旧配置缺少该字段', async () =>
+  {
+    let current = settings(true)
+    vi.spyOn(MediaAPI, 'settings').mockImplementation(async () => JSON.parse(JSON.stringify(current)) as ServerSettings)
+    const update = vi.spyOn(MediaAPI, 'updateSettings').mockImplementation(async value =>
+    {
+      current = JSON.parse(JSON.stringify(value)) as ServerSettings
+      return current
+    })
+    const wrapper = mount(SettingsView, { global: { plugins: [pinia, i18n], stubs: {
+      ...stubs,
+      VTextField: { props: ['modelValue', 'label'], emits: ['update:modelValue'], template: '<label>{{ label }}<input :value="modelValue" :aria-label="label" @input="$emit(\'update:modelValue\', $event.target.value)" /></label>' },
+    } } })
+    mounted.push(wrapper)
+    await flushPromises()
+    const input = wrapper.get<HTMLInputElement>('input[aria-label="站点公开地址"]')
+    expect(input.element.value).toBe('')
+    await input.setValue('https://recorder.example.test')
+    await wrapper.get('header button').trigger('click')
+    await flushPromises()
+    expect(update).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ publicWebUrl: 'https://recorder.example.test' }))
+    expect(input.element.value).toBe('https://recorder.example.test')
+  })
+
   it.each([true, false])('读取 %s，保存切换后的值并在重新加载后保持', async initial =>
   {
     let current = settings(initial)

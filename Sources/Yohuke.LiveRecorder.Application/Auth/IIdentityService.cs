@@ -12,7 +12,7 @@ public interface IIdentityService
     /// <summary>更新当前用户的界面语言，空值表示跟随全局默认。</summary>
     Task<UserProfile> SetLanguageAsync(string id, LanguagePreferenceRequest request, CancellationToken cancellationToken = default);
     /// <summary>重验 Cookie 身份，仅返回当前仍有效的用户与角色。</summary>
-    Task<UserProfile?> ValidateSessionAsync(string id, CancellationToken cancellationToken = default);
+    Task<UserProfile?> ValidateSessionAsync(string id, long sessionVersion = 0, CancellationToken cancellationToken = default);
     /// <summary>列出网站用户。</summary>
     Task<IReadOnlyList<UserProfile>> ListUsersAsync(CancellationToken cancellationToken = default);
     /// <summary>启用邮箱验证时，通过配置的邮件服务器发送单次验证码。</summary>
@@ -23,6 +23,8 @@ public interface IIdentityService
     Task<UserProfile> CompleteOAuthRegistrationAsync(string ticket, OAuthRegistrationRequest request, CancellationToken cancellationToken = default);
     /// <summary>批准或拒绝用户。</summary>
     Task<UserProfile> SetApprovalAsync(string id, bool approved, CancellationToken cancellationToken = default);
+    /// <summary>由有效管理员封禁或解封用户，并撤销被封禁用户的已有会话。</summary>
+    Task<UserProfile> SetBannedAsync(string actorId, string id, bool banned, CancellationToken cancellationToken = default);
     /// <summary>修改角色并保护最后一名管理员。</summary>
     Task<UserProfile> SetRoleAsync(string id, string role, CancellationToken cancellationToken = default);
     /// <summary>修改用户的独立权限，管理员的有效权限保持完整。</summary>

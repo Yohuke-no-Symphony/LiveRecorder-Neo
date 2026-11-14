@@ -82,6 +82,57 @@ afterEach(() =>
 
 describe('独立权限与管理入口', () =>
 {
+  it('封禁需要确认，失败保留操作，成功更新状态并支持解封', async () =>
+  {
+    const profile = user()
+    useAuthStore().user = { ...profile, id: 'admin', role: 'Admin' }
+    vi.spyOn(AuthAPI, 'users').mockResolvedValue([profile])
+    vi.spyOn(AuthAPI, 'invitations').mockResolvedValue([])
+    const ban = vi.spyOn(AuthAPI, 'banUser').mockRejectedValueOnce(new Error('封禁失败')).mockResolvedValue({ ...profile, status: 'Disabled' })
+    const unban = vi.spyOn(AuthAPI, 'unbanUser').mockResolvedValue(profile)
+    const wrapper = mount(UsersView, { global: { plugins: [pinia, i18n], stubs: {
+      ...stubs, VList: container, VCardText: container,
+      VMenu: { template: '<div><slot name="activator" :props="{}" /><slot /></div>' },
+      VListItem: { props: ['title', 'disabled'], template: '<button :disabled="disabled">{{ title }}</button>' },
+    } } })
+    mounted.push(wrapper)
+    await flushPromises()
+    await button(wrapper, '封禁用户').trigger('click')
+    expect(ban).not.toHaveBeenCalled()
+    const confirmBan = wrapper.get('[role="dialog"]').findAll('button').find(item => item.text() === '封禁用户')!
+    await confirmBan.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="dialog"]').text()).toContain('封禁失败')
+    await confirmBan.trigger('click')
+    await flushPromises()
+    expect(ban).toHaveBeenLastCalledWith('viewer')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(wrapper.find('tbody').text()).toContain('已封禁')
+    await button(wrapper, '解封用户').trigger('click')
+    const confirmUnban = wrapper.get('[role="dialog"]').findAll('button').find(item => item.text() === '解封用户')!
+    await confirmUnban.trigger('click')
+    await flushPromises()
+    expect(unban).toHaveBeenCalledExactlyOnceWith('viewer')
+    expect(wrapper.find('tbody').text()).not.toContain('已封禁')
+  })
+
+  it('当前管理员与待审核用户不提供封禁入口', async () =>
+  {
+    const admin = { ...user(), id: 'admin', role: 'Admin' as const }
+    useAuthStore().user = admin
+    vi.spyOn(AuthAPI, 'users').mockResolvedValue([admin, { ...user(), status: 'Pending' }])
+    vi.spyOn(AuthAPI, 'invitations').mockResolvedValue([])
+    const wrapper = mount(UsersView, { global: { plugins: [pinia, i18n], stubs: {
+      ...stubs, VList: container,
+      VMenu: { template: '<div><slot name="activator" :props="{}" /><slot /></div>' },
+      VListItem: { props: ['title'], template: '<button>{{ title }}</button>' },
+    } } })
+    mounted.push(wrapper)
+    await flushPromises()
+    expect(wrapper.findAll('button').some(item => item.text() === '封禁用户')).toBe(false)
+    expect(wrapper.text()).toContain('通过')
+  })
+
   it('直播记录生成权限独立于上传、管理和话题分析，只依赖录像观看权限', () =>
   {
     const auth = useAuthStore()

@@ -44,22 +44,25 @@ public static class ManagementEndpoints
                 ISecretProtector protector, CancellationToken ct) =>
             {
                 var request = ReadSettingsRequest(body, jsonOptions.Value.SerializerOptions);
+                request.PublicWebUrl = PublicWebUrlPolicy.Normalize(request.PublicWebUrl);
                 Validate(request);
-                var previous = await settingsStore.GetAsync(ct);
-                request.Ai = AiSettingsSecrets.Protect(request.Ai, previous.Ai, protector);
-                request.Smtp.Password = string.IsNullOrEmpty(request.Smtp.Password)
-                    ? previous.Smtp.Password
-                    : protector.Protect(request.Smtp.Password);
-                foreach (var provider in request.OAuthProviders)
+                var saved = await settingsStore.UpdateAsync(previous =>
                 {
-                    var original = previous.OAuthProviders.FirstOrDefault(x => x.Id == provider.Id);
-                    provider.ClientSecret = string.IsNullOrEmpty(provider.ClientSecret)
-                        ? original?.ClientSecret ?? ""
-                        : protector.Protect(provider.ClientSecret);
-                }
-
-                await settingsStore.SaveAsync(request, ct);
-                return Results.Ok(Redact(request));
+                    request.DefaultBilibiliAccountId = previous.DefaultBilibiliAccountId;
+                    request.Ai = AiSettingsSecrets.Protect(request.Ai, previous.Ai, protector);
+                    request.Smtp.Password = string.IsNullOrEmpty(request.Smtp.Password)
+                        ? previous.Smtp.Password
+                        : protector.Protect(request.Smtp.Password);
+                    foreach (var provider in request.OAuthProviders)
+                    {
+                        var original = previous.OAuthProviders.FirstOrDefault(x => x.Id == provider.Id);
+                        provider.ClientSecret = string.IsNullOrEmpty(provider.ClientSecret)
+                            ? original?.ClientSecret ?? ""
+                            : protector.Protect(provider.ClientSecret);
+                    }
+                    return request;
+                }, ct);
+                return Results.Ok(Redact(saved));
             });
         admin.MapPost("/ai/test", async (AiSettings request, ISettingsStore settingsStore, ISecretProtector protector, IAiConnectionTester tester, CancellationToken ct) =>
         {

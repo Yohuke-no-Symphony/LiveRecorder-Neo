@@ -14,4 +14,10 @@ internal sealed class AiTestSettingsStore(ServerSettings value) : ISettingsStore
         Value = settings;
         return Task.CompletedTask;
     }
+    public Task<ServerSettings> UpdateAsync(Func<ServerSettings, ServerSettings> update, CancellationToken cancellationToken = default)
+    {
+        Value = update(Value);
+        return Task.FromResult(Value);
+    }
+
 }

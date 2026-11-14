@@ -22,6 +22,7 @@ export const useAuthStore = defineStore('auth', () =>
   const hasAccess = computed(() => user.value?.status === 'Active')
   const permissionDefinitions = ref<PermissionDefinition[]>([])
   let permissionLoad: Promise<PermissionDefinition[]> | undefined
+  let sessionGeneration = 0
   function hasPermission(permission: string): boolean
   {
     return hasAccess.value && (isAdmin.value || user.value?.permissions?.includes(permission) === true)
@@ -42,7 +43,9 @@ export const useAuthStore = defineStore('auth', () =>
 
   async function refresh(): Promise<void>
   {
+    const operation = sessionGeneration
     const session = await AuthAPI.me()
+    if (operation !== sessionGeneration) { return }
     user.value = session.user
     setCsrfToken(session.csrfToken)
     if (hasAccess.value)
@@ -52,7 +55,8 @@ export const useAuthStore = defineStore('auth', () =>
         permissionLoad = undefined
         throw error
       })
-      permissionDefinitions.value = await permissionLoad
+      const definitions = await permissionLoad
+      if (operation === sessionGeneration) { permissionDefinitions.value = definitions }
     }
   }
 
@@ -86,23 +90,36 @@ export const useAuthStore = defineStore('auth', () =>
 
   async function login(email: string, password: string): Promise<void>
   {
+    const operation = ++sessionGeneration
     const session = await AuthAPI.login(email, password)
+    if (operation !== sessionGeneration) { return }
     user.value = session.user
     setCsrfToken(session.csrfToken)
   }
 
   async function setLanguage(language: AppLanguage | null): Promise<void>
   {
-    user.value = await AuthAPI.setLanguage(language)
+    const operation = sessionGeneration
+    const updated = await AuthAPI.setLanguage(language)
+    if (operation === sessionGeneration) { user.value = updated }
   }
 
   async function logout(): Promise<void>
   {
     await AuthAPI.logout()
-    user.value = null
-    oauthDraft.value = null
+    clearSession()
     await refresh()
   }
 
-  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canConfigureRecordings, canViewAnalytics, canGenerateAnalytics, canPurgeRecordings, canViewRecordings, canDownloadRecordings, canCreateClips, canUploadLiveMarkers, canGenerateLiveMarkers, canManageLiveMarkers, permissionDefinitions, hasPermission, homePath, bootstrap, refresh, login, logout, setLanguage }
+  function clearSession(): void
+  {
+    sessionGeneration++
+    user.value = null
+    oauthDraft.value = null
+    permissionDefinitions.value = []
+    permissionLoad = undefined
+    setCsrfToken('')
+  }
+
+  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canConfigureRecordings, canViewAnalytics, canGenerateAnalytics, canPurgeRecordings, canViewRecordings, canDownloadRecordings, canCreateClips, canUploadLiveMarkers, canGenerateLiveMarkers, canManageLiveMarkers, permissionDefinitions, hasPermission, homePath, bootstrap, refresh, login, logout, clearSession, setLanguage }
 })
