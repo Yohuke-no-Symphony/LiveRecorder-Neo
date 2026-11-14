@@ -10,6 +10,8 @@ import { clampOffset, findGap, normalizeTimelineGaps, playbackPosition, windowPo
 const PREFETCH_LEAD_MS = 10000
 const RETRY_DELAY_MS = 1000
 const WINDOW_START_TOLERANCE_MS = 100
+const BUFFER_TARGET_SECONDS = 30
+const BUFFER_LIMIT_SECONDS = 60
 
 export function usePlaybackController(options: {
   video: Ref<HTMLVideoElement | undefined>
@@ -206,7 +208,14 @@ export function usePlaybackController(options: {
     applySettings()
     if (supportsHls)
     {
-      const instance = new Hls({ startPosition: windowPosition(offsetMs, playback.startOffsetMs), maxBufferLength: 30, xhrSetup: xhr => { xhr.withCredentials = true } })
+      const instance = new Hls({
+        startPosition: windowPosition(offsetMs, playback.startOffsetMs),
+        maxBufferLength: BUFFER_TARGET_SECONDS,
+        maxMaxBufferLength: BUFFER_LIMIT_SECONDS,
+        backBufferLength: BUFFER_LIMIT_SECONDS,
+        frontBufferFlushThreshold: BUFFER_LIMIT_SECONDS,
+        xhrSetup: xhr => { xhr.withCredentials = true },
+      })
       installed.hls = instance
       instance.on(Hls.Events.MANIFEST_PARSED, () => positionSource(installed))
       instance.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) { sourceFailed(installed) } })

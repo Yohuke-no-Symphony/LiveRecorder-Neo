@@ -26,7 +26,9 @@ public static class MediaServiceCollectionExtensions
         }
         services.AddSingleton<MediaProcessRunner>();
         services.AddSingleton<IMediaProcessor, FfmpegMediaProcessor>();
-        services.AddSingleton<IPlaybackWindowBuilder, IndexedPlaybackWindowBuilder>();
+        services.AddSingleton<IndexedPlaybackWindowBuilder>();
+        services.AddSingleton<IPlaybackWindowBuilder>(provider => provider.GetRequiredService<IndexedPlaybackWindowBuilder>());
+        services.AddSingleton<IPlaybackFragmentSourceFactory, IndexedPlaybackFragmentSourceFactory>();
         services.AddSingleton<IVideoFrameExtractor, FfmpegVideoFrameExtractor>();
         services.AddHttpClient<FlvMediaRecorder>(client => client.Timeout = Timeout.InfiniteTimeSpan);
         services.AddTransient<IMediaRecorder>(provider => provider.GetRequiredService<FlvMediaRecorder>());

@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+using MongoDB.Driver;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Playback;
 using Xunit;
@@ -15,7 +17,7 @@ public sealed class PlaybackWindowHttpTests
     public async Task ColdAndPrefetchedWindowsCoverTheTargetAndServeDecodableMedia()
     {
         await using var fixture = await PlaybackHttpMediaFixture.CreateAsync();
-        var session = await PlaybackHttpMediaFixture.SeedRecordingAsync(fixture, 95);
+        var session = await PlaybackHttpMediaFixture.SeedRecordingAsync(fixture, 95, isClosed: false);
         var endpoint = $"/api/sessions/{session.Id}/playback";
         var first = await OpenAsync(fixture.Admin, endpoint, new { offsetMs = 45000 });
         Assert.False(first.IsGap);
@@ -43,7 +45,7 @@ public sealed class PlaybackWindowHttpTests
     public async Task SinglePlaybackSlotSkipsPrefetchWithoutPreventingForegroundPlayback()
     {
         await using var fixture = await PlaybackHttpMediaFixture.CreateAsync(playbackConcurrency: 1);
-        var session = await PlaybackHttpMediaFixture.SeedRecordingAsync(fixture, 4);
+        var session = await PlaybackHttpMediaFixture.SeedRecordingAsync(fixture, 4, isClosed: false);
         var endpoint = $"/api/sessions/{session.Id}/playback";
         using (var skipped = await fixture.Admin.SendAsync(HttpMethod.Post, endpoint, new { offsetMs = 1000, prefetch = true }))
         {
@@ -68,8 +70,11 @@ public sealed class PlaybackWindowHttpTests
         Assert.Equal(0d, playback.RequestedOffsetMs);
         Assert.InRange(playback.StartOffsetMs, 0, 100);
         Assert.True(playback.EndOffsetMs > 1000);
+        Assert.Equal(playback.DurationMs, playback.EndOffsetMs);
         var cached = await OpenAsync(fixture.Admin, endpoint, new { offsetMs = 0 });
         Assert.Equal(playback.Url, cached.Url);
+        var tail = await OpenAsync(fixture.Admin, endpoint, new { offsetMs = playback.DurationMs - 1 });
+        Assert.Equal(playback.Url, tail.Url);
         await PlaybackHttpMediaFixture.DownloadAndDecodeAsync(fixture, playback);
     }
 
@@ -123,6 +128,145 @@ public sealed class PlaybackWindowHttpTests
             using var denied = await browser.SendAsync(HttpMethod.Post, endpoint, new { offsetMs = 7500, prefetch });
             Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
         }
+    }
+
+    /// <summary>已关闭分段只规划连续清单，按需共享片段生成，并在缓存回收后保持原地址可播放。</summary>
+    [MongoHttpFact]
+    public async Task ClosedRecordingSharesOneLazyPlaylistAndRebuildsEvictedFragments()
+    {
+        await using var fixture = await PlaybackHttpMediaFixture.CreateAsync(playbackConcurrency: 1);
+        var session = await PlaybackHttpMediaFixture.SeedRecordingAsync(fixture, 95);
+        var endpoint = $"/api/sessions/{session.Id}/playback";
+        var playback = await OpenAsync(fixture.Admin, endpoint, new { offsetMs = 75000, prefetch = true });
+        Assert.False(playback.IsGap);
+        Assert.Equal(75000d, playback.RequestedOffsetMs);
+        Assert.InRange(playback.StartOffsetMs, 0, 100);
+        Assert.InRange(playback.EndOffsetMs, 95000, 95200);
+        Assert.StartsWith(endpoint + "/", playback.Url);
+        Assert.Empty(Directory.EnumerateFiles(fixture.CachePath, "*.m4s", SearchOption.AllDirectories));
+
+        var first = await OpenAsync(fixture.Admin, endpoint, new { offsetMs = 0 });
+        Assert.Equal(playback.Url, first.Url);
+        Assert.Equal(playback.StartOffsetMs, first.StartOffsetMs);
+        Assert.Equal(playback.EndOffsetMs, first.EndOffsetMs);
+        var playlist = await ReadPlaylistAsync(fixture.Admin, playback.Url!);
+        Assert.Contains("#EXT-X-PLAYLIST-TYPE:VOD", playlist);
+        var fragments = playlist.Split('\n').Select(line => line.Trim())
+            .Where(line => line.Length > 0 && !line.StartsWith('#')).ToArray();
+        Assert.True(fragments.Length > 1);
+        Assert.Equal(fragments.Length, Regex.Matches(playlist, "#EXT-X-MAP:").Count);
+        Assert.Empty(Directory.EnumerateFiles(fixture.CachePath, "*.m4s", SearchOption.AllDirectories));
+
+        var baseUri = new Uri(new Uri(fixture.Address, playback.Url!), ".");
+        var target = new Uri(baseUri, fragments[fragments.Length / 2]);
+        var results = await Task.WhenAll(Enumerable.Range(0, 6).Select(async _ =>
+        {
+            using var response = await fixture.Admin.Client.GetAsync(target);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            return await response.Content.ReadAsByteArrayAsync();
+        }));
+        Assert.NotEmpty(results[0]);
+        Assert.All(results, bytes => Assert.Equal(results[0], bytes));
+        var cachedFragment = Assert.Single(Directory.EnumerateFiles(fixture.CachePath, "*.m4s", SearchOption.AllDirectories));
+        Directory.Delete(Path.GetDirectoryName(cachedFragment)!, recursive: true);
+        using (var rebuilt = await fixture.Admin.Client.GetAsync(target))
+        {
+            Assert.Equal(HttpStatusCode.OK, rebuilt.StatusCode);
+            Assert.Equal(results[0], await rebuilt.Content.ReadAsByteArrayAsync());
+        }
+        Assert.Single(Directory.EnumerateFiles(fixture.CachePath, "*.m4s", SearchOption.AllDirectories));
+        Assert.Equal(playlist, await ReadPlaylistAsync(fixture.Admin, playback.Url!));
+        await PlaybackHttpMediaFixture.DownloadAndDecodeAsync(fixture, playback);
+    }
+
+    /// <summary>连续播放清单、初始化段和片段逐次检查身份，已有地址不能绕过撤销后的观看权限。</summary>
+    [MongoHttpFact]
+    public async Task ContinuousAssetsRecheckViewingPermissionForEveryResource()
+    {
+        await using var fixture = await PlaybackHttpMediaFixture.CreateAsync();
+        var session = await PlaybackHttpMediaFixture.SeedRecordingAsync(fixture, 12);
+        var user = await fixture.CreateUserAsync("continuous-playback-permission@example.test");
+        var browser = fixture.NewBrowser();
+        await browser.LoginAsync(user.Email, HttpServerFixture.USER_PASSWORD);
+        var playback = await OpenAsync(browser, $"/api/sessions/{session.Id}/playback", new { offsetMs = 1000 });
+        var playlist = await ReadPlaylistAsync(browser, playback.Url!);
+        var resources = ResourceUris(fixture, playback, playlist);
+        var anonymous = fixture.NewBrowser();
+        foreach (var resource in resources)
+        {
+            using var denied = await anonymous.Client.GetAsync(resource);
+            Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+            using var allowed = await browser.Client.GetAsync(resource);
+            Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+        }
+        using (var revoked = await fixture.Admin.SendAsync(HttpMethod.Put, $"/api/admin/users/{user.Id}/permissions",
+                   new PermissionSet(PermissionSet.MemberDefaults.Where(id => id != PermissionIds.VIEW_RECORDINGS))))
+        {
+            Assert.Equal(HttpStatusCode.OK, revoked.StatusCode);
+        }
+        foreach (var resource in resources)
+        {
+            using var denied = await browser.Client.GetAsync(resource);
+            Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        }
+    }
+
+    /// <summary>媒体版本变化及场次回收立即使已取得的连续播放资源地址失效。</summary>
+    [MongoHttpFact]
+    public async Task ContinuousAssetsRejectReplacedSourcesAndTrashedSessions()
+    {
+        await using var fixture = await PlaybackHttpMediaFixture.CreateAsync();
+        var session = await PlaybackHttpMediaFixture.SeedRecordingAsync(fixture, 12);
+        var endpoint = $"/api/sessions/{session.Id}/playback";
+        var playback = await OpenAsync(fixture.Admin, endpoint, new { offsetMs = 1000 });
+        var playlist = await ReadPlaylistAsync(fixture.Admin, playback.Url!);
+        var resources = ResourceUris(fixture, playback, playlist);
+        foreach (var resource in resources)
+        {
+            using var allowed = await fixture.Admin.Client.GetAsync(resource);
+            Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+        }
+        await fixture.Context.Collection<RecordingSegment>("segments").UpdateOneAsync(segment => segment.SessionId == session.Id,
+            Builders<RecordingSegment>.Update.Inc(segment => segment.Revision, 1));
+        await fixture.Context.Collection<BroadcastSession>("sessions").UpdateOneAsync(item => item.Id == session.Id,
+            Builders<BroadcastSession>.Update.Inc(item => item.MediaRevision, 1));
+        foreach (var resource in resources)
+        {
+            using var stale = await fixture.Admin.Client.GetAsync(resource);
+            Assert.Equal(HttpStatusCode.Gone, stale.StatusCode);
+        }
+        var updated = await OpenAsync(fixture.Admin, endpoint, new { offsetMs = 1000 });
+        Assert.NotEqual(playback.Url, updated.Url);
+        var updatedResources = ResourceUris(fixture, updated, await ReadPlaylistAsync(fixture.Admin, updated.Url!));
+        using (var trashed = await fixture.Admin.SendAsync(HttpMethod.Delete, $"/api/sessions/{session.Id}"))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, trashed.StatusCode);
+        }
+        foreach (var resource in updatedResources)
+        {
+            using var unavailable = await fixture.Admin.Client.GetAsync(resource);
+            Assert.Equal(HttpStatusCode.NotFound, unavailable.StatusCode);
+        }
+    }
+
+    private static async Task<string> ReadPlaylistAsync(HttpBrowser browser, string url)
+    {
+        using var response = await browser.Client.GetAsync(url);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/vnd.apple.mpegurl", response.Content.Headers.ContentType?.MediaType);
+        var playlist = await response.Content.ReadAsStringAsync();
+        Assert.StartsWith("#EXTM3U", playlist);
+        Assert.Contains("#EXT-X-ENDLIST", playlist);
+        return playlist;
+    }
+
+    private static Uri[] ResourceUris(HttpServerFixture fixture, PlaybackResponse playback, string playlist)
+    {
+        var manifest = new Uri(fixture.Address, playback.Url!);
+        var initialization = Regex.Match(playlist, "#EXT-X-MAP:URI=\"([^\"]+)\"");
+        Assert.True(initialization.Success);
+        var fragment = playlist.Split('\n').Select(line => line.Trim()).First(line => line.Length > 0 && !line.StartsWith('#'));
+        return [manifest, new Uri(manifest, initialization.Groups[1].Value), new Uri(manifest, fragment)];
     }
 
     private static async Task<PlaybackResponse> OpenAsync(HttpBrowser browser, string endpoint, object request)

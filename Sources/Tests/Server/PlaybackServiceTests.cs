@@ -263,7 +263,7 @@ public sealed class PlaybackServiceTests
 
     private static PlaybackService CreateService(JobTestContext fixture, PlaybackServiceTestBuilder builder, double durationMs = 30000)
     {
-        return new(new LibraryService(fixture.Mongo, TimeProvider.System), fixture.Settings, builder, fixture.Paths,
+        return new(new LibraryService(fixture.Mongo, TimeProvider.System), new PlaybackCache(fixture.Paths, fixture.Settings), builder, fixture.Paths,
             Options.Create(new PlaybackWindowOptions { Duration = TimeSpan.FromMilliseconds(durationMs) }));
     }
 

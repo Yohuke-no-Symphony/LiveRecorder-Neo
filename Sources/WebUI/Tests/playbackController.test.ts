@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { defineComponent, h, ref } from 'vue'
+import type { HlsConfig } from 'hls.js'
 import { ApiError } from '../src/apis/APIBase'
 import { usePlaybackController } from '../src/composables/usePlaybackController'
 import MediaPlayer from '../src/components/player/MediaPlayer.vue'
@@ -11,6 +12,7 @@ import { i18n } from '../src/plugins/i18n'
 
 interface HlsDouble
 {
+  config: Partial<HlsConfig>
   loadingEnabled: boolean
   startLoad: ReturnType<typeof vi.fn>
   stopLoad: ReturnType<typeof vi.fn>
@@ -31,7 +33,7 @@ vi.mock('hls.js', () => ({ default: class
   destroy = vi.fn()
   attachMedia = vi.fn()
   loadSource = vi.fn()
-  constructor() { hlsState.instances.push(this) }
+  constructor(readonly config: Partial<HlsConfig>) { hlsState.instances.push(this) }
   on(event: string, callback: (event: string, data?: unknown) => void) { this.listeners.set(event, callback) }
   emit(event: string, data?: unknown) { this.listeners.get(event)?.(event, data) }
 } }))
@@ -53,17 +55,17 @@ function deferred<T>()
   return { promise, resolve, reject }
 }
 
-function setupPlayer(loadWindow = vi.fn<(offsetMs: number, options?: PlaybackLoadOptions) => Promise<PlaybackWindow | undefined>>().mockResolvedValue(playback()))
+function setupPlayer(loadWindow = vi.fn<(offsetMs: number, options?: PlaybackLoadOptions) => Promise<PlaybackWindow | undefined>>().mockResolvedValue(playback()), options: { durationMs?: number; initialOffsetMs?: number } = {})
 {
   const video = ref<HTMLVideoElement>()
   const currentMs = ref(0)
-  const durationMs = ref(120000)
+  const durationMs = ref(options.durationMs ?? 120000)
   const gaps = ref<TimelineGap[]>([])
   const scrubbing = ref(false)
   let controller!: ReturnType<typeof usePlaybackController>
   const wrapper = mount(defineComponent({ setup()
   {
-    controller = usePlaybackController({ video, currentMs, scrubbing, durationMs: () => durationMs.value, gaps: () => gaps.value, isLive: () => false, initialOffsetMs: () => 0, loadWindow })
+    controller = usePlaybackController({ video, currentMs, scrubbing, durationMs: () => durationMs.value, gaps: () => gaps.value, isLive: () => false, initialOffsetMs: () => options.initialOffsetMs ?? 0, loadWindow })
     return () => h('video', { ref: video })
   } }), { global: { plugins: [i18n] } })
   mounted.push(wrapper)
@@ -133,6 +135,75 @@ afterEach(() =>
 
 describe('播放源定位与请求取消', () =>
 {
+  it('连续长录像经过内部片段边界时保留播放源，并限制前后缓冲', async () =>
+  {
+    const durationMs = 3 * 60 * 60 * 1000
+    const loadWindow = vi.fn<(offsetMs: number, options?: PlaybackLoadOptions) => Promise<PlaybackWindow | undefined>>()
+      .mockResolvedValue({ ...playback(0, durationMs), durationMs })
+    const state = setupPlayer(loadWindow, { durationMs })
+    await flushPromises()
+    ready(state)
+    await state.controller.togglePlay()
+    const instance = hlsState.instances[0]!
+    for (const seconds of [29.99, 30.01, 59.99, 60.01, 3599, 3600, 7200])
+    {
+      state.video.value!.currentTime = seconds
+      tick(seconds * 1000)
+      await flushPromises()
+      expect(state.currentMs.value).toBeCloseTo(seconds * 1000)
+      expect(state.controller.loading.value).toBe(false)
+    }
+    expect(loadWindow).toHaveBeenCalledTimes(1)
+    expect(hlsState.instances).toHaveLength(1)
+    expect(instance.destroy).not.toHaveBeenCalled()
+    expect(instance.stopLoad).not.toHaveBeenCalled()
+    for (const length of [instance.config.maxBufferLength, instance.config.maxMaxBufferLength, instance.config.backBufferLength, instance.config.frontBufferFlushThreshold])
+    {
+      expect(Number.isFinite(length)).toBe(true)
+      expect(length).toBeGreaterThan(0)
+      expect(length).toBeLessThan(durationMs / 1000)
+    }
+    expect(instance.config.maxMaxBufferLength).toBeGreaterThanOrEqual(instance.config.maxBufferLength!)
+  })
+
+  it.each(['hlsjs', 'native'])('%s 在长录像内连续深跳转保留同一源、正确映射时间并等待新位置就绪', async mode =>
+  {
+    hlsState.supported = mode === 'hlsjs'
+    const durationMs = 4 * 60 * 60 * 1000
+    const startOffsetMs = 60000
+    const loadWindow = vi.fn<(offsetMs: number, options?: PlaybackLoadOptions) => Promise<PlaybackWindow | undefined>>()
+      .mockResolvedValue({ ...playback(startOffsetMs, durationMs), durationMs })
+    const state = setupPlayer(loadWindow, { durationMs, initialOffsetMs: startOffsetMs + 5000 })
+    await flushPromises()
+    ready(state)
+    const instance = hlsState.instances[0]
+    const nativeLoads = vi.mocked(HTMLMediaElement.prototype.load).mock.calls.length
+    state.controller.rate.value = 1.5
+    state.controller.volume.value = 0.4
+    const element = state.video.value!
+    Object.defineProperty(element, 'readyState', { configurable: true, value: 1 })
+    Object.defineProperty(element, 'seeking', { configurable: true, value: true })
+    const older = state.controller.seek(60 * 60 * 1000)
+    const targetMs = 2 * 60 * 60 * 1000
+    const newer = state.controller.seek(targetMs)
+    await Promise.all([older, newer])
+    element.dispatchEvent(new Event('canplay'))
+    expect(state.controller.loading.value).toBe(true)
+    expect(state.currentMs.value).toBe(targetMs)
+    expect(element.currentTime).toBe((targetMs - startOffsetMs) / 1000)
+    Object.defineProperty(element, 'seeking', { configurable: true, value: false })
+    ready(state)
+    expect(state.controller.loading.value).toBe(false)
+    expect(state.controller.playing.value).toBe(false)
+    expect(element.playbackRate).toBe(1.5)
+    expect(element.volume).toBe(0.4)
+    expect(loadWindow).toHaveBeenCalledTimes(1)
+    expect(hlsState.instances).toHaveLength(mode === 'hlsjs' ? 1 : 0)
+    if (instance) { expect(instance.destroy).not.toHaveBeenCalled() }
+    expect(vi.mocked(HTMLMediaElement.prototype.load).mock.calls.length).toBe(nativeLoads)
+    expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
+  })
+
   it('真实父组件 v-model 从空档返回已安装源时，不依赖额外媒体事件完成暂停定位', async () =>
   {
     const { offsetMs, loadWindow, wrapper, player, element } = setupControlledPlayer()
@@ -358,22 +429,28 @@ describe('有界下一窗口预取', () =>
     expect(hlsState.instances).toHaveLength(2)
   })
 
-  it('自动续播提升边界上尚未完成的预取，不重复请求', async () =>
+  it('长录像在真实分段末端提升未完成的预取，并接入后续短窗口', async () =>
   {
+    const boundaryMs = 2 * 60 * 60 * 1000
     const pending = deferred<PlaybackWindow | undefined>()
-    const state = setupPlayer()
+    const loadWindow = vi.fn<(offsetMs: number, options?: PlaybackLoadOptions) => Promise<PlaybackWindow | undefined>>()
+      .mockResolvedValue(playback(0, boundaryMs))
+    const state = setupPlayer(loadWindow, { durationMs: boundaryMs + 120000 })
     await flushPromises()
     state.loadWindow.mockReturnValueOnce(pending.promise)
-    await nearEnd(state)
+    await nearEnd(state, boundaryMs / 1000 - 9)
     const signal = state.loadWindow.mock.calls[1]![1]!.signal!
-    state.video.value!.currentTime = 30
+    expect(state.loadWindow).toHaveBeenLastCalledWith(boundaryMs, expect.objectContaining({ prefetch: true }))
+    state.video.value!.currentTime = boundaryMs / 1000
     tick(2000)
     expect(signal.aborted).toBe(false)
     expect(state.loadWindow).toHaveBeenCalledTimes(2)
-    pending.resolve(playback(30000))
+    pending.resolve(playback(boundaryMs))
     await flushPromises()
     ready(state)
-    expect(state.currentMs.value).toBe(30000)
+    expect(state.currentMs.value).toBe(boundaryMs)
+    expect(state.video.value!.currentTime).toBe(0)
+    expect(state.controller.playing.value).toBe(true)
     expect(hlsState.instances).toHaveLength(2)
   })
 

@@ -1,5 +1,4 @@
 using Yohuke.LiveRecorder.Application.Localization;
-using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -14,12 +13,10 @@ using Yohuke.LiveRecorder.Infrastructure.Library;
 namespace Yohuke.LiveRecorder.Infrastructure.Playback;
 
 /// <summary>按目标窗口共享封装任务，并保护正在使用的缓存。</summary>
-public sealed class PlaybackService(LibraryService library, ISettingsStore settingsStore, IPlaybackWindowBuilder builder, IAppPaths paths, IOptions<PlaybackWindowOptions> options)
+public sealed class PlaybackService(LibraryService library, PlaybackCache cache, IPlaybackWindowBuilder builder, IAppPaths paths, IOptions<PlaybackWindowOptions> options)
 {
     private const double SOURCE_START_TOLERANCE_MS = 100;
     private readonly SemaphoreSlim[] gates = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
-    private readonly ConcurrentDictionary<string, DateTime> active = new();
-    private readonly ConcurrentDictionary<string, byte> building = new();
 
     /// <summary>定位媒体窗口或返回真实空档，不从头扫描到目标。</summary>
     public async Task<PlaybackResponse> OpenAsync(string sessionId, double offsetMs, CancellationToken cancellationToken = default)
@@ -55,7 +52,6 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
             }
             throw new InfrastructureException(MessageCode.PLAYBACK_MEDIA_NOT_COMMITTED, 425);
         }
-        var settings = await settingsStore.GetAsync(cancellationToken);
         var windowDurationMs = options.Value.Duration.TotalMilliseconds;
         var windowStart = Math.Floor(Math.Max(0, offsetMs - segment.StartOffsetMs) / windowDurationMs) * windowDurationMs;
         var identity = FormattableString.Invariant($"{sessionId}:{segment.Id}:{segment.Revision}:avc-aac-v3:{windowDurationMs}:{windowStart}");
@@ -102,19 +98,9 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
                     throw new InfrastructureException(MessageCode.PLAYBACK_WINDOW_NOT_READY, 425);
                 }
                 var estimatedBytes = segment.CommittedBytes * (duration / Math.Max(1, segment.DurationMs)) * 2;
-                var freeBytes = new DriveInfo(paths.CacheDirectory).AvailableFreeSpace;
-                if (freeBytes - estimatedBytes <= Storage.StorageService.MediaThreshold(settings))
+                if (!await cache.EnsureSpaceAsync(estimatedBytes, prefetch, cancellationToken))
                 {
-                    if (prefetch)
-                    {
-                        return null;
-                    }
-                    await MaintainAsync(cancellationToken);
-                    freeBytes = new DriveInfo(paths.CacheDirectory).AvailableFreeSpace;
-                    if (freeBytes - estimatedBytes <= Storage.StorageService.MediaThreshold(settings))
-                    {
-                        throw new InfrastructureException(MessageCode.PLAYBACK_CACHE_SPACE_INSUFFICIENT, 507);
-                    }
+                    return null;
                 }
                 var request = new PlaybackWindowRequest
                 {
@@ -128,9 +114,7 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
                     OutputDirectory = output
                 };
                 var published = false;
-                var activeKey = key + "/" + generation;
-                Touch(activeKey);
-                building[key] = 0;
+                using var protection = cache.ProtectBuild(key, generation);
                 try
                 {
                     var result = prefetch
@@ -173,24 +157,17 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
                 }
                 finally
                 {
-                    try
+                    if (!published)
                     {
-                        if (!published)
+                        cache.Forget(key, generation);
+                        if (Directory.Exists(output))
                         {
-                            active.TryRemove(activeKey, out _);
-                            if (Directory.Exists(output))
-                            {
-                                Directory.Delete(output, recursive: true);
-                            }
+                            Directory.Delete(output, recursive: true);
                         }
-                    }
-                    finally
-                    {
-                        building.TryRemove(key, out _);
                     }
                 }
             }
-            Touch(key + "/" + entry.Generation);
+            cache.Touch(key, entry.Generation);
             return new PlaybackResponse
             {
                 Url = "/api/playback/" + key + "/" + entry.Generation + "/index.m3u8",
@@ -223,7 +200,7 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
         var entry = await JsonSerializer.DeserializeAsync<PlaybackCacheEntry>(input, JsonFiles.Options, cancellationToken)
                     ?? throw new InfrastructureException(MessageCode.PLAYBACK_RESOURCE_INVALID, 404);
         await library.GetAsync(entry.SessionId, cancellationToken);
-        Touch(key + "/" + generation);
+        cache.Touch(key, generation);
         var path = MediaPaths.Resolve(directory, fileName);
         if (!File.Exists(path))
         {
@@ -233,50 +210,10 @@ public sealed class PlaybackService(LibraryService library, ISettingsStore setti
     }
 
     /// <summary>回收不活跃的过期窗口，并执行缓存容量限制。</summary>
-    public async Task MaintainAsync(CancellationToken cancellationToken = default)
+    public Task MaintainAsync(CancellationToken cancellationToken = default)
     {
-        var settings = await settingsStore.GetAsync(cancellationToken);
-        var root = Path.Combine(paths.CacheDirectory, "playback");
-        if (!Directory.Exists(root))
-        {
-            return;
-        }
-        var directories = Directory.EnumerateDirectories(root).SelectMany(Directory.EnumerateDirectories).Select(x => new DirectoryInfo(x)).OrderBy(x => x.LastWriteTimeUtc).ToList();
-        var sizes = directories.ToDictionary(x => x.FullName, x => Storage.StorageService.DirectoryBytes(x.FullName));
-        var total = sizes.Values.Sum();
-        var deadline = DateTime.UtcNow.AddMinutes(-settings.CacheRetentionMinutes);
-        foreach (var directory in directories)
-        {
-            if (building.ContainsKey(directory.Parent!.Name))
-            {
-                continue;
-            }
-            var relative = Path.GetRelativePath(root, directory.FullName).Replace(Path.DirectorySeparatorChar, '/');
-            if (active.TryGetValue(relative, out var access) && DateTime.UtcNow - access < TimeSpan.FromMinutes(5))
-            {
-                continue;
-            }
-            if (directory.LastWriteTimeUtc >= deadline && total <= settings.CacheLimitBytes)
-            {
-                continue;
-            }
-            try
-            {
-                Directory.Delete(directory.FullName, true);
-            }
-            catch (DirectoryNotFoundException)
-            {
-            }
-            total -= sizes[directory.FullName];
-            active.TryRemove(relative, out _);
-        }
-        foreach (var key in active.Where(x => DateTime.UtcNow - x.Value > TimeSpan.FromHours(2)).Select(x => x.Key).ToList())
-        {
-            active.TryRemove(key, out _);
-        }
+        return cache.MaintainAsync(cancellationToken);
     }
-
-    private void Touch(string key) => active[key] = DateTime.UtcNow;
 
     private static bool Covers(PlaybackCacheEntry entry, double offsetMs)
     {

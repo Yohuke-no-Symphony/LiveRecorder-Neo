@@ -41,7 +41,7 @@ internal static class PlaybackHttpMediaFixture
         }
     }
 
-    internal static async Task<BroadcastSession> SeedRecordingAsync(HttpServerFixture fixture, int durationSeconds)
+    internal static async Task<BroadcastSession> SeedRecordingAsync(HttpServerFixture fixture, int durationSeconds, bool isClosed = true)
     {
         var started = DateTime.UtcNow.AddMinutes(-10);
         var session = new BroadcastSession
@@ -84,7 +84,7 @@ internal static class PlaybackHttpMediaFixture
             DurationMs = committed.DurationMs,
             CommittedBytes = committed.CommittedBytes,
             Codec = committed.Codec,
-            IsClosed = true
+            IsClosed = isClosed
         };
         await fixture.Context.Collection<BroadcastSession>("sessions").InsertOneAsync(session);
         await fixture.Context.Collection<RecordingSegment>("segments").InsertOneAsync(segment);
@@ -98,21 +98,25 @@ internal static class PlaybackHttpMediaFixture
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var playlist = await response.Content.ReadAsStringAsync();
         Assert.Contains("#EXT-X-ENDLIST", playlist);
-        var initialization = Regex.Match(playlist, "#EXT-X-MAP:URI=\"([^\"]+)\"");
-        Assert.True(initialization.Success);
+        var initializations = Regex.Matches(playlist, "#EXT-X-MAP:URI=\"([^\"]+)\"")
+            .Select(match => match.Groups[1].Value).ToArray();
+        Assert.NotEmpty(initializations);
         var fragments = playlist.Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0 && !line.StartsWith('#')).ToArray();
         Assert.NotEmpty(fragments);
         var directory = Path.Combine(fixture.DirectoryPath, "download-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         var baseUri = new Uri(new Uri(fixture.Address, playback.Url), ".");
-        foreach (var name in fragments.Prepend(initialization.Groups[1].Value))
+        foreach (var name in initializations.Concat(fragments).Distinct(StringComparer.Ordinal))
         {
-            Assert.Equal(Path.GetFileName(name), name);
+            Assert.False(Path.IsPathRooted(name));
+            var destination = Path.GetFullPath(Path.Combine(directory, name));
+            Assert.StartsWith(Path.GetFullPath(directory) + Path.DirectorySeparatorChar, destination);
             using var asset = await fixture.Admin.Client.GetAsync(new Uri(baseUri, name));
             Assert.Equal(HttpStatusCode.OK, asset.StatusCode);
             var bytes = await asset.Content.ReadAsByteArrayAsync();
             Assert.NotEmpty(bytes);
-            await File.WriteAllBytesAsync(Path.Combine(directory, name), bytes);
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            await File.WriteAllBytesAsync(destination, bytes);
         }
         var path = Path.Combine(directory, "index.m3u8");
         await File.WriteAllTextAsync(path, playlist);

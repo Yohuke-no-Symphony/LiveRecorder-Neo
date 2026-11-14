@@ -113,6 +113,15 @@ public static class ServerStartup
         builder.Services.AddSingleton<StorageUsageService>();
         builder.Services.AddSingleton<StorageUsageMetadataService>();
         builder.Services.AddSingleton<SessionTrashService>();
+        builder.Services.AddOptions<ContinuousPlaybackOptions>()
+            .Bind(builder.Configuration.GetSection("ContinuousPlayback"))
+            .Validate(options => options.PlanCacheLimitBytes > 0
+                && options.PlanCacheSlidingExpiration > TimeSpan.Zero
+                && options.PlanCacheAbsoluteExpiration >= options.PlanCacheSlidingExpiration,
+                "Continuous playback cache limits and expiration must be positive.")
+            .ValidateOnStart();
+        builder.Services.AddSingleton<PlaybackCache>();
+        builder.Services.AddSingleton<ContinuousPlaybackService>();
         builder.Services.AddSingleton<PlaybackService>();
         builder.Services.AddSingleton<MediaJobService>();
         builder.Services.AddSingleton<AnalyticsService>();

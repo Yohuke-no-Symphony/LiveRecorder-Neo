@@ -14,9 +14,15 @@ internal static class IndexedFlvRange
             throw new InvalidDataException("No indexed AVC/HEVC decoder configuration is available for this window.");
         }
 
-        await output.WriteAsync(new byte[] { 70, 76, 86, 1, (byte)(audio is null ? 1 : 5), 0, 0, 0, 9, 0, 0, 0, 0 }, cancellationToken);
-        await WriteHeaderAsync(output, 9, video.HeaderData, cancellationToken);
-        if (audio?.HeaderData is { } audioData)
+        await CopyAsync(path, first, endOffset, first.TimestampMs, video.HeaderData, audio?.HeaderData, output, cancellationToken);
+    }
+
+    internal static async Task CopyAsync(string path, FlvIndexEntry first, long endOffset, double timestampOriginMs, byte[] videoHeader, byte[]? audioHeader,
+        Stream output, CancellationToken cancellationToken)
+    {
+        await output.WriteAsync(new byte[] { 70, 76, 86, 1, (byte)(audioHeader is null ? 1 : 5), 0, 0, 0, 9, 0, 0, 0, 0 }, cancellationToken);
+        await WriteHeaderAsync(output, 9, videoHeader, cancellationToken);
+        if (audioHeader is { } audioData)
         {
             await WriteHeaderAsync(output, 8, audioData, cancellationToken);
         }
@@ -36,7 +42,7 @@ internal static class IndexedFlvRange
                     throw new InvalidDataException("The committed window ends inside an FLV tag.");
                 }
                 var timestamp = (header[7] << 24) | (header[4] << 16) | (header[5] << 8) | header[6];
-                var relative = Math.Max(0, timestamp - (int)first.TimestampMs);
+                var relative = Math.Max(0, timestamp - (int)timestampOriginMs);
                 header[4] = (byte)(relative >> 16);
                 header[5] = (byte)(relative >> 8);
                 header[6] = (byte)relative;

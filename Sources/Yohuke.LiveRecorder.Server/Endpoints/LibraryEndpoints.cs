@@ -95,13 +95,26 @@ public static class LibraryEndpoints
             var path = await covers.GetAsync(id, ct);
             return path is null ? Results.NotFound() : Results.File(path, ImageType(path));
         });
-        viewing.MapPost("/sessions/{id}/playback", async (string id, PlaybackRequest request, PlaybackService playback, CancellationToken ct) =>
+        viewing.MapPost("/sessions/{id}/playback", async (string id, PlaybackRequest request, PlaybackService playback, ContinuousPlaybackService continuous, CancellationToken ct) =>
         {
-            var window = request.Prefetch
+            var window = await continuous.TryOpenAsync(id, request.OffsetMs, ct);
+            window ??= request.Prefetch
                 ? await playback.TryPrefetchAsync(id, request.OffsetMs, ct)
                 : await playback.OpenAsync(id, request.OffsetMs, ct);
             return window is null ? Results.NoContent() : Results.Ok(window);
         });
+        viewing.MapGet("/sessions/{id}/playback/{segmentId}/{sourceKey}/index.m3u8",
+            async (string id, string segmentId, string sourceKey, ContinuousPlaybackService continuous, CancellationToken ct) =>
+            {
+                var path = await continuous.ResolvePlaylistAsync(id, segmentId, sourceKey, ct);
+                return new MediaFileResult(path, "application/vnd.apple.mpegurl", MediaTrafficKind.Playback);
+            });
+        viewing.MapGet("/sessions/{id}/playback/{segmentId}/{sourceKey}/{sequence:int}/{fileName}",
+            async (string id, string segmentId, string sourceKey, int sequence, string fileName, ContinuousPlaybackService continuous, CancellationToken ct) =>
+            {
+                var path = await continuous.ResolveFragmentAsync(id, segmentId, sourceKey, sequence, fileName, ct);
+                return new MediaFileResult(path, "video/mp4", MediaTrafficKind.Playback);
+            });
         viewing.MapGet("/sessions/{id}/events", async (string id, double? fromMs, double? toMs, string? kind, long? cursor, int? limit, bool? translationsOnly, LibraryService library, IAppPaths paths, SessionEventReader reader, ISettingsStore settingsStore, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
