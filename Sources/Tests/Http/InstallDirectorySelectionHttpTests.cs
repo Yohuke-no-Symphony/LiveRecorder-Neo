@@ -10,6 +10,7 @@ using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
+using Yohuke.LiveRecorder.Infrastructure.Files;
 using Xunit;
 
 namespace Yohuke.LiveRecorder.Http.Tests;
@@ -77,7 +78,7 @@ public sealed class InstallDirectorySelectionHttpTests
         using var staleLogin = await staleBrowser.SendAsync(HttpMethod.Post, "/api/auth/login", new { email = HttpServerFixture.ADMIN_EMAIL, password = HttpServerFixture.ADMIN_PASSWORD });
         Assert.Equal(HttpStatusCode.BadRequest, staleLogin.StatusCode);
         await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
-        var settings = await fixture.Admin.Client.GetFromJsonAsync<ServerSettings>("/api/settings") ?? throw new InvalidDataException("Missing settings.");
+        var settings = await fixture.Admin.Client.GetFromJsonAsync<ServerSettings>("/api/settings", JsonFiles.Options) ?? throw new InvalidDataException("Missing settings.");
         settings.Quality = 400;
         settings.Smtp.Password = "new-instance-smtp-secret";
         using var saved = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/settings", settings);

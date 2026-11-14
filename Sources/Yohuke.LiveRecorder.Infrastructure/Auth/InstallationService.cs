@@ -41,12 +41,14 @@ public sealed class InstallationService(CurrentInstanceStorage current, Instance
             {
                 throw new InfrastructureException(MessageCode.SETUP_CONFIGURATION_INVALID);
             }
-            var email = IdentityValidation.NormalizeEmail(request.AdminEmail);
+            var email = "";
             var name = "";
+            var password = request.AdminPassword ?? "";
             if (request.Mode == InstallationMode.New)
             {
-                name = IdentityValidation.NormalizeDisplayName(request.AdminDisplayName);
-                IdentityValidation.ValidatePassword(request.AdminPassword);
+                email = IdentityValidation.NormalizeEmail(request.AdminEmail ?? "");
+                name = IdentityValidation.NormalizeDisplayName(request.AdminDisplayName ?? "");
+                IdentityValidation.ValidatePassword(password);
             }
             configuration.ValidatePaths(request.DataDirectory, request.RecordsDirectory);
             var candidate = factory.CreateCandidate(configuration.ResolveDataDirectory(request.DataDirectory), configuration.ResolveRecordsDirectory(request.RecordsDirectory));
@@ -77,10 +79,19 @@ public sealed class InstallationService(CurrentInstanceStorage current, Instance
                 }
             }
             var users = database.GetCollection<UserAccount>("users");
-            var existing = await users.Find(x => x.NormalizedEmail == email && x.Role == "Admin" && x.Status == "Active").FirstOrDefaultAsync(cancellationToken);
-            if (request.Mode == InstallationMode.Restore || retry && await users.Find(x => x.Role == "Admin").AnyAsync(cancellationToken))
+            var existing = request.Mode == InstallationMode.New
+                ? await users.Find(x => x.NormalizedEmail == email && x.Role == "Admin" && x.Status == "Active").FirstOrDefaultAsync(cancellationToken)
+                : null;
+            if (request.Mode == InstallationMode.Restore)
             {
-                if (existing is null || string.IsNullOrWhiteSpace(request.AdminPassword) || passwordHasher.VerifyHashedPassword(existing, existing.PasswordHash, request.AdminPassword) == PasswordVerificationResult.Failed)
+                if (!await users.Find(x => x.Role == "Admin" && x.Status == "Active").AnyAsync(cancellationToken))
+                {
+                    throw new InfrastructureException(MessageCode.SETUP_RESTORE_ADMIN_MISSING, 409);
+                }
+            }
+            else if (retry && await users.Find(x => x.Role == "Admin").AnyAsync(cancellationToken))
+            {
+                if (existing is null || passwordHasher.VerifyHashedPassword(existing, existing.PasswordHash, password) == PasswordVerificationResult.Failed)
                 {
                     throw new InfrastructureException(MessageCode.SETUP_RESTORE_ADMIN_INVALID, 403);
                 }
@@ -130,7 +141,7 @@ public sealed class InstallationService(CurrentInstanceStorage current, Instance
             {
                 await users.Indexes.CreateOneAsync(new CreateIndexModel<UserAccount>(Builders<UserAccount>.IndexKeys.Ascending(x => x.NormalizedEmail), new CreateIndexOptions { Unique = true }), cancellationToken: cancellationToken);
                 var user = new UserAccount { Email = email, NormalizedEmail = email, DisplayName = name, EmailVerified = true, Role = "Admin", Status = "Active" };
-                user.PasswordHash = passwordHasher.HashPassword(user, request.AdminPassword);
+                user.PasswordHash = passwordHasher.HashPassword(user, password);
                 await users.InsertOneAsync(user, cancellationToken: cancellationToken);
             }
             installed.Installed = true;

@@ -8,13 +8,9 @@ export interface SetupStatus
   recordsDirectory?: string
 }
 
-export interface SetupRequest
+export interface SetupConfiguration
 {
-  mode: SetupMode
   token: string
-  userName: string
-  email: string
-  password: string
   dataDirectory: string
   recordsDirectory: string
   mongoConnectionString: string
@@ -22,3 +18,8 @@ export interface SetupRequest
   ffmpegPath?: string
   ffprobePath?: string
 }
+
+export type SetupRequest = SetupConfiguration & (
+  { mode: 'New'; userName: string; email: string; password: string }
+  | { mode: 'Restore' }
+)

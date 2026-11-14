@@ -66,7 +66,7 @@ afterEach(() =>
 
 describe('首次安装页面', () =>
 {
-  it('从未安装入口取得匿名 CSRF，再通过实际三步表单提交安装合同', async () =>
+  it('从未安装入口取得匿名 CSRF，先选择安装方式再通过四步表单提交新安装', async () =>
   {
     vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
     const calls: { path: string; options: RequestInit }[] = []
@@ -104,7 +104,14 @@ describe('首次安装页面', () =>
         stubs,
       },
     })
+    expect(wrapper.text()).toContain('1 · 安装方式')
+    expect(wrapper.text()).toContain('2 · 管理员')
+    expect(wrapper.text()).toContain('4 · 数据库')
+    expect(wrapper.find('input[aria-label="管理员名称"]').exists()).toBe(false)
+    expect(wrapper.find('input[aria-label="管理员邮箱"]').exists()).toBe(false)
+    expect(wrapper.find('input[aria-label="密码"]').exists()).toBe(false)
     await wrapper.get('input[aria-label="安装令牌"]').setValue('test-install-token')
+    await wrapper.get('form').trigger('submit')
     await wrapper.get('input[aria-label="管理员名称"]').setValue('测试管理员')
     await wrapper.get('input[aria-label="管理员邮箱"]').setValue('admin@example.test')
     await wrapper.get('input[aria-label="密码"]').setValue('test-password-123456')
@@ -144,7 +151,7 @@ describe('首次安装页面', () =>
     expect(useAuthStore().recordsDirectory).toBe('/srv/Data/records')
   })
 
-  it('恢复实例使用原管理员凭据，切换模式不会用新安装的媒体工具默认值覆盖旧配置', async () =>
+  it('恢复实例跳过管理员步骤，切换模式不会提交新管理员信息或覆盖原媒体工具路径', async () =>
   {
     const pinia = createPinia()
     setActivePinia(pinia)
@@ -154,13 +161,25 @@ describe('首次安装页面', () =>
     const setup = vi.spyOn(AuthAPI, 'setup').mockRejectedValue(new Error('恢复校验失败'))
     wrapper = mount(SetupView, { global: { plugins: [pinia, i18n], stubs } })
     await wrapper.get('input[aria-label="安装令牌"]').setValue('restore-token')
+    await wrapper.get('form').trigger('submit')
     await wrapper.get('input[aria-label="管理员名称"]').setValue('不能覆盖原昵称')
+    await wrapper.get('input[aria-label="管理员邮箱"]').setValue('new-admin@example.test')
+    await wrapper.get('input[aria-label="密码"]').setValue('new-admin-password')
+    await wrapper.get('input[aria-label="确认密码"]').setValue('new-admin-password')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="FFmpeg"]').element.value).toBe('ffmpeg')
+    await wrapper.get('input[aria-label="FFmpeg"]').setValue('/custom/ffmpeg')
+    await wrapper.get('button[type="button"]').trigger('click')
+    await wrapper.get('button[type="button"]').trigger('click')
     await wrapper.get('select[aria-label="安装方式"]').setValue('Restore')
     expect(wrapper.find('input[aria-label="管理员名称"]').exists()).toBe(false)
+    expect(wrapper.find('input[aria-label="管理员邮箱"]').exists()).toBe(false)
+    expect(wrapper.find('input[aria-label="密码"]').exists()).toBe(false)
     expect(wrapper.find('input[aria-label="确认密码"]').exists()).toBe(false)
-    expect(wrapper.text()).toContain('原管理员')
-    await wrapper.get('input[aria-label="管理员邮箱"]').setValue('original-admin@example.test')
-    await wrapper.get('input[aria-label="密码"]').setValue('original-password')
+    expect(wrapper.text()).toContain('原账号登录')
+    expect(wrapper.text()).toContain('2 · 存储')
+    expect(wrapper.text()).toContain('3 · 数据库')
+    expect(wrapper.text()).not.toContain('2 · 管理员')
     await wrapper.get('form').trigger('submit')
     await wrapper.get('input[aria-label="数据目录"]').setValue('/restore/Data')
     await wrapper.get('input[aria-label="录像目录"]').setValue('/archive/Records')
@@ -168,10 +187,16 @@ describe('首次安装页面', () =>
     expect(wrapper.get<HTMLInputElement>('input[aria-label="FFprobe"]').element.value).toBe('')
     await wrapper.get('button[type="button"]').trigger('click')
     await wrapper.get('select[aria-label="安装方式"]').setValue('New')
-    await wrapper.get('input[aria-label="确认密码"]').setValue('original-password')
     await wrapper.get('form').trigger('submit')
-    expect(wrapper.get<HTMLInputElement>('input[aria-label="FFmpeg"]').element.value).toBe('ffmpeg')
-    await wrapper.get('input[aria-label="FFmpeg"]').setValue('/custom/ffmpeg')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="管理员名称"]').element.value).toBe('不能覆盖原昵称')
+    await wrapper.get('input[aria-label="确认密码"]').setValue('mismatched-password')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.get('[role="alert"]').text()).toBe('两次输入的密码不一致')
+    await wrapper.get('input[aria-label="确认密码"]').setValue('new-admin-password')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="FFmpeg"]').element.value).toBe('/custom/ffmpeg')
+    await wrapper.get('button[type="button"]').trigger('click')
+    await wrapper.get('input[aria-label="确认密码"]').setValue('mismatched-password')
     await wrapper.get('button[type="button"]').trigger('click')
     await wrapper.get('select[aria-label="安装方式"]').setValue('Restore')
     await wrapper.get('form').trigger('submit')
@@ -181,7 +206,7 @@ describe('首次安装页面', () =>
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(setup).toHaveBeenCalledExactlyOnceWith({
-      mode: 'Restore', token: 'restore-token', userName: '', email: 'original-admin@example.test', password: 'original-password',
+      mode: 'Restore', token: 'restore-token',
       mongoConnectionString: 'mongodb://127.0.0.1:27017', databaseName: 'existing-recorder', ffmpegPath: '', ffprobePath: '',
       dataDirectory: '/restore/Data', recordsDirectory: '/archive/Records',
     })
@@ -189,6 +214,38 @@ describe('首次安装页面', () =>
     await wrapper.get('button[type="button"]').trigger('click')
     expect(wrapper.get<HTMLInputElement>('input[aria-label="数据目录"]').element.value).toBe('/restore/Data')
     expect(wrapper.get<HTMLInputElement>('input[aria-label="录像目录"]').element.value).toBe('/archive/Records')
+  })
+
+  it('直接选择恢复时无需填写任何管理员信息，完成后进入登录页', async () =>
+  {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const setup = vi.spyOn(AuthAPI, 'setup').mockResolvedValue(undefined)
+    wrapper = mount(SetupView, { global: { plugins: [pinia, i18n], stubs } })
+    await wrapper.get('select[aria-label="安装方式"]').setValue('Restore')
+    await wrapper.get('input[aria-label="安装令牌"]').setValue('restore-token')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.find('input[aria-label="管理员邮箱"]').exists()).toBe(false)
+    expect(wrapper.find('input[aria-label="密码"]').exists()).toBe(false)
+    await wrapper.get('input[aria-label="数据目录"]').setValue('/restore/Data')
+    await wrapper.get('input[aria-label="录像目录"]').setValue('/restore/Records')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.get('button[type="submit"]').text()).toBe('恢复实例')
+    const assign = vi.fn()
+    const browserWindow = window
+    vi.stubGlobal('window', new Proxy(browserWindow, {
+      get(target, key)
+      {
+        return key === 'location' ? { assign } : Reflect.get(target, key, target)
+      },
+    }))
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(setup).toHaveBeenCalledExactlyOnceWith({
+      mode: 'Restore', token: 'restore-token', dataDirectory: '/restore/Data', recordsDirectory: '/restore/Records',
+      mongoConnectionString: 'mongodb://127.0.0.1:27017', databaseName: 'yohuke-live-recorder', ffmpegPath: '', ffprobePath: '',
+    })
+    expect(assign).toHaveBeenCalledExactlyOnceWith('/login')
   })
 
   it('Windows 的两个路径独立保留，安装成功直接进入登录而不预先保存路径或要求重启', async () =>
@@ -202,6 +259,7 @@ describe('首次安装页面', () =>
     const savePaths = vi.spyOn(MediaAPI, 'updateSettingsPaths')
     wrapper = mount(SetupView, { global: { plugins: [pinia, i18n], stubs } })
     await wrapper.get('input[aria-label="安装令牌"]').setValue('windows-install-token')
+    await wrapper.get('form').trigger('submit')
     await wrapper.get('input[aria-label="管理员名称"]').setValue('Windows 管理员')
     await wrapper.get('input[aria-label="管理员邮箱"]').setValue('windows-admin@example.test')
     await wrapper.get('input[aria-label="密码"]').setValue('windows-admin-password')

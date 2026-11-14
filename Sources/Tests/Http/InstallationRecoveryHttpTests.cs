@@ -16,6 +16,26 @@ namespace Yohuke.LiveRecorder.Http.Tests;
 /// <summary>验证全新安装和恢复实例互不覆盖，并保留管理员及受保护的原配置。</summary>
 public sealed class InstallationRecoveryHttpTests
 {
+    [Theory]
+    [InlineData("email", "AUTH_EMAIL_INVALID")]
+    [InlineData("userName", "AUTH_DISPLAY_NAME_LENGTH_INVALID")]
+    [InlineData("password", "AUTH_PASSWORD_LENGTH_INVALID")]
+    public async Task NewInstallationStillRequiresEveryAdministratorField(string field, string code)
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.Admin.RefreshCsrfAsync();
+        var request = JsonSerializer.SerializeToNode(fixture.SetupRequest(), JsonSerializerOptions.Web)!.AsObject();
+        request.Remove(field);
+        var settings = await File.ReadAllTextAsync(fixture.ConfigFile);
+
+        using var response = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/setup", request);
+
+        await AssertProblemAsync(response, HttpStatusCode.BadRequest, code);
+        Assert.False(fixture.App.Services.GetRequiredService<IBootstrapStore>().IsInstalled);
+        Assert.Equal(settings, await File.ReadAllTextAsync(fixture.ConfigFile));
+        Assert.False(Directory.Exists(fixture.DataDirectory));
+    }
+
     [MongoHttpFact]
     public async Task InterruptedNewInstallationWithoutAdministratorCanResume()
     {
@@ -114,7 +134,7 @@ public sealed class InstallationRecoveryHttpTests
     }
 
     [MongoHttpFact]
-    public async Task RestorePreservesAdministratorConfigurationAndExistingBusinessData()
+    public async Task RestoreWithoutAdministratorFieldsPreservesAccountsConfigurationAndExistingBusinessData()
     {
         await using var fixture = await HttpServerFixture.CreateAsync();
         await fixture.InstallAsync();
@@ -130,7 +150,11 @@ public sealed class InstallationRecoveryHttpTests
 
         using var newInstall = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/setup", fixture.SetupRequest());
         Assert.Equal(HttpStatusCode.Conflict, newInstall.StatusCode);
-        using var restored = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/setup", fixture.SetupRequest(InstallationMode.Restore) with { UserName = "不能覆盖原管理员" });
+        var request = JsonSerializer.SerializeToNode(fixture.SetupRequest(InstallationMode.Restore), JsonSerializerOptions.Web)!.AsObject();
+        request.Remove("userName");
+        request.Remove("email");
+        request.Remove("password");
+        using var restored = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/setup", request);
         Assert.Equal(HttpStatusCode.OK, restored.StatusCode);
 
         var restoredAdmin = await fixture.Context.Collection<UserAccount>("users").Find(x => x.Id == admin.Id).SingleAsync();
@@ -143,6 +167,7 @@ public sealed class InstallationRecoveryHttpTests
         Assert.Equal("ja-JP", restoredSettings.DefaultLanguage);
         Assert.Equal(settings.Smtp.Password, restoredSettings.Smtp.Password);
         Assert.True(fixture.App.Services.GetRequiredService<IBootstrapStore>().IsInstalled);
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
     }
 
     [MongoHttpFact]
@@ -163,7 +188,7 @@ public sealed class InstallationRecoveryHttpTests
     }
 
     [MongoHttpFact]
-    public async Task IncorrectRestorePasswordCannotWriteInstallationStateOrConfiguration()
+    public async Task IncorrectRestoreTokenCannotWriteInstallationStateOrConfiguration()
     {
         await using var fixture = await HttpServerFixture.CreateAsync();
         await fixture.InstallAsync();
@@ -171,11 +196,71 @@ public sealed class InstallationRecoveryHttpTests
         var settings = await File.ReadAllTextAsync(fixture.ConfigFile);
         await fixture.ReopenSetupAsync();
 
-        using var response = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/setup", fixture.SetupRequest(InstallationMode.Restore, "incorrect-administrator-password"));
+        using var response = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/setup", fixture.SetupRequest(InstallationMode.Restore) with { Token = "incorrect-installation-token" });
 
-        await AssertProblemAsync(response, HttpStatusCode.Forbidden, "SETUP_RESTORE_ADMIN_INVALID");
+        await AssertProblemAsync(response, HttpStatusCode.Forbidden, "SETUP_TOKEN_INVALID");
         Assert.False(File.Exists(paths.BootstrapFile));
         Assert.Equal(settings, await File.ReadAllTextAsync(fixture.ConfigFile));
+    }
+
+    [MongoHttpFact]
+    public async Task RestoreIgnoresSuppliedAdministratorFieldsAndKeepsTheOriginalAccount()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        var original = await fixture.Context.Collection<UserAccount>("users").Find(x => x.Role == "Admin").SingleAsync();
+        await fixture.ReopenSetupAsync();
+
+        await fixture.InstallAsync(fixture.SetupRequest(InstallationMode.Restore) with { UserName = "不能覆盖原管理员", Email = "not-an-email", Password = "ignored" });
+
+        var admin = Assert.Single(await fixture.Context.Collection<UserAccount>("users").Find(FilterDefinition<UserAccount>.Empty).ToListAsync());
+        Assert.Equal(original.Id, admin.Id);
+        Assert.Equal(original.Email, admin.Email);
+        Assert.Equal(original.DisplayName, admin.DisplayName);
+        Assert.Equal(original.PasswordHash, admin.PasswordHash);
+    }
+
+    [MongoHttpFact]
+    public async Task RestoreWithoutAnActiveAdministratorCannotWriteInstallationStateOrConfiguration()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        await fixture.Context.Collection<UserAccount>("users").UpdateManyAsync(x => x.Role == "Admin", Builders<UserAccount>.Update.Set(x => x.Status, "Disabled"));
+        var paths = fixture.App.Services.GetRequiredService<IAppPaths>();
+        var settings = await File.ReadAllTextAsync(fixture.ConfigFile);
+        await fixture.ReopenSetupAsync();
+
+        using var response = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/setup", fixture.SetupRequest(InstallationMode.Restore));
+
+        await AssertProblemAsync(response, HttpStatusCode.Conflict, "SETUP_RESTORE_ADMIN_MISSING");
+        Assert.False(File.Exists(paths.BootstrapFile));
+        Assert.Equal(settings, await File.ReadAllTextAsync(fixture.ConfigFile));
+    }
+
+    [MongoHttpFact]
+    public async Task InterruptedNewInstallationStillRequiresTheExistingAdministratorPassword()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        var original = await fixture.Context.Collection<UserAccount>("users").Find(x => x.Role == "Admin").SingleAsync();
+        var settings = await File.ReadAllTextAsync(fixture.ConfigFile);
+        await fixture.App.Services.GetRequiredService<IBootstrapStore>().SaveAsync(new BootstrapConfiguration
+        {
+            Installed = false,
+            Mode = InstallationMode.New,
+            MongoConnectionString = fixture.MongoConnectionString,
+            DatabaseName = fixture.DatabaseName
+        });
+        await fixture.RestartAsync();
+        await fixture.Admin.RefreshCsrfAsync();
+
+        using var response = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/setup", fixture.SetupRequest(password: "incorrect-administrator-password"));
+
+        await AssertProblemAsync(response, HttpStatusCode.Forbidden, "SETUP_RESTORE_ADMIN_INVALID");
+        Assert.False(fixture.App.Services.GetRequiredService<IBootstrapStore>().IsInstalled);
+        Assert.Equal(settings, await File.ReadAllTextAsync(fixture.ConfigFile));
+        var admin = Assert.Single(await new MongoClient(fixture.MongoConnectionString).GetDatabase(fixture.DatabaseName).GetCollection<UserAccount>("users").Find(FilterDefinition<UserAccount>.Empty).ToListAsync());
+        Assert.Equal(original.PasswordHash, admin.PasswordHash);
     }
 
     [MongoHttpFact]

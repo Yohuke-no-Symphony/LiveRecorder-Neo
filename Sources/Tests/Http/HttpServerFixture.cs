@@ -174,9 +174,9 @@ internal sealed class HttpServerFixture : IAsyncDisposable
 
     internal SetupRequest SetupRequest(InstallationMode mode = InstallationMode.New, string? password = null) => new(
         App.Services.GetRequiredService<IBootstrapStore>().InstallationToken,
-        "HTTP 管理员",
-        ADMIN_EMAIL,
-        password ?? ADMIN_PASSWORD,
+        mode == InstallationMode.New ? "HTTP 管理员" : null,
+        mode == InstallationMode.New ? ADMIN_EMAIL : null,
+        mode == InstallationMode.New ? password ?? ADMIN_PASSWORD : null,
         MongoConnectionString,
         DatabaseName,
         DataDirectory,
