@@ -79,7 +79,7 @@ public static class TranscodingEndpoints
                 var lease = Lease(http);
                 var input = await coordinator.GetInputAsync(workerId, id, attempt, lease, ct);
                 var secret = http.Request.Headers.Authorization.ToString()[7..];
-                return new WorkerInputResult(input, workerId, async token =>
+                return new WorkerInputResult(input, async token =>
                 {
                     if (!await coordinator.AuthenticateAsync(workerId, secret, token))
                     {
