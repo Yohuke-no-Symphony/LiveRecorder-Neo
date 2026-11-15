@@ -75,6 +75,20 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
     }
 
     /// <inheritdoc />
+    public async Task<UserProfile> SetPlaybackPreferencesAsync(string id, PlaybackPreferencesRequest request, CancellationToken cancellationToken = default)
+    {
+        if (request.EventRetentionCount < 1)
+        {
+            throw new InfrastructureException(MessageCode.REQUEST_INVALID);
+        }
+        var user = await Users.FindOneAndUpdateAsync(x => x.Id == id && x.Status == "Active",
+            Builders<UserAccount>.Update.Set(x => x.PlaybackEventRetentionCount, request.EventRetentionCount).Set(x => x.UpdatedAtUtc, DateTime.UtcNow),
+            new FindOneAndUpdateOptions<UserAccount> { ReturnDocument = ReturnDocument.After }, cancellationToken)
+            ?? throw new InfrastructureException(MessageCode.AUTH_USER_NOT_FOUND, 404);
+        return Profile(user);
+    }
+
+    /// <inheritdoc />
     public async Task<UserProfile?> ValidateSessionAsync(string id, long sessionVersion = 0, CancellationToken cancellationToken = default)
     {
         var profile = await GetUserAsync(id, cancellationToken);
@@ -641,6 +655,7 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
     {
         SessionVersion = user.SessionVersion,
         AnalyticsRangePinned = user.AnalyticsRangePinned,
+        PlaybackEventRetentionCount = user.PlaybackEventRetentionCount,
         Permissions = user.Role == "Admin"
             ? PermissionCatalog.All
             : user.Permissions

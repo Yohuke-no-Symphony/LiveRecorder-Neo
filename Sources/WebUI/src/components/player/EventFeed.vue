@@ -1,7 +1,7 @@
 <template>
   <v-card class="event-panel">
     <CardHeader class="feed-heading" :title="t('components.events.title')">
-      <template #actions><v-btn :color="follow ? 'primary' : 'secondary'" variant="text" size="small" :prepend-icon="follow ? 'mdi-arrow-down-circle-outline' : 'mdi-pause-circle-outline'" @click="follow = !follow">{{ t('components.events.follow') }}</v-btn></template>
+      <template #actions><slot name="settings" /><v-btn class="feed-follow" :color="follow ? 'primary' : 'secondary'" variant="text" size="small" :prepend-icon="follow ? 'mdi-arrow-down-circle-outline' : 'mdi-pause-circle-outline'" @click="follow = !follow">{{ t('components.events.follow') }}</v-btn></template>
     </CardHeader>
     <v-chip-group v-model="kind" mandatory class="feed-tabs px-4" color="primary"><v-chip value="all" size="small">{{ t('components.events.all') }}</v-chip><v-chip v-for="item in kinds" :key="item.value" :value="item.value" size="small">{{ item.title }}</v-chip></v-chip-group>
     <v-alert v-if="error" type="error" class="mx-4 my-3" density="compact">{{ error }}</v-alert>
@@ -28,18 +28,20 @@ import { MediaAPI } from '@/apis/MediaAPI'
 import { usePolling } from '@/composables/usePolling'
 import { usePlaybackEvents } from '@/composables/usePlaybackEvents'
 import type { EventKind, RecordedEvent } from '@/models/media'
+import { DEFAULT_PLAYBACK_EVENT_RETENTION_COUNT } from '@/models/playbackPreferences'
 import EventMessageRow from '@/components/events/EventMessageRow.vue'
 import CardHeader from '@/components/common/CardHeader.vue'
 
 const { t } = useI18n()
 
-const props = withDefaults(defineProps<{ sessionId: string; offsetMs: number; enabled: boolean; isLive: boolean; navigationRevision?: number; active?: boolean }>(), { active: true })
+const props = withDefaults(defineProps<{ sessionId: string; offsetMs: number; enabled: boolean; isLive: boolean; navigationRevision?: number; active?: boolean; retentionCount?: number }>(), { active: true, retentionCount: DEFAULT_PLAYBACK_EVENT_RETENTION_COUNT })
 defineEmits<{ seek: [offsetMs: number] }>()
 const kind = ref<EventKind | 'all'>('all')
 const events = ref<RecordedEvent[]>([])
-const pocketHistory = ref<RecordedEvent[]>([])
 const error = ref('')
-const loading = ref(false)
+const windowLoading = ref(false)
+const readingLoading = ref(false)
+const loading = computed(() => windowLoading.value || readingLoading.value)
 const follow = ref(true)
 const feed = ref<{ scrollToIndex: (index: number, position: 'end') => void }>()
 const feedViewport = ref<HTMLElement>()
@@ -48,7 +50,6 @@ const rangeStart = ref(-1)
 const rangeEnd = ref(-1)
 const pausedEvents = shallowRef<readonly RecordedEvent[]>()
 const pausedOffset = ref(0)
-const pausedRangeStart = ref(0)
 const kinds = computed<{ title: string; value: EventKind }[]>(() => [
   { title: t('components.events.danmu'), value: 'Danmu' },
   { title: t('components.events.superChat'), value: 'SuperChat' },
@@ -56,89 +57,113 @@ const kinds = computed<{ title: string; value: EventKind }[]>(() => [
   { title: t('components.events.guard'), value: 'Guard' },
   { title: t('components.events.redPocket'), value: 'RedPocket' },
 ])
-const sourceEvents = computed(() => [...events.value.filter(item => item.kind !== 'RedPocket'), ...pocketHistory.value])
-const playbackEvents = usePlaybackEvents(() => pausedEvents.value ?? sourceEvents.value, () => pausedEvents.value ? pausedOffset.value : props.offsetMs, kind)
-const visibleRangeStart = computed(() => pausedEvents.value ? pausedRangeStart.value : rangeStart.value)
-const visibleEvents = computed<RecordedEvent[]>((previous) =>
-{
-  const visible = playbackEvents.value.filter(item => item.offsetMs >= visibleRangeStart.value)
-  return previous && previous.length === visible.length && previous.every((item, index) => item === visible[index]) ? previous : visible
-})
+const visibleEvents = usePlaybackEvents(() => pausedEvents.value ?? events.value, () => pausedEvents.value ? pausedOffset.value : props.offsetMs, kind, () => props.retentionCount)
 let controller: AbortController | undefined
 let generation = 0
+let readingController: AbortController | undefined
+let readingGeneration = 0
 let touchY: number | undefined
 let resumeOnScroll = false
 let followFrame = 0
+let loadedKind: EventKind | 'all' = 'all'
+let loadedRetentionCount = 0
+let pendingRequestKey: string | undefined
+let pendingReadingRequestKey: string | undefined
 
-async function load(force = false): Promise<void>
+async function load(force = false, refreshReading = false): Promise<void>
 {
-  if (!props.active || !props.enabled || (!force && props.offsetMs >= rangeStart.value && props.offsetMs < rangeEnd.value - 10000))
+  const reading = refreshReading && pausedEvents.value !== undefined
+  const offsetMs = reading ? pausedOffset.value : props.offsetMs
+  const selectedKind = kind.value
+  const retentionCount = props.retentionCount
+  if (!props.active || !props.enabled || (!force && selectedKind === loadedKind && retentionCount <= loadedRetentionCount && offsetMs >= rangeStart.value && offsetMs < rangeEnd.value - 10000))
   {
     return
   }
-  const operation = ++generation
-  controller?.abort()
-  controller = new AbortController()
-  const signal = controller.signal
-  const fromMs = Math.max(0, props.offsetMs - 120000)
-  const toMs = props.offsetMs + 30000
-  loading.value = true
+  const requestKey = JSON.stringify([props.sessionId, offsetMs, selectedKind, retentionCount, reading])
+  const requestLoading = reading ? readingLoading : windowLoading
+  if (requestLoading.value && (reading ? pendingReadingRequestKey : pendingRequestKey) === requestKey)
+  {
+    return
+  }
+  const operation = reading ? ++readingGeneration : ++generation
+  const requestController = new AbortController()
+  if (reading)
+  {
+    readingController?.abort()
+    readingController = requestController
+    pendingReadingRequestKey = requestKey
+  }
+  else
+  {
+    controller?.abort()
+    controller = requestController
+    pendingRequestKey = requestKey
+  }
+  const signal = requestController.signal
+  requestLoading.value = true
   error.value = ''
   try
   {
-    const collected: RecordedEvent[] = []
-    let cursor: number | undefined
-    do
+    const window = await MediaAPI.playbackEvents(props.sessionId, { offsetMs, kind: selectedKind === 'all' ? undefined : selectedKind, limit: retentionCount }, signal)
+    if (signal.aborted || operation !== (reading ? readingGeneration : generation)) { return }
+    const previous = new Map((reading ? pausedEvents.value ?? [] : events.value).map(item => [item.sequence, item]))
+    const updated = window.items.map(item => previous.get(item.sequence) ?? item)
+    if (reading)
     {
-      const page = await MediaAPI.events(props.sessionId, { fromMs, toMs, cursor, limit: 500 }, signal)
-      if (signal.aborted || operation !== generation) { return }
-      collected.push(...page.items)
-      const next = page.nextCursor ?? undefined
-      if (next === cursor) { break }
-      cursor = next
-    } while (cursor)
-    if (operation !== generation) { return }
-    const previous = new Map([...events.value, ...pocketHistory.value].map(item => [item.sequence, item]))
-    const updated = collected.map(item => previous.get(item.sequence) ?? item).sort((a, b) => a.offsetMs - b.offsetMs || a.sequence - b.sequence)
-    const pockets = new Map(pocketHistory.value.map(item => [item.sequence, item]))
-    for (const item of updated)
-    {
-      if (item.kind === 'RedPocket')
+      if (!follow.value && pausedOffset.value === offsetMs)
       {
-        pockets.set(item.sequence, item)
+        pausedEvents.value = updated
       }
     }
-    if (pockets.size !== pocketHistory.value.length)
+    else
     {
-      pocketHistory.value = [...pockets.values()]
+      if (updated.length !== events.value.length || updated.some((item, index) => item !== events.value[index]))
+      {
+        events.value = updated
+      }
+      rangeStart.value = window.fromMs
+      rangeEnd.value = window.toMs
+      loadedKind = selectedKind
+      loadedRetentionCount = retentionCount
     }
-    if (updated.length !== events.value.length || updated.some((item, index) => item !== events.value[index]))
-    {
-      events.value = updated
-    }
-    rangeStart.value = fromMs
-    rangeEnd.value = toMs
   }
   catch (value)
   {
-    if (!signal.aborted && operation === generation)
+    if (!signal.aborted && operation === (reading ? readingGeneration : generation))
     {
       error.value = value instanceof Error ? value.message : t('components.events.loadFailed')
     }
   }
   finally
   {
-    if (operation === generation) { loading.value = false }
+    if (operation === (reading ? readingGeneration : generation))
+    {
+      requestLoading.value = false
+      if (reading)
+      {
+        pendingReadingRequestKey = undefined
+      }
+      else
+      {
+        pendingRequestKey = undefined
+      }
+    }
   }
 }
-watch([() => Math.floor(props.offsetMs / 5000), () => props.navigationRevision ?? 0], ([_bucket, revision], [_previousBucket, previousRevision]) =>
+watch([() => props.offsetMs, () => props.navigationRevision ?? 0], ([offset, revision], [previousOffset, previousRevision]) =>
 {
   const navigated = revision !== previousRevision
   if (navigated)
   {
+    cancelReadingRequest()
+    pausedEvents.value = undefined
     follow.value = true
   }
-  void load(navigated)
+  if (navigated || Math.floor(offset / 5000) !== Math.floor(previousOffset / 5000) || offset < previousOffset && offset < rangeStart.value)
+  {
+    void load(navigated)
+  }
 })
 watch(follow, enabled =>
 {
@@ -150,15 +175,48 @@ watch(follow, enabled =>
   }
   if (enabled)
   {
+    cancelReadingRequest()
     pausedEvents.value = undefined
+    void load()
   }
   else
   {
     pausedOffset.value = props.offsetMs
-    pausedRangeStart.value = rangeStart.value
-    pausedEvents.value = sourceEvents.value
+    pausedEvents.value = events.value
   }
 }, { flush: 'sync' })
+function cancelReadingRequest(): void
+{
+  readingGeneration++
+  readingController?.abort()
+  readingLoading.value = false
+  pendingReadingRequestKey = undefined
+}
+function cancelRequests(): void
+{
+  generation++
+  controller?.abort()
+  windowLoading.value = false
+  pendingRequestKey = undefined
+  cancelReadingRequest()
+}
+function resetEvents(): void
+{
+  cancelRequests()
+  events.value = []
+  pausedEvents.value = undefined
+  rangeStart.value = -1
+  rangeEnd.value = -1
+  loadedRetentionCount = 0
+  error.value = ''
+}
+watch([() => props.sessionId, () => props.enabled], () =>
+{
+  resetEvents()
+  follow.value = true
+  void load()
+})
+watch([kind, () => props.retentionCount], () => { void load(true, true) })
 watch([() => visibleEvents.value.length, () => visibleEvents.value.at(-1)?.sequence, follow, () => props.active], () =>
 {
   if (props.active && follow.value && visibleEvents.value.length)
@@ -269,12 +327,14 @@ watch(() => props.active, active =>
   if (active)
   {
     void load(true)
+    if (pausedEvents.value)
+    {
+      void load(true, true)
+    }
   }
   else
   {
-    generation++
-    controller?.abort()
-    loading.value = false
+    cancelRequests()
     if (followFrame)
     {
       cancelAnimationFrame(followFrame)
@@ -285,8 +345,7 @@ watch(() => props.active, active =>
 usePolling(async () => { await load(props.isLive) }, 10000)
 onBeforeUnmount(() =>
 {
-  generation++
-  controller?.abort()
+  cancelRequests()
   if (followFrame)
   {
     cancelAnimationFrame(followFrame)
@@ -300,6 +359,8 @@ onBeforeUnmount(() =>
 .feed-tabs :deep(.v-slide-group__content) { gap: 4px; }.feed-tabs :deep(.v-chip) { font-size: .7rem; margin-inline: 0; }
 .event-scroll { flex: 1; min-height: 0; position: relative; overflow-y: auto; overscroll-behavior-y: contain; }
 .event-scroll.is-following { overflow-anchor: none; }
-.event-list { min-height: 100%; }.event-row { padding: 13px 16px; border-bottom: 1px solid rgba(var(--v-theme-on-surface), .045); }
+.event-list { min-height: 100%; display: flex; flex-direction: column; justify-content: flex-end; }
+.event-row, .event-list :deep(.v-virtual-scroll__spacer) { flex-shrink: 0; }
+.event-row { padding: 13px 16px; border-bottom: 1px solid rgba(var(--v-theme-on-surface), .045); }
 .event-empty { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 15px; align-items: center; justify-content: center; font-size: .8rem; color: rgba(var(--v-theme-on-surface), .3); }
 </style>

@@ -8,6 +8,7 @@ public sealed class UserAccount : Entity
     public string DisplayName { get; set; } = "";
     public string? Language { get; set; }
     public bool AnalyticsRangePinned { get; set; } = true;
+    public int PlaybackEventRetentionCount { get; set; } = 500;
     public string AvatarUrl { get; set; } = "";
     public string PasswordHash { get; set; } = "";
     public long SessionVersion { get; set; }

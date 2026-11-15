@@ -7,7 +7,14 @@ import type { RecordedEvent } from '../src/models/media'
 import EventFeed from '../src/components/player/EventFeed.vue'
 
 const { eventsRequest } = vi.hoisted(() => ({ eventsRequest: vi.fn() }))
-vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { events: eventsRequest } }))
+vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: {
+  events: eventsRequest,
+  playbackEvents: async (id: string, options: { offsetMs: number }, signal?: AbortSignal) =>
+  {
+    const page = await eventsRequest(id, options, signal)
+    return { fromMs: options.offsetMs, toMs: options.offsetMs + 30000, items: page.items }
+  },
+} }))
 const mounted: VueWrapper[] = []
 const frames = new Map<number, FrameRequestCallback>()
 const observers: { targets: Set<Element>; notify: () => void; disconnect: ReturnType<typeof vi.fn> }[] = []
@@ -95,7 +102,7 @@ describe('直播消息侧栏激活状态', () =>
     await wrapper.setProps({ active: true })
     await flushPromises()
     expect(eventsRequest).toHaveBeenCalledTimes(1)
-    expect(eventsRequest.mock.calls[0]?.[1]).toMatchObject({ fromMs: 0, toMs: 75000 })
+    expect(eventsRequest.mock.calls[0]?.[1]).toMatchObject({ offsetMs: 45000, limit: 500 })
     expect(wrapper.text()).toContain('消息1')
   })
 

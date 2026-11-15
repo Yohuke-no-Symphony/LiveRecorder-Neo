@@ -13,6 +13,8 @@ public interface IIdentityService
     Task<UserProfile> SetLanguageAsync(string id, LanguagePreferenceRequest request, CancellationToken cancellationToken = default);
     /// <summary>保存当前用户在各个录播中共用的直播分析界面偏好。</summary>
     Task<UserProfile> SetAnalyticsPreferencesAsync(string id, AnalyticsPreferencesRequest request, CancellationToken cancellationToken = default);
+    /// <summary>保存当前用户在各个录播中共用的回放界面偏好。</summary>
+    Task<UserProfile> SetPlaybackPreferencesAsync(string id, PlaybackPreferencesRequest request, CancellationToken cancellationToken = default);
     /// <summary>重验 Cookie 身份，仅返回当前仍有效的用户与角色。</summary>
     Task<UserProfile?> ValidateSessionAsync(string id, long sessionVersion = 0, CancellationToken cancellationToken = default);
     /// <summary>列出网站用户。</summary>

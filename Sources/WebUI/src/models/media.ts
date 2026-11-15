@@ -124,6 +124,13 @@ export interface EventPage
   nextCursor?: number | null
 }
 
+export interface PlaybackEventWindow
+{
+  fromMs: number
+  toMs: number
+  items: RecordedEvent[]
+}
+
 export interface MediaJob extends Entity
 {
   ownerId: string

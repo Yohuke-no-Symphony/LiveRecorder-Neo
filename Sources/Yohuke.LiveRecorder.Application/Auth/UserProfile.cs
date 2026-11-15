@@ -7,6 +7,7 @@ public sealed record UserProfile(string Id, string Email, string DisplayName, st
 {
     public PermissionSet Permissions { get; init; } = PermissionSet.Empty;
     public bool AnalyticsRangePinned { get; init; } = true;
+    public int PlaybackEventRetentionCount { get; init; } = 500;
     [System.Text.Json.Serialization.JsonIgnore]
     public long SessionVersion { get; init; }
 }

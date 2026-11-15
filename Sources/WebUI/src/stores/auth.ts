@@ -4,6 +4,7 @@ import { AuthAPI } from '@/apis/AuthAPI'
 import { setCsrfToken } from '@/apis/APIBase'
 import { PERMISSIONS, type PermissionDefinition, type UserProfile } from '@/models/auth'
 import type { AppLanguage } from '@/localization/types'
+import { DEFAULT_PLAYBACK_EVENT_RETENTION_COUNT } from '@/models/playbackPreferences'
 import { usePreferencesStore } from './preferences'
 
 export const useAuthStore = defineStore('auth', () =>
@@ -25,6 +26,8 @@ export const useAuthStore = defineStore('auth', () =>
   let sessionGeneration = 0
   const analyticsPreferenceSaving = ref(false)
   let analyticsPreferenceRevision = 0
+  const playbackPreferenceSaving = ref(false)
+  let playbackPreferenceRevision = 0
   function hasPermission(permission: string): boolean
   {
     return hasAccess.value && (isAdmin.value || user.value?.permissions?.includes(permission) === true)
@@ -47,9 +50,10 @@ export const useAuthStore = defineStore('auth', () =>
   {
     const operation = sessionGeneration
     const preferenceRevision = analyticsPreferenceRevision
+    const playbackRevision = playbackPreferenceRevision
     const session = await AuthAPI.me()
     if (operation !== sessionGeneration) { return }
-    user.value = preserveAnalyticsPreference(session.user, preferenceRevision)
+    user.value = preservePreferences(session.user, preferenceRevision, playbackRevision)
     setCsrfToken(session.csrfToken)
     if (hasAccess.value)
     {
@@ -95,6 +99,7 @@ export const useAuthStore = defineStore('auth', () =>
   {
     const operation = ++sessionGeneration
     analyticsPreferenceSaving.value = false
+    playbackPreferenceSaving.value = false
     const session = await AuthAPI.login(email, password)
     if (operation !== sessionGeneration) { return }
     user.value = session.user
@@ -105,15 +110,24 @@ export const useAuthStore = defineStore('auth', () =>
   {
     const operation = sessionGeneration
     const preferenceRevision = analyticsPreferenceRevision
+    const playbackRevision = playbackPreferenceRevision
     const updated = await AuthAPI.setLanguage(language)
-    if (operation === sessionGeneration) { user.value = preserveAnalyticsPreference(updated, preferenceRevision) }
+    if (operation === sessionGeneration) { user.value = preservePreferences(updated, preferenceRevision, playbackRevision) }
   }
 
-  function preserveAnalyticsPreference(profile: UserProfile | null, revision: number): UserProfile | null
+  function preservePreferences(profile: UserProfile | null, analyticsRevision: number, playbackRevision: number): UserProfile | null
   {
-    return profile && profile.id === user.value?.id && (analyticsPreferenceSaving.value || revision !== analyticsPreferenceRevision)
-      ? { ...profile, analyticsRangePinned: user.value.analyticsRangePinned ?? true }
-      : profile
+    if (!profile || profile.id !== user.value?.id) { return profile }
+    const preserved = { ...profile }
+    if (analyticsPreferenceSaving.value || analyticsRevision !== analyticsPreferenceRevision)
+    {
+      preserved.analyticsRangePinned = user.value.analyticsRangePinned ?? true
+    }
+    if (playbackPreferenceSaving.value || playbackRevision !== playbackPreferenceRevision)
+    {
+      preserved.playbackEventRetentionCount = user.value.playbackEventRetentionCount ?? DEFAULT_PLAYBACK_EVENT_RETENTION_COUNT
+    }
+    return preserved
   }
 
   async function setAnalyticsRangePinned(rangePinned: boolean): Promise<void>
@@ -158,10 +172,36 @@ export const useAuthStore = defineStore('auth', () =>
     await refresh()
   }
 
+  async function setPlaybackEventRetentionCount(eventRetentionCount: number): Promise<void>
+  {
+    if (!user.value || playbackPreferenceSaving.value) { return }
+    const operation = sessionGeneration
+    const userId = user.value.id
+    playbackPreferenceRevision++
+    playbackPreferenceSaving.value = true
+    try
+    {
+      const updated = await AuthAPI.setPlaybackEventRetentionCount(eventRetentionCount)
+      if (operation === sessionGeneration && user.value?.id === userId)
+      {
+        user.value = { ...user.value, playbackEventRetentionCount: updated.playbackEventRetentionCount ?? DEFAULT_PLAYBACK_EVENT_RETENTION_COUNT }
+      }
+    }
+    finally
+    {
+      if (operation === sessionGeneration)
+      {
+        playbackPreferenceRevision++
+        playbackPreferenceSaving.value = false
+      }
+    }
+  }
+
   function clearSession(): void
   {
     sessionGeneration++
     analyticsPreferenceSaving.value = false
+    playbackPreferenceSaving.value = false
     user.value = null
     oauthDraft.value = null
     permissionDefinitions.value = []
@@ -169,5 +209,5 @@ export const useAuthStore = defineStore('auth', () =>
     setCsrfToken('')
   }
 
-  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canConfigureRecordings, canViewAnalytics, canGenerateAnalytics, canPurgeRecordings, canViewRecordings, canDownloadRecordings, canCreateClips, canUploadLiveMarkers, canGenerateLiveMarkers, canManageLiveMarkers, permissionDefinitions, hasPermission, homePath, bootstrap, refresh, login, logout, clearSession, setLanguage, analyticsPreferenceSaving, setAnalyticsRangePinned }
+  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canConfigureRecordings, canViewAnalytics, canGenerateAnalytics, canPurgeRecordings, canViewRecordings, canDownloadRecordings, canCreateClips, canUploadLiveMarkers, canGenerateLiveMarkers, canManageLiveMarkers, permissionDefinitions, hasPermission, homePath, bootstrap, refresh, login, logout, clearSession, setLanguage, analyticsPreferenceSaving, setAnalyticsRangePinned, playbackPreferenceSaving, setPlaybackEventRetentionCount }
 })

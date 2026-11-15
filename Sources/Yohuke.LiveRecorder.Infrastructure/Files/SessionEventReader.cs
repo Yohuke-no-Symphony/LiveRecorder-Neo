@@ -8,7 +8,13 @@ namespace Yohuke.LiveRecorder.Infrastructure.Files;
 /// <summary>在归组与拆分后继续查询原始事件文件。</summary>
 public sealed class SessionEventReader(EventArchiveReader reader)
 {
-    private const long SOURCE_SEQUENCE_STRIDE = 1_000_000_000_000;
+    internal const long SOURCE_SEQUENCE_STRIDE = 1_000_000_000_000;
+
+    /// <summary>按播放时刻选择最近的展示消息，并预取后续消息及关联红包的原始阶段。</summary>
+    public Task<PlaybackEventWindow> ReadPlaybackWindowAsync(SessionDetail detail, string storageRoot, double offsetMs, string? kind, int limit, CancellationToken cancellationToken = default)
+    {
+        return new PlaybackEventWindowReader(reader).ReadAsync(detail, storageRoot, offsetMs, kind, limit, cancellationToken);
+    }
 
     /// <summary>将来源文件序号投影为稳定的场次游标。</summary>
     public Task<EventPage> ReadAsync(BroadcastSession session, string storageRoot, double fromMs, double toMs, string? kind, long? cursor, int limit, CancellationToken cancellationToken = default)

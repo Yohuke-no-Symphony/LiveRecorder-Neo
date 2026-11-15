@@ -119,6 +119,11 @@ public static class LibraryEndpoints
                 var asset = await continuous.ResolveFragmentAsync(id, segmentId, sourceKey, sequence, fileName, ct);
                 return new MediaFileResult(asset.Path, "video/mp4", MediaTrafficKind.Playback, contentHash: asset.ContentHash);
             });
+        viewing.MapGet("/sessions/{id}/events/playback", async (string id, double offsetMs, string? kind, int? limit, LibraryService library, IAppPaths paths, SessionEventReader reader, CancellationToken ct) =>
+        {
+            var detail = await library.GetAsync(id, ct);
+            return Results.Ok(LocalizedState.ForResponse(await reader.ReadPlaybackWindowAsync(detail, paths.RecordsDirectory, offsetMs, kind, limit ?? 500, ct)));
+        });
         viewing.MapGet("/sessions/{id}/events", async (string id, double? fromMs, double? toMs, string? kind, long? cursor, int? limit, bool? translationsOnly, LibraryService library, IAppPaths paths, SessionEventReader reader, ISettingsStore settingsStore, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);

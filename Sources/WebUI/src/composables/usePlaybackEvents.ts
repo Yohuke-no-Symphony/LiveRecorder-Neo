@@ -1,8 +1,9 @@
 import { computed, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
 import type { EventKind, RecordedEvent } from '@/models/media'
 import { displayEvents, isDisplayEventKind } from '@/utilities/eventPresentation'
+import { DEFAULT_PLAYBACK_EVENT_RETENTION_COUNT } from '@/models/playbackPreferences'
 
-export function usePlaybackEvents(events: MaybeRefOrGetter<readonly RecordedEvent[]>, offsetMs: MaybeRefOrGetter<number>, kind: MaybeRefOrGetter<EventKind | 'all'>): ComputedRef<RecordedEvent[]>
+export function usePlaybackEvents(events: MaybeRefOrGetter<readonly RecordedEvent[]>, offsetMs: MaybeRefOrGetter<number>, kind: MaybeRefOrGetter<EventKind | 'all'>, retentionCount: MaybeRefOrGetter<number> = DEFAULT_PLAYBACK_EVENT_RETENTION_COUNT): ComputedRef<RecordedEvent[]>
 {
   const eventSource = computed(() => toValue(events))
   const orderedEvents = computed(() =>
@@ -40,5 +41,10 @@ export function usePlaybackEvents(events: MaybeRefOrGetter<readonly RecordedEven
     }
     return source.slice(0, count)
   })
-  return computed(() => displayEvents(reachedEvents.value, Number.POSITIVE_INFINITY))
+  const presentedEvents = computed(() => displayEvents(reachedEvents.value, Number.POSITIVE_INFINITY))
+  return computed<RecordedEvent[]>((previous) =>
+  {
+    const visible = presentedEvents.value.slice(-toValue(retentionCount))
+    return previous && previous.length === visible.length && previous.every((item, index) => item === visible[index]) ? previous : visible
+  })
 }

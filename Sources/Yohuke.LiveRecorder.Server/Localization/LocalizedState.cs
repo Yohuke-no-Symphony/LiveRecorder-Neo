@@ -57,4 +57,17 @@ public static class LocalizedState
         }
         return value;
     }
+
+    /// <summary>为回放消息窗口格式化系统生成的事件文本。</summary>
+    public static PlaybackEventWindow ForResponse(PlaybackEventWindow value)
+    {
+        foreach (var item in value.Items)
+        {
+            if (item.Kind == "Gap")
+            {
+                item.Text = LocalizedText.Format(item.TextCode, item.Text, item.TextArguments);
+            }
+        }
+        return value;
+    }
 }

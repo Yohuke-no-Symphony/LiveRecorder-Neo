@@ -38,6 +38,7 @@ export interface UserProfile
   avatarUrl?: string | null
   language?: AppLanguage | null
   analyticsRangePinned?: boolean
+  playbackEventRetentionCount?: number
 }
 
 export interface UserSession

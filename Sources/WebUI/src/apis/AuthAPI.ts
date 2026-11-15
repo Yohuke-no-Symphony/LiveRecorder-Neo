@@ -12,6 +12,7 @@ export const AuthAPI = {
   me: () => request<UserSession>('auth/me'),
   setLanguage: (language: AppLanguage | null) => put<UserProfile>('auth/language', { language }),
   setAnalyticsRangePinned: (rangePinned: boolean) => put<UserProfile>('auth/analytics-preferences', { rangePinned }),
+  setPlaybackEventRetentionCount: (eventRetentionCount: number) => put<UserProfile>('auth/playback-preferences', { eventRetentionCount }),
   login: (email: string, password: string) => post<UserSession>('auth/login', { email, password }),
   logout: () => post<void>('auth/logout'),
   passwordResetOptions: () => request<{ enabled: boolean }>('auth/password-reset/options'),

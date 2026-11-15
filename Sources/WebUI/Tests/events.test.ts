@@ -15,7 +15,14 @@ import MediaPlayer from '../src/components/player/MediaPlayer.vue'
 
 const { hlsConstructor, supported, eventsRequest } = vi.hoisted(() => ({ hlsConstructor: vi.fn(), supported: vi.fn(() => true), eventsRequest: vi.fn() }))
 vi.mock('hls.js', () => ({ default: Object.assign(hlsConstructor, { isSupported: supported, Events: { MANIFEST_PARSED: 'manifest', ERROR: 'error' } }) }))
-vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { events: eventsRequest } }))
+vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: {
+  events: eventsRequest,
+  playbackEvents: async (id: string, options: { offsetMs: number }, signal?: AbortSignal) =>
+  {
+    const page = await eventsRequest(id, options, signal)
+    return { fromMs: options.offsetMs, toMs: options.offsetMs + 30000, items: page.items }
+  },
+} }))
 const mounted: VueWrapper[] = []
 const originalPlugins = [...config.global.plugins]
 const scrollToIndex = vi.fn()
@@ -307,7 +314,7 @@ describe('消息播放与阅读稳定性', () =>
     expect(scrollToIndex).toHaveBeenCalledExactlyOnceWith(1, 'end')
   })
 
-  it('暂停阅读跨过直播分页窗口后仍保留旧消息，恢复跟随才切到新窗口', async () =>
+  it('暂停阅读跨过直播分页窗口后仍保留旧消息，恢复跟随后继续保留历史并追加新消息', async () =>
   {
     eventsRequest.mockResolvedValueOnce({ items: [event({ offsetMs: 120000, text: '保留的旧消息' })], nextCursor: null })
     const wrapper = mountFeed(130000, true)
@@ -316,7 +323,7 @@ describe('消息播放与阅读稳定性', () =>
     const items = scroller.props('items')
     await wrapper.get('.event-scroll').trigger('wheel', { deltaY: -200 })
     scrollToIndex.mockClear()
-    eventsRequest.mockResolvedValue({ items: [event({ sequence: 2, eventId: 'new-window', offsetMs: 299000, text: '新窗口消息' })], nextCursor: null })
+    eventsRequest.mockResolvedValue({ items: [event({ offsetMs: 120000, text: '保留的旧消息' }), event({ sequence: 2, eventId: 'new-window', offsetMs: 299000, text: '新窗口消息' })], nextCursor: null })
     await wrapper.setProps({ offsetMs: 300000 })
     await flushPromises()
     expect(eventsRequest).toHaveBeenCalledTimes(2)
@@ -326,9 +333,9 @@ describe('消息播放与阅读稳定性', () =>
     expect(scrollToIndex).not.toHaveBeenCalled()
     await wrapper.get('.feed-heading v-btn-stub').trigger('click')
     await flushPromises()
-    expect(wrapper.text()).not.toContain('保留的旧消息')
+    expect(wrapper.text()).toContain('保留的旧消息')
     expect(wrapper.text()).toContain('新窗口消息')
-    expect(scrollToIndex).toHaveBeenCalledExactlyOnceWith(0, 'end')
+    expect(scrollToIndex).toHaveBeenCalledExactlyOnceWith(1, 'end')
   })
 
   it('程序滚动与行高调整不会自行关闭跟随', async () =>
@@ -414,30 +421,30 @@ describe('消息播放与阅读稳定性', () =>
     await wrapper.setProps({ offsetMs: 1990 })
     await flushPromises()
     expect(wrapper.get('.feed-heading v-btn-stub').attributes('color')).toBe('secondary')
-    expect(eventsRequest).toHaveBeenCalledTimes(1)
+    expect(eventsRequest).toHaveBeenCalledTimes(2)
     eventsRequest.mockResolvedValue({ items: [event({ text: '正在阅读' }), event({ sequence: 2, eventId: 'near-navigation', offsetMs: 2100, text: '同区间新消息' })], nextCursor: null })
     await wrapper.setProps({ offsetMs: 2200, navigationRevision: 1 })
     await flushPromises()
-    expect(eventsRequest).toHaveBeenCalledTimes(2)
+    expect(eventsRequest).toHaveBeenCalledTimes(3)
     expect(wrapper.get('.feed-heading v-btn-stub').attributes('color')).toBe('primary')
     expect(wrapper.text()).toContain('同区间新消息')
   })
 
-  it('暂停阅读后显式向前导航会恢复跟随并强制加载目标窗口', async () =>
+  it('暂停阅读后显式向前导航会恢复跟随并定位目标之前的历史', async () =>
   {
     eventsRequest.mockResolvedValueOnce({ items: [event({ offsetMs: 120000, text: '暂停中的旧消息' })], nextCursor: null })
     const wrapper = mountFeed(130000, true)
     await flushPromises()
     await wrapper.get('.event-scroll').trigger('wheel', { deltaY: -200 })
     scrollToIndex.mockClear()
-    eventsRequest.mockResolvedValue({ items: [event({ sequence: 2, eventId: 'navigation-target', offsetMs: 359000, text: '导航目标消息' })], nextCursor: null })
+    eventsRequest.mockResolvedValue({ items: [event({ offsetMs: 120000, text: '暂停中的旧消息' }), event({ sequence: 2, eventId: 'navigation-target', offsetMs: 359000, text: '导航目标消息' })], nextCursor: null })
     await wrapper.setProps({ offsetMs: 360000, navigationRevision: 1 })
     await flushPromises()
     expect(eventsRequest).toHaveBeenCalledTimes(2)
     expect(wrapper.get('.feed-heading v-btn-stub').attributes('color')).toBe('primary')
-    expect(wrapper.text()).not.toContain('暂停中的旧消息')
+    expect(wrapper.text()).toContain('暂停中的旧消息')
     expect(wrapper.text()).toContain('导航目标消息')
-    expect(scrollToIndex).toHaveBeenLastCalledWith(0, 'end')
+    expect(scrollToIndex).toHaveBeenLastCalledWith(1, 'end')
   })
 
   it('向后跳转会隐藏未来消息和红包开奖结果', async () =>

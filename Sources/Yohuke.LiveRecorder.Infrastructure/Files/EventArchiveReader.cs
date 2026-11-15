@@ -20,53 +20,22 @@ public sealed class EventArchiveReader
     /// <summary>在分页计数前应用正文正则，保持归档游标及完整事件内容。</summary>
     public async Task<EventPage> ReadAsync(string directory, double fromMs, double toMs, string? kind, long? cursor, int limit, Regex? textPattern, CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        var path = Path.Combine(directory, "事件.jsonl");
-        await using var stream = OpenRead(path);
-        if (stream is null)
+        await using var snapshot = await OpenSnapshotAsync(directory, cancellationToken);
+        if (snapshot is null)
         {
             return new();
         }
-        var snapshotLength = stream.Length;
-        var committedLength = CommittedLength(stream, snapshotLength);
-        var indexPath = Path.Combine(directory, "事件.index.jsonl");
-        var (blocks, needsRepair) = LoadIndex(stream, indexPath, committedLength, cancellationToken);
-        if (needsRepair)
-        {
-            RemovePartialBlock(blocks);
-            var block = CreateBlock(blocks.LastOrDefault()?.EndByte ?? 0, blocks.LastOrDefault()?.LastSequence ?? 0);
-            await foreach (var line in CompleteLinesAsync(stream, block.StartByte, committedLength, cancellationToken))
-            {
-                block.EndByte = line.EndByte;
-                if (DeserializeEvent(line.Bytes) is not { } item)
-                {
-                    continue;
-                }
-                Include(block, item, line.EndByte);
-                if (block.Count == EventIndexBlock.MAX_EVENTS)
-                {
-                    blocks.Add(block);
-                    block = CreateBlock(block.EndByte, block.LastSequence);
-                }
-            }
-            if (block.Count > 0)
-            {
-                blocks.Add(block);
-            }
-            TryPublishIndex(directory, indexPath, snapshotLength, blocks);
-        }
         limit = Math.Clamp(limit, 1, 1000);
         var items = new List<RecordedEventEnvelope>(limit + 1);
-        foreach (var block in blocks)
+        foreach (var block in snapshot.Blocks)
         {
             if (block.MaxMs < fromMs || block.MinMs > toMs || block.LastSequence <= (cursor ?? 0))
             {
                 continue;
             }
-            await foreach (var line in CompleteLinesAsync(stream, block.StartByte, block.EndByte, cancellationToken))
+            await foreach (var item in ReadBlockAsync(snapshot, block, cancellationToken))
             {
-                if (DeserializeEvent(line.Bytes) is not { } item ||
-                    item.OffsetMs < fromMs || item.OffsetMs > toMs || item.Sequence <= (cursor ?? 0) ||
+                if (item.OffsetMs < fromMs || item.OffsetMs > toMs || item.Sequence <= (cursor ?? 0) ||
                     !string.IsNullOrEmpty(kind) && !string.Equals(kind, "All", StringComparison.OrdinalIgnoreCase) && !string.Equals(item.Kind, kind, StringComparison.OrdinalIgnoreCase) ||
                     textPattern is not null && !textPattern.IsMatch(item.Text))
                 {
@@ -85,6 +54,65 @@ public sealed class EventArchiveReader
         }
         var page = items.Take(limit).ToList();
         return new() { Items = page, NextCursor = items.Count > limit ? page[^1].Sequence : null };
+    }
+
+    internal async Task<EventArchiveSnapshot?> OpenSnapshotAsync(string directory, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var stream = OpenRead(Path.Combine(directory, "事件.jsonl"));
+        if (stream is null)
+        {
+            return null;
+        }
+        try
+        {
+            var snapshotLength = stream.Length;
+            var committedLength = CommittedLength(stream, snapshotLength);
+            var indexPath = Path.Combine(directory, "事件.index.jsonl");
+            var (blocks, needsRepair) = LoadIndex(stream, indexPath, committedLength, cancellationToken);
+            if (needsRepair)
+            {
+                RemovePartialBlock(blocks);
+                var block = CreateBlock(blocks.LastOrDefault()?.EndByte ?? 0, blocks.LastOrDefault()?.LastSequence ?? 0);
+                await foreach (var line in CompleteLinesAsync(stream, block.StartByte, committedLength, cancellationToken))
+                {
+                    block.EndByte = line.EndByte;
+                    if (DeserializeEvent(line.Bytes) is not { } item)
+                    {
+                        continue;
+                    }
+                    Include(block, item, line.EndByte);
+                    if (block.Count == EventIndexBlock.MAX_EVENTS)
+                    {
+                        blocks.Add(block);
+                        block = CreateBlock(block.EndByte, block.LastSequence);
+                    }
+                }
+                if (block.Count > 0)
+                {
+                    blocks.Add(block);
+                }
+                TryPublishIndex(directory, indexPath, snapshotLength, blocks);
+            }
+            return new(stream, blocks);
+        }
+        catch
+        {
+            await stream.DisposeAsync();
+            throw;
+        }
+    }
+
+    internal static async IAsyncEnumerable<RecordedEventEnvelope> ReadBlockAsync(EventArchiveSnapshot snapshot, EventIndexBlock block,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await foreach (var line in CompleteLinesAsync(snapshot.Stream, block.StartByte, block.EndByte, cancellationToken))
+        {
+            if (DeserializeEvent(line.Bytes) is { } item)
+            {
+                yield return item;
+            }
+        }
     }
 
     /// <summary>枚举调用开始时已完整换行的记录，后续追加内容留给下一次读取。</summary>
@@ -144,6 +172,7 @@ public sealed class EventArchiveReader
 
     internal static EventIndexBlock CreateBlock(long startByte, long lastSequence) => new()
     {
+        MetadataVersion = EventIndexBlock.CURRENT_METADATA_VERSION,
         StartByte = startByte,
         EndByte = startByte,
         MinMs = double.MaxValue,
@@ -158,6 +187,14 @@ public sealed class EventArchiveReader
         block.MaxMs = Math.Max(block.MaxMs, item.OffsetMs);
         block.LastSequence = Math.Max(block.LastSequence, item.Sequence);
         block.Count++;
+        if (!string.IsNullOrEmpty(item.Kind))
+        {
+            block.Kinds.Add(item.Kind);
+        }
+        if (PlaybackEventIdentity.RedPocketKey(item) is { } pocketKey)
+        {
+            block.RedPocketKeys.Add(pocketKey);
+        }
     }
 
     private static (List<EventIndexBlock> Blocks, bool NeedsRepair) LoadIndex(FileStream events, string indexPath, long committedLength, CancellationToken cancellationToken)
@@ -186,6 +223,8 @@ public sealed class EventArchiveReader
                 break;
             }
             if (block is null ||
+                block.MetadataVersion != EventIndexBlock.CURRENT_METADATA_VERSION || block.Kinds is null || block.RedPocketKeys is null ||
+                block.Kinds.Any(string.IsNullOrEmpty) || block.RedPocketKeys.Any(string.IsNullOrEmpty) ||
                 block.StartByte != endByte || block.EndByte <= block.StartByte || block.EndByte > committedLength ||
                 block.Count is < 1 or > EventIndexBlock.MAX_EVENTS || block.LastSequence <= lastSequence ||
                 block.LastSequence - lastSequence < block.Count ||

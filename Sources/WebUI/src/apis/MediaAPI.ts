@@ -4,7 +4,7 @@ import type { SessionTimeline } from '@/models/sessionTimeline'
 import type { SessionBookmark } from '@/models/sessionBookmark'
 import type { SessionTrashResult } from '@/models/sessionLibrary'
 import type { SessionGroupConfiguration } from '@/models/sessionConfiguration'
-import type { Analytics, BroadcastSession, Clip, CreateJob, EventKind, EventPage, MediaJob, PlaybackWindow, SessionDetail, StorageVolume, Streamer, TrashEntry } from '@/models/media'
+import type { Analytics, BroadcastSession, Clip, CreateJob, EventKind, EventPage, MediaJob, PlaybackEventWindow, PlaybackWindow, SessionDetail, StorageVolume, Streamer, TrashEntry } from '@/models/media'
 import type { ServerPaths, ServerSettings } from '@/models/settings'
 import type { StorageUsageReport } from '@/models/storage'
 import type { PlaybackLoadOptions } from '@/models/playbackLoadOptions'
@@ -31,6 +31,7 @@ export const MediaAPI = {
   updateBookmark: (id: string, bookmarkId: string, body: { title: string; offsetMs: number }) => put<SessionBookmark>(`sessions/${encodeURIComponent(id)}/bookmarks/${encodeURIComponent(bookmarkId)}`, body),
   deleteBookmark: (id: string, bookmarkId: string) => remove(`sessions/${encodeURIComponent(id)}/bookmarks/${encodeURIComponent(bookmarkId)}`),
   events: (id: string, options: { fromMs: number; toMs: number; kind?: EventKind; cursor?: number; limit?: number; translationsOnly?: boolean }, signal?: AbortSignal) => request<EventPage>(`sessions/${encodeURIComponent(id)}/events${query(options)}`, { signal }),
+  playbackEvents: (id: string, options: { offsetMs: number; kind?: EventKind; limit: number }, signal?: AbortSignal) => request<PlaybackEventWindow>(`sessions/${encodeURIComponent(id)}/events/playback${query(options)}`, { signal }),
   jobs: (signal?: AbortSignal) => request<MediaJob[]>('jobs', { signal }),
   createJob: (body: CreateJob) => post<MediaJob>('jobs', body),
   cancelJob: (id: string) => post<void>(`jobs/${encodeURIComponent(id)}/cancel`),

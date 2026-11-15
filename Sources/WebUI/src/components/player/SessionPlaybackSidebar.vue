@@ -5,7 +5,9 @@
       <v-tab value="translations">{{ t('translations.tab') }}</v-tab>
       <v-tab value="markers">{{ t('liveMarkers.recordsTab') }}</v-tab>
     </v-tabs>
-    <EventFeed v-show="tab === 'events'" class="sidebar-panel" :active="tab === 'events'" :session-id="sessionId" :offset-ms="offsetMs" :enabled="hasDanmu" :is-live="isLive" :navigation-revision="navigationRevision" @seek="emit('seek', $event)" />
+    <EventFeed v-show="tab === 'events'" class="sidebar-panel" :active="tab === 'events'" :session-id="sessionId" :offset-ms="offsetMs" :enabled="hasDanmu" :is-live="isLive" :navigation-revision="navigationRevision" :retention-count="auth.user?.playbackEventRetentionCount ?? DEFAULT_PLAYBACK_EVENT_RETENTION_COUNT" @seek="emit('seek', $event)">
+      <template #settings><PlaybackEventSettings /></template>
+    </EventFeed>
     <SessionTranslationPanel v-show="tab === 'translations'" class="sidebar-panel" :active="tab === 'translations'" :session-id="sessionId" :duration-ms="durationMs" :enabled="hasDanmu" :is-live="isLive" :configuration-revision="configurationRevision" @seek="emit('seek', $event)" @configure="emit('configure')" />
     <SessionLiveMarkerPanel v-show="tab === 'markers'" class="sidebar-panel" :active="tab === 'markers'" :session-id="sessionId" :duration-ms="durationMs" :editable="editable" :ended="ended" :file-id="liveMarkerFileId" @seek="emit('seek', $event)" />
   </v-card>
@@ -14,13 +16,17 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useAuthStore } from '@/stores/auth'
+import { DEFAULT_PLAYBACK_EVENT_RETENTION_COUNT } from '@/models/playbackPreferences'
 import EventFeed from './EventFeed.vue'
+import PlaybackEventSettings from './PlaybackEventSettings.vue'
 import SessionLiveMarkerPanel from './SessionLiveMarkerPanel.vue'
 import SessionTranslationPanel from './SessionTranslationPanel.vue'
 
 const props = withDefaults(defineProps<{ sessionId: string; offsetMs: number; durationMs: number; hasDanmu: boolean; isLive: boolean; navigationRevision: number; editable?: boolean; configurationRevision?: number; ended?: boolean; liveMarkerFileId?: string; showLiveMarkers?: boolean }>(), { editable: true })
 const emit = defineEmits<{ seek: [offsetMs: number]; configure: [] }>()
 const { t } = useI18n()
+const auth = useAuthStore()
 const tab = ref('events')
 watch([() => props.sessionId, () => props.showLiveMarkers, () => props.liveMarkerFileId], () =>
 {
