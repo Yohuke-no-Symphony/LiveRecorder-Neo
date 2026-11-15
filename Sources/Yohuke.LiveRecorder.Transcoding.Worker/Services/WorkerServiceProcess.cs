@@ -5,13 +5,13 @@ namespace Yohuke.LiveRecorder.Transcoding.Worker.Services;
 internal static class WorkerServiceProcess
 {
     internal static async Task<WorkerProcessResult> RunAsync(string executable, IReadOnlyList<string> arguments,
-        CancellationToken cancellationToken, int timeoutSeconds = 30)
+        CancellationToken cancellationToken, int timeoutSeconds = 30, IReadOnlyDictionary<string, string>? environment = null)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
         try
         {
-            return await new WorkerProcessRunner().RunAsync(executable, arguments, timeout.Token);
+            return await new WorkerProcessRunner().RunAsync(executable, arguments, timeout.Token, environment: environment);
         }
         catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {

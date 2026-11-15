@@ -1,8 +1,9 @@
 {
   "Worker": {
-    "ApiBaseUrl": "https://localhost:4784",
+    "ApiBaseUrl": "http://localhost:5113",
     "ControlHost": "localhost",
     "ControlPort": 4790,
+    "ControlUseTls": false,
     "WorkerId": "",
     "Secret": "",
     "TlsServerName": null,

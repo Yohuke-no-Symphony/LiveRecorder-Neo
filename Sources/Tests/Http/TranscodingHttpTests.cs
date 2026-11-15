@@ -326,6 +326,7 @@ public sealed class TranscodingHttpTests
     {
         var fixture = await HttpServerFixture.CreateHttpsAsync(certificate.Path, certificate.Sha256,
             "--TranscodingControl:Enabled", control.ToString(), "--TranscodingControl:ListenAddress", "127.0.0.1",
+            "--TranscodingControl:UseTls", "true",
             "--TranscodingControl:Port", certificate.ControlPort.ToString(), "--TranscodingControl:CertificatePath", certificate.Path);
         try
         {

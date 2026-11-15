@@ -248,7 +248,7 @@ internal static class MacWorkerService
         }
     }
 
-    private static async Task<MacWorkerServiceState?> QueryAsync(CancellationToken cancellationToken)
+    internal static async Task<MacWorkerServiceState?> QueryAsync(CancellationToken cancellationToken)
     {
         var result = await WorkerServiceProcess.RunAsync(LAUNCHCTL, ["list"], cancellationToken);
         WorkerServiceProcess.RequireSuccess(result, "query the installed launchd service");

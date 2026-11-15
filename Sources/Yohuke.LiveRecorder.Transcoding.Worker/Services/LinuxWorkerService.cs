@@ -6,15 +6,11 @@ internal static class LinuxWorkerService
 {
     internal const string UNIT_PATH = "/etc/systemd/system/" + WorkerServices.SERVICE_NAME + ".service";
     internal const string BUNDLE_DIRECTORY = "/var/cache/" + WorkerServices.SERVICE_NAME + "/bundles";
-    private const string SERVICE_UNIT = WorkerServices.SERVICE_NAME + ".service";
+    internal const string SERVICE_UNIT = WorkerServices.SERVICE_NAME + ".service";
 
     internal static async Task ExecuteAsync(WorkerCommand command, string configurationPath, CancellationToken cancellationToken)
     {
-        var systemctl = File.Exists("/usr/bin/systemctl") ? "/usr/bin/systemctl" : "/bin/systemctl";
-        if (!File.Exists(systemctl) || !Directory.Exists("/run/systemd/system"))
-        {
-            throw new WorkerServiceException("Linux system service management requires a running systemd instance.");
-        }
+        var systemctl = GetSystemctlPath();
         if (command == WorkerCommand.Install)
         {
             await InstallAsync(systemctl, WorkerServiceInvocation.Current(configurationPath), cancellationToken);
@@ -45,6 +41,16 @@ internal static class LinuxWorkerService
             default:
                 throw new ArgumentOutOfRangeException(nameof(command));
         }
+    }
+
+    internal static string GetSystemctlPath()
+    {
+        var systemctl = File.Exists("/usr/bin/systemctl") ? "/usr/bin/systemctl" : "/bin/systemctl";
+        if (!File.Exists(systemctl) || !Directory.Exists("/run/systemd/system"))
+        {
+            throw new WorkerServiceException("Linux system service management requires a running systemd instance.");
+        }
+        return systemctl;
     }
 
     internal static string CreateUnit(WorkerServiceInvocation invocation)

@@ -11,6 +11,8 @@ internal enum WorkerCommand
     Uninstall,
     Start,
     Stop,
+    Status,
+    Log,
     Enable,
     Disable
 }

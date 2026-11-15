@@ -10,7 +10,8 @@ internal sealed class WorkerProcessRunner
 
     internal async Task<WorkerProcessResult> RunAsync(string executable, IReadOnlyList<string> arguments,
         CancellationToken cancellationToken, Action<double>? progress = null, double durationSeconds = 0,
-        Action<string>? outputLine = null)
+        Action<string>? outputLine = null, IReadOnlyDictionary<string, string>? environment = null,
+        Action<string>? errorLine = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var start = new ProcessStartInfo(executable)
@@ -24,11 +25,18 @@ internal sealed class WorkerProcessRunner
         {
             start.ArgumentList.Add(argument);
         }
+        if (environment is not null)
+        {
+            foreach (var variable in environment)
+            {
+                start.Environment[variable.Key] = variable.Value;
+            }
+        }
         using var process = new Process { StartInfo = start };
         process.Start();
         using var registration = cancellationToken.Register(() => Kill(process));
         var output = ReadAsync(process.StandardOutput, progress, durationSeconds, outputLine);
-        var diagnostic = ReadAsync(process.StandardError, null, 0, null);
+        var diagnostic = ReadAsync(process.StandardError, null, 0, errorLine);
         _ = output.ContinueWith(_ => Kill(process), CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         _ = diagnostic.ContinueWith(_ => Kill(process), CancellationToken.None,

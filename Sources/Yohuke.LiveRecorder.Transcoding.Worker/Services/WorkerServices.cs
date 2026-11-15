@@ -61,7 +61,7 @@ internal static class WorkerServices
         }
     }
 
-    private static void RequireAdministrator()
+    internal static void RequireAdministrator()
     {
         if (OperatingSystem.IsWindows())
         {

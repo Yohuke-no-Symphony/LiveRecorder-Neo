@@ -151,8 +151,8 @@ public static class ServerStartup
         builder.Services.AddOptions<TranscodingControlOptions>()
             .Bind(builder.Configuration.GetSection("TranscodingControl"))
             .Validate(value => !value.Enabled || (value.Port is > 0 and <= 65535
-                && IPAddress.TryParse(value.ListenAddress, out _) && !string.IsNullOrWhiteSpace(value.CertificatePath)
-                && value.MaximumConnections is > 0 and <= 4096), "Worker TLS listener configuration is invalid.")
+                && IPAddress.TryParse(value.ListenAddress, out _) && (!value.UseTls || !string.IsNullOrWhiteSpace(value.CertificatePath))
+                && value.MaximumConnections is > 0 and <= 4096), "Worker control listener configuration is invalid.")
             .ValidateOnStart();
         builder.Services.AddHostedService<WorkerControlServer>();
         builder.Services.AddLiveRecorderAi();

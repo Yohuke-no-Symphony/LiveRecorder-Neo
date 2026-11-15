@@ -254,7 +254,7 @@ internal static class WindowsWorkerService
         }
     }
 
-    private static void RequireOwnedService()
+    internal static void RequireOwnedService()
     {
         var registration = ReadRegistration()
             ?? throw new WorkerServiceException("The worker service is not installed. Run 'install' first.");

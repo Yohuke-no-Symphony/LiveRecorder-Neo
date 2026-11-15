@@ -72,6 +72,8 @@ internal sealed record WorkerCommandLine
         "uninstall" => WorkerCommand.Uninstall,
         "start" => WorkerCommand.Start,
         "stop" => WorkerCommand.Stop,
+        "status" => WorkerCommand.Status,
+        "log" => WorkerCommand.Log,
         "enable" => WorkerCommand.Enable,
         "disable" => WorkerCommand.Disable,
         _ => throw new ArgumentException($"Unknown command '{command}'. Run 'help' for usage.")

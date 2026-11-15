@@ -39,15 +39,25 @@ internal static class WorkerServiceFiles
 
     internal static async Task<string> ReadManagedAsync(string path, CancellationToken cancellationToken)
     {
-        if (!File.Exists(path))
+        return await ReadOptionalManagedAsync(path, cancellationToken)
+            ?? throw new WorkerServiceException("The worker service is not installed. Run 'install' first.");
+    }
+
+    internal static async Task<string?> ReadOptionalManagedAsync(string path, CancellationToken cancellationToken)
+    {
+        string content;
+        try
         {
-            throw new WorkerServiceException("The worker service is not installed. Run 'install' first.");
+            if (new FileInfo(path).LinkTarget is not null)
+            {
+                throw new WorkerServiceException("The service definition is a symbolic link owned by another installation.");
+            }
+            content = await File.ReadAllTextAsync(path, cancellationToken);
         }
-        if (new FileInfo(path).LinkTarget is not null)
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
         {
-            throw new WorkerServiceException("The service definition is a symbolic link owned by another installation.");
+            return null;
         }
-        var content = await File.ReadAllTextAsync(path, cancellationToken);
         if (!content.Contains(OWNER_MARKER, StringComparison.Ordinal))
         {
             throw new WorkerServiceException("A service definition with this name already exists and belongs to another installation.");

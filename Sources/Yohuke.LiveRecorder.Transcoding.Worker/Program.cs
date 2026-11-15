@@ -22,9 +22,10 @@ internal static class Program
             if (commandLine.Command == WorkerCommand.Version)
             {
                 var assembly = typeof(Program).Assembly;
+                var assemblyName = assembly.GetName();
                 var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-                    ?? assembly.GetName().Version?.ToString() ?? "unknown";
-                Console.WriteLine("Yohuke.LiveRecorder.Transcoding.Worker " + version);
+                    ?? assemblyName.Version?.ToString() ?? "unknown";
+                Console.WriteLine(assemblyName.Name + " " + version);
                 return 0;
             }
             return await ExecuteAsync(commandLine);
@@ -52,6 +53,9 @@ internal static class Program
                 case WorkerCommand.Run:
                     await WorkerServiceHost.RunAsync(commandLine.ConfigurationPath, lifetime.Token);
                     break;
+                case WorkerCommand.Status:
+                case WorkerCommand.Log:
+                    return await WorkerServiceInspection.ExecuteAsync(commandLine.Command, lifetime.Token);
                 case WorkerCommand.Install:
                 case WorkerCommand.Uninstall:
                 case WorkerCommand.Start:

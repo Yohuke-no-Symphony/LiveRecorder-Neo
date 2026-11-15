@@ -13,7 +13,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $sourceRoot = Join-Path $repoRoot 'Sources'
-$outputDirectory = Join-Path $repoRoot "Artifacts/$Runtime"
+$outputDirectory = Join-Path $repoRoot "Artifacts/server/$Runtime"
 $publishArguments = @(
     'publish',
     (Join-Path $sourceRoot 'Yohuke.LiveRecorder.Server/Yohuke.LiveRecorder.Server.csproj'),

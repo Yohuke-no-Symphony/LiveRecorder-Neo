@@ -5,6 +5,7 @@ internal sealed record WorkerConnectionOptions
     public string ApiBaseUrl { get; set; } = "https://localhost:4784";
     public string ControlHost { get; set; } = "localhost";
     public int ControlPort { get; set; } = 4790;
+    public bool ControlUseTls { get; set; } = true;
     public string WorkerId { get; set; } = "";
     public string Secret { get; set; } = "";
     public string? TlsServerName { get; set; }

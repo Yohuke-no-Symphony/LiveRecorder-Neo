@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <AssemblyName>Yohuke.LiveRecorder.Transcoding.Worker</AssemblyName>
+    <AssemblyName>ylr-worker</AssemblyName>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>

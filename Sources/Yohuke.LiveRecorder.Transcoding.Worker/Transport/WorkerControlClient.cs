@@ -9,9 +9,9 @@ namespace Yohuke.LiveRecorder.Transcoding.Worker.Transport;
 internal sealed class WorkerControlClient : IAsyncDisposable
 {
     private readonly TcpClient client;
-    private readonly SslStream stream;
+    private readonly Stream stream;
 
-    private WorkerControlClient(TcpClient client, SslStream stream)
+    private WorkerControlClient(TcpClient client, Stream stream)
     {
         this.client = client;
         this.stream = stream;
@@ -25,15 +25,20 @@ internal sealed class WorkerControlClient : IAsyncDisposable
         try
         {
             await client.ConnectAsync(options.ControlHost, options.ControlPort, timeout.Token);
-            var stream = new SslStream(client.GetStream(), false,
-                (_, certificate, _, errors) => WorkerCertificatePolicy.Validate(options, certificate, errors));
+            Stream stream = client.GetStream();
             try
             {
-                await stream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+                if (options.ControlUseTls)
                 {
-                    TargetHost = options.TlsServerName ?? options.ControlHost,
-                    EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13
-                }, timeout.Token);
+                    var tls = new SslStream(stream, false,
+                        (_, certificate, _, errors) => WorkerCertificatePolicy.Validate(options, certificate, errors));
+                    stream = tls;
+                    await tls.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+                    {
+                        TargetHost = options.TlsServerName ?? options.ControlHost,
+                        EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13
+                    }, timeout.Token);
+                }
                 return new(client, stream);
             }
             catch

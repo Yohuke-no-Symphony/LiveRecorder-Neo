@@ -13,7 +13,7 @@ using Yohuke.LiveRecorder.Transcoding.Contracts;
 
 namespace Yohuke.LiveRecorder.Server.Transcoding;
 
-/// <summary>为独立转码 Worker 提供有界 TLS 控制连接。</summary>
+/// <summary>为独立转码 Worker 提供有界 TCP 或 TLS 控制连接。</summary>
 public sealed class WorkerControlServer(TranscodingCoordinator coordinator, IOptions<TranscodingControlOptions> options,
     ILogger<WorkerControlServer> logger) : BackgroundService
 {
@@ -29,8 +29,9 @@ public sealed class WorkerControlServer(TranscodingCoordinator coordinator, IOpt
         {
             return;
         }
-        using var certificate = X509CertificateLoader.LoadPkcs12FromFile(configuration.CertificatePath, configuration.CertificatePassword);
-        if (!certificate.HasPrivateKey)
+        using var certificate = configuration.UseTls
+            ? X509CertificateLoader.LoadPkcs12FromFile(configuration.CertificatePath!, configuration.CertificatePassword) : null;
+        if (certificate is { HasPrivateKey: false })
         {
             throw new InvalidOperationException("Worker TLS certificate requires a private key.");
         }
@@ -64,22 +65,26 @@ public sealed class WorkerControlServer(TranscodingCoordinator coordinator, IOpt
         }
     }
 
-    private async Task HandleAsync(TcpClient client, X509Certificate2 certificate, SemaphoreSlim slots, CancellationToken stoppingToken)
+    private async Task HandleAsync(TcpClient client, X509Certificate2? certificate, SemaphoreSlim slots, CancellationToken stoppingToken)
     {
         string? workerId = null;
         try
         {
             using (client)
-            await using (var stream = new SslStream(client.GetStream(), leaveInnerStreamOpen: false))
             {
+                await using Stream stream = certificate is null
+                    ? client.GetStream() : new SslStream(client.GetStream(), leaveInnerStreamOpen: false);
                 using var handshake = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
                 handshake.CancelAfter(TimeSpan.FromSeconds(15));
-                await stream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+                if (stream is SslStream tls)
                 {
-                    ServerCertificate = certificate,
-                    EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-                    ClientCertificateRequired = false
-                }, handshake.Token);
+                    await tls.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+                    {
+                        ServerCertificate = certificate,
+                        EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                        ClientCertificateRequired = false
+                    }, handshake.Token);
+                }
                 var message = await WorkerProtocol.ReadAsync(stream, handshake.Token);
                 if (message?.Type != "Hello")
                 {
