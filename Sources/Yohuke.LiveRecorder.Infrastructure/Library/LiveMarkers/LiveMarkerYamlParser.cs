@@ -12,8 +12,16 @@ using Yohuke.LiveRecorder.Domain.LiveMarkers;
 namespace Yohuke.LiveRecorder.Infrastructure.Library.LiveMarkers;
 
 /// <summary>有大小、节点和时区边界的 DanmuNeo 原生 YAML 解析器。</summary>
-public sealed partial class LiveMarkerYamlParser
+public sealed class LiveMarkerYamlParser
 {
+    private static Regex TimestampPattern { get; } = new(
+        @"^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?<zone>[Zz]|[+\-]\d{2}:\d{2})?$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static Regex DurationPattern { get; } = new(
+        @"^(?<hours>\d+):(?<minutes>\d{2}):(?<seconds>\d{2})(?:\.(?<fraction>\d{1,7}))?$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     /// <summary>独立读取原时间字段；旧无偏移日期按明确的来源时区解释。</summary>
     public LiveMarkerDocument Parse(ReadOnlySpan<byte> bytes, TimeZoneInfo sourceTimeZone)
     {
@@ -139,7 +147,7 @@ public sealed partial class LiveMarkerYamlParser
 
     private static DateTimeOffset ReadDateTime(string text, TimeZoneInfo sourceTimeZone)
     {
-        var match = TimestampPattern().Match(text);
+        var match = TimestampPattern.Match(text);
         if (!match.Success)
         {
             throw InvalidFile();
@@ -167,7 +175,7 @@ public sealed partial class LiveMarkerYamlParser
             return legacy;
         }
 
-        var match = DurationPattern().Match(text);
+        var match = DurationPattern.Match(text);
         if (!match.Success || !long.TryParse(match.Groups["hours"].Value, NumberStyles.None,
                 CultureInfo.InvariantCulture, out var hours) ||
             !int.TryParse(match.Groups["minutes"].Value, out var minutes) || minutes >= 60 ||
@@ -202,12 +210,4 @@ public sealed partial class LiveMarkerYamlParser
     }
 
     private static InfrastructureException InvalidFile() => new(MessageCode.LIVE_MARKER_FILE_INVALID);
-
-    [GeneratedRegex(@"^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?<zone>[Zz]|[+\-]\d{2}:\d{2})?$",
-        RegexOptions.CultureInvariant)]
-    private static partial Regex TimestampPattern();
-
-    [GeneratedRegex(@"^(?<hours>\d+):(?<minutes>\d{2}):(?<seconds>\d{2})(?:\.(?<fraction>\d{1,7}))?$",
-        RegexOptions.CultureInvariant)]
-    private static partial Regex DurationPattern();
 }

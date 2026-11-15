@@ -6,13 +6,19 @@ using Yohuke.LiveRecorder.Transcoding.Contracts;
 namespace Yohuke.LiveRecorder.Infrastructure.Transcoding;
 
 /// <summary>限制上传文件和 HLS 引用只能指向当前已验证成品集合。</summary>
-public static partial class TranscodeArtifactPolicy
+public static class TranscodeArtifactPolicy
 {
+    private static Regex FragmentName { get; } = new("^chunk_[0-9]{5,8}\\.m4s$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static Regex IntegerTag { get; } = new("^#EXT-X-(?:VERSION|TARGETDURATION|MEDIA-SEQUENCE):[0-9]+$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     /// <summary>拒绝路径、外部地址和非约定的文件名。</summary>
     public static void ValidateName(string fileName)
     {
         if (string.IsNullOrEmpty(fileName) || fileName.Length > 128
-            || fileName is not ("index.m3u8" or "init.mp4") && !FragmentName().IsMatch(fileName))
+            || fileName is not ("index.m3u8" or "init.mp4") && !FragmentName.IsMatch(fileName))
         {
             throw new InfrastructureException("转码文件名无效。");
         }
@@ -58,14 +64,14 @@ public static partial class TranscodeArtifactPolicy
             else if (!line.StartsWith('#'))
             {
                 ValidateName(line);
-                if (!hasMap || !pendingDuration || !FragmentName().IsMatch(line) || !names.Contains(line) || !references.Add(line))
+                if (!hasMap || !pendingDuration || !FragmentName.IsMatch(line) || !names.Contains(line) || !references.Add(line))
                 {
                     throw new InfrastructureException("转码清单引用无效。");
                 }
                 pendingDuration = false;
             }
             else if (line is not ("#EXT-X-ENDLIST" or "#EXT-X-INDEPENDENT-SEGMENTS" or "#EXT-X-PLAYLIST-TYPE:VOD")
-                && !IntegerTag().IsMatch(line))
+                && !IntegerTag.IsMatch(line))
             {
                 throw new InfrastructureException("转码清单包含不支持的标签。");
             }
@@ -75,10 +81,4 @@ public static partial class TranscodeArtifactPolicy
             throw new InfrastructureException("转码完成清单与实际播放引用不一致。");
         }
     }
-
-    [GeneratedRegex("^chunk_[0-9]{5,8}\\.m4s$", RegexOptions.CultureInvariant)]
-    private static partial Regex FragmentName();
-
-    [GeneratedRegex("^#EXT-X-(?:VERSION|TARGETDURATION|MEDIA-SEQUENCE):[0-9]+$", RegexOptions.CultureInvariant)]
-    private static partial Regex IntegerTag();
 }

@@ -5,8 +5,13 @@ using Yohuke.LiveRecorder.Transcoding.Contracts;
 
 namespace Yohuke.LiveRecorder.Transcoding.Worker.Encoding;
 
-internal sealed partial class TranscodeOutputValidator(MediaInspector inspector)
+internal sealed class TranscodeOutputValidator(MediaInspector inspector)
 {
+    private static Regex InitializationUri { get; } = new("#EXT-X-MAP:URI=\"([^\"]+)\"", RegexOptions.Compiled);
+
+    private static Regex SafeFileName { get; } = new("^(init\\.mp4|chunk_[0-9]+\\.m4s)$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     internal async Task<TranscodeOutputManifest> ValidateAsync(string ffprobePath, string directory,
         TranscodeMediaInfo source, TranscodeMediaInfo expected, string encoder, CancellationToken cancellationToken)
     {
@@ -18,8 +23,8 @@ internal sealed partial class TranscodeOutputValidator(MediaInspector inspector)
         }
         var names = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(line => !line.StartsWith('#')).ToList();
-        names.AddRange(InitializationUri().Matches(text).Select(match => match.Groups[1].Value));
-        if (names.Count < 2 || names.Any(name => !SafeFileName().IsMatch(name)))
+        names.AddRange(InitializationUri.Matches(text).Select(match => match.Groups[1].Value));
+        if (names.Count < 2 || names.Any(name => !SafeFileName.IsMatch(name)))
         {
             throw new InvalidDataException("转码清单包含无效的本地文件引用");
         }
@@ -58,10 +63,4 @@ internal sealed partial class TranscodeOutputValidator(MediaInspector inspector)
         }
         return manifest;
     }
-
-    [GeneratedRegex("#EXT-X-MAP:URI=\"([^\"]+)\"")]
-    private static partial Regex InitializationUri();
-
-    [GeneratedRegex("^(init\\.mp4|chunk_[0-9]+\\.m4s)$", RegexOptions.CultureInvariant)]
-    private static partial Regex SafeFileName();
 }
