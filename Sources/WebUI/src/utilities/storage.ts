@@ -1,6 +1,6 @@
 import type { StorageVolume } from '@/models/media'
 
-export type StorageCategory = 'recordings' | 'clips' | 'trash' | 'other' | 'free'
+export type StorageCategory = 'recordings' | 'derived' | 'clips' | 'trash' | 'other' | 'free'
 
 export interface StorageSegment
 {
@@ -20,7 +20,7 @@ export function storageSegments(volume: StorageVolume): StorageSegment[]
   const free = Math.min(total, nonnegative(volume.freeBytes))
   let remaining = total - free
   const categories: [StorageCategory, number][] = [
-    ['recordings', volume.recordingBytes], ['clips', volume.clipBytes], ['trash', volume.trashBytes],
+    ['recordings', volume.recordingBytes], ['derived', volume.derivedBytes ?? 0], ['clips', volume.clipBytes], ['trash', volume.trashBytes],
   ]
   const segments = categories.map(([id, value]) =>
   {

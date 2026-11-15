@@ -10,9 +10,11 @@ using Yohuke.LiveRecorder.Application.Media;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
+using Yohuke.LiveRecorder.Infrastructure.Library;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
 using Yohuke.LiveRecorder.Infrastructure.Storage;
+using Yohuke.LiveRecorder.Infrastructure.Transcoding;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Jobs;
 
@@ -206,10 +208,13 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
                     manifest.Paths.Add(relative);
                     manifest.ArtifactLengths.Add(relative, new FileInfo(path).Length);
                     manifest.ArtifactLengths.Add(Path.GetRelativePath(paths.RecordsDirectory, output.IndexPath), new FileInfo(output.IndexPath).Length);
+                    var repairedId = job.Id + "_v" + manifest.Attempt + "_" + manifest.RepairedSegments.Count;
+                    manifest.RepairedAssetSources[repairedId] = TranscodeAssetRegistry.AssetId(session, segment);
                     manifest.RepairedSegments.Add(new()
                     {
-                        Id = job.Id + "_v" + manifest.Attempt + "_" + manifest.RepairedSegments.Count,
+                        Id = repairedId,
                         SessionId = session.Id,
+                        AssetId = repairedId,
                         AttemptId = job.Id,
                         RelativePath = Path.GetRelativePath(sessionDirectory, path),
                         IndexRelativePath = Path.GetRelativePath(sessionDirectory, output.IndexPath),
@@ -283,6 +288,9 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
         }
         else if (job.Kind == "Repair")
         {
+            await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
+            var affectedAssets = job.SourceSegments.Select(segment => TranscodeAssetRegistry.AssetId(session, segment)).ToArray();
+            await new TranscodeLifecycle(context, paths).MarkDirtyAsync(affectedAssets, cancellationToken);
             session = await context.Collection<BroadcastSession>("sessions").Find(x => x.Id == job.SessionId).FirstAsync(cancellationToken);
             if (session.MediaRevision == job.SourceRevision + 1)
             {
@@ -298,6 +306,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
                 }
                 await RequireLeaseAsync(job, cancellationToken);
                 await SessionManifestFiles.WriteAsync(Path.Combine(sessionDirectory, "场次.json"), new SessionManifest { Session = session, Segments = published }, cancellationToken);
+                await new TranscodeLifecycle(context, paths).ReconcileUnderLibraryLockAsync(cancellationToken, affectedAssets);
                 return;
             }
             if (session.MediaRevision != job.SourceRevision)
@@ -309,6 +318,8 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
             {
                 Id = job.Id + "_v" + manifest.Attempt + "_keep_" + item.Id,
                 SessionId = item.SessionId,
+                AssetId = item.AssetId,
+                PendingTranscodeProfileIds = item.PendingTranscodeProfileIds.ToList(),
                 AttemptId = item.AttemptId,
                 RelativePath = item.RelativePath,
                 IndexRelativePath = item.IndexRelativePath,
@@ -321,6 +332,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
                 Revision = job.SourceRevision + 1,
                 Codec = item.Codec
             }).ToList();
+            await InheritTranscodeIntentsAsync(job, session, manifest, settings, cancellationToken);
             next.AddRange(manifest.RepairedSegments);
             var segments = context.Collection<RecordingSegment>("segments");
             foreach (var item in next)
@@ -356,6 +368,38 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
             session.MediaRevisionAttempt = manifest.Attempt;
             await RequireLeaseAsync(job, cancellationToken);
             await SessionManifestFiles.WriteAsync(Path.Combine(sessionDirectory, "场次.json"), new SessionManifest { Session = session, Segments = next }, cancellationToken);
+            await new TranscodeLifecycle(context, paths).ReconcileUnderLibraryLockAsync(cancellationToken, affectedAssets);
+        }
+    }
+
+    private async Task InheritTranscodeIntentsAsync(MediaJob job, BroadcastSession session, JobOutputManifest manifest,
+        ServerSettings settings, CancellationToken cancellationToken)
+    {
+        var enabled = settings.Transcoding.Profiles.Where(x => x.Enabled).Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var segment in manifest.RepairedSegments)
+        {
+            segment.AssetId = TranscodeAssetRegistry.AssetId(session, segment);
+            if (session.AutoTranscodeEligible)
+            {
+                segment.PendingTranscodeProfileIds = enabled.ToList();
+                continue;
+            }
+            if (!manifest.RepairedAssetSources.TryGetValue(segment.Id, out var assetId))
+            {
+                var source = job.SourceSegments.Where(x => x.StartOffsetMs <= segment.StartOffsetMs + 1
+                    && x.StartOffsetMs + x.DurationMs > segment.StartOffsetMs).OrderByDescending(x => x.StartOffsetMs).FirstOrDefault();
+                if (source is null)
+                {
+                    continue;
+                }
+                assetId = TranscodeAssetRegistry.AssetId(session, source);
+            }
+            var jobs = await context.Collection<TranscodeJob>("transcodeJobs")
+                .Find(x => x.AssetId == assetId && !x.CancelRequested).ToListAsync(cancellationToken);
+            var renditions = await context.Collection<PlaybackRendition>("playbackRenditions")
+                .Find(x => x.AssetId == assetId && x.State == "Ready").ToListAsync(cancellationToken);
+            segment.PendingTranscodeProfileIds = jobs.Select(x => x.Profile.Id).Concat(renditions.Select(x => x.ProfileId))
+                .Where(enabled.Contains).Distinct(StringComparer.Ordinal).ToList();
         }
     }
 

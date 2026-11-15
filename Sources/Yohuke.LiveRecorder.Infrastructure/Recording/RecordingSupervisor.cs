@@ -14,6 +14,7 @@ using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Infrastructure.Library;
 using Yohuke.LiveRecorder.Infrastructure.Storage;
+using Yohuke.LiveRecorder.Infrastructure.Transcoding;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Recording;
 
@@ -520,7 +521,8 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
             LiveTime = liveTime,
             StartedAtUtc = now,
             LastMediaAtUtc = now,
-            HasDanmu = target.RecordDanmu ?? settings.RecordDanmu
+            HasDanmu = target.RecordDanmu ?? settings.RecordDanmu,
+            AutoTranscodeEligible = true
         };
         var name = TimeZoneInfo.ConvertTimeFromUtc(now, zone).ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture);
         var streamerDirectory = string.IsNullOrEmpty(target.DirectoryName) ? MediaPaths.SafeName(room.Name) + "_" + room.Uid : target.DirectoryName;
@@ -638,6 +640,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                 await context.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == manifest.Session.Id, manifest.Session, new ReplaceOptions { IsUpsert = true }, cancellationToken);
                 foreach (var segment in manifest.Segments)
                 {
+                    segment.AssetId = TranscodeAssetRegistry.AssetId(manifest.Session, segment);
                     segment.IsClosed = true;
                     await context.Collection<RecordingSegment>("segments").ReplaceOneAsync(x => x.Id == segment.Id, segment, new ReplaceOptions { IsUpsert = true }, cancellationToken);
                 }

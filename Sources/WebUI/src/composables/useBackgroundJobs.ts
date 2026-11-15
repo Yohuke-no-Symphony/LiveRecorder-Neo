@@ -1,6 +1,8 @@
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AiAnalysisAPI } from '@/apis/AiAnalysisAPI'
+import { TranscodingAPI } from '@/apis/TranscodingAPI'
+import type { TranscodeJob } from '@/models/transcoding'
 import { MediaAPI } from '@/apis/MediaAPI'
 import type { AiAnalysisJob } from '@/models/aiAnalysis'
 import type { BackgroundJob } from '@/models/backgroundJob'
@@ -13,6 +15,8 @@ export function useBackgroundJobs()
   const auth = useAuthStore()
   const { t } = useI18n()
   const mediaJobs = ref<MediaJob[]>([])
+  const transcodeJobs = ref<TranscodeJob[]>([])
+  const transcodeError = ref('')
   const aiJobs = ref<AiAnalysisJob[]>([])
   const loading = ref(false)
   const actionKey = ref('')
@@ -21,11 +25,12 @@ export function useBackgroundJobs()
   const actionError = ref('')
   const actionErrorKey = ref('')
   const visibleAiJobs = computed(() => aiJobs.value.filter(job => job.purpose === 'LiveMarkers' ? auth.canViewRecordings : auth.canViewAnalytics))
-  const error = computed(() => [actionError.value, mediaError.value, aiError.value].filter(Boolean).join(' · '))
+  const error = computed(() => [actionError.value, mediaError.value, aiError.value, transcodeError.value].filter(Boolean).join(' · '))
   const jobs = computed<BackgroundJob[]>(() =>
   {
     const values: BackgroundJob[] = mediaJobs.value.map(job => ({ kind: 'media', job }))
     values.push(...visibleAiJobs.value.map(job => ({ kind: 'ai' as const, job })))
+    if (auth.isAdmin) { values.push(...transcodeJobs.value.map(job => ({ kind: 'transcode' as const, job }))) }
     return values.sort((a, b) => b.job.createdAtUtc.localeCompare(a.job.createdAtUtc))
   })
   const identity = computed(() => JSON.stringify([auth.user?.id, auth.user?.status, auth.user?.role, [...(auth.user?.permissions ?? [])].sort()]))
@@ -57,6 +62,7 @@ export function useBackgroundJobs()
     loading.value = true
     mediaError.value = ''
     aiError.value = ''
+    transcodeError.value = ''
     const current = () => isCurrent(context) && request === requestRevision
     const mediaLoad = MediaAPI.jobs(controller.signal).then(value =>
     {
@@ -86,7 +92,14 @@ export function useBackgroundJobs()
         aiError.value = errorMessage(value)
       }
     }) : Promise.resolve()
-    await Promise.all([mediaLoad, aiLoad])
+    const transcodeLoad = auth.isAdmin ? TranscodingAPI.jobs(controller.signal).then(value =>
+    {
+      if (current() && auth.isAdmin) { transcodeJobs.value = value }
+    }).catch(value =>
+    {
+      if (current()) { transcodeJobs.value = []; transcodeError.value = errorMessage(value) }
+    }) : Promise.resolve()
+    await Promise.all([mediaLoad, aiLoad, transcodeLoad])
     if (current())
     {
       loading.value = false
@@ -107,7 +120,7 @@ export function useBackgroundJobs()
     {
       return
     }
-    if (entry.kind === 'ai' && (action !== 'cancel' || !canGenerateAiJob(entry.job) || !['Queued', 'Running'].includes(job.state) || job.cancelRequested || entry.job.phase === 'Publishing'))
+    if (entry.kind === 'ai' && (action !== 'cancel' || !canGenerateAiJob(entry.job) || !['Queued', 'Running'].includes(job.state) || entry.job.cancelRequested || entry.job.phase === 'Publishing'))
     {
       return
     }
@@ -115,13 +128,19 @@ export function useBackgroundJobs()
     {
       return
     }
+    if (entry.kind === 'transcode' && (!auth.isAdmin || action === 'cancel' && (entry.job.cancelRequested || !['Queued', 'Running', 'Publishing'].includes(job.state)))) { return }
     const context = contextRevision
     actionKey.value = `${entry.kind}:${job.id}`
     actionError.value = ''
     actionErrorKey.value = ''
     try
     {
-      if (entry.kind === 'ai')
+      if (entry.kind === 'transcode')
+      {
+        if (action === 'cancel') { await TranscodingAPI.cancelJob(job.id) }
+        else { await TranscodingAPI.retryJob(job.id) }
+      }
+      else if (entry.kind === 'ai')
       {
         await AiAnalysisAPI.cancel(job.id)
       }
@@ -167,12 +186,14 @@ export function useBackgroundJobs()
     controller?.abort()
     mediaJobs.value = []
     aiJobs.value = []
+    transcodeJobs.value = []
     loading.value = false
     actionKey.value = ''
     actionError.value = ''
     actionErrorKey.value = ''
     mediaError.value = ''
     aiError.value = ''
+    transcodeError.value = ''
     void load()
   }, { flush: 'sync' })
 

@@ -51,6 +51,7 @@ export const componentsZh = {
     unavailable: '暂不可用',
   },
   storage: {
+    derived: '转码成品 {bytes}',
     disk: '磁盘', usedPercent: '磁盘已用 {percent}%', freeBytes: '{bytes} 空余', used: '占用 {bytes}',
     recordingSpace: '录播空间', dataSpace: '数据空间',
     recordings: '录播文件 {bytes}', clips: '个人切片 {bytes}', other: '其他占用 {bytes}',
@@ -168,6 +169,7 @@ export const componentsEn: MessageSchema<typeof componentsZh> = {
     unavailable: 'Temporarily unavailable',
   },
   storage: {
+    derived: 'Transcoded media {bytes}',
     disk: 'Disk', usedPercent: 'Disk {percent}% used', freeBytes: '{bytes} free', used: 'Used {bytes}',
     recordingSpace: 'Recording storage', dataSpace: 'Data storage',
     recordings: 'Recordings {bytes}', clips: 'Personal clips {bytes}', other: 'Other usage {bytes}',
@@ -287,6 +289,7 @@ export const componentsJa: MessageSchema<typeof componentsZh> = {
     unavailable: '一時的に利用不可',
   },
   storage: {
+    derived: '変換済み動画 {bytes}',
     disk: 'ディスク', usedPercent: 'ディスク使用率 {percent}%', freeBytes: '空き {bytes}', used: '使用中 {bytes}',
     recordingSpace: '録画ストレージ', dataSpace: 'データストレージ',
     recordings: '録画ファイル {bytes}', clips: '個人クリップ {bytes}', other: 'その他の使用量 {bytes}',

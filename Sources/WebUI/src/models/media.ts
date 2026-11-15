@@ -1,3 +1,5 @@
+import type { PlaybackQuality } from './transcoding'
+
 export interface Entity
 {
   id: string
@@ -75,6 +77,14 @@ export interface SessionDetail
 
 export interface PlaybackWindow
 {
+  timestampMapping?: 'HlsInitPts'
+  mediaStartOffsetMs?: number
+  mediaEndTimestampMs?: number
+  requestedQualityId?: string
+  effectiveQualityId?: string
+  artifactVersion?: string
+  fallbackReason?: string
+  qualities?: PlaybackQuality[]
   url: string | null
   startOffsetMs: number
   endOffsetMs: number
@@ -180,6 +190,7 @@ export interface StorageVolume
   freeBytes: number
   cacheBytes: number
   recordingBytes: number
+  derivedBytes?: number
   clipBytes: number
   otherBytes: number
 }

@@ -95,14 +95,18 @@ public static class LibraryEndpoints
             var path = await covers.GetAsync(id, ct);
             return path is null ? Results.NotFound() : Results.File(path, ImageType(path));
         });
-        viewing.MapPost("/sessions/{id}/playback", async (string id, PlaybackRequest request, PlaybackService playback, ContinuousPlaybackService continuous, CancellationToken ct) =>
+        viewing.MapPost("/sessions/{id}/playback", async (string id, PlaybackRequest request, RenditionPlaybackService playback, CancellationToken ct) =>
         {
-            var window = await continuous.TryOpenAsync(id, request.OffsetMs, ct);
-            window ??= request.Prefetch
-                ? await playback.TryPrefetchAsync(id, request.OffsetMs, ct)
-                : await playback.OpenAsync(id, request.OffsetMs, ct);
+            var window = await playback.OpenAsync(id, request.OffsetMs, request.QualityId, request.Prefetch, ct);
             return window is null ? Results.NoContent() : Results.Ok(window);
         });
+        viewing.MapMethods("/sessions/{id}/renditions/{segmentId}/{renditionId}/{fileName}", [HttpMethods.Get, HttpMethods.Head],
+            async (string id, string segmentId, string renditionId, string fileName, Yohuke.LiveRecorder.Infrastructure.Transcoding.TranscodingCoordinator transcoding, CancellationToken ct) =>
+            {
+                var asset = await transcoding.ResolveRenditionAssetAsync(id, segmentId, renditionId, fileName, ct);
+                return new MediaFileResult(asset.Path, fileName == "index.m3u8" ? "application/vnd.apple.mpegurl" : "video/mp4",
+                    MediaTrafficKind.Playback, contentHash: asset.ContentHash);
+            });
         viewing.MapMethods("/sessions/{id}/playback/{segmentId}/{sourceKey}/index.m3u8", [HttpMethods.Get, HttpMethods.Head],
             async (string id, string segmentId, string sourceKey, ContinuousPlaybackService continuous, CancellationToken ct) =>
             {

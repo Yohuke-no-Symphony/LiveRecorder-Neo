@@ -12,6 +12,12 @@
               <a :href="recordingUrl(entry.job.sessionId)" target="_blank" rel="noopener noreferrer" class="job-title font-weight-medium">{{ entry.job.title || t('components.library.unnamedSession') }}</a>
               <div class="job-type text-caption muted mt-1">{{ t(entry.job.purpose === 'LiveMarkers' ? 'liveMarkers.generate' : 'replay.taskType') }}</div>
             </template>
+            <template v-else-if="entry.kind === 'transcode'">
+              <a :href="recordingUrl(entry.job.sessionId)" target="_blank" rel="noopener noreferrer" class="job-title font-weight-medium">{{ entry.job.title || t('components.library.unnamedSession') }}</a>
+              <div class="text-caption muted mt-1">{{ t('transcoding.title') }} · {{ entry.job.profileName }}<template v-if="entry.job.stage"> · {{ transcodeStage(entry.job.stage) }}</template></div>
+              <div v-if="entry.job.workerId" class="text-caption muted">{{ t('transcoding.worker') }}: {{ entry.job.workerId }}</div>
+              <div v-if="entry.job.error" class="text-caption text-error mt-2">{{ entry.job.error }}</div>
+            </template>
             <template v-else>
               <router-link :to="`/sessions/${entry.job.sessionId}`" class="job-title font-weight-medium">{{ entry.job.title || kindLabels[entry.job.kind] || entry.job.kind }}</router-link>
               <div class="job-type text-caption muted mt-1">{{ kindLabels[entry.job.kind] || entry.job.kind }}<span v-if="entry.job.kind === 'Clip'"> · {{ entry.job.mode === 'Fast' ? t('views.jobs.fast') : t('views.jobs.exact') }}</span></div>
@@ -27,6 +33,10 @@
                 <v-btn variant="text" size="small" @click="selectedAiId = entry.job.id">{{ t(entry.job.purpose === 'LiveMarkers' ? 'liveMarkers.generationDetails' : 'replay.details') }}</v-btn>
                 <v-btn :href="router.resolve(aiJobResultLocation(entry.job)).href" target="_blank" rel="noopener noreferrer" variant="text" size="small" color="primary">{{ t(entry.job.purpose === 'LiveMarkers' ? 'liveMarkers.viewGenerated' : 'views.jobs.analysisResults') }}</v-btn>
                 <v-btn v-if="canGenerateAiJob(entry.job) && isActive(entry.job.state)" variant="text" size="small" :disabled="entry.job.cancelRequested || entry.job.phase === 'Publishing' || Boolean(actionKey)" :loading="actionKey === jobKey(entry)" @click="act(entry, 'cancel')">{{ entry.job.cancelRequested ? t('views.jobs.cancelling') : t('views.common.cancel') }}</v-btn>
+              </template>
+              <template v-else-if="entry.kind === 'transcode'">
+                <v-btn v-if="auth.isAdmin && isActive(entry.job.state)" variant="text" size="small" :disabled="entry.job.cancelRequested || Boolean(actionKey)" :loading="actionKey === jobKey(entry)" @click="act(entry, 'cancel')">{{ entry.job.cancelRequested ? t('views.jobs.cancelling') : t('views.common.cancel') }}</v-btn>
+                <v-btn v-if="auth.isAdmin && ['Failed', 'Cancelled', 'Skipped'].includes(entry.job.state)" variant="text" size="small" color="primary" :disabled="Boolean(actionKey)" :loading="actionKey === jobKey(entry)" @click="act(entry, 'retry')">{{ t('views.common.retry') }}</v-btn>
               </template>
               <template v-else>
                 <v-btn v-if="isActive(entry.job.state)" variant="text" size="small" :disabled="entry.job.cancelRequested || Boolean(actionKey)" :loading="actionKey === jobKey(entry)" @click="act(entry, 'cancel')">{{ entry.job.cancelRequested ? t('views.jobs.cancelling') : t('views.common.cancel') }}</v-btn>
@@ -74,6 +84,14 @@ const detailsOpen = computed({ get: () => Boolean(selectedAiJob.value), set: val
 const detailsError = computed(() => actionErrorKey.value === `ai:${selectedAiId.value}` ? actionError.value : '')
 const canCancelSelected = computed(() => Boolean(selectedAiJob.value && canGenerateAiJob(selectedAiJob.value) && isActive(selectedAiJob.value.state) && selectedAiJob.value.phase !== 'Publishing' && !selectedAiJob.value.cancelRequested && !actionKey.value))
 
+function transcodeStage(stage: string): string
+{
+  if (stage === 'WaitingForWorker') { return t('transcoding.waitingWorker') }
+  if (stage === 'Skipped') { return t('transcoding.skipped') }
+  const states: Record<string, string> = { Completed: 'completed', Cancelled: 'canceled', Failed: 'failed', Running: 'running', SourceUnavailable: 'unavailable' }
+  if (states[stage]) { return t(`components.status.${states[stage]}`) }
+  return ['Downloading', 'WaitingForGpu', 'Encoding', 'Uploading', 'Validating', 'Publishing'].includes(stage) ? t(`transcoding.stage${stage}`) : stage
+}
 function isActive(state: string): boolean
 {
   return ['Queued', 'Running', 'Publishing'].includes(state)

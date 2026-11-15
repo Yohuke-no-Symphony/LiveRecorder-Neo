@@ -18,4 +18,6 @@ pwsh ./release.ps1 --version 1.2.3
 pwsh ./release.ps1 --all --version 1.2.3
 ```
 
+独立转码节点使用 `pwsh ./release-worker.ps1 --all --version 1.2.3` 发布，产物位于 `Artifacts/worker/<runtime>/`。主站接入配置见[转码部署说明](Sources/README.md#分布式转码)，节点启动和 GPU 要求见 [Worker 说明](Sources/Yohuke.LiveRecorder.Transcoding.Worker/README.md)。
+
 项目使用 [GPLv3](LICENSE)。FLV 组件固定源码来源及修改说明位于 `Sources/ThirdParty/BililiveRecorder.Flv/NOTICE`。

@@ -31,4 +31,6 @@ public sealed class BroadcastSession : Entity
     public List<string> GroupedSessionIds { get; set; } = [];
     public List<EventArchiveSource> EventSources { get; set; } = [];
     public bool ProjectionReady { get; set; } = true;
+    public bool AutoTranscodeEligible { get; set; }
+    public bool AutoTranscodeScheduled { get; set; }
 }

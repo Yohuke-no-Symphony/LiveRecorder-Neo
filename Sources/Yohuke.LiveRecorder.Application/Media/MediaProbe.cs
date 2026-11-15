@@ -10,4 +10,8 @@ public sealed class MediaProbe
     public int Height { get; set; }
     public double FrameRate { get; set; }
     public bool HasAudio { get; set; }
+    public long VideoBitrate { get; set; }
+    public long AudioBitrate { get; set; }
+    public double SourceStartMs { get; set; }
+    public bool IsHdr { get; set; }
 }

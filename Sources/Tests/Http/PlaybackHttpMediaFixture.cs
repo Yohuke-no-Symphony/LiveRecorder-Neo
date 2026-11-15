@@ -41,7 +41,8 @@ internal static class PlaybackHttpMediaFixture
         }
     }
 
-    internal static async Task<BroadcastSession> SeedRecordingAsync(HttpServerFixture fixture, int durationSeconds, bool isClosed = true)
+    internal static async Task<BroadcastSession> SeedRecordingAsync(HttpServerFixture fixture, int durationSeconds, bool isClosed = true,
+        int bFrames = 0)
     {
         var started = DateTime.UtcNow.AddMinutes(-10);
         var session = new BroadcastSession
@@ -60,7 +61,8 @@ internal static class PlaybackHttpMediaFixture
             "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=10",
             "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000",
             "-t", durationSeconds.ToString(CultureInfo.InvariantCulture),
-            "-c:v", "libx264", "-preset", "ultrafast", "-g", "10", "-pix_fmt", "yuv420p", "-c:a", "aac", sample
+            "-c:v", "libx264", "-preset", bFrames > 0 ? "medium" : "ultrafast", "-bf", bFrames.ToString(CultureInfo.InvariantCulture),
+            "-g", "10", "-pix_fmt", "yuv420p", "-c:a", "aac", sample
         ]);
         using var source = new PlaybackRecordingSource(await File.ReadAllBytesAsync(sample));
         using var client = new HttpClient(source, disposeHandler: false);

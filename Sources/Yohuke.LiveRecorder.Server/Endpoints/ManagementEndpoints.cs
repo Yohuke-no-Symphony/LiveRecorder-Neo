@@ -140,6 +140,14 @@ public static class ManagementEndpoints
 
     private static void Validate(ServerSettings settings)
     {
+        try
+        {
+            Yohuke.LiveRecorder.Infrastructure.Transcoding.TranscodingSettingsPolicy.Validate(settings.Transcoding);
+        }
+        catch (ArgumentException)
+        {
+            throw new InfrastructureException(MessageCode.REQUEST_INVALID);
+        }
         BandwidthSettingsPolicy.Validate(settings.Bandwidth);
         if (settings.Ai is null)
         {

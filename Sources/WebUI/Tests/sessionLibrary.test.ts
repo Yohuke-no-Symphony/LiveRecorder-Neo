@@ -9,7 +9,7 @@ import ConfirmDialog from '../src/components/common/ConfirmDialog.vue'
 import type { BroadcastSession } from '../src/models/media'
 import { i18n } from '../src/plugins/i18n'
 
-const { authState, deleteSession, trashSessions, setSessionPermanent } = vi.hoisted(() => ({ authState: { isAdmin: true, manageRecordings: false, viewAnalytics: false }, deleteSession: vi.fn(), trashSessions: vi.fn(), setSessionPermanent: vi.fn() }))
+const { createTranscodeJobs, settings, authState, deleteSession, trashSessions, setSessionPermanent } = vi.hoisted(() => ({ createTranscodeJobs: vi.fn(), settings: vi.fn(), authState: { isAdmin: true, manageRecordings: false, viewAnalytics: false }, deleteSession: vi.fn(), trashSessions: vi.fn(), setSessionPermanent: vi.fn() }))
 vi.mock('../src/stores/auth', async () =>
 {
   const { reactive } = await import('vue')
@@ -20,11 +20,13 @@ vi.mock('../src/stores/auth', async () =>
   })
   return { useAuthStore: () => auth }
 })
-vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { cover: (id: string) => `/cover/${id}`, deleteSession, trashSessions, setSessionPermanent } }))
+vi.mock('../src/apis/TranscodingAPI', () => ({ TranscodingAPI: { createJobs: createTranscodeJobs } }))
+vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { settings, cover: (id: string) => `/cover/${id}`, deleteSession, trashSessions, setSessionPermanent } }))
 
 const mounted: VueWrapper[] = []
 const container = { template: '<div><slot /></div>' }
 const stubs = {
+  ContentCard: { template: '<section><slot /><slot name="actions" /></section>' }, VCheckbox: true, VProgressLinear: true,
   VCard: container, VImg: container, VChip: container, VIcon: true, VSpacer: true, VDivider: true, VList: container,
   VBtn: { props: ['disabled', 'loading'], template: '<button :disabled="disabled || loading"><slot /></button>' },
   VListItem: { props: ['title', 'disabled'], template: '<button role="menuitem" :disabled="disabled">{{ title }}</button>' },
@@ -79,6 +81,8 @@ async function selectAll(wrapper: VueWrapper): Promise<void>
 
 beforeEach(() =>
 {
+  settings.mockResolvedValue({})
+  createTranscodeJobs.mockReset().mockResolvedValue({ queued: 2 })
   authState.isAdmin = true
   authState.manageRecordings = false
   authState.viewAnalytics = false
@@ -319,5 +323,34 @@ describe('录播库操作', () =>
       await nextTick()
       expect(wrapper.find(`button[aria-label="${name}"]`).exists()).toBe(true)
     }
+  })
+})
+
+
+describe('录播补转', () =>
+{
+  it('批量补转仅提交已结束的选中录播，不触发删除接口', async () =>
+  {
+    const { wrapper } = await start()
+    await selectAll(wrapper)
+    await button(wrapper, '批量补转').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="dialog"]').text()).toContain('2 场录播')
+    await button(wrapper, '创建任务').trigger('click')
+    await flushPromises()
+    expect(createTranscodeJobs).toHaveBeenCalledWith(['a', 'b'], ['720p'], false)
+    expect(deleteSession).not.toHaveBeenCalled()
+    expect(trashSessions).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('已提交转码任务')
+  })
+
+  it('具备录播管理权限的非管理员不显示补转入口', async () =>
+  {
+    authState.isAdmin = false
+    authState.manageRecordings = true
+    const { wrapper } = await start()
+    await selectAll(wrapper)
+    expect(wrapper.text()).not.toContain('批量补转')
+    expect(createTranscodeJobs).not.toHaveBeenCalled()
   })
 })

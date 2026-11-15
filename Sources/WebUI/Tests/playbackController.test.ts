@@ -28,7 +28,7 @@ const hlsState = vi.hoisted(() => ({ supported: true, instances: [] as HlsDouble
 vi.mock('hls.js', () => ({ default: class
 {
   static isSupported() { return hlsState.supported }
-  static Events = { MANIFEST_PARSED: 'manifest', ERROR: 'error' }
+  static Events = { MANIFEST_PARSED: 'manifest', INIT_PTS_FOUND: 'initPts', ERROR: 'error' }
   loadingEnabled = true
   bufferingEnabled = true
   listeners = new Map<string, (event: string, data?: unknown) => void>()
@@ -303,6 +303,84 @@ describe('暂停预览的媒体预读', () =>
     expect(state.loadWindow).toHaveBeenCalledTimes(1)
   })
 
+  it.each(['hlsjs', 'native'])('%s 实际媒体短于全场时间时，尾部预览按同一媒体边界完成并响应时长更新', async mode =>
+  {
+    hlsState.supported = mode === 'hlsjs'
+    const durationMs = 95288
+    const loadWindow = vi.fn<(offsetMs: number, options?: PlaybackLoadOptions) => Promise<PlaybackWindow | undefined>>()
+      .mockResolvedValue({ ...playback(0, durationMs), durationMs })
+    const state = setupPlayer(loadWindow, { durationMs, initialOffsetMs: 95287 })
+    await flushPromises()
+    const element = state.video.value!
+    let mediaDuration = 95
+    let mediaTime = 19
+    Object.defineProperty(element, 'duration', { configurable: true, get: () => mediaDuration })
+    Object.defineProperty(element, 'currentTime', { configurable: true, get: () => mediaTime, set: value => { mediaTime = Math.min(value, mediaDuration) } })
+    ready(state)
+    expect(element.currentTime).toBeCloseTo(94.999, 6)
+    expect(state.controller.loading.value).toBe(false)
+    expect(state.currentMs.value).toBe(95287)
+    mediaDuration = 95.14
+    element.dispatchEvent(new Event('durationchange'))
+    element.dispatchEvent(new Event('seeked'))
+    expect(element.currentTime).toBeCloseTo(95.139, 6)
+    expect(state.controller.loading.value).toBe(false)
+    expect(state.currentMs.value).toBe(95287)
+    expect(loadWindow).toHaveBeenCalledTimes(1)
+    if (mode === 'hlsjs') { expect(hlsState.instances[0]!.bufferingEnabled).toBe(false) }
+    await state.controller.togglePlay()
+    Object.defineProperty(element, 'ended', { configurable: true, value: true })
+    element.dispatchEvent(new Event('ended'))
+    await flushPromises()
+    expect(state.currentMs.value).toBe(durationMs)
+    expect(state.controller.playing.value).toBe(false)
+    expect(loadWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it('冷跳不受局部seekable或buffered范围限制，未知媒体时长也不截断目标', async () =>
+  {
+    const state = setupPlayer(vi.fn().mockResolvedValue(playback(0, 120000)), { initialOffsetMs: 50000 })
+    await flushPromises()
+    const element = state.video.value!
+    const partial = { length: 1, start: () => 0, end: () => 6 }
+    Object.defineProperty(element, 'seekable', { configurable: true, value: partial })
+    Object.defineProperty(element, 'buffered', { configurable: true, value: partial })
+    Object.defineProperty(element, 'duration', { configurable: true, value: 120 })
+    ready(state)
+    expect(element.currentTime).toBe(50)
+    Object.defineProperty(element, 'duration', { configurable: true, value: Number.POSITIVE_INFINITY })
+    await state.controller.seek(90000)
+    ready(state)
+    expect(element.currentTime).toBe(90)
+    expect(state.loadWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it('时长在定位之后才确定时重新约束目标，正常播放中的durationchange不会回退旧目标', async () =>
+  {
+    const state = setupPlayer(vi.fn().mockResolvedValue(playback(0, 120000)), { initialOffsetMs: 100000 })
+    await flushPromises()
+    const element = state.video.value!
+    Object.defineProperty(element, 'readyState', { configurable: true, value: 1 })
+    element.dispatchEvent(new Event('loadedmetadata'))
+    expect(element.currentTime).toBe(100)
+    Object.defineProperty(element, 'duration', { configurable: true, value: 95 })
+    element.currentTime = 95
+    Object.defineProperty(element, 'readyState', { configurable: true, value: 2 })
+    element.dispatchEvent(new Event('durationchange'))
+    expect(state.controller.loading.value).toBe(false)
+    expect(state.currentMs.value).toBe(100000)
+    await state.controller.seek(10000)
+    ready(state)
+    await state.controller.togglePlay()
+    element.currentTime = 20
+    tick(1000)
+    Object.defineProperty(element, 'duration', { configurable: true, value: 96 })
+    element.dispatchEvent(new Event('durationchange'))
+    expect(element.currentTime).toBe(20)
+    expect(state.currentMs.value).toBe(20000)
+    expect(state.controller.loading.value).toBe(false)
+  })
+
   it('恢复播放时即使等待数据也先恢复加载，不会被 loading 状态挡住', async () =>
   {
     const state = setupPlayer()
@@ -436,6 +514,60 @@ describe('播放源定位与请求取消', () =>
     expect(offsetMs.value).toBe(20000)
     expect(element.currentTime).toBe(20)
     expect(loadWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it('用户跳到全场末尾会加载最后物理段并定位末尾帧，仍只做暂停预览', async () =>
+  {
+    const { offsetMs, loadWindow, player, element } = setupControlledPlayer()
+    await flushPromises()
+    readyVideo(element)
+    await player.vm.seek(19000)
+    loadWindow.mockResolvedValueOnce(playback(90000, 120000))
+    await player.vm.seek(120000)
+    readyVideo(element)
+    expect(offsetMs.value).toBe(119999)
+    expect(loadWindow.mock.calls.at(-1)?.[0]).toBe(119999)
+    expect(element.currentTime).toBe(29.999)
+    expect(hlsState.instances).toHaveLength(2)
+    expect(hlsState.instances[1]!.config.startPosition).toBe(29.999)
+    expect(hlsState.instances[1]!.config.maxBufferLength).toBe(1)
+    expect(hlsState.instances[1]!.pauseBuffering).toHaveBeenCalled()
+    expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
+  })
+
+  it('用户在断流起止边界导航不会偏移，跨出空档正常加载对应分段', async () =>
+  {
+    const { offsetMs, loadWindow, wrapper, player, element } = setupControlledPlayer()
+    await flushPromises()
+    readyVideo(element)
+    await player.vm.seek(40000)
+    expect(offsetMs.value).toBe(40000)
+    expect(wrapper.find('.gap-overlay').exists()).toBe(true)
+    expect(loadWindow).toHaveBeenCalledTimes(1)
+    loadWindow.mockResolvedValueOnce(playback(50000, 80000))
+    await player.vm.seek(50000)
+    readyVideo(element)
+    await flushPromises()
+    expect(offsetMs.value).toBe(50000)
+    expect(wrapper.find('.gap-overlay').exists()).toBe(false)
+    expect(element.currentTime).toBe(0)
+    expect(loadWindow.mock.calls.at(-1)?.[0]).toBe(50000)
+  })
+
+  it('自动播放到录像末尾仍停止播放，不重新加载末尾预览', async () =>
+  {
+    const loadWindow = vi.fn<(offsetMs: number, options?: PlaybackLoadOptions) => Promise<PlaybackWindow | undefined>>().mockResolvedValue(playback(0, 30000))
+    const state = setupPlayer(loadWindow, { durationMs: 30000 })
+    await flushPromises()
+    ready(state)
+    await state.controller.togglePlay()
+    state.video.value!.currentTime = 30
+    tick(1000)
+    await flushPromises()
+    expect(state.currentMs.value).toBe(30000)
+    expect(state.controller.playing.value).toBe(false)
+    expect(loadWindow).toHaveBeenCalledTimes(1)
+    expect(hlsState.instances).toHaveLength(1)
   })
 
   it('真实父组件初始定位空档后自动跨出空档，只加载一次新窗口并继续播放', async () =>
@@ -816,5 +948,339 @@ describe('有界下一窗口预取', () =>
     Object.defineProperty(state.video.value!, 'error', { configurable: true, value: null })
     ready(state)
     expect(state.controller.error.value).toBe('')
+  })
+})
+
+describe('转码时间戳映射', () =>
+{
+  function mappedPlayback(baseStart = 10000 - 400 / 3): PlaybackWindow
+  {
+    return { ...playback(baseStart, 60000), mediaStartOffsetMs: 10000, timestampMapping: 'HlsInitPts', requestedQualityId: '720p', effectiveQualityId: '720p' }
+  }
+  function initPts(instance: HlsDouble, milliseconds: number, timescale = 48000): void
+  {
+    instance.emit('initPts', { id: 'main', initPTS: milliseconds / 1000 * timescale, timescale })
+  }
+
+  it.each(['beforeMetadata', 'afterMetadata'])('%s 冷启动使用有符号initPTS修正目标，元数据本身不会提前完成转码预览', async order =>
+  {
+    const state = setupPlayer(vi.fn().mockResolvedValue(mappedPlayback()), { initialOffsetMs: 19000 })
+    await flushPromises()
+    const instance = hlsState.instances[0]!
+    if (order === 'afterMetadata')
+    {
+      ready(state)
+      expect(state.controller.loading.value).toBe(true)
+      expect(instance.pauseBuffering).not.toHaveBeenCalled()
+    }
+    initPts(instance, -112)
+    ready(state)
+    expect(state.video.value!.currentTime).toBeCloseTo((19000 - (10000 - 400 / 3 - 112)) / 1000, 8)
+    expect(state.currentMs.value).toBe(19000)
+    expect(state.controller.loading.value).toBe(false)
+    expect(instance.pauseBuffering).toHaveBeenCalled()
+    expect(state.loadWindow).toHaveBeenCalledTimes(1)
+    expect(instance.destroy).not.toHaveBeenCalled()
+  })
+
+  it('同源后续seek与播放时钟使用有效偏移，等值事件不把播放拉回初始位置', async () =>
+  {
+    const state = setupPlayer(vi.fn().mockResolvedValue(mappedPlayback()), { initialOffsetMs: 19000 })
+    await flushPromises()
+    const instance = hlsState.instances[0]!
+    initPts(instance, 125)
+    ready(state)
+    await state.controller.seek(22000)
+    ready(state)
+    const expected = (22000 - (10000 - 400 / 3 + 125)) / 1000
+    expect(state.video.value!.currentTime).toBeCloseTo(expected, 8)
+    await state.controller.togglePlay()
+    state.video.value!.currentTime = expected + 1
+    initPts(instance, 125, 90000)
+    expect(state.video.value!.currentTime).toBeCloseTo(expected + 1, 8)
+    tick(1000)
+    expect(state.currentMs.value).toBeCloseTo(23000, 6)
+    expect(state.loadWindow).toHaveBeenCalledTimes(1)
+    expect(hlsState.instances).toHaveLength(1)
+  })
+
+  it('同源seek切换generation的同一事件中收到首次initPTS时不会丢失映射', async () =>
+  {
+    const state = setupPlayer(vi.fn().mockResolvedValue(mappedPlayback()), { initialOffsetMs: 19000 })
+    await flushPromises()
+    const navigation = state.controller.seek(22000)
+    initPts(hlsState.instances[0]!, -112)
+    await navigation
+    ready(state)
+    expect(state.video.value!.currentTime).toBeCloseTo((22000 - (10000 - 400 / 3 - 112)) / 1000, 8)
+    expect(state.currentMs.value).toBe(22000)
+    expect(state.controller.loading.value).toBe(false)
+    expect(state.loadWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it('播放中映射变化保留当前全场位置，待定位时则保留最新seek目标', async () =>
+  {
+    const state = setupPlayer(vi.fn().mockResolvedValue(mappedPlayback(10000)), { initialOffsetMs: 19000 })
+    await flushPromises()
+    const instance = hlsState.instances[0]!
+    initPts(instance, 0)
+    ready(state)
+    await state.controller.togglePlay()
+    state.video.value!.currentTime = 15
+    initPts(instance, 200)
+    expect(state.video.value!.currentTime).toBeCloseTo(14.8, 8)
+    ready(state)
+    tick(1000)
+    expect(state.currentMs.value).toBeCloseTo(25000, 6)
+    await state.controller.seek(27000)
+    initPts(instance, -100)
+    expect(state.video.value!.currentTime).toBeCloseTo(17.1, 8)
+    ready(state)
+    expect(state.currentMs.value).toBe(27000)
+    expect(state.loadWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it('映射基准不会扩大物理段范围，旧源事件无法修改新源', async () =>
+  {
+    const loadWindow = vi.fn<(offsetMs: number, options?: PlaybackLoadOptions) => Promise<PlaybackWindow | undefined>>()
+      .mockResolvedValueOnce(mappedPlayback(9000)).mockResolvedValueOnce(playback(0, 10000))
+    const state = setupPlayer(loadWindow, { initialOffsetMs: 19000 })
+    await flushPromises()
+    const old = hlsState.instances[0]!
+    initPts(old, -112)
+    ready(state)
+    await state.controller.seek(9500)
+    ready(state)
+    expect(loadWindow).toHaveBeenCalledTimes(2)
+    expect(state.video.value!.currentTime).toBe(9.5)
+    initPts(old, 5000)
+    expect(state.video.value!.currentTime).toBe(9.5)
+    expect(state.controller.loading.value).toBe(false)
+  })
+
+  it('忽略非main或非有限的时基，原画不应用转码事件', async () =>
+  {
+    const state = setupPlayer(vi.fn().mockResolvedValue(mappedPlayback()), { initialOffsetMs: 19000 })
+    await flushPromises()
+    const instance = hlsState.instances[0]!
+    ready(state)
+    for (const data of [{ id: 'audio', initPTS: 1, timescale: 1 }, { id: 'main', initPTS: Number.NaN, timescale: 1 }, { id: 'main', initPTS: 1, timescale: 0 }])
+    {
+      instance.emit('initPts', data)
+    }
+    expect(state.controller.loading.value).toBe(true)
+    initPts(instance, 0)
+    ready(state)
+    expect(state.controller.loading.value).toBe(false)
+    const original = setupPlayer()
+    await flushPromises()
+    ready(original)
+    initPts(hlsState.instances[1]!, 5000)
+    expect(original.video.value!.currentTime).toBe(0)
+    expect(original.controller.loading.value).toBe(false)
+  })
+
+  it('原生HLS保留服务端基准，无需等待仅hls.js提供的事件', async () =>
+  {
+    hlsState.supported = false
+    const state = setupPlayer(vi.fn().mockResolvedValue(mappedPlayback()), { initialOffsetMs: 19000 })
+    await flushPromises()
+    ready(state)
+    expect(state.video.value!.currentTime).toBeCloseTo((19000 - (10000 - 400 / 3)) / 1000, 8)
+    expect(state.controller.loading.value).toBe(false)
+    expect(state.loadWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it('动态PTS与较短媒体尾部同时出现时完成预览，后续时基变化不覆盖全场目标显示', async () =>
+  {
+    const window = { ...mappedPlayback(-400 / 3), mediaStartOffsetMs: 0, endOffsetMs: 95288, durationMs: 95288 }
+    const state = setupPlayer(vi.fn().mockResolvedValue(window), { durationMs: 95288, initialOffsetMs: 95287 })
+    await flushPromises()
+    const instance = hlsState.instances[0]!
+    Object.defineProperty(state.video.value!, 'duration', { configurable: true, value: 95 })
+    initPts(instance, -112)
+    ready(state)
+    expect(state.video.value!.currentTime).toBeCloseTo(94.999, 6)
+    expect(state.controller.loading.value).toBe(false)
+    expect(state.currentMs.value).toBe(95287)
+    initPts(instance, 0)
+    ready(state)
+    expect(state.video.value!.currentTime).toBeCloseTo(94.999, 6)
+    expect(state.controller.loading.value).toBe(false)
+    expect(state.currentMs.value).toBe(95287)
+    expect(state.loadWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    { mode: 'hlsjs', offset: -112, duration: 95.14, expected: 95.111 },
+    { mode: 'hlsjs', offset: 125, duration: 95.14, expected: 94.874 },
+    { mode: 'hlsjs', offset: -112, duration: 94, expected: 93.999 },
+    { mode: 'native', offset: 0, duration: 95.14, expected: 94.999 },
+  ])('$mode 音轨尾长于视频时按视频结束时间和 $offset ms 时基定位末帧', async ({ mode, offset, duration, expected }) =>
+  {
+    hlsState.supported = mode === 'hlsjs'
+    const window = { ...mappedPlayback(-400 / 3), mediaStartOffsetMs: 0, mediaEndTimestampMs: 95000, endOffsetMs: 95288, durationMs: 95288 }
+    const state = setupPlayer(vi.fn().mockResolvedValue(window), { durationMs: 95288, initialOffsetMs: 95287 })
+    await flushPromises()
+    Object.defineProperty(state.video.value!, 'duration', { configurable: true, value: duration })
+    if (mode === 'hlsjs') { initPts(hlsState.instances[0]!, offset) }
+    ready(state)
+    expect(state.video.value!.currentTime).toBeCloseTo(expected, 6)
+    expect(state.controller.loading.value).toBe(false)
+    expect(state.currentMs.value).toBe(95287)
+    state.video.value!.dispatchEvent(new Event('durationchange'))
+    expect(state.video.value!.currentTime).toBeCloseTo(expected, 6)
+    expect(state.controller.loading.value).toBe(false)
+    expect(state.loadWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it('原画缺少转码映射标记时不使用转码视频终点字段', async () =>
+  {
+    const state = setupPlayer(vi.fn().mockResolvedValue({ ...playback(0, 95288), mediaEndTimestampMs: 10000 }), { durationMs: 95288, initialOffsetMs: 95287 })
+    await flushPromises()
+    Object.defineProperty(state.video.value!, 'duration', { configurable: true, value: 95.14 })
+    ready(state)
+    expect(state.video.value!.currentTime).toBeCloseTo(95.139, 6)
+    expect(state.controller.loading.value).toBe(false)
+  })
+})
+
+describe('手动播放清晰度', () =>
+{
+  function qualityPlayback(quality = '720p', start = 0, effective = quality): PlaybackWindow
+  {
+    return { ...playback(start), url: `/api/${effective}/${start}/index.m3u8`, requestedQualityId: quality, effectiveQualityId: effective, artifactVersion: `${effective}-v1`, fallbackReason: effective === quality ? undefined : 'Pending', qualities: [
+      { id: 'original', name: '原画', available: true, state: 'Ready' }, { id: '720p', name: '720p', height: 720, available: true, state: 'Ready' }, { id: '1080p', name: '1080p', height: 1080, available: false, state: 'Pending' },
+    ] }
+  }
+  function qualityLoader()
+  {
+    return vi.fn<(offset: number, options?: PlaybackLoadOptions) => Promise<PlaybackWindow | undefined>>()
+      .mockImplementation(async (offset, options) => qualityPlayback(options?.qualityId ?? '720p', Math.floor(offset / 30000) * 30000))
+  }
+
+  it.each(['hlsjs', 'native'])('%s 切档保留位置、播放意图、倍速和音量；同档跳转复用', async mode =>
+  {
+    hlsState.supported = mode === 'hlsjs'
+    const state = setupPlayer(qualityLoader())
+    await flushPromises()
+    ready(state)
+    expect(state.controller.requestedQualityId.value).toBe('720p')
+    state.controller.rate.value = 1.5
+    state.controller.volume.value = .4
+    await state.controller.seek(12000)
+    ready(state)
+    expect(state.loadWindow).toHaveBeenCalledTimes(1)
+    await state.controller.togglePlay()
+    await state.controller.selectQuality('original')
+    ready(state)
+    expect(state.loadWindow).toHaveBeenLastCalledWith(12000, expect.objectContaining({ qualityId: 'original', prefetch: false }))
+    expect(state.controller.playing.value).toBe(true)
+    expect(state.video.value!.currentTime).toBe(12)
+    expect(state.video.value!.playbackRate).toBe(1.5)
+    expect(state.video.value!.volume).toBe(.4)
+    expect(state.controller.effectiveQualityId.value).toBe('original')
+    const count = state.loadWindow.mock.calls.length
+    await state.controller.selectQuality('original')
+    await state.controller.seek(15000)
+    expect(state.loadWindow).toHaveBeenCalledTimes(count)
+    expect(hlsState.instances).toHaveLength(mode === 'hlsjs' ? 2 : 0)
+  })
+
+  it('快速切档只安装最后请求，过期回包不会恢复旧档位', async () =>
+  {
+    const older = deferred<PlaybackWindow>()
+    const newer = deferred<PlaybackWindow>()
+    const loadWindow = qualityLoader().mockResolvedValueOnce(qualityPlayback()).mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise)
+    const state = setupPlayer(loadWindow)
+    await flushPromises()
+    ready(state)
+    const first = state.controller.selectQuality('original')
+    await flushPromises()
+    const oldSignal = loadWindow.mock.calls[1]![1]!.signal!
+    const second = state.controller.selectQuality('1080p')
+    newer.resolve(qualityPlayback('1080p', 0, 'original'))
+    await second
+    older.resolve(qualityPlayback('original'))
+    await first
+    expect(oldSignal.aborted).toBe(true)
+    expect(state.controller.requestedQualityId.value).toBe('1080p')
+    expect(state.controller.effectiveQualityId.value).toBe('original')
+    expect(state.controller.fallbackReason.value).toBe('Pending')
+    expect(hlsState.instances).toHaveLength(2)
+    expect(state.controller.playing.value).toBe(false)
+  })
+
+  it('转码资源失败回原画一次，保留请求档位并在下一物理段重新尝试', async () =>
+  {
+    const state = setupPlayer(qualityLoader())
+    await flushPromises()
+    ready(state)
+    await state.controller.seek(12000)
+    ready(state)
+    hlsState.instances[0]!.emit('error', { fatal: true, response: { code: 503 } })
+    await flushPromises()
+    ready(state)
+    expect(state.loadWindow).toHaveBeenLastCalledWith(12000, expect.objectContaining({ qualityId: 'original' }))
+    expect(state.controller.requestedQualityId.value).toBe('720p')
+    expect(state.controller.effectiveQualityId.value).toBe('original')
+    expect(state.controller.fallbackReason.value).toBe('Unavailable')
+    await state.controller.seek(35000)
+    expect(state.loadWindow).toHaveBeenLastCalledWith(35000, expect.objectContaining({ qualityId: '720p' }))
+    hlsState.instances.at(-1)!.emit('error', { fatal: true, response: { code: 404 } })
+    await flushPromises()
+    const count = state.loadWindow.mock.calls.length
+    hlsState.instances.at(-1)!.emit('error', { fatal: true, response: { code: 404 } })
+    await flushPromises()
+    expect(state.loadWindow).toHaveBeenCalledTimes(count)
+    expect(state.controller.error.value).not.toBe('')
+  })
+
+  it.each([401, 403])('转码媒体响应 %s 不触发原画重试', async status =>
+  {
+    const state = setupPlayer(qualityLoader())
+    await flushPromises()
+    ready(state)
+    hlsState.instances[0]!.emit('error', { fatal: true, response: { code: status } })
+    await flushPromises()
+    expect(state.loadWindow).toHaveBeenCalledTimes(1)
+    expect(state.controller.error.value).not.toBe('')
+  })
+
+  it.each([401, 403])('选档接口响应 %s 不绕过授权请求原画', async status =>
+  {
+    const state = setupPlayer(qualityLoader().mockResolvedValueOnce(qualityPlayback()).mockRejectedValueOnce(new ApiError(status, 'denied')))
+    await flushPromises()
+    ready(state)
+    await state.controller.selectQuality('1080p')
+    expect(state.loadWindow).toHaveBeenCalledTimes(2)
+    expect(state.controller.error.value).toBe('denied')
+  })
+
+  it('选档失败后原画失败不会递归；重试仍请求用户选择的清晰度', async () =>
+  {
+    const state = setupPlayer(qualityLoader().mockResolvedValueOnce(qualityPlayback()).mockRejectedValueOnce(new ApiError(500, 'encode failed')).mockRejectedValueOnce(new ApiError(500, 'original failed')))
+    await flushPromises()
+    ready(state)
+    await state.controller.selectQuality('1080p')
+    expect(state.loadWindow).toHaveBeenCalledTimes(3)
+    expect(state.loadWindow).toHaveBeenLastCalledWith(0, expect.objectContaining({ qualityId: 'original' }))
+    expect(state.controller.error.value).toBe('original failed')
+    await state.controller.retry()
+    expect(state.loadWindow).toHaveBeenLastCalledWith(0, expect.objectContaining({ qualityId: '1080p' }))
+    expect(state.controller.error.value).toBe('')
+  })
+
+  it('切档丢弃已准备好的旧档预取，跨段请求新档位', async () =>
+  {
+    const state = setupPlayer(qualityLoader())
+    await flushPromises()
+    await nearEnd(state)
+    expect(state.loadWindow).toHaveBeenLastCalledWith(30000, expect.objectContaining({ prefetch: true, qualityId: '720p' }))
+    await state.controller.selectQuality('original')
+    ready(state)
+    await state.controller.seek(35000)
+    expect(state.loadWindow).toHaveBeenLastCalledWith(35000, expect.objectContaining({ prefetch: false, qualityId: 'original' }))
+    expect(hlsState.instances.at(-1)!.loadSource).toHaveBeenCalledWith(expect.stringContaining('/original/30000/'))
   })
 })

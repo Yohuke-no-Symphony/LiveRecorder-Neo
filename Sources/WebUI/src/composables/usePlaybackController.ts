@@ -1,9 +1,10 @@
-import Hls from 'hls.js'
+import Hls, { type InitPTSFoundData } from 'hls.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiError } from '@/apis/APIBase'
 import { getServerUrl } from '@/apis/ServerURL'
 import type { PlaybackWindow, TimelineGap } from '@/models/media'
+import { ORIGINAL_QUALITY_ID, type PlaybackQuality } from '@/models/transcoding'
 import type { PlaybackLoadOptions } from '@/models/playbackLoadOptions'
 import { clampOffset, findGap, normalizeTimelineGaps, playbackPosition, windowPosition } from '@/utilities/timeline'
 
@@ -30,6 +31,10 @@ export function usePlaybackController(options: {
   const playing = ref(false)
   const loading = ref(false)
   const error = ref('')
+  const requestedQualityId = ref<string>()
+  const effectiveQualityId = ref(ORIGINAL_QUALITY_ID)
+  const qualities = ref<PlaybackQuality[]>([{ id: ORIGINAL_QUALITY_ID, name: '', available: true, state: 'Ready' }])
+  const fallbackReason = ref('')
   const volume = ref(0.8)
   const muted = ref(false)
   const rate = ref(1)
@@ -38,17 +43,22 @@ export function usePlaybackController(options: {
   const gap = computed(() => findGap(currentMs.value, normalizedGaps.value) ?? (serverGap.value && currentMs.value >= serverGap.value.startMs && currentMs.value < serverGap.value.endMs ? serverGap.value : undefined))
   let source: {
     playback: PlaybackWindow
+    qualityId: string
     operation: number
     hls: Hls | undefined
+    startOffsetMs: number
+    timestampReady: boolean
     needsPosition: boolean
     awaitingSeek: boolean
     previewPending: boolean
     fromPrefetch: boolean
+    originalFallback: boolean
     cleanup: () => void
   } | undefined
   let foreground: ReturnType<typeof createRequest> | undefined
   let prefetch: ReturnType<typeof createRequest> | undefined
   let readyPrefetch: PlaybackWindow | undefined
+  let readyPrefetchQualityId: string | undefined
   let prefetchAttemptedFor: object | undefined
   let generation = 0
   let playAttempt = 0
@@ -69,17 +79,17 @@ export function usePlaybackController(options: {
 
   function contains(playback: PlaybackWindow | undefined, offsetMs: number): boolean
   {
-    return !!playback && !playback.isGap && offsetMs >= playback.startOffsetMs - WINDOW_START_TOLERANCE_MS && offsetMs < playback.endOffsetMs
+    return !!playback && !playback.isGap && offsetMs >= (playback.mediaStartOffsetMs ?? playback.startOffsetMs) - WINDOW_START_TOLERANCE_MS && offsetMs < playback.endOffsetMs
   }
 
-  async function requestWindow(offsetMs: number, signal: AbortSignal, isPrefetch: boolean): Promise<PlaybackWindow | undefined>
+  async function requestWindow(offsetMs: number, signal: AbortSignal, isPrefetch: boolean, qualityId?: string): Promise<PlaybackWindow | undefined>
   {
     for (let attempt = 0; ; attempt++)
     {
       signal.throwIfAborted()
       try
       {
-        const playback = await options.loadWindow(offsetMs, { signal, prefetch: isPrefetch })
+        const playback = await options.loadWindow(offsetMs, { signal, prefetch: isPrefetch, qualityId })
         signal.throwIfAborted()
         return playback
       }
@@ -105,10 +115,10 @@ export function usePlaybackController(options: {
     }
   }
 
-  function createRequest(offsetMs: number, isPrefetch: boolean, owner?: object)
+  function createRequest(offsetMs: number, isPrefetch: boolean, owner?: object, qualityId = requestedQualityId.value)
   {
     const controller = new AbortController()
-    return { offsetMs, controller, isPrefetch, owner, promise: requestWindow(offsetMs, controller.signal, isPrefetch) }
+    return { offsetMs, qualityId, controller, isPrefetch, owner, promise: requestWindow(offsetMs, controller.signal, isPrefetch, qualityId) }
   }
 
   function cancelPrefetch(allowRetry = false): void
@@ -143,7 +153,7 @@ export function usePlaybackController(options: {
     }
     if (!value.hls.loadingEnabled)
     {
-      value.hls.startLoad(windowPosition(currentMs.value, value.playback.startOffsetMs))
+      value.hls.startLoad(mediaPosition(value, currentMs.value))
     }
     else if (!value.hls.bufferingEnabled)
     {
@@ -170,8 +180,8 @@ export function usePlaybackController(options: {
   function positionSource(value: typeof source): void
   {
     const element = video.value
-    if (!activeSource(value) || !element || !value.needsPosition || element.readyState < 1) { return }
-    const target = windowPosition(pendingOffsetMs, value.playback.startOffsetMs)
+    if (!activeSource(value) || !element || !value.timestampReady || !value.needsPosition || element.readyState < 1) { return }
+    const target = mediaPosition(value, pendingOffsetMs)
     applySettings()
     value.needsPosition = false
     value.awaitingSeek = Math.abs(element.currentTime - target) > 0.001
@@ -187,7 +197,7 @@ export function usePlaybackController(options: {
     const element = video.value
     if (!activeSource(value) || !element || element.seeking || element.readyState < 2) { return }
     positionSource(value)
-    if (value.needsPosition || element.seeking || element.readyState < 2 || (value.awaitingSeek && Math.abs(element.currentTime - windowPosition(pendingOffsetMs, value.playback.startOffsetMs)) > 0.25)) { return }
+    if (value.needsPosition || element.seeking || element.readyState < 2 || (value.awaitingSeek && Math.abs(element.currentTime - mediaPosition(value, pendingOffsetMs)) > 0.25)) { return }
     value.awaitingSeek = false
     value.previewPending = false
     loading.value = false
@@ -195,10 +205,65 @@ export function usePlaybackController(options: {
     playSource(value)
   }
 
-  function sourceFailed(value: typeof source): void
+  function mediaPosition(value: NonNullable<typeof source>, offsetMs: number): number
+  {
+    const target = windowPosition(offsetMs, value.startOffsetMs)
+    const element = video.value
+    let end = element && element.readyState >= 1 && Number.isFinite(element.duration) && element.duration >= 0
+      ? element.duration : Number.POSITIVE_INFINITY
+    const videoEndMs = value.playback.mediaEndTimestampMs
+    if (value.playback.timestampMapping === 'HlsInitPts' && typeof videoEndMs === 'number' && Number.isFinite(videoEndMs))
+    {
+      const timestampOffsetMs = value.startOffsetMs - value.playback.startOffsetMs
+      end = Math.min(end, (videoEndMs - timestampOffsetMs) / 1000)
+    }
+    return Math.min(target, Math.max(0, end - .001))
+  }
+
+  function durationChanged(value: typeof source): void
+  {
+    const element = video.value
+    if (!activeSource(value) || !element || !value.timestampReady || element.readyState < 1 || error.value) { return }
+    const positioning = value.needsPosition || value.awaitingSeek
+    if (playing.value && !positioning) { return }
+    if (!positioning) { pendingOffsetMs = currentMs.value }
+    value.needsPosition = true
+    value.previewPending = true
+    loading.value = true
+    positionSource(value)
+    sourceReady(value)
+  }
+
+  function mapTimestamp(value: typeof source, data: InitPTSFoundData): void
+  {
+    if (!activeSource(value) || !video.value || value.playback.timestampMapping !== 'HlsInitPts'
+      || data.id !== 'main' || !Number.isFinite(data.initPTS) || !Number.isFinite(data.timescale) || data.timescale <= 0) { return }
+    const startOffsetMs = value.playback.startOffsetMs + data.initPTS / data.timescale * 1000
+    if (!Number.isFinite(startOffsetMs) || (value.timestampReady && Math.abs(startOffsetMs - value.startOffsetMs) < .001)) { return }
+    if (value.timestampReady && !value.needsPosition && !value.awaitingSeek && !loading.value)
+    {
+      pendingOffsetMs = playing.value
+        ? Math.min(playbackPosition(video.value.currentTime, value.startOffsetMs, options.durationMs()), value.playback.endOffsetMs)
+        : currentMs.value
+      currentMs.value = pendingOffsetMs
+    }
+    value.startOffsetMs = startOffsetMs
+    value.timestampReady = true
+    value.needsPosition = true
+    value.previewPending = true
+    loading.value = true
+    positionSource(value)
+  }
+
+  function sourceFailed(value: typeof source, status?: number): void
   {
     if (!activeSource(value)) { return }
-    if (value.fromPrefetch)
+    if (!value.originalFallback && status !== 401 && status !== 403 && (value.playback.effectiveQualityId ?? ORIGINAL_QUALITY_ID) !== ORIGINAL_QUALITY_ID)
+    {
+      void seek(currentMs.value, true, true)
+      return
+    }
+    if (value.fromPrefetch && status !== 401 && status !== 403)
     {
       value.fromPrefetch = false
       readyPrefetch = undefined
@@ -213,7 +278,7 @@ export function usePlaybackController(options: {
     cancelPrefetch()
   }
 
-  function installSource(playback: PlaybackWindow, offsetMs: number, operation: number, fromPrefetch: boolean): void
+  function installSource(playback: PlaybackWindow, offsetMs: number, operation: number, fromPrefetch: boolean, originalFallback = false): void
   {
     const element = video.value
     if (!element || !isCurrent(operation)) { return }
@@ -225,11 +290,16 @@ export function usePlaybackController(options: {
     source = undefined
     previous?.cleanup()
     previous?.hls?.destroy()
-    const installed = { playback, operation, hls: undefined as Hls | undefined, needsPosition: true, awaitingSeek: false, previewPending: true, fromPrefetch, cleanup: () => {} }
+    requestedQualityId.value ??= playback.requestedQualityId ?? ORIGINAL_QUALITY_ID
+    effectiveQualityId.value = playback.effectiveQualityId ?? ORIGINAL_QUALITY_ID
+    qualities.value = playback.qualities?.length ? playback.qualities : [{ id: ORIGINAL_QUALITY_ID, name: '', available: true, state: 'Ready' }]
+    fallbackReason.value = playback.fallbackReason || (originalFallback ? 'Unavailable' : '')
+    const installed = { playback, qualityId: requestedQualityId.value, operation, hls: undefined as Hls | undefined, startOffsetMs: playback.startOffsetMs, timestampReady: !supportsHls || playback.timestampMapping !== 'HlsInitPts', needsPosition: true, awaitingSeek: false, previewPending: true, fromPrefetch, originalFallback, cleanup: () => {} }
     source = installed
     serverGap.value = undefined
     const handlers = {
       loadedmetadata: () => positionSource(installed),
+      durationchange: () => durationChanged(installed),
       loadeddata: () => sourceReady(installed),
       canplay: () => sourceReady(installed),
       seeked: () => sourceReady(installed),
@@ -251,8 +321,9 @@ export function usePlaybackController(options: {
         xhrSetup: xhr => { xhr.withCredentials = true },
       })
       installed.hls = instance
+      instance.on(Hls.Events.INIT_PTS_FOUND, (_, data) => mapTimestamp(installed, data))
       instance.on(Hls.Events.MANIFEST_PARSED, () => positionSource(installed))
-      instance.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) { sourceFailed(installed) } })
+      instance.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) { sourceFailed(installed, data.response?.code ?? (data.networkDetails as { status?: number } | undefined)?.status) } })
       instance.attachMedia(element)
       instance.loadSource(getServerUrl(sourceUrl))
     }
@@ -263,7 +334,7 @@ export function usePlaybackController(options: {
     }
   }
 
-  async function seek(value: number, force = false): Promise<void>
+  async function seek(value: number, force = false, originalFallback = false): Promise<void>
   {
     if (disposed) { return }
     const offset = clampOffset(value, options.durationMs())
@@ -272,10 +343,11 @@ export function usePlaybackController(options: {
     currentMs.value = offset
     pendingOffsetMs = offset
     error.value = ''
-    const reuseSource = !force && contains(source?.playback, offset)
-    const prepared = !force && contains(readyPrefetch, offset) ? readyPrefetch : undefined
+    const qualityId = originalFallback ? ORIGINAL_QUALITY_ID : requestedQualityId.value
+    const reuseSource = !force && source?.qualityId === requestedQualityId.value && contains(source?.playback, offset)
+    const prepared = !force && readyPrefetchQualityId === qualityId && contains(readyPrefetch, offset) ? readyPrefetch : undefined
     let task = !force && !reuseSource && !prepared
-      ? [foreground, prefetch].find(item => item?.offsetMs === offset && !item.controller.signal.aborted)
+      ? [foreground, prefetch].find(item => item?.offsetMs === offset && item.qualityId === qualityId && !item.controller.signal.aborted)
       : undefined
     if (foreground !== task) { foreground?.controller.abort() }
     foreground = undefined
@@ -309,15 +381,16 @@ export function usePlaybackController(options: {
     }
     if (reuseSource && source)
     {
-      await nextTick()
-      if (!isCurrent(operation) || !source) { return }
+      const reused = source
       serverGap.value = undefined
-      source.operation = operation
-      source.needsPosition = true
-      source.previewPending = true
+      reused.operation = operation
+      reused.needsPosition = true
+      reused.previewPending = true
       loading.value = true
-      positionSource(source)
-      syncBuffering(source)
+      await nextTick()
+      if (!isCurrent(operation) || source !== reused) { return }
+      positionSource(reused)
+      syncBuffering(reused)
       return
     }
     loading.value = true
@@ -329,7 +402,7 @@ export function usePlaybackController(options: {
       let fromPrefetch = !!prepared
       if (!playback)
       {
-        task ??= createRequest(offset, false)
+        task ??= createRequest(offset, false, undefined, qualityId)
         for (;;)
         {
           foreground = task
@@ -345,7 +418,7 @@ export function usePlaybackController(options: {
           if (!isCurrent(operation) || task.controller.signal.aborted) { return }
           if (task.isPrefetch && !playback)
           {
-            task = createRequest(offset, false)
+            task = createRequest(offset, false, undefined, qualityId)
             continue
           }
           fromPrefetch = task.isPrefetch
@@ -363,12 +436,17 @@ export function usePlaybackController(options: {
       readyPrefetch = undefined
       await nextTick()
       if (!isCurrent(operation)) { return }
-      installSource(playback, offset, operation, fromPrefetch)
+      installSource(playback, offset, operation, fromPrefetch, originalFallback)
     }
     catch (value)
     {
       if (isCurrent(operation))
       {
+        if (!originalFallback && qualityId && qualityId !== ORIGINAL_QUALITY_ID && !(value instanceof ApiError && [401, 403].includes(value.status)))
+        {
+          await seek(currentMs.value, true, true)
+          return
+        }
         error.value = value instanceof Error ? value.message : t('components.player.loadFailed')
         loading.value = false
         playing.value = false
@@ -394,7 +472,7 @@ export function usePlaybackController(options: {
     void task.promise.then(playback =>
     {
       if (disposed || task.controller.signal.aborted || prefetch !== task) { return }
-      if (contains(playback, end) && playback?.url?.trim()) { readyPrefetch = playback }
+      if (contains(playback, end) && playback?.url?.trim()) { readyPrefetch = playback; readyPrefetchQualityId = task.qualityId }
     }).catch(() => {}).finally(() => { if (prefetch === task) { prefetch = undefined } })
   }
 
@@ -414,7 +492,7 @@ export function usePlaybackController(options: {
       }
       else if (activeSource(source) && video.value && !loading.value && !source.needsPosition && !source.awaitingSeek && !video.value.seeking)
       {
-        const position = playbackPosition(video.value.currentTime, source.playback.startOffsetMs, options.durationMs())
+        const position = playbackPosition(video.value.currentTime, source.startOffsetMs, options.durationMs())
         currentMs.value = Math.min(position, source.playback.endOffsetMs)
         if (position >= source.playback.endOffsetMs - 30) { void seek(source.playback.endOffsetMs) }
       }
@@ -449,6 +527,15 @@ export function usePlaybackController(options: {
     playSource(source)
   }
 
+  async function selectQuality(id: string): Promise<void>
+  {
+    if (disposed || !qualities.value.some(quality => quality.id === id)) { return }
+    if (requestedQualityId.value === id && effectiveQualityId.value === id && !error.value) { return }
+    requestedQualityId.value = id
+    fallbackReason.value = ''
+    await seek(currentMs.value, true)
+  }
+
   function visibilityChanged(): void
   {
     if (document.visibilityState !== 'visible') { cancelPrefetch(true) }
@@ -479,5 +566,5 @@ export function usePlaybackController(options: {
     video.value?.pause()
   })
 
-  return { playing, loading, error, volume, muted, rate, gap, seek, togglePlay, retry: () => seek(currentMs.value, true) }
+  return { playing, loading, error, volume, muted, rate, gap, requestedQualityId, effectiveQualityId, qualities, fallbackReason, selectQuality, seek, togglePlay, retry: () => seek(currentMs.value, true) }
 }

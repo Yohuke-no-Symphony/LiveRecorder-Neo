@@ -76,6 +76,7 @@
                   <v-list-item :title="t('views.session.group')" prepend-icon="mdi-folder-multiple-outline" @click="groupOpen = true" />
                   <v-list-item :title="t('views.session.split')" prepend-icon="mdi-call-split" :disabled="detail.segments.length < 2" @click="splitOpen = true" />
                   <v-divider v-if="auth.isAdmin" />
+                  <v-list-item v-if="auth.isAdmin" :title="t('transcoding.transcode')" prepend-icon="mdi-video-box" @click="transcodeOpen = true" />
                   <v-list-item v-if="auth.isAdmin" :title="t('views.session.repair')" prepend-icon="mdi-wrench-outline" @click="openMaintenance('Repair')" />
                   <v-list-item v-if="auth.isAdmin" :title="t('views.session.merge')" prepend-icon="mdi-call-merge" @click="openMaintenance('Merge')" />
                 </v-list>
@@ -114,6 +115,7 @@
       <SessionPlaybackSidebar class="playback-feed" :navigation-revision="feedNavigationRevision" :session-id="id" :offset-ms="offsetMs" :duration-ms="detail.durationMs" :has-danmu="detail.session.hasDanmu" :is-live="isLive" :editable="bookmarksEditable" :configuration-revision="detail.session.configurationRevision" :ended="isFinished" :live-marker-file-id="requestedMarkerFileId" :show-live-markers="route.query.panel === 'markers'" @seek="player?.seek($event)" @configure="configurationOpen = true" />
     </div>
     <ClipDialog v-if="auth.canCreateClips" v-model="clipOpen" :session-id="id" :session-title="detail.session.title" :current-ms="offsetMs" :duration-ms="detail.durationMs" :selection="clipSelection" :bookmarks="bookmarks" @created="onClipCreated" />
+    <TranscodeDialog v-if="auth.isAdmin" v-model="transcodeOpen" :session-ids="[id]" @created="jobCreated = true" />
     <SessionDownloadDialog v-if="auth.canDownloadRecordings" v-model="downloadOpen" :session-id="id" :session-title="detail.session.title" :segments="detail.segments" />
     <SessionBookmarkDialog v-model="bookmarkOpen" :bookmark="editingBookmark" :offset-ms="bookmarkOffsetMs" :duration-ms="detail.durationMs" :busy="bookmarkSaving" :error="bookmarksError" @save="saveBookmark" />
     <ConfirmDialog :model-value="!!deletingBookmark" :title="t('components.bookmarks.delete')" :message="t('components.bookmarks.deleteConfirm', { title: deletingBookmark?.title ?? '' })" :action-label="t('components.bookmarks.delete')" :busy="bookmarkSaving" :error="bookmarksError" danger @update:model-value="!$event && (deletingBookmark = undefined)" @confirm="deleteBookmark" />
@@ -146,6 +148,7 @@ import { clampOffset } from '@/utilities/timeline'
 import { removeSessionSegment, sessionMediaChanged } from '@/utilities/sessionSegments'
 import { resolveClipRange } from '@/utilities/clipSelection'
 import { formatBytes, formatDate, formatDuration, formatNumber } from '@/utilities/format'
+import TranscodeDialog from '@/components/library/TranscodeDialog.vue'
 import MediaPlayer from '@/components/player/MediaPlayer.vue'
 import SessionPlaybackSidebar from '@/components/player/SessionPlaybackSidebar.vue'
 import ClipDialog from '@/components/player/ClipDialog.vue'
@@ -177,6 +180,7 @@ const requestedMarkerFileId = computed(() => typeof route.query.liveMarkerFileId
 const player = ref<InstanceType<typeof MediaPlayer>>()
 const clipOpen = ref(false)
 const downloadOpen = ref(false)
+const transcodeOpen = ref(false)
 const configurationOpen = ref(false)
 const clipSelection = ref<ClipSelection>({})
 const clipSelectionInvalid = computed(() =>

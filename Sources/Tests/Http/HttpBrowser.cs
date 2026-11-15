@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
+using System.Net.Security;
+using System.Security.Cryptography;
 using Xunit;
 
 namespace Yohuke.LiveRecorder.Http.Tests;
@@ -11,10 +13,16 @@ internal sealed class HttpBrowser : IDisposable
     internal CookieContainer Cookies { get; }
     internal string? CsrfToken { get; private set; }
 
-    internal HttpBrowser(Uri address, CookieContainer? cookies = null)
+    internal HttpBrowser(Uri address, CookieContainer? cookies = null, string? certificateSha256 = null)
     {
         Cookies = cookies ?? new();
-        Client = new(new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false, CookieContainer = Cookies }) { BaseAddress = address, Timeout = TimeSpan.FromSeconds(20) };
+        var handler = new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false, CookieContainer = Cookies };
+        if (certificateSha256 is not null)
+        {
+            handler.ServerCertificateCustomValidationCallback = (_, certificate, _, errors) =>
+                errors == SslPolicyErrors.None || certificate?.GetCertHashString(HashAlgorithmName.SHA256) == certificateSha256;
+        }
+        Client = new(handler) { BaseAddress = address, Timeout = TimeSpan.FromSeconds(20) };
     }
 
     internal async Task<JsonObject> RefreshCsrfAsync()

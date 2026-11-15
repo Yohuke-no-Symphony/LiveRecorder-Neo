@@ -46,6 +46,7 @@ public sealed class RecordingProgressSink : IProgress<MediaRecordingUpdate>, IAs
                 segment = new RecordingSegment
                 {
                     Id = value.SegmentId,
+                    AssetId = value.SegmentId,
                     SessionId = session.Id,
                     AttemptId = attemptId,
                     RelativePath = value.RelativePath,
@@ -137,6 +138,8 @@ public sealed class RecordingProgressSink : IProgress<MediaRecordingUpdate>, IAs
         Id = value.Id,
         CreatedAtUtc = value.CreatedAtUtc,
         SessionId = value.SessionId,
+        AssetId = value.AssetId,
+        PendingTranscodeProfileIds = value.PendingTranscodeProfileIds.ToList(),
         AttemptId = value.AttemptId,
         RelativePath = value.RelativePath,
         IndexRelativePath = value.IndexRelativePath,

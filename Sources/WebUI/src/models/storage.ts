@@ -6,6 +6,7 @@ export interface StorageUsageRow
   name: string
   path: string
   recordingBytes: number
+  derivedBytes?: number
   clipBytes: number
   trashBytes: number
   otherBytes: number
@@ -23,7 +24,7 @@ export interface StorageUserUsage extends StorageUsageRow
   ownerId: string
 }
 
-export type StorageDirectoryKind = 'recordings' | 'clips' | 'trash' | 'cache' | 'work' | 'data' | 'other'
+export type StorageDirectoryKind = 'recordings' | 'derived' | 'clips' | 'trash' | 'cache' | 'work' | 'data' | 'other'
 
 export interface StorageDirectoryUsage extends StorageUsageRow
 {

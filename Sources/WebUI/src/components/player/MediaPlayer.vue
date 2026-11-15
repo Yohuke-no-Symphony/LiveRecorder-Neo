@@ -17,6 +17,7 @@
         <span class="player-time mono">{{ formatDuration(currentMs, true) }}<span class="time-divider"> / </span>{{ formatDuration(durationMs, true) }}</span>
         <v-spacer />
         <v-btn v-if="isLive" variant="text" size="small" color="primary" @click="navigate(Math.max(0, durationMs - 2000))"><span class="live-indicator" />{{ t('components.player.chaseLive') }}</v-btn>
+        <v-menu v-if="qualities.length > 1"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" variant="text" size="small" color="white" :aria-label="`${t('transcoding.quality')}: ${qualityName(effectiveQualityId)}`" :title="fallbackReason ? t('transcoding.fallback', { quality: qualityName(requestedQualityId || 'original') }) : undefined">{{ qualityName(effectiveQualityId) }}<v-icon v-if="fallbackReason" icon="mdi-information-outline" size="14" class="ml-1" /></v-btn></template><v-list density="compact"><v-list-item v-for="quality in qualities" :key="quality.id" :title="qualityName(quality.id)" :subtitle="quality.available ? undefined : t('transcoding.unavailable')" :active="quality.id === requestedQualityId" @click="changeQuality(quality.id)" /></v-list></v-menu>
         <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" variant="text" size="small" color="white">{{ formatNumber(rate) }}×</v-btn></template><v-list density="compact"><v-list-item v-for="value in [0.5, 0.75, 1, 1.25, 1.5, 2]" :key="value" :title="`${formatNumber(value)}×`" @click="setRate(value)" /></v-list></v-menu>
         <v-btn :icon="muted || volume === 0 ? 'mdi-volume-off' : 'mdi-volume-high'" :aria-label="muted ? t('components.player.unmute') : t('components.player.mute')" variant="text" size="small" color="white" @click="muted = !muted" />
         <v-slider v-model="volume" :min="0" :max="1" :step="0.01" class="volume-slider" hide-details density="compact" color="white" thumb-size="8" track-size="3" :aria-label="t('components.player.volume')" @update:model-value="setVolume" />
@@ -28,7 +29,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import PlaybackTimeline from '@/components/player/PlaybackTimeline.vue'
 import { usePlaybackController } from '@/composables/usePlaybackController'
 import type { SessionTimeline } from '@/models/sessionTimeline'
@@ -46,7 +47,7 @@ const player = ref<HTMLElement>()
 const video = ref<HTMLVideoElement>()
 const sliderOffset = ref(0)
 const scrubbing = ref(false)
-const { playing, loading, error, volume, muted, rate, gap, seek, togglePlay, retry } = usePlaybackController({
+const { playing, loading, error, volume, muted, rate, gap, requestedQualityId, effectiveQualityId, qualities, fallbackReason, selectQuality, seek, togglePlay, retry } = usePlaybackController({
   video, currentMs, scrubbing,
   durationMs: () => props.durationMs,
   gaps: () => props.gaps,
@@ -54,38 +55,48 @@ const { playing, loading, error, volume, muted, rate, gap, seek, togglePlay, ret
   initialOffsetMs: () => props.initialOffsetMs ?? 0,
   loadWindow: (offsetMs, options) => props.loadWindow(offsetMs, options),
 })
-let seekTimer: ReturnType<typeof setTimeout> | undefined
+let scrubRevision = 0
 
 watch(currentMs, value => { if (!scrubbing.value) { sliderOffset.value = value } })
 
 async function navigate(value: number, force = false): Promise<void>
 {
-  clearTimeout(seekTimer)
-  seekTimer = undefined
+  scrubRevision++
   if (force) { scrubbing.value = false }
   emit('navigate')
-  await seek(value, force)
+  await seek(value >= props.durationMs ? Math.max(0, props.durationMs - 1) : value, force)
 }
 
-function scrub(value: number): void
+async function scrub(value: number): Promise<void>
 {
   sliderOffset.value = value
-  clearTimeout(seekTimer)
-  if (!scrubbing.value)
+  const revision = ++scrubRevision
+  await nextTick()
+  if (!scrubbing.value && revision === scrubRevision)
   {
-    seekTimer = setTimeout(() => { void navigate(value) }, 180)
+    await navigate(value)
   }
 }
 function startScrub(): void
 {
-  clearTimeout(seekTimer)
-  seekTimer = undefined
+  scrubRevision++
   scrubbing.value = true
 }
 function finishScrub(): void
 {
   scrubbing.value = false
   void navigate(sliderOffset.value)
+}
+function qualityName(id: string): string
+{
+  return id === 'original' ? t('transcoding.original') : qualities.value.find(quality => quality.id === id)?.name || id
+}
+async function changeQuality(id: string): Promise<void>
+{
+  scrubRevision++
+  scrubbing.value = false
+  emit('navigate')
+  await selectQuality(id)
 }
 function setRate(value: number): void
 {
@@ -107,7 +118,7 @@ function onKeydown(event: KeyboardEvent): void
   else if (event.key === 'ArrowRight') { event.preventDefault(); void navigate(currentMs.value + 10000) }
   else if (event.key === 'ArrowLeft') { event.preventDefault(); void navigate(currentMs.value - 10000) }
 }
-onBeforeUnmount(() => clearTimeout(seekTimer))
+onBeforeUnmount(() => { scrubRevision++ })
 defineExpose({ seek: navigate, reload: (value: number) => navigate(value, true) })
 </script>
 

@@ -9,6 +9,7 @@ using Yohuke.LiveRecorder.Infrastructure.Library;
 using Yohuke.LiveRecorder.Infrastructure.Library.LiveMarkers;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
+using Yohuke.LiveRecorder.Infrastructure.Transcoding;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Storage;
 
@@ -135,6 +136,8 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
         entry.TrashRelativePath = Path.Combine(".trash", entry.Id, "recording");
         var journal = new SessionTrashJournal
             { Entry = entry, Manifest = new() { Session = session, Segments = segments } };
+        await new TranscodeLifecycle(context, paths).MarkDirtyAsync(
+            segments.Select(segment => TranscodeAssetRegistry.AssetId(session, segment)).ToArray(), cancellationToken);
         await context.Collection<TrashEntry>("trash").Indexes.CreateOneAsync(new CreateIndexModel<TrashEntry>(
                 Builders<TrashEntry>.IndexKeys.Ascending(x => x.EntityId),
                 new CreateIndexOptions { Name = "trash_entity_unique", Unique = true }),
@@ -371,10 +374,14 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
 
         entry.State = "Active";
         await PersistAsync(journal, cancellationToken);
+        await new TranscodeLifecycle(context, paths).ReconcileUnderLibraryLockAsync(cancellationToken,
+            journal.Manifest.Segments.Select(segment => TranscodeAssetRegistry.AssetId(journal.Manifest.Session, segment)).ToArray());
     }
 
     private async Task CompleteRestoreAsync(SessionTrashJournal journal, CancellationToken cancellationToken)
     {
+        await new TranscodeLifecycle(context, paths).MarkDirtyAsync(
+            journal.Manifest.Segments.Select(segment => TranscodeAssetRegistry.AssetId(journal.Manifest.Session, segment)).ToArray(), cancellationToken);
         var entry = journal.Entry;
         if (entry.State == "Restored")
         {
@@ -419,6 +426,8 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
 
     private async Task CompletePurgeAsync(SessionTrashJournal journal, CancellationToken cancellationToken)
     {
+        await new TranscodeLifecycle(context, paths).MarkDirtyAsync(
+            journal.Manifest.Segments.Select(segment => TranscodeAssetRegistry.AssetId(journal.Manifest.Session, segment)).ToArray(), cancellationToken);
         await SessionSegmentTrashFiles.EnsureNoEntriesAsync(paths.RecordsDirectory, journal.Entry.EntityId,
             cancellationToken);
         journal.Entry.State = "Purging";
@@ -672,6 +681,10 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
     private async Task SaveManifestAsync(SessionManifest manifest, string directory, bool preserveRetention,
         CancellationToken cancellationToken)
     {
+        foreach (var segment in manifest.Segments)
+        {
+            segment.AssetId = TranscodeAssetRegistry.AssetId(manifest.Session, segment);
+        }
         await SessionManifestFiles.WriteAsync(Path.Combine(directory, "场次.json"), manifest, preserveRetention,
             cancellationToken);
         await context.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == manifest.Session.Id,
@@ -700,6 +713,8 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
         {
             Directory.Delete(directory, true);
         }
+        await new TranscodeLifecycle(context, paths).ReconcileUnderLibraryLockAsync(cancellationToken,
+            journal.Manifest.Segments.Select(segment => TranscodeAssetRegistry.AssetId(journal.Manifest.Session, segment)).ToArray());
     }
 
     private Task<bool> HasActiveJobAsync(string sessionId, CancellationToken cancellationToken)

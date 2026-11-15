@@ -4,6 +4,8 @@ namespace Yohuke.LiveRecorder.Domain;
 public sealed class RecordingSegment : Entity
 {
     public string SessionId { get; set; } = "";
+    public string AssetId { get; set; } = "";
+    public List<string> PendingTranscodeProfileIds { get; set; } = [];
     public string AttemptId { get; set; } = "";
     public string RelativePath { get; set; } = "";
     public double StartOffsetMs { get; set; }

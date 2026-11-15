@@ -5,6 +5,7 @@ internal sealed class StorageUsageScanState
     public bool IsPartial { get; set; }
     public long RecordingBytes { get; set; }
     public long ClipBytes { get; set; }
+    public long DerivedBytes { get; set; }
     public long TrashBytes { get; set; }
     public long CacheBytes { get; set; }
     public Dictionary<string, StorageRoomUsage> Rooms { get; } = new(StringComparer.Ordinal);

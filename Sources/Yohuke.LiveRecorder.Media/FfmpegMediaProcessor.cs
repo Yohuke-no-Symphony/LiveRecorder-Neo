@@ -231,7 +231,11 @@ public sealed class FfmpegMediaProcessor : IMediaProcessor
             Width = (int)Number(video, "width"),
             Height = (int)Number(video, "height"),
             FrameRate = Ratio(Text(video, "avg_frame_rate")),
-            HasAudio = audio.ValueKind != JsonValueKind.Undefined
+            HasAudio = audio.ValueKind != JsonValueKind.Undefined,
+            VideoBitrate = (long)Number(video, "bit_rate"),
+            AudioBitrate = (long)Number(audio, "bit_rate"),
+            SourceStartMs = Number(video, "start_time") * 1000,
+            IsHdr = Text(video, "color_transfer") is "smpte2084" or "arib-std-b67"
         };
         if (probe.FrameRate == 0)
         {

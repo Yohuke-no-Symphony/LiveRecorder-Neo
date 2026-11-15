@@ -12,5 +12,6 @@ public sealed class StorageVolume
     public long CacheBytes { get; set; }
     public long RecordingBytes { get; set; }
     public long ClipBytes { get; set; }
+    public long DerivedBytes { get; set; }
     public long OtherBytes { get; set; }
 }

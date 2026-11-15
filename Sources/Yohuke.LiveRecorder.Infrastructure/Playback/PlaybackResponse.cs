@@ -10,4 +10,12 @@ public sealed class PlaybackResponse
     public double DurationMs { get; set; }
     public bool IsGap { get; set; }
     public double? GapEndMs { get; set; }
+    public string RequestedQualityId { get; set; } = "original";
+    public string EffectiveQualityId { get; set; } = "original";
+    public string? ArtifactVersion { get; set; }
+    public string? TimestampMapping { get; set; }
+    public double? MediaStartOffsetMs { get; set; }
+    public double? MediaEndTimestampMs { get; set; }
+    public string? FallbackReason { get; set; }
+    public IReadOnlyList<PlaybackQuality> Qualities { get; set; } = [new("original", "原画", true, null, "Ready")];
 }

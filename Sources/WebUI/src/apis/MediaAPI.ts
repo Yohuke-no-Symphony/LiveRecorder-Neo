@@ -25,7 +25,7 @@ export const MediaAPI = {
   splitSession: (id: string, beforeSegmentId: string) => post<{ sessions: BroadcastSession[] }>(`sessions/${encodeURIComponent(id)}/split`, { beforeSegmentId }),
   cover: (id: string) => getServerUrl(`/api/sessions/${encodeURIComponent(id)}/cover`),
   downloadSegment: (id: string, segmentId: string) => getServerUrl(`/api/sessions/${encodeURIComponent(id)}/segments/${encodeURIComponent(segmentId)}/download`),
-  playback: (id: string, offsetMs: number, options: PlaybackLoadOptions = {}) => request<PlaybackWindow | undefined>(`sessions/${encodeURIComponent(id)}/playback`, { method: 'POST', body: JSON.stringify({ offsetMs, prefetch: options.prefetch }), signal: options.signal }),
+  playback: (id: string, offsetMs: number, options: PlaybackLoadOptions = {}) => request<PlaybackWindow | undefined>(`sessions/${encodeURIComponent(id)}/playback`, { method: 'POST', body: JSON.stringify({ offsetMs, prefetch: options.prefetch, qualityId: options.qualityId }), signal: options.signal }),
   bookmarks: (id: string, signal?: AbortSignal) => request<SessionBookmark[]>(`sessions/${encodeURIComponent(id)}/bookmarks`, { signal }),
   createBookmark: (id: string, body: { title: string; offsetMs: number }) => post<SessionBookmark>(`sessions/${encodeURIComponent(id)}/bookmarks`, body),
   updateBookmark: (id: string, bookmarkId: string, body: { title: string; offsetMs: number }) => put<SessionBookmark>(`sessions/${encodeURIComponent(id)}/bookmarks/${encodeURIComponent(bookmarkId)}`, body),

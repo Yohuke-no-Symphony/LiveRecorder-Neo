@@ -84,6 +84,32 @@ pwsh ./release.ps1 --all --version 1.2.3
 
 反向代理应提供 HTTPS 并保留正确 Host。代理身份来源需要按部署环境配置可信代理，避免信任外部任意转发头。Linux 服务示例见 `deploy/live-recorder.service`。
 
+## 分布式转码
+
+在「设置 → 转码」配置清晰度列表，拖拽调整播放菜单顺序，用星标选择唯一默认档位，点击「保存设置」生效。默认提供 720p，保留原画。目标分辨率按画面短边计算，高于原片的档位跳过；帧率、视频及音频码率受源上限约束。成品尚未就绪、失败或不适用时回退原画。播放页可手动切档并保留当前位置和暂停状态。
+
+新建录播在录制结束后自动排队；升级前的历史录播不会自动批量转码，可在录播库选择录像后手动发起。参数修改不自动重转全部历史记录，重转期间旧成品继续可用，新参数的成品完成后优先使用。后台任务页支持查看进度、取消和重试。
+
+Worker 以独立进程运行，通过 TCP＋TLS 控制通道取得任务，通过 HTTPS 续传输入和上传 HLS 成品。控制监听默认关闭。在主站启动用的 `appsettings.json` 配置以下节，或使用同名双下划线环境变量配置；这部分与后台保存的录播 `settings.json` 分开：
+
+```json
+{
+  "TranscodingControl": {
+    "Enabled": true,
+    "ListenAddress": "0.0.0.0",
+    "Port": 4790,
+    "CertificatePath": "/etc/live-recorder/control.pfx",
+    "MaximumConnections": 128
+  }
+}
+```
+
+证书需要私钥，且主机名应与 Worker 连接配置一致；PFX 密码可通过 `TranscodingControl__CertificatePassword` 环境变量提供。控制端口需要 TCP 直连或四层代理；Web HTTPS 反代继续使用原站点端口。HTTPS 反代需发送 `X-Forwarded-Proto`，主站通过 `KnownProxies` 配置信任实际代理，Worker 文件接口拒绝未识别为 HTTPS 的请求。
+
+点击 Worker 卡片右上角加号创建节点，保存一次性密钥，将主机地址、Worker ID 与密钥写入节点的 `appsettings.json`。首次交互启动进入终端配置向导；之后运行参数由主站统一保存并下发，也可在节点使用 `--configure` 按版本修改。后台填写的临时目录、FFmpeg 与 ffprobe 路径属于 Worker 所在机器。详细启动、GPU 探测、CPU 补位策略和五平台发布方法见 [Worker 说明](Yohuke.LiveRecorder.Transcoding.Worker/README.md)。
+
+成品集中存放在录像目录的 `.derived/`，按物理文件、源版本和编码配方共享，磁盘页单独统计。逻辑归组、拆分复用同一成品；修复替换原片会撤销旧任务，并保留需要重转的档位意图。删除片段或场次时同步停止对应转码和隐藏成品；回收站还原可重新使用成品，仍被其他场次引用的文件继续保留。最后一份原片引用从回收站清除后，派生文件也会清除。
+
 ## 带宽控制
 
 管理员可在「设置 → 带宽」设置统一的每账号下载上限，单位为 MiB/s，0 表示不限速。同一账号的多个浏览器、文件和断点续传连接合并计算，管理员也适用。此上限只约束原始分段、任务产物与剪辑下载，不约束在线播放。

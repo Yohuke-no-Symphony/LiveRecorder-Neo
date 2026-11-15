@@ -11,7 +11,8 @@ import type { MediaJob } from '../src/models/media'
 import type { UserProfile } from '../src/models/auth'
 import { i18n } from '../src/plugins/i18n'
 
-const { mediaJobs, aiJobs, cancelMedia, retryMedia, cancelAi, downloadJobOutput } = vi.hoisted(() => ({ mediaJobs: vi.fn(), aiJobs: vi.fn(), cancelMedia: vi.fn(), retryMedia: vi.fn(), cancelAi: vi.fn(), downloadJobOutput: vi.fn() }))
+const { transcodeJobs, cancelTranscode, retryTranscode, mediaJobs, aiJobs, cancelMedia, retryMedia, cancelAi, downloadJobOutput } = vi.hoisted(() => ({ transcodeJobs: vi.fn(), cancelTranscode: vi.fn(), retryTranscode: vi.fn(), mediaJobs: vi.fn(), aiJobs: vi.fn(), cancelMedia: vi.fn(), retryMedia: vi.fn(), cancelAi: vi.fn(), downloadJobOutput: vi.fn() }))
+vi.mock('../src/apis/TranscodingAPI', () => ({ TranscodingAPI: { jobs: transcodeJobs, cancelJob: cancelTranscode, retryJob: retryTranscode } }))
 vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { jobs: mediaJobs, cancelJob: cancelMedia, retryJob: retryMedia, downloadJobOutput } }))
 vi.mock('../src/apis/AiAnalysisAPI', () => ({ AiAnalysisAPI: { jobs: aiJobs, cancel: cancelAi } }))
 const card = defineComponent({ props: ['title'], setup: (props, { slots }) => () => h('section', [props.title ? h('h2', props.title) : null, slots.default?.(), slots.actions?.()]) })
@@ -68,6 +69,9 @@ beforeEach(() =>
   setActivePinia(pinia)
   useAuthStore().user = viewer()
   i18n.global.locale.value = 'zh-CN'
+  transcodeJobs.mockResolvedValue([])
+  cancelTranscode.mockResolvedValue(undefined)
+  retryTranscode.mockResolvedValue(undefined)
   mediaJobs.mockResolvedValue([media()])
   aiJobs.mockResolvedValue([ai()])
   cancelMedia.mockResolvedValue(undefined)
@@ -307,5 +311,44 @@ describe('后台任务中的 AI 分析', () =>
     expect(wrapper.get('[role="dialog"]').text()).toContain('Token 用量 900')
     expect(wrapper.get('[role="dialog"]').text()).toContain('历史任务错误')
     expect(wrapper.get('[data-job-id="old"]').text()).not.toContain('历史任务错误')
+  })
+})
+
+
+describe('后台转码任务', () =>
+{
+  it('仅管理员读取转码作业，与其他作业同ID也各自显示，取消走独立接口', async () =>
+  {
+    useAuthStore().user = { ...viewer(), role: 'Admin' }
+    transcodeJobs.mockResolvedValue([{ id: 'media', sessionId: 'session', title: '转码录播', profileName: '720p', state: 'Running', stage: 'Encoding', progress: 50, workerId: 'worker', createdAtUtc: '2026-11-14T00:03:00Z' }])
+    const wrapper = await mountView()
+    expect(transcodeJobs).toHaveBeenCalledTimes(1)
+    const row = wrapper.get('[data-job-kind="transcode"]')
+    expect(row.text()).toContain('720p')
+    expect(row.text()).toContain('编码中')
+    await findButton(row, '取消').trigger('click')
+    await flushPromises()
+    expect(cancelTranscode).toHaveBeenCalledWith('media')
+    expect(cancelMedia).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-job-kind="media"]').exists()).toBe(true)
+  })
+
+  it('降为普通用户后清除转码作业并忽略已发出的过期响应', async () =>
+  {
+    useAuthStore().user = { ...viewer(), role: 'Admin' }
+    const pending = deferred<unknown[]>()
+    transcodeJobs.mockReturnValueOnce(pending.promise)
+    const wrapper = await mountView()
+    useAuthStore().user = viewer()
+    pending.resolve([{ id: 'private', sessionId: 'secret', title: '管理员转码', profileName: '720p', state: 'Queued', stage: 'WaitingForWorker', progress: 0, createdAtUtc: '2026-11-14T00:03:00Z' }])
+    await flushPromises()
+    expect(wrapper.find('[data-job-kind="transcode"]').exists()).toBe(false)
+    expect(transcodeJobs).toHaveBeenCalledTimes(1)
+  })
+
+  it('普通用户不请求管理员转码接口', async () =>
+  {
+    await mountView()
+    expect(transcodeJobs).not.toHaveBeenCalled()
   })
 })

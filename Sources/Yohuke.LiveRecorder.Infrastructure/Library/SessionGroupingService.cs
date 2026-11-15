@@ -257,6 +257,8 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
         CreatedAtUtc = source.CreatedAtUtc,
         SessionId = target.Id,
         AttemptId = source.AttemptId,
+        AssetId = Yohuke.LiveRecorder.Infrastructure.Transcoding.TranscodeAssetRegistry.AssetId(original, source),
+        PendingTranscodeProfileIds = source.PendingTranscodeProfileIds.ToList(),
         RelativePath = source.RelativePath,
         IndexRelativePath = source.IndexRelativePath,
         RootRelativePath = source.RootRelativePath ?? Path.Combine(original.DirectoryPath, source.RelativePath),
@@ -330,6 +332,7 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
             }
             foreach (var segment in output.Segments)
             {
+                segment.AssetId = Yohuke.LiveRecorder.Infrastructure.Transcoding.TranscodeAssetRegistry.AssetId(output.Session, segment);
                 await context.Collection<RecordingSegment>("segments").ReplaceOneAsync(x => x.Id == segment.Id, segment, new ReplaceOptions { IsUpsert = true }, cancellationToken);
             }
             foreach (var bookmark in operation.Bookmarks.Where(x => x.SessionId == output.Session.Id))

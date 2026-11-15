@@ -29,7 +29,8 @@ public sealed class MediaProcessRunner : IDisposable
         CancellationToken cancellationToken,
         Func<Stream, CancellationToken, Task>? input = null,
         IProgress<double>? progress = null,
-        TimeSpan? expectedDuration = null)
+        TimeSpan? expectedDuration = null,
+        Action<string>? outputLine = null)
     {
         var gate = kind switch
         {
@@ -46,7 +47,7 @@ public sealed class MediaProcessRunner : IDisposable
         };
         using var lease = await gate.AcquireAsync(limit, cancellationToken);
         var tool = kind == MediaProcessKind.Probe ? currentSettings.FfprobePath : currentSettings.FfmpegPath;
-        return await RunProcessAsync(tool, arguments, cancellationToken, input, progress, expectedDuration);
+        return await RunProcessAsync(tool, arguments, cancellationToken, input, progress, expectedDuration, outputLine);
     }
 
     internal async Task<MediaProcessReservation?> TryAcquirePlaybackPrefetchAsync(CancellationToken cancellationToken)
@@ -62,7 +63,8 @@ public sealed class MediaProcessRunner : IDisposable
         CancellationToken cancellationToken,
         Func<Stream, CancellationToken, Task>? input = null,
         IProgress<double>? progress = null,
-        TimeSpan? expectedDuration = null)
+        TimeSpan? expectedDuration = null,
+        Action<string>? outputLine = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var startInfo = new ProcessStartInfo(tool)
@@ -83,7 +85,7 @@ public sealed class MediaProcessRunner : IDisposable
         using var cancellation = cancellationToken.Register(() => Kill(process));
         var output = new StringBuilder();
         var diagnostic = new StringBuilder();
-        var outputTask = ReadOutputAsync(process.StandardOutput, output, progress, expectedDuration, cancellationToken);
+        var outputTask = ReadOutputAsync(process.StandardOutput, output, progress, expectedDuration, outputLine, cancellationToken);
         var errorTask = ReadDiagnosticAsync(process.StandardError, diagnostic, cancellationToken);
         var inputTask = input is null
             ? Task.CompletedTask
@@ -135,10 +137,11 @@ public sealed class MediaProcessRunner : IDisposable
         }
     }
 
-    private static async Task ReadOutputAsync(StreamReader reader, StringBuilder output, IProgress<double>? progress, TimeSpan? expectedDuration, CancellationToken cancellationToken)
+    private static async Task ReadOutputAsync(StreamReader reader, StringBuilder output, IProgress<double>? progress, TimeSpan? expectedDuration, Action<string>? outputLine, CancellationToken cancellationToken)
     {
         while (await reader.ReadLineAsync(cancellationToken) is { } line)
         {
+            outputLine?.Invoke(line);
             output.AppendLine(line);
             if (output.Length > MAX_DIAGNOSTIC_LENGTH)
             {

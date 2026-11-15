@@ -85,8 +85,8 @@ public sealed class StorageUsageService(IAppPaths paths, TimeProvider timeProvid
             IsPartial = state.IsPartial,
             Volumes =
             [
-                ReadVolume("recordings", records, state.RecordingBytes, state.ClipBytes, state.TrashBytes, 0),
-                ReadVolume("data", data, 0, 0, 0, state.CacheBytes)
+                ReadVolume("recordings", records, state.RecordingBytes, state.ClipBytes, state.DerivedBytes, state.TrashBytes, 0),
+                ReadVolume("data", data, 0, 0, 0, 0, state.CacheBytes)
             ],
             Rooms = state.Rooms.Values.OrderByDescending(row => row.TotalBytes).ThenBy(row => row.Id).ToArray(),
             Users = state.Users.Values.OrderByDescending(row => row.TotalBytes).ThenBy(row => row.Id).ToArray(),
@@ -160,6 +160,12 @@ public sealed class StorageUsageService(IAppPaths paths, TimeProvider timeProvid
     private static void AddRecordingFile(StorageUsageScanState state, string root, string relative, long bytes)
     {
         var parts = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (parts[0] == ".derived")
+        {
+            state.DerivedBytes += bytes;
+            GetDirectory(state, "recordings", root, ".derived", "derived").DerivedBytes += bytes;
+            return;
+        }
         if (parts[0] == ".trash")
         {
             state.TrashBytes += bytes;
@@ -250,7 +256,7 @@ public sealed class StorageUsageService(IAppPaths paths, TimeProvider timeProvid
         return directory;
     }
 
-    private static StorageVolume ReadVolume(string id, string root, long recordingBytes, long clipBytes,
+    private static StorageVolume ReadVolume(string id, string root, long recordingBytes, long clipBytes, long derivedBytes,
         long trashBytes, long cacheBytes)
     {
         var drive = new DriveInfo(root);
@@ -268,7 +274,8 @@ public sealed class StorageUsageService(IAppPaths paths, TimeProvider timeProvid
             CacheBytes = cacheBytes,
             RecordingBytes = recordingBytes,
             ClipBytes = clipBytes,
-            OtherBytes = Math.Max(0, usedBytes - recordingBytes - clipBytes)
+            DerivedBytes = derivedBytes,
+            OtherBytes = Math.Max(0, usedBytes - recordingBytes - clipBytes - derivedBytes)
         };
     }
 

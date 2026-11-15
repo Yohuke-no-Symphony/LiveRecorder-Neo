@@ -42,6 +42,7 @@ const segmentLabel = (segment: StorageSegment) => t(`components.storage.${segmen
 .storage-bar { height: 7px; border-radius: 6px; overflow: hidden; display: flex; background: rgba(var(--v-theme-on-surface), .09); }
 .storage-segment { height: 100%; flex-shrink: 0; }
 .storage-recordings { background: rgb(var(--v-theme-primary)); }
+.storage-derived { background: rgb(var(--v-theme-success)); }
 .storage-clips { background: rgb(var(--v-theme-info)); }
 .storage-trash { background: rgb(var(--v-theme-warning)); }
 .storage-other { background: rgb(var(--v-theme-secondary)); opacity: .65; }

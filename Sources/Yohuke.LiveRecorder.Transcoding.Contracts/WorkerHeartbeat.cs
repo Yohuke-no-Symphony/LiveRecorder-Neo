@@ -1,0 +1,11 @@
+namespace Yohuke.LiveRecorder.Transcoding.Contracts;
+
+/// <summary>更新资源状态及当前任务的有效执行租约。</summary>
+public sealed record WorkerHeartbeat
+{
+    public WorkerTelemetry Telemetry { get; set; } = new();
+    public List<WorkerJobProgress> Jobs { get; set; } = [];
+    public WorkerCapabilities? Capabilities { get; set; }
+    public int AppliedConfigurationRevision { get; set; }
+    public string? ConfigurationError { get; set; }
+}

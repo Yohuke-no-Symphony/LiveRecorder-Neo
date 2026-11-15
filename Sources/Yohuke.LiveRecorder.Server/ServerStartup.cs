@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.Extensions.FileProviders;
 using MongoDB.Driver;
@@ -29,12 +30,15 @@ using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Infrastructure.Playback;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
 using Yohuke.LiveRecorder.Infrastructure.Storage;
+using Yohuke.LiveRecorder.Infrastructure.Transcoding;
 using Yohuke.LiveRecorder.Media;
 using Yohuke.LiveRecorder.Server.Bandwidth;
 using Yohuke.LiveRecorder.Server.Endpoints;
 using Yohuke.LiveRecorder.Server.Realtime;
 using Yohuke.LiveRecorder.Server.Configuration;
 using Yohuke.LiveRecorder.Server.Localization;
+using Yohuke.LiveRecorder.Server.Transcoding;
+using Yohuke.LiveRecorder.Application.Media;
 
 namespace Yohuke.LiveRecorder.Server;
 
@@ -125,6 +129,7 @@ public static class ServerStartup
         builder.Services.AddSingleton<PlaybackCache>();
         builder.Services.AddSingleton<ContinuousPlaybackService>();
         builder.Services.AddSingleton<PlaybackService>();
+        builder.Services.AddSingleton<RenditionPlaybackService>();
         builder.Services.AddSingleton<MediaJobService>();
         builder.Services.AddSingleton<AnalyticsService>();
         builder.Services.AddSingleton<AnalyticsContributionService>();
@@ -141,6 +146,15 @@ public static class ServerStartup
         builder.Services.AddHttpClient("artwork", client => client.Timeout = TimeSpan.FromSeconds(15)).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
         builder.Services.AddIdentityServices();
         builder.Services.AddLiveRecorderMedia();
+        builder.Services.AddSingleton<ITranscodeMediaInspector, TranscodeMediaInspector>();
+        builder.Services.AddLiveRecorderTranscoding();
+        builder.Services.AddOptions<TranscodingControlOptions>()
+            .Bind(builder.Configuration.GetSection("TranscodingControl"))
+            .Validate(value => !value.Enabled || (value.Port is > 0 and <= 65535
+                && IPAddress.TryParse(value.ListenAddress, out _) && !string.IsNullOrWhiteSpace(value.CertificatePath)
+                && value.MaximumConnections is > 0 and <= 4096), "Worker TLS listener configuration is invalid.")
+            .ValidateOnStart();
+        builder.Services.AddHostedService<WorkerControlServer>();
         builder.Services.AddLiveRecorderAi();
         builder.Services.AddLiveRecorderAiInfrastructure();
         builder.Services.AddHostedService<DatabaseIndexWorker>();
@@ -314,7 +328,22 @@ public static class ServerStartup
         app.UseAuthorization();
         app.Use(async (http, next) =>
         {
-            if (http.Request.Path.StartsWithSegments("/api") && !HttpMethods.IsGet(http.Request.Method) && !HttpMethods.IsHead(http.Request.Method) && !HttpMethods.IsOptions(http.Request.Method))
+            var workerEndpoint = http.GetEndpoint()?.Metadata.GetMetadata<WorkerApiEndpointMetadata>() is not null;
+            if (workerEndpoint)
+            {
+                var limit = HttpMethods.IsPut(http.Request.Method) ? 8L * 1024 * 1024 : 16L * 1024 * 1024;
+                var bodySize = http.Features.Get<IHttpMaxRequestBodySizeFeature>();
+                if (bodySize is { IsReadOnly: false })
+                {
+                    bodySize.MaxRequestBodySize = limit;
+                }
+                if (http.Request.ContentLength > limit)
+                {
+                    http.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+                    return;
+                }
+            }
+            if (!workerEndpoint && http.Request.Path.StartsWithSegments("/api") && !HttpMethods.IsGet(http.Request.Method) && !HttpMethods.IsHead(http.Request.Method) && !HttpMethods.IsOptions(http.Request.Method))
             {
                 await http.RequestServices.GetRequiredService<IAntiforgery>().ValidateRequestAsync(http);
             }
@@ -333,6 +362,7 @@ public static class ServerStartup
         app.MapEventArtworkEndpoints();
         app.MapSessionTimelineEndpoints();
         app.MapManagementEndpoints();
+        app.MapTranscodingEndpoints();
         app.MapAiEndpoints();
         app.MapHub<StatusHub>("/hubs/status", options => options.CloseOnAuthenticationExpiration = true).RequireAuthorization();
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));

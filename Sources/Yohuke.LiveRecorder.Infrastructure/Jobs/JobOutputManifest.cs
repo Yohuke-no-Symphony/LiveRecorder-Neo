@@ -18,6 +18,7 @@ public sealed class JobOutputManifest
     public List<string> Paths { get; set; } = [];
     public Dictionary<string, long> ArtifactLengths { get; set; } = new(StringComparer.Ordinal);
     public List<RecordingSegment> RepairedSegments { get; set; } = [];
+    public Dictionary<string, string> RepairedAssetSources { get; set; } = new(StringComparer.Ordinal);
     public double ActualStartMs { get; set; }
     public double ActualEndMs { get; set; }
 
@@ -33,7 +34,23 @@ public sealed class JobOutputManifest
             job.SourceRevision,
             job.StartMs,
             job.EndMs,
-            Sources = job.SourceSegments.OrderBy(x => x.Id, StringComparer.Ordinal).ToArray()
+            Sources = job.SourceSegments.OrderBy(x => x.Id, StringComparer.Ordinal).Select(x => new
+            {
+                x.SessionId,
+                x.AttemptId,
+                x.RelativePath,
+                x.StartOffsetMs,
+                x.DurationMs,
+                x.CommittedBytes,
+                x.IsClosed,
+                x.Revision,
+                x.Codec,
+                x.IndexRelativePath,
+                x.RootRelativePath,
+                x.RootIndexRelativePath,
+                x.Id,
+                x.CreatedAtUtc
+            }).ToArray()
         }, JsonFiles.Options);
         return new()
         {

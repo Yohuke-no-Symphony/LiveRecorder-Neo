@@ -27,6 +27,7 @@ const definitions: Record<string, { labelKey: string; color: string; icon?: stri
   completed: { labelKey: 'components.status.completed', color: 'success' },
   succeeded: { labelKey: 'components.status.completed', color: 'success' },
   ready: { labelKey: 'components.status.ready', color: 'success' },
+  skipped: { labelKey: 'transcoding.skipped', color: 'secondary' },
   failed: { labelKey: 'components.status.failed', color: 'error' },
   partial: { labelKey: 'replay.states.Partial', color: 'warning' },
   interrupted: { labelKey: 'components.status.interrupted', color: 'warning' },

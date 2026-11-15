@@ -1,6 +1,7 @@
 import type { AppLanguage } from '@/localization/types'
 import type { UserPermissions } from './auth'
 import type { BandwidthSettings } from './bandwidth'
+import type { TranscodingSettings } from './transcoding'
 
 export interface SmtpSettings
 {
@@ -38,6 +39,7 @@ export interface ServerSettings
   defaultBilibiliAccountId?: string | null
   ai?: AiSettings
   bandwidth?: BandwidthSettings
+  transcoding?: TranscodingSettings
   defaultLanguage: AppLanguage
   translationDanmuPattern: string
   id: string

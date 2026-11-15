@@ -70,11 +70,11 @@ afterEach(() =>
 
 describe('磁盘分类', () =>
 {
-  it('五类容量与比例一致，零容量和异常数据也不会产生无效宽度', () =>
+  it('六类容量与比例一致，零容量和异常数据也不会产生无效宽度', () =>
   {
     const segments = storageSegments(volume())
     expect(segments.map(item => [item.id, item.bytes, item.percent])).toEqual([
-      ['recordings', 200, 20], ['clips', 150, 15], ['trash', 100, 10], ['other', 150, 15], ['free', 400, 40],
+      ['recordings', 200, 20], ['derived', 0, 0], ['clips', 150, 15], ['trash', 100, 10], ['other', 150, 15], ['free', 400, 40],
     ])
     for (const input of [
       { ...volume(), totalBytes: 0 },
@@ -91,12 +91,20 @@ describe('磁盘分类', () =>
   {
     const wrapper = render(StorageBar, { volume: volume() })
     expect(wrapper.get('[role="meter"]').attributes('aria-valuenow')).toBe('60')
-    expect(wrapper.findAll('.storage-segment')).toHaveLength(5)
+    expect(wrapper.findAll('.storage-segment')).toHaveLength(6)
     expect(wrapper.find('[data-category="clips"]').attributes('style')).toContain('width: 15%')
     expect(wrapper.text()).toContain('录播空间')
     expect(wrapper.text()).not.toContain('个人切片')
     await wrapper.get('.storage-block').trigger('mouseenter')
-    for (const label of ['录播文件', '个人切片', '回收站', '其他占用']) { expect(wrapper.get('[role="tooltip"]').text()).toContain(label) }
+    for (const label of ['录播文件', '转码成品', '个人切片', '回收站', '其他占用']) { expect(wrapper.get('[role="tooltip"]').text()).toContain(label) }
+  })
+
+  it('转码成品独立计入容量，兼容缺少新字段的旧响应', () =>
+  {
+    const segments = storageSegments({ ...volume(), derivedBytes: 50, otherBytes: 100 })
+    expect(segments.find(item => item.id === 'derived')).toEqual({ id: 'derived', bytes: 50, percent: 5 })
+    expect(segments.find(item => item.id === 'other')?.percent).toBe(10)
+    expect(segments.reduce((sum, item) => sum + item.percent, 0)).toBe(100)
   })
 
   it('键盘聚焦侧栏占用条也能打开分类详情', async () =>

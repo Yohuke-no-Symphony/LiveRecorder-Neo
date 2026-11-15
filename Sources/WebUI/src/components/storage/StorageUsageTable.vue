@@ -18,7 +18,7 @@
             <div v-if="row.id !== row.name" class="text-caption muted">{{ row.id }}</div>
             <div v-if="row.path" class="storage-path text-caption muted mt-1">{{ row.path }}</div>
           </td>
-          <td v-for="column in columns" :key="column" class="text-end text-caption mono storage-size">{{ formatBytes(row[column]) }}</td>
+          <td v-for="column in columns" :key="column" class="text-end text-caption mono storage-size">{{ formatBytes(row[column] ?? 0) }}</td>
           <td class="text-end text-body-2 mono storage-size">{{ formatBytes(row.totalBytes) }}</td>
         </tr>
       </tbody>
@@ -35,7 +35,7 @@ import { formatBytes } from '@/utilities/format'
 const props = defineProps<{ rows: StorageUsageRow[] }>()
 const { t } = useI18n()
 const descending = ref(true)
-const columns = ['recordingBytes', 'clipBytes', 'trashBytes', 'otherBytes'] as const
+const columns = ['recordingBytes', 'derivedBytes', 'clipBytes', 'trashBytes', 'otherBytes'] as const
 const sortedRows = computed(() => [...props.rows].sort((left, right) => (descending.value ? right.totalBytes - left.totalBytes : left.totalBytes - right.totalBytes) || left.id.localeCompare(right.id)))
 </script>
 

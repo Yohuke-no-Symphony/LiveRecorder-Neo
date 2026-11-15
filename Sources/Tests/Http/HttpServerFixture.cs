@@ -29,6 +29,8 @@ internal sealed class HttpServerFixture : IAsyncDisposable
     private string[] AdditionalArguments { get; init; } = [];
     private string? dataDirectory;
     private string? recordsDirectory;
+    private string? CertificatePath { get; init; }
+    private string? CertificateSha256 { get; init; }
     private IAppPaths? activePaths;
     internal string DirectoryPath { get; } = Path.Combine(Path.GetTempPath(), "live-recorder-http-tests", Guid.NewGuid().ToString("N"));
     internal string DatabaseName { get; } = "http_tests_" + Guid.NewGuid().ToString("N");
@@ -47,6 +49,14 @@ internal sealed class HttpServerFixture : IAsyncDisposable
 
     internal static Task<HttpServerFixture> CreateWithoutConfigurationAsync() =>
         CreateFixtureAsync(new HttpServerFixture(), false);
+
+    internal static Task<HttpServerFixture> CreateHttpsAsync(string certificatePath, string certificateSha256, params string[] additionalArguments) =>
+        CreateFixtureAsync(new HttpServerFixture
+        {
+            CertificatePath = certificatePath,
+            CertificateSha256 = certificateSha256,
+            AdditionalArguments = additionalArguments
+        }, true);
 
     private static async Task<HttpServerFixture> CreateFixtureAsync(HttpServerFixture fixture, bool configure)
     {
@@ -70,7 +80,7 @@ internal sealed class HttpServerFixture : IAsyncDisposable
 
     internal HttpBrowser NewBrowser(CookieContainer? cookies = null)
     {
-        var browser = new HttpBrowser(Address, cookies);
+        var browser = new HttpBrowser(Address, cookies, CertificateSha256);
         browsers.Add(browser);
         return browser;
     }
@@ -154,7 +164,10 @@ internal sealed class HttpServerFixture : IAsyncDisposable
         var configuration = new StartupConfigurationStore(ConfigFile);
         dataDirectory = configuration.ResolvedDataDirectory;
         recordsDirectory = configuration.ResolvedRecordsDirectory;
-        App = ServerStartup.CreateApplication(["--urls", "http://127.0.0.1:0", "--config", ConfigFile, "--environment", HostEnvironment, "--Logging:LogLevel:Default", "Critical", .. AdditionalArguments]);
+        var transport = CertificatePath is null
+            ? new[] { "--urls", "http://127.0.0.1:0" }
+            : new[] { "--urls", "https://127.0.0.1:0", "--Kestrel:Certificates:Default:Path", CertificatePath };
+        App = ServerStartup.CreateApplication([.. transport, "--config", ConfigFile, "--environment", HostEnvironment, "--Logging:LogLevel:Default", "Critical", .. AdditionalArguments]);
         activePaths = App.Services.GetRequiredService<IAppPaths>();
         await App.StartAsync();
         var addresses = App.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses;
