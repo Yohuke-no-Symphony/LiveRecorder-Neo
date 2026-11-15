@@ -281,6 +281,22 @@ export function usePlaybackController(options: {
     foreground = undefined
     if (prefetch === task) { prefetch = undefined }
     else { cancelPrefetch() }
+    if (force)
+    {
+      const previous = source
+      source = undefined
+      readyPrefetch = undefined
+      prefetchAttemptedFor = undefined
+      serverGap.value = undefined
+      previous?.cleanup()
+      previous?.hls?.destroy()
+      if (video.value)
+      {
+        video.value.pause()
+        video.value.removeAttribute('src')
+        video.value.load()
+      }
+    }
     const knownGap = findGap(offset, normalizedGaps.value)
     if (options.durationMs() <= 0 || offset >= options.durationMs() || knownGap)
     {

@@ -32,6 +32,7 @@ public sealed class StorageUsageMetadataService(IMongoContext context, IAppPaths
                 Id = entry.Id,
                 Kind = entry.Kind,
                 OwnerId = entry.OwnerId,
+                RetainedInPlace = entry.RetainedInPlace,
                 OriginalRelativePath = entry.OriginalRelativePath
             }).ToListAsync(cancellationToken);
         await Task.WhenAll(roomsTask, usersTask, trashTask);
@@ -47,7 +48,7 @@ public sealed class StorageUsageMetadataService(IMongoContext context, IAppPaths
         {
             cancellationToken.ThrowIfCancellationRequested();
             var trashBytes = trashDirectories.GetValueOrDefault("recordings:.trash/" + entry.Id);
-            if (entry.Kind == "Session")
+            if (entry.Kind is "Session" or "Segment")
             {
                 var directory = entry.OriginalRelativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
                 if (string.IsNullOrEmpty(directory) || directory.StartsWith('.'))
@@ -65,7 +66,9 @@ public sealed class StorageUsageMetadataService(IMongoContext context, IAppPaths
                     rooms.Add(directory, room);
                 }
                 room.TrashBytes += trashBytes;
-                room.RetainedInPlace |= Directory.Exists(Path.Combine(paths.RecordsDirectory, entry.OriginalRelativePath));
+                room.RetainedInPlace |= entry.Kind == "Segment"
+                    ? entry.RetainedInPlace
+                    : Directory.Exists(Path.Combine(paths.RecordsDirectory, entry.OriginalRelativePath));
             }
             else if (entry.Kind == "Clip" && trashBytes > 0 && !string.IsNullOrEmpty(entry.OwnerId))
             {

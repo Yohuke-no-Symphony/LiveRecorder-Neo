@@ -93,7 +93,7 @@ internal sealed class RecordingFixture : IAsyncDisposable
     internal async Task StartSupervisorAsync(IMediaRecorder? mediaRecorder = null)
     {
         Assert.Null(supervisor);
-        supervisor = new(Context, Bootstrap, Settings, Bilibili, mediaRecorder ?? Recorder, Publisher, NullLogger<RecordingSupervisor>.Instance, Grouping, Paths, Clock);
+        supervisor = new(Context, Bootstrap, Settings, Bilibili, mediaRecorder ?? Recorder, Publisher, NullLogger<RecordingSupervisor>.Instance, Grouping, new(Context, Settings, Paths), Paths, Clock);
         await supervisor.StartAsync(CancellationToken.None);
     }
 

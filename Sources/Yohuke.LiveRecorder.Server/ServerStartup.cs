@@ -114,6 +114,7 @@ public static class ServerStartup
         builder.Services.AddSingleton<StorageUsageService>();
         builder.Services.AddSingleton<StorageUsageMetadataService>();
         builder.Services.AddSingleton<SessionTrashService>();
+        builder.Services.AddSingleton<SessionSegmentTrashService>();
         builder.Services.AddOptions<ContinuousPlaybackOptions>()
             .Bind(builder.Configuration.GetSection("ContinuousPlayback"))
             .Validate(options => options.PlanCacheLimitBytes > 0
@@ -325,6 +326,7 @@ public static class ServerStartup
         app.MapBilibiliEndpoints();
         app.MapLibraryEndpoints();
         app.MapAnalyticsExportEndpoints();
+        app.MapSessionSegmentEndpoints();
         app.MapSessionConfigurationEndpoints();
         app.MapSessionBookmarkEndpoints();
         app.MapSessionLiveMarkerEndpoints();

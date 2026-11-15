@@ -264,14 +264,14 @@ public static class LibraryEndpoints
         });
         api.MapGet("/trash", async (HttpContext http, IMongoContext context, ISettingsStore settingsStore, CancellationToken ct) =>
         {
-            var filter = Builders<TrashEntry>.Filter.Where(x => x.OwnerId == Owner(http) && x.Kind != "Session");
+            var filter = Builders<TrashEntry>.Filter.Where(x => x.OwnerId == Owner(http) && x.Kind == "Clip");
             if (http.User.IsInRole("Admin"))
             {
                 filter = FilterDefinition<TrashEntry>.Empty;
             }
             else if (HasPermission(http, UserPermissionNames.MANAGE_RECORDINGS) || HasPermission(http, UserPermissionNames.PURGE_RECORDINGS))
             {
-                filter |= Builders<TrashEntry>.Filter.Eq(x => x.Kind, "Session");
+                filter |= Builders<TrashEntry>.Filter.In(x => x.Kind, new[] { "Session", "Segment" });
             }
             var entries = await context.Collection<TrashEntry>("trash").Find(filter).SortByDescending(x => x.CreatedAtUtc).ToListAsync(ct);
             var settings = await settingsStore.GetAsync(ct);
@@ -281,12 +281,16 @@ public static class LibraryEndpoints
             }
             return Results.Ok(entries);
         });
-        api.MapPost("/trash/{id}/restore", async (string id, HttpContext http, IMongoContext context, StorageService storage, SessionTrashService sessionTrash, CancellationToken ct) =>
+        api.MapPost("/trash/{id}/restore", async (string id, HttpContext http, IMongoContext context, StorageService storage, SessionTrashService sessionTrash, SessionSegmentTrashService segmentTrash, CancellationToken ct) =>
         {
             var entry = await GetTrashAsync(id, http, context, UserPermissionNames.MANAGE_RECORDINGS, ct);
             if (entry.Kind == "Session")
             {
                 await sessionTrash.RestoreAsync(entry, ct);
+            }
+            else if (entry.Kind == "Segment")
+            {
+                await segmentTrash.RestoreAsync(entry, ct);
             }
             else
             {
@@ -294,12 +298,16 @@ public static class LibraryEndpoints
             }
             return Results.NoContent();
         });
-        api.MapDelete("/trash/{id}", async (string id, HttpContext http, IMongoContext context, StorageService storage, SessionTrashService sessionTrash, CancellationToken ct) =>
+        api.MapDelete("/trash/{id}", async (string id, HttpContext http, IMongoContext context, StorageService storage, SessionTrashService sessionTrash, SessionSegmentTrashService segmentTrash, CancellationToken ct) =>
         {
             var entry = await GetTrashAsync(id, http, context, UserPermissionNames.PURGE_RECORDINGS, ct);
             if (entry.Kind == "Session")
             {
                 await sessionTrash.PurgeAsync(entry, ct);
+            }
+            else if (entry.Kind == "Segment")
+            {
+                await segmentTrash.PurgeAsync(entry, ct);
             }
             else
             {
@@ -434,7 +442,7 @@ public static class LibraryEndpoints
     private static async Task<TrashEntry> GetTrashAsync(string id, HttpContext http, IMongoContext context, string sessionPermission, CancellationToken ct)
     {
         var item = await context.Collection<TrashEntry>("trash").Find(x => x.Id == id).FirstOrDefaultAsync(ct) ?? throw new InfrastructureException(MessageCode.LIBRARY_TRASH_NOT_FOUND, 404);
-        if (item.Kind == "Session")
+        if (item.Kind is "Session" or "Segment")
         {
             if (!HasPermission(http, sessionPermission))
             {

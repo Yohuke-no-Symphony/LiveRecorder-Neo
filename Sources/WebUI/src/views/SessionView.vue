@@ -1,5 +1,5 @@
 <template>
-  <v-alert v-if="error || retentionError" type="error" class="mb-6">{{ error || retentionError }}</v-alert>
+  <v-alert v-if="error || retentionError" type="error" class="mb-6">{{ error || retentionError }}<template v-if="error" #append><v-btn variant="text" size="small" :disabled="busy" @click="refreshSession">{{ t('views.common.retry') }}</v-btn></template></v-alert>
   <v-progress-linear v-if="!detail && busy" indeterminate color="primary" />
   <template v-if="detail">
     <div class="session-heading mb-6"><router-link :to="`/streamers/${detail.session.streamerId}`" class="text-body-2 muted"><v-icon icon="mdi-chevron-left" size="18" />{{ streamer?.name || t('views.common.streamerRecordings') }}</router-link><StatusChip :status="detail.session.state" /></div>
@@ -90,10 +90,19 @@
               <v-expansion-panel-title class="session-segments-title" static>{{ t('views.session.segments', { count: formatNumber(detail.segments.length) }) }}</v-expansion-panel-title>
               <v-expansion-panel-text>
                 <v-table density="comfortable">
-                  <thead><tr><th>{{ t('views.session.segment') }}</th><th>{{ t('views.session.start') }}</th><th>{{ t('views.session.duration') }}</th><th>{{ t('views.common.size') }}</th><th>{{ t('views.common.status') }}</th></tr></thead>
+                  <thead><tr><th>{{ t('views.session.segment') }}</th><th>{{ t('views.session.start') }}</th><th>{{ t('views.session.duration') }}</th><th>{{ t('views.common.size') }}</th><th>{{ t('views.common.status') }}</th><th v-if="showSegmentActions" class="segment-action">{{ t('views.session.segmentActions') }}</th></tr></thead>
                   <tbody>
                     <tr v-for="(segment, index) in detail.segments" :key="segment.id" class="clickable-row" @click="player?.seek(segment.startOffsetMs)">
                       <td>{{ String(index + 1).padStart(2, '0') }}</td><td class="mono text-caption">{{ formatDuration(segment.startOffsetMs, true) }}</td><td class="mono text-caption">{{ formatDuration(segment.durationMs) }}</td><td class="mono text-caption">{{ formatBytes(segment.committedBytes) }}</td><td><StatusChip :status="segment.isClosed ? 'completed' : 'recording'" /></td>
+                      <td v-if="showSegmentActions" class="segment-action" @click.stop>
+                        <v-tooltip :text="segmentDeletionUnavailable || t('views.session.deleteSegmentNumber', { number: String(index + 1).padStart(2, '0') })" location="top">
+                          <template #activator="{ props: tooltipProps }">
+                            <span v-bind="tooltipProps" class="d-inline-flex" :tabindex="segmentDeletionUnavailable ? 0 : undefined">
+                              <v-btn icon="mdi-delete-outline" size="small" variant="text" color="error" :aria-label="t('views.session.deleteSegmentNumber', { number: String(index + 1).padStart(2, '0') })" :disabled="!!segmentDeletionUnavailable || segmentDeleting" @click.stop="confirmSegmentDelete(segment, index)" />
+                            </span>
+                          </template>
+                        </v-tooltip>
+                      </td>
                     </tr>
                   </tbody>
                 </v-table>
@@ -108,30 +117,33 @@
     <SessionDownloadDialog v-if="auth.canDownloadRecordings" v-model="downloadOpen" :session-id="id" :session-title="detail.session.title" :segments="detail.segments" />
     <SessionBookmarkDialog v-model="bookmarkOpen" :bookmark="editingBookmark" :offset-ms="bookmarkOffsetMs" :duration-ms="detail.durationMs" :busy="bookmarkSaving" :error="bookmarksError" @save="saveBookmark" />
     <ConfirmDialog :model-value="!!deletingBookmark" :title="t('components.bookmarks.delete')" :message="t('components.bookmarks.deleteConfirm', { title: deletingBookmark?.title ?? '' })" :action-label="t('components.bookmarks.delete')" :busy="bookmarkSaving" :error="bookmarksError" danger @update:model-value="!$event && (deletingBookmark = undefined)" @confirm="deleteBookmark" />
+    <ConfirmDialog v-if="auth.canManageRecordings" :model-value="!!deletingSegment" :title="t('views.session.deleteSegment')" :message="t('views.session.deleteSegmentConfirm', { number: deletingSegment?.number ?? '', start: formatDuration(deletingSegment?.segment.startOffsetMs ?? 0, true), duration: formatDuration(deletingSegment?.segment.durationMs ?? 0) })" :action-label="t('views.common.moveToTrash')" :busy="segmentDeleting" :error="segmentDeleteError" danger @update:model-value="!$event && !segmentDeleting && (deletingSegment = undefined)" @confirm="deleteSegment" />
     <SessionConfigurationDialog v-if="auth.canConfigureRecordings" v-model="configurationOpen" :session-id="id" @saved="onConfigurationSaved" />
     <SessionGroupDialog v-if="groupOpen && auth.canManageRecordings && isFinished" v-model="groupOpen" :session="detail.session" @grouped="router.replace(`/sessions/${$event.id}`)" />
     <SessionSplitDialog v-if="splitOpen && auth.canManageRecordings && isFinished" v-model="splitOpen" :session-id="id" :segments="detail.segments" @split="router.replace(`/streamers/${detail.session.streamerId}`)" />
     <v-dialog v-model="maintenanceOpen" max-width="580" :aria-label="maintenanceKind === 'Repair' ? t('views.session.repair') : t('views.session.merge')"><ContentCard :title="maintenanceKind === 'Repair' ? t('views.session.repair') : t('views.session.merge')"><div class="maintenance-segments"><v-checkbox v-for="(segment, index) in detail.segments.filter(item => item.isClosed)" :key="segment.id" v-model="selectedSegments" :value="segment.id" :label="t('views.session.segmentDescription', { number: String(index + 1).padStart(2, '0'), start: formatDuration(segment.startOffsetMs, true), size: formatBytes(segment.committedBytes) })" /></div><v-alert v-if="maintenanceError" type="error" class="mt-4">{{ maintenanceError }}</v-alert><template #actions><v-btn variant="text" @click="maintenanceOpen = false">{{ t('views.common.cancel') }}</v-btn><v-btn color="primary" :loading="maintenanceBusy" :disabled="!selectedSegments.length" @click="createMaintenance">{{ t('views.session.createJob') }}</v-btn></template></ContentCard></v-dialog>
     <v-snackbar v-model="jobCreated" color="surface-variant">{{ t('views.session.jobCreated') }}<template #actions><v-btn color="primary" to="/jobs">{{ t('views.session.view') }}</v-btn></template></v-snackbar>
+    <v-snackbar v-model="segmentTrashed" color="surface-variant">{{ t('views.session.segmentTrashed') }}<template #actions><v-btn color="primary" to="/trash">{{ t('views.trash.title') }}</v-btn></template></v-snackbar>
   </template>
 </template>
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { computed, mergeProps, onMounted, ref } from 'vue'
+import { computed, mergeProps, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MediaAPI } from '@/apis/MediaAPI'
 import { useAuthStore } from '@/stores/auth'
 import { useAction } from '@/composables/useAction'
 import { usePolling } from '@/composables/usePolling'
 import { useSessionTimeline } from '@/composables/useSessionTimeline'
-import type { SessionDetail, Streamer } from '@/models/media'
+import type { RecordingSegment, SessionDetail, Streamer } from '@/models/media'
 import type { PlaybackLoadOptions } from '@/models/playbackLoadOptions'
 import type { SessionBookmark } from '@/models/sessionBookmark'
 import type { SessionConfiguration } from '@/models/sessionConfiguration'
 import type { ClipSelection } from '@/models/clipSelection'
 import { useSessionBookmarks } from '@/composables/useSessionBookmarks'
 import { clampOffset } from '@/utilities/timeline'
+import { removeSessionSegment, sessionMediaChanged } from '@/utilities/sessionSegments'
 import { resolveClipRange } from '@/utilities/clipSelection'
 import { formatBytes, formatDate, formatDuration, formatNumber } from '@/utilities/format'
 import MediaPlayer from '@/components/player/MediaPlayer.vue'
@@ -176,6 +188,8 @@ const bookmarkOpen = ref(false)
 const bookmarkOffsetMs = ref(0)
 const editingBookmark = ref<SessionBookmark>()
 const deletingBookmark = ref<SessionBookmark>()
+const deletingSegment = ref<{ segment: RecordingSegment; number: string }>()
+const segmentTrashed = ref(false)
 const bookmarksEditable = computed(() => detail.value?.session.isHidden !== true)
 const { bookmarks, loading: bookmarksLoading, saving: bookmarkSaving, error: bookmarksError, refresh: refreshBookmarks, create: createBookmark, update: updateBookmark, remove: removeBookmark, clearError: clearBookmarksError } = useSessionBookmarks(() => id, () => !!detail.value)
 const groupOpen = ref(false)
@@ -187,11 +201,24 @@ const selectedSegments = ref<string[]>([])
 const { busy, error, run } = useAction()
 const { busy: retentionBusy, error: retentionError, run: runRetention } = useAction()
 const { busy: maintenanceBusy, error: maintenanceError, run: runMaintenance } = useAction()
+const { busy: segmentDeleting, error: segmentDeleteError, run: runSegmentDelete } = useAction()
 const isLive = computed(() => detail.value?.session.state === 'Recording')
 const { timeline, loading: timelineLoading, error: timelineError, refresh: refreshTimeline } = useSessionTimeline(() => id, () => !!detail.value?.session.hasDanmu, isLive)
 const isFinished = computed(() => !!detail.value?.session.endedAtUtc && !isLive.value)
+const showSegmentActions = computed(() => auth.canManageRecordings && !detail.value?.session.isHidden)
+const segmentDeletionUnavailable = computed(() =>
+{
+  if (!isFinished.value || detail.value?.segments.some(segment => !segment.isClosed))
+  {
+    return t('views.session.segmentDeleteRecording')
+  }
+  return (detail.value?.segments.length ?? 0) <= 1 ? t('views.session.segmentDeleteLast') : ''
+})
 const loadWindow = (value: number, options?: PlaybackLoadOptions) => MediaAPI.playback(id, value, options)
-usePolling(async () => { await run(async () => { detail.value = await MediaAPI.session(id) }) }, 10000)
+let detailRequest = 0
+let disposed = false
+usePolling(async () => { if (!segmentDeleting.value) { await refreshSession() } }, 10000)
+onBeforeUnmount(() => { disposed = true; detailRequest++ })
 onMounted(async () =>
 {
   await run(async () =>
@@ -199,6 +226,59 @@ onMounted(async () =>
     streamers.value = await MediaAPI.streamers()
   })
 })
+async function refreshSession(): Promise<void>
+{
+  if (disposed) { return }
+  const request = ++detailRequest
+  await run(async () =>
+  {
+    const updated = await MediaAPI.session(id).catch(value =>
+    {
+      if (!disposed && request === detailRequest) { throw value }
+      return undefined
+    })
+    if (!updated || disposed || request !== detailRequest) { return }
+    const changed = detail.value && sessionMediaChanged(detail.value, updated)
+    detail.value = updated
+    if (changed) { await refreshMedia() }
+  })
+}
+async function refreshMedia(): Promise<void>
+{
+  clipSelection.value = {}
+  selectedSegments.value = selectedSegments.value.filter(segmentId => detail.value?.segments.some(segment => segment.id === segmentId))
+  await nextTick()
+  if (disposed) { return }
+  await Promise.all([player.value?.reload(clampOffset(offsetMs.value, detail.value?.durationMs ?? 0)), refreshTimeline()])
+}
+function confirmSegmentDelete(segment: RecordingSegment, index: number): void
+{
+  if (!showSegmentActions.value || segmentDeletionUnavailable.value || segmentDeleting.value) { return }
+  segmentDeleteError.value = ''
+  deletingSegment.value = { segment, number: String(index + 1).padStart(2, '0') }
+}
+async function deleteSegment(): Promise<void>
+{
+  const target = deletingSegment.value
+  if (!target || !showSegmentActions.value || segmentDeleting.value) { return }
+  if (segmentDeletionUnavailable.value)
+  {
+    segmentDeleteError.value = segmentDeletionUnavailable.value
+    return
+  }
+  detailRequest++
+  await runSegmentDelete(async () =>
+  {
+    await MediaAPI.deleteSegment(id, target.segment.id)
+    if (disposed) { return }
+    detailRequest++
+    if (detail.value) { detail.value = removeSessionSegment(detail.value, target.segment.id) }
+    deletingSegment.value = undefined
+    segmentTrashed.value = true
+    await refreshMedia()
+    await refreshSession()
+  })
+}
 async function setPermanent(): Promise<void>
 {
   if (!auth.canManageRecordings || !detail.value || retentionBusy.value) { return }
@@ -303,6 +383,7 @@ async function createMaintenance(): Promise<void>
 .session-segments-title { min-height: 56px; padding: var(--ui-card-header-padding) var(--ui-card-padding); font-size: var(--ui-card-title-size); font-weight: 600; line-height: 1.5; }
 .session-segments :deep(.v-expansion-panel-text__wrapper) { padding: 0 var(--ui-card-padding) 4px; }
 .session-segments :deep(.v-table) { border-top: 1px solid rgba(var(--v-theme-on-surface), .07); }
+.segment-action { width: 1%; text-align: center; white-space: nowrap; }
 .maintenance-segments { max-height: 380px; overflow-y: auto; }
 @media (min-width: 1600px) { .playback-layout { grid-template-columns: minmax(0, 1fr) 390px; } }
 @media (max-width: 1200px) { .playback-layout { grid-template-columns: minmax(0, 1fr); } .playback-feed { position: static; height: calc(100dvh - var(--v-layout-top, 0px) - 48px); } }

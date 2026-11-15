@@ -162,6 +162,8 @@ export interface TrashEntry extends Entity
   ownerId: string
   kind: string
   entityId: string
+  sessionId?: string | null
+  retainedInPlace?: boolean
   title: string
   bytes: number
   purgeAtUtc: string | null

@@ -9,6 +9,7 @@ using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
+using Yohuke.LiveRecorder.Infrastructure.Storage;
 using Yohuke.LiveRecorder.Infrastructure.Library.LiveMarkers;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Library;
@@ -214,6 +215,7 @@ public sealed class SessionGroupingService(IMongoContext context, LibraryService
 
     private async Task<SessionDetail> RequireEditableAsync(string id, CancellationToken cancellationToken)
     {
+        await SessionSegmentTrashFiles.EnsureNoEntriesAsync(paths.RecordsDirectory, id, cancellationToken);
         await LiveMarkerProjectionGuard.EnsureWritableAsync(paths.RecordsDirectory, id, cancellationToken);
         await LiveMarkerProjectionGuard.EnsureNoTrashIntentAsync(paths.RecordsDirectory, id, cancellationToken);
         var detail = await library.GetAsync(id, cancellationToken);

@@ -240,4 +240,8 @@ This code is valid for 10 minutes. Do not share it. If you did not request it, i
 {0}
 
 The link is valid for 30 minutes. Resetting your password invalidates previous sign-ins and password reset links. If you did not request a password reset, ignore this email.</value></data>
+  <data name="SEGMENT_TRASH_LAST_SEGMENT" xml:space="preserve"><value>Keep at least one segment. To remove all video, delete the entire recording.</value></data>
+  <data name="SEGMENT_TRASH_UNRESOLVED" xml:space="preserve"><value>This recording has segments in the trash. Restore or permanently delete them before grouping, splitting, repairing, or permanently deleting the recording.</value></data>
+  <data name="SEGMENT_TRASH_SESSION_CHANGED" xml:space="preserve"><value>The original recording's media version or storage location has changed. This segment cannot be restored.</value></data>
+  <data name="SEGMENT_TRASH_SESSION_TRASHED" xml:space="preserve"><value>Restore the entire recording from the trash before restoring its segments.</value></data>
 </root>

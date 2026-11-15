@@ -6,6 +6,7 @@ public sealed class TrashEntry : Entity
     public string OwnerId { get; set; } = "";
     public string Kind { get; set; } = "Clip";
     public string EntityId { get; set; } = "";
+    public string? SessionId { get; set; }
     public string Title { get; set; } = "";
     public string OriginalRelativePath { get; set; } = "";
     public string TrashRelativePath { get; set; } = "";

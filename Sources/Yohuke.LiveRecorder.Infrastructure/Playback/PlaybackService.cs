@@ -199,7 +199,11 @@ public sealed class PlaybackService(LibraryService library, PlaybackCache cache,
         await using var input = File.OpenRead(manifest);
         var entry = await JsonSerializer.DeserializeAsync<PlaybackCacheEntry>(input, JsonFiles.Options, cancellationToken)
                     ?? throw new InfrastructureException(MessageCode.PLAYBACK_RESOURCE_INVALID, 404);
-        await library.GetAsync(entry.SessionId, cancellationToken);
+        var detail = await library.GetAsync(entry.SessionId, cancellationToken);
+        if (detail.Segments.All(x => x.Id != entry.SegmentId))
+        {
+            throw new InfrastructureException(MessageCode.PLAYBACK_CACHE_EXPIRED, 410);
+        }
         cache.Touch(key, generation);
         var path = MediaPaths.Resolve(directory, fileName);
         if (!File.Exists(path))

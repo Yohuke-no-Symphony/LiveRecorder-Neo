@@ -240,4 +240,8 @@
 {0}
 
 链接在 30 分钟内有效。成功重设后，此前的登录和密码重设链接将失效。如果您没有申请重设密码，请忽略本邮件。</value></data>
+  <data name="SEGMENT_TRASH_LAST_SEGMENT" xml:space="preserve"><value>请至少保留一个分段；需要删除全部视频时，请删除整场录像。</value></data>
+  <data name="SEGMENT_TRASH_UNRESOLVED" xml:space="preserve"><value>此场录像仍有分段在回收站中，请先恢复或彻底删除这些分段，再进行归组、拆分、修复或整场彻底删除。</value></data>
+  <data name="SEGMENT_TRASH_SESSION_CHANGED" xml:space="preserve"><value>原录像的媒体版本或存储位置已变化，无法恢复此分段。</value></data>
+  <data name="SEGMENT_TRASH_SESSION_TRASHED" xml:space="preserve"><value>请先从回收站恢复整场录像，再恢复其中的分段。</value></data>
 </root>

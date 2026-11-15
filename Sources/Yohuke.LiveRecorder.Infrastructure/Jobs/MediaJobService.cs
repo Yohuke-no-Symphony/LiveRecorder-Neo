@@ -8,6 +8,7 @@ using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Library;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
+using Yohuke.LiveRecorder.Infrastructure.Storage;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Jobs;
 
@@ -28,6 +29,11 @@ public sealed class MediaJobService(IMongoContext context, LibraryService librar
         }
         await EnsureMutationIndexAsync(cancellationToken);
         var detail = await library.GetAsync(request.SessionId, cancellationToken);
+        await SessionSegmentTrashFiles.EnsureNoPendingAsync(paths.RecordsDirectory, request.SessionId, cancellationToken);
+        if (request.Kind == "Repair")
+        {
+            await SessionSegmentTrashFiles.EnsureNoEntriesAsync(paths.RecordsDirectory, request.SessionId, cancellationToken);
+        }
         if (request.Kind == "Clip" && detail.Session.EndedAtUtc is null && detail.Segments.Any(x => !x.IsClosed) &&
             request.EndMs > detail.Segments.Max(x => x.StartOffsetMs + x.DurationMs))
         {
@@ -115,8 +121,17 @@ public sealed class MediaJobService(IMongoContext context, LibraryService librar
             throw new InfrastructureException(MessageCode.JOB_RETRY_STATE_INVALID, 409);
         }
         var detail = await library.GetAsync(current.SessionId, cancellationToken);
+        await SessionSegmentTrashFiles.EnsureNoPendingAsync(paths.RecordsDirectory, current.SessionId, cancellationToken);
+        var sourceIds = current.SourceSegments.Select(x => x.Id).Distinct().ToList();
+        if (sourceIds.Count > 0 && await context.Collection<RecordingSegment>("segments")
+                .CountDocumentsAsync(x => x.SessionId == current.SessionId && sourceIds.Contains(x.Id),
+                    cancellationToken: cancellationToken) != sourceIds.Count)
+        {
+            throw new InfrastructureException(MessageCode.JOB_SOURCE_REVISION_CHANGED, 409);
+        }
         if (current.Kind == "Repair")
         {
+            await SessionSegmentTrashFiles.EnsureNoEntriesAsync(paths.RecordsDirectory, current.SessionId, cancellationToken);
             if (detail.Session.MediaRevision != current.SourceRevision
                 && !(detail.Session.MediaRevision == current.SourceRevision + 1 && detail.Session.MediaRevisionJobId == current.Id))
             {

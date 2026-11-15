@@ -19,6 +19,7 @@ export const MediaAPI = {
   session: (id: string) => request<SessionDetail>(`sessions/${encodeURIComponent(id)}`),
   setSessionPermanent: (id: string, isPermanent: boolean) => put<BroadcastSession>(`sessions/${encodeURIComponent(id)}/retention`, { isPermanent }),
   deleteSession: (id: string) => remove(`sessions/${encodeURIComponent(id)}`),
+  deleteSegment: (id: string, segmentId: string) => remove(`sessions/${encodeURIComponent(id)}/segments/${encodeURIComponent(segmentId)}`),
   trashSessions: (sessionIds: string[]) => post<SessionTrashResult[]>('sessions/trash', { sessionIds }),
   groupSessions: (id: string, sessionIds: string[], title?: string, configuration?: SessionGroupConfiguration) => post<BroadcastSession>(`sessions/${encodeURIComponent(id)}/group`, { sessionIds, title, configuration }),
   splitSession: (id: string, beforeSegmentId: string) => post<{ sessions: BroadcastSession[] }>(`sessions/${encodeURIComponent(id)}/split`, { beforeSegmentId }),

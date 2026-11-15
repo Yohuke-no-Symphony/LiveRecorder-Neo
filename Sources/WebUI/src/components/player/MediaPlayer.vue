@@ -58,12 +58,13 @@ let seekTimer: ReturnType<typeof setTimeout> | undefined
 
 watch(currentMs, value => { if (!scrubbing.value) { sliderOffset.value = value } })
 
-async function navigate(value: number): Promise<void>
+async function navigate(value: number, force = false): Promise<void>
 {
   clearTimeout(seekTimer)
   seekTimer = undefined
+  if (force) { scrubbing.value = false }
   emit('navigate')
-  await seek(value)
+  await seek(value, force)
 }
 
 function scrub(value: number): void
@@ -107,7 +108,7 @@ function onKeydown(event: KeyboardEvent): void
   else if (event.key === 'ArrowLeft') { event.preventDefault(); void navigate(currentMs.value - 10000) }
 }
 onBeforeUnmount(() => clearTimeout(seekTimer))
-defineExpose({ seek: navigate })
+defineExpose({ seek: navigate, reload: (value: number) => navigate(value, true) })
 </script>
 
 <style scoped>

@@ -38,6 +38,10 @@ export const viewsZh = {
     startedAt: '录制开始时间',
     createClip: '创建切片', actions: '录播操作', group: '归组场次', split: '拆分场次', repair: '修复时间码', merge: '合并片段',
     segments: '录制片段 · {count}', segment: '片段', start: '开始', duration: '时长', segmentDescription: '片段 {number} · {start} · {size}',
+    segmentActions: '操作', deleteSegment: '删除片段', deleteSegmentNumber: '删除片段 {number}',
+    deleteSegmentConfirm: '将片段 {number}（开始 {start}，时长 {duration}）移入回收站？可以在回收站恢复；空间会在彻底删除或到期清理后释放。',
+    segmentDeleteRecording: '请等待整场录像录制结束后再删除片段。', segmentDeleteLast: '至少保留一个片段；需要删除全部视频时，请删除整场录像。',
+    segmentTrashed: '片段已移入回收站，可以恢复。',
     createJob: '创建任务', jobCreated: '后台任务已创建', view: '查看',
   },
   clips: { mine: '我的切片', expires: '到期 {date}', empty: '暂无切片', browse: '浏览录播', trashConfirm: '将切片移入回收站？' },
@@ -84,7 +88,11 @@ export const viewsZh = {
     copy: '复制', used: '已使用', revoke: '撤销', noInvitations: '暂无邀请码', maxUses: '可用次数', create: '创建',
     confirmUser: '设为普通用户？', confirmAdmin: '设为管理员？', copied: '已复制邀请码',
   },
-  trash: { title: '回收站', name: '名称', type: '类型', purgeAt: '彻底删除时间', restore: '恢复', purge: '彻底删除', empty: '回收站为空', purgeConfirm: '彻底删除？' },
+  trash: {
+    title: '回收站', name: '名称', type: '类型', purgeAt: '彻底删除时间', restore: '恢复', purge: '彻底删除', empty: '回收站为空', purgeConfirm: '彻底删除？',
+    segment: '录像分段', sourceRecording: '查看所属录像', restoreRecordingFirst: '请先恢复整场录像，再恢复此分段。',
+    sharedSegment: '共享文件会保留到不再被其他录像或任务引用。',
+  },
 }
 
 export const viewsEn: MessageSchema<typeof viewsZh> = {
@@ -125,6 +133,10 @@ export const viewsEn: MessageSchema<typeof viewsZh> = {
     startedAt: 'Recording started',
     createClip: 'Create clip', actions: 'Recording actions', group: 'Group sessions', split: 'Split session', repair: 'Repair timestamps', merge: 'Merge segments',
     segments: 'Recording segments · {count}', segment: 'Segment', start: 'Start', duration: 'Duration', segmentDescription: 'Segment {number} · {start} · {size}',
+    segmentActions: 'Actions', deleteSegment: 'Delete segment', deleteSegmentNumber: 'Delete segment {number}',
+    deleteSegmentConfirm: 'Move segment {number} (start {start}, duration {duration}) to the trash? It can be restored from the trash. Space is released after permanent deletion or automatic cleanup.',
+    segmentDeleteRecording: 'Wait for the entire recording to finish before deleting segments.', segmentDeleteLast: 'Keep at least one segment. To remove all video, delete the entire recording.',
+    segmentTrashed: 'Segment moved to the trash. You can restore it.',
     createJob: 'Create job', jobCreated: 'Background job created', view: 'View',
   },
   clips: { mine: 'My clips', expires: 'Expires {date}', empty: 'No clips yet', browse: 'Browse recordings', trashConfirm: 'Move this clip to trash?' },
@@ -171,7 +183,11 @@ export const viewsEn: MessageSchema<typeof viewsZh> = {
     copy: 'Copy', used: 'Uses', revoke: 'Revoke', noInvitations: 'No invitation codes yet', maxUses: 'Maximum uses', create: 'Create',
     confirmUser: 'Change to a regular user?', confirmAdmin: 'Make this user an administrator?', copied: 'Invitation code copied',
   },
-  trash: { title: 'Trash', name: 'Name', type: 'Type', purgeAt: 'Permanent deletion', restore: 'Restore', purge: 'Delete permanently', empty: 'Trash is empty', purgeConfirm: 'Delete permanently?' },
+  trash: {
+    title: 'Trash', name: 'Name', type: 'Type', purgeAt: 'Permanent deletion', restore: 'Restore', purge: 'Delete permanently', empty: 'Trash is empty', purgeConfirm: 'Delete permanently?',
+    segment: 'Recording segment', sourceRecording: 'View recording', restoreRecordingFirst: 'Restore the entire recording before restoring this segment.',
+    sharedSegment: 'Shared files are kept while other recordings or jobs still reference them.',
+  },
 }
 
 export const viewsJa: MessageSchema<typeof viewsZh> = {
@@ -212,6 +228,10 @@ export const viewsJa: MessageSchema<typeof viewsZh> = {
     startedAt: '録画開始日時',
     createClip: 'クリップを作成', actions: '録画の操作', group: '配信をグループ化', split: '配信を分割', repair: 'タイムスタンプを修復', merge: 'セグメントを結合',
     segments: '録画セグメント · {count}', segment: 'セグメント', start: '開始', duration: '長さ', segmentDescription: 'セグメント {number} · {start} · {size}',
+    segmentActions: '操作', deleteSegment: 'セグメントを削除', deleteSegmentNumber: 'セグメント {number} を削除',
+    deleteSegmentConfirm: 'セグメント {number}（開始 {start}、長さ {duration}）をゴミ箱に移動しますか？ゴミ箱から復元できます。完全削除または自動削除の後に空き容量が増えます。',
+    segmentDeleteRecording: '録画全体が終了してからセグメントを削除してください。', segmentDeleteLast: '少なくとも1つのセグメントを残してください。すべての映像を削除する場合は、録画全体を削除してください。',
+    segmentTrashed: 'セグメントをゴミ箱に移動しました。復元できます。',
     createJob: 'タスクを作成', jobCreated: 'バックグラウンドタスクを作成しました', view: '表示',
   },
   clips: { mine: '自分のクリップ', expires: '有効期限 {date}', empty: 'クリップはまだありません', browse: '録画を見る', trashConfirm: 'このクリップをゴミ箱に移動しますか？' },
@@ -258,5 +278,9 @@ export const viewsJa: MessageSchema<typeof viewsZh> = {
     copy: 'コピー', used: '使用回数', revoke: '無効化', noInvitations: '招待コードはまだありません', maxUses: '使用可能回数', create: '作成',
     confirmUser: '一般ユーザーに変更しますか？', confirmAdmin: '管理者に変更しますか？', copied: '招待コードをコピーしました',
   },
-  trash: { title: 'ゴミ箱', name: '名前', type: '種類', purgeAt: '完全削除の日時', restore: '復元', purge: '完全に削除', empty: 'ゴミ箱は空です', purgeConfirm: '完全に削除しますか？' },
+  trash: {
+    title: 'ゴミ箱', name: '名前', type: '種類', purgeAt: '完全削除の日時', restore: '復元', purge: '完全に削除', empty: 'ゴミ箱は空です', purgeConfirm: '完全に削除しますか？',
+    segment: '録画セグメント', sourceRecording: '元の録画を表示', restoreRecordingFirst: 'このセグメントを復元する前に、録画全体を復元してください。',
+    sharedSegment: 'ほかの録画やタスクが参照している共有ファイルは保持されます。',
+  },
 }

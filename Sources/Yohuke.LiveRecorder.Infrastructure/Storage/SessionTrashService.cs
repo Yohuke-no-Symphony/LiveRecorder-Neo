@@ -53,6 +53,7 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
     private async Task TrashCoreAsync(string id, string ownerId, bool expiredOnly,
         CancellationToken cancellationToken)
     {
+        await SessionSegmentTrashFiles.EnsureNoPendingAsync(paths.RecordsDirectory, id, cancellationToken);
         await LiveMarkerProjectionGuard.EnsureWritableAsync(paths.RecordsDirectory, id, cancellationToken);
         var existing = await context.Collection<TrashEntry>("trash").Find(x => x.EntityId == id && x.Kind == "Session")
             .FirstOrDefaultAsync(cancellationToken);
@@ -418,6 +419,8 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
 
     private async Task CompletePurgeAsync(SessionTrashJournal journal, CancellationToken cancellationToken)
     {
+        await SessionSegmentTrashFiles.EnsureNoEntriesAsync(paths.RecordsDirectory, journal.Entry.EntityId,
+            cancellationToken);
         journal.Entry.State = "Purging";
         await PersistAsync(journal, cancellationToken);
         var directory = journal.Entry.RetainedInPlace
@@ -521,6 +524,11 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
         CancellationToken cancellationToken, bool includeDerivedOutputs = true)
     {
         var directory = ResolveDirectory(relativeDirectory);
+        if ((await SessionSegmentTrashFiles.RetainedPathsAsync(paths.RecordsDirectory, cancellationToken))
+            .Any(relative => IsInside(relative, directory)))
+        {
+            return true;
+        }
         var jobs = await context.Collection<MediaJob>("jobs")
             .Find(x => x.State == "Queued" || x.State == "Running" || x.State == "Publishing" || x.State == "Completed")
             .ToListAsync(cancellationToken);
@@ -613,6 +621,13 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
         var directory = ResolveDirectory(manifest.Session.DirectoryPath);
         var comparison = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
         var keep = new HashSet<string>(comparison);
+        foreach (var relative in await SessionSegmentTrashFiles.RetainedPathsAsync(paths.RecordsDirectory, cancellationToken))
+        {
+            if (IsInside(relative, directory))
+            {
+                keep.Add(MediaPaths.Resolve(paths.RecordsDirectory, relative));
+            }
+        }
         var jobs = await context.Collection<MediaJob>("jobs").Find(x => x.State == "Completed" && x.Kind != "Clip")
             .ToListAsync(cancellationToken);
         var clips = await context.Collection<Clip>("clips").Find(x => !x.IsTrashed).ToListAsync(cancellationToken);

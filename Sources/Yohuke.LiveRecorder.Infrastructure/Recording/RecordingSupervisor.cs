@@ -18,7 +18,7 @@ using Yohuke.LiveRecorder.Infrastructure.Storage;
 namespace Yohuke.LiveRecorder.Infrastructure.Recording;
 
 /// <summary>并行维护启用的直播间，数据库和派生任务不进入采集热路径。</summary>
-public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore bootstrap, ISettingsStore settingsStore, IBilibiliService bilibili, IMediaRecorder recorder, IStatusPublisher publisher, ILogger<RecordingSupervisor> logger, SessionGroupingService grouping, IAppPaths paths, TimeProvider? timeProvider = null) : BackgroundService
+public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore bootstrap, ISettingsStore settingsStore, IBilibiliService bilibili, IMediaRecorder recorder, IStatusPublisher publisher, ILogger<RecordingSupervisor> logger, SessionGroupingService grouping, SessionSegmentTrashService segmentTrash, IAppPaths paths, TimeProvider? timeProvider = null) : BackgroundService
 {
     private readonly Dictionary<string, RecordingWorkerHandle> workers = new();
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
@@ -647,6 +647,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                 logger.LogWarning("档案清单 {Path} 无法读取：{Message}", path, error.Message);
             }
         }
+        await segmentTrash.ReconcileUnderLibraryLockAsync(cancellationToken);
         await grouping.ReconcileUnderLibraryLockAsync(cancellationToken);
         var unfinished = await context.Collection<BroadcastSession>("sessions").Find(x => x.EndedAtUtc == null && !x.IsHidden).ToListAsync(cancellationToken);
         foreach (var session in unfinished)
