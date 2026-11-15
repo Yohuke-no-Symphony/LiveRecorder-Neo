@@ -74,7 +74,7 @@ pwsh ./release.ps1 --all --version 1.2.3
 ./scripts/publish.sh linux-x64
 ```
 
-支持 `linux-x64`、`linux-arm64`、`win-x64`、`osx-x64`、`osx-arm64`。发布产物在仓库根目录的 `Artifacts/<runtime>/`，包括自包含服务端和 `webui/`。FFmpeg 与 ffprobe 由目标机器安装，也可以在安装页和管理设置中填写绝对路径。
+支持 `linux-x64`、`linux-arm64`、`win-x64`、`osx-x64`、`osx-arm64`。发布产物在仓库根目录的 `Artifacts/<runtime>/`，服务端使用自包含 SingleFile，将程序集、.NET 运行库和原生库打入一个可执行文件，`webui/`、`appsettings*.json` 与运行时设置按外部文件读取。原生库首次启动时解压到运行账户可写的 bundle 目录。FFmpeg 与 ffprobe 由目标机器安装，也可以在安装页和管理设置中填写绝对路径。
 
 运行发布产物：
 
@@ -104,9 +104,9 @@ Worker 以独立进程运行，通过 TCP＋TLS 控制通道取得任务，通�
 }
 ```
 
-证书需要私钥，且主机名应与 Worker 连接配置一致；PFX 密码可通过 `TranscodingControl__CertificatePassword` 环境变量提供。控制端口需要 TCP 直连或四层代理；Web HTTPS 反代继续使用原站点端口。HTTPS 反代需发送 `X-Forwarded-Proto`，主站通过 `KnownProxies` 配置信任实际代理，Worker 文件接口拒绝未识别为 HTTPS 的请求。
+证书需要私钥，且主机名应与 Worker 连接配置一致，PFX 密码可通过 `TranscodingControl__CertificatePassword` 环境变量提供。控制端口需要 TCP 直连或四层代理，网站 HTTP 或 HTTPS 地址与控制端口分别配置。HTTPS 反代发送 `X-Forwarded-Proto`，主站通过 `KnownProxies` 配置信任实际代理。Worker 文件接口支持 HTTP 和 HTTPS，使用独立的节点凭据和任务租约验证请求。
 
-点击 Worker 卡片右上角加号创建节点，保存一次性密钥。节点首次交互启动或运行 `--bind` 时，可在终端填写主机地址、Worker ID 与 Secret；密钥隐藏输入。Worker 的连接信息与全部运行参数统一保存到其可执行文件旁的 `settings.json`，也可用 `--config` 指定文件。`--configure` 可在终端修改完整配置，主站后台修改的运行参数也会同步到该文件；双方修改使用版本检查防止覆盖。后台填写的临时目录、FFmpeg 与 ffprobe 路径属于 Worker 所在机器。详细启动、GPU 探测、CPU 补位策略和五平台发布方法见 [Worker 说明](Yohuke.LiveRecorder.Transcoding.Worker/README.md)。
+点击 Worker 卡片右上角加号创建节点，保存一次性密钥。节点运行 `register` 后可在终端填写网站 HTTP 或 HTTPS 地址、TCP 控制地址、Worker ID 与 Secret，密钥隐藏输入。Worker 的连接信息与全部运行参数统一保存到其可执行文件旁的 `settings.json`，也可用 `--config` 指定文件。`config` 修改本机运行参数并同步主站，`run` 使用已保存的设置前台运行。`install` 与 `uninstall` 管理 macOS、Linux 和 Windows 的系统服务，`start`、`stop` 控制运行，`enable`、`disable` 控制开机启动，`help` 与 `version` 查看帮助和版本。命令行全部使用英文。主站后台修改的运行参数也会同步到该文件，双方修改使用版本检查防止覆盖。后台填写的临时目录、FFmpeg 与 ffprobe 路径属于 Worker 所在机器。详细启动、GPU 探测、CPU 补位策略和五平台发布方法见 [Worker 说明](Yohuke.LiveRecorder.Transcoding.Worker/README.md)。
 
 成品集中存放在录像目录的 `.derived/`，按物理文件、源版本和编码配方共享，磁盘页单独统计。逻辑归组、拆分复用同一成品；修复替换原片会撤销旧任务，并保留需要重转的档位意图。删除片段或场次时同步停止对应转码和隐藏成品；回收站还原可重新使用成品，仍被其他场次引用的文件继续保留。最后一份原片引用从回收站清除后，派生文件也会清除。
 

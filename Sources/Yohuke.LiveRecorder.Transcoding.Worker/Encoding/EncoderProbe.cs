@@ -13,7 +13,7 @@ internal sealed class EncoderProbe(WorkerProcessRunner processes)
         var version = await processes.RunAsync(configuration.FfmpegPath, ["-version"], toolTimeout.Token);
         if (version.ExitCode != 0)
         {
-            throw new InvalidOperationException("FFmpeg 版本检查失败：" + version.Diagnostic);
+            throw new InvalidOperationException("FFmpeg version check failed: " + version.Diagnostic);
         }
         var capabilities = new WorkerCapabilities
         {

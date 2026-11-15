@@ -16,6 +16,9 @@ source_root="$repo_root/Sources"
 output_directory="$repo_root/Artifacts/$runtime"
 dotnet publish "$source_root/Yohuke.LiveRecorder.Server/Yohuke.LiveRecorder.Server.csproj" \
     --configuration Release --runtime "$runtime" --self-contained true \
+    -p:PublishSingleFile=true \
+    -p:IncludeNativeLibrariesForSelfExtract=true \
+    -p:DebugType=embedded \
     -p:RuntimeFrameworkVersion=10.0.13 \
     -p:BuildWebUI="$build_webui" \
     --output "$output_directory"

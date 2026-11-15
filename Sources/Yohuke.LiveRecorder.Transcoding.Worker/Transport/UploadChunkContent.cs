@@ -19,7 +19,7 @@ internal sealed class UploadChunkContent(Stream source, long length, TransferThr
             var count = await source.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), cancellationToken);
             if (count == 0)
             {
-                throw new EndOfStreamException("上传成品在传输期间发生变化");
+                throw new EndOfStreamException("The output artifact changed during upload.");
             }
             using (timeout.Pause())
             {

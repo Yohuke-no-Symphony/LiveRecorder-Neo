@@ -31,7 +31,7 @@ internal sealed class WorkerSettingsStore : IDisposable
             var settings = await JsonSerializer.DeserializeAsync<WorkerSettings>(stream, JsonOptions, cancellationToken);
             if (settings is null || settings.Worker is null || settings.Configuration is null || settings.ConfigurationRevision < 0)
             {
-                throw new InvalidDataException("settings.json 必须包含有效的 Worker、Configuration 和非负的配置版本");
+                throw new InvalidDataException("settings.json must contain valid Worker and Configuration objects and a nonnegative configuration revision.");
             }
             Current = settings;
         }

@@ -21,7 +21,7 @@ internal static class WorkerSettingsSynchronization
         WorkerSetup.Validate(settings.Configuration);
         if (sameBinding && settings.ConfigurationRevision != welcome.ConfigurationRevision)
         {
-            throw new InvalidOperationException("本地设置与主站配置均已修改，未覆盖任何一方。请运行 --configure，以主站最新配置为基础重新确认运行参数");
+            throw new InvalidOperationException("Local and server settings have both changed. Run 'config' to review the latest server configuration and resolve the version conflict.");
         }
         return new()
         {

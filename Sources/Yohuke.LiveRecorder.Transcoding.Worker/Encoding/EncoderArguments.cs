@@ -21,7 +21,7 @@ internal static class EncoderArguments
             {
                 if (device.Contains(',') || device.Contains(':'))
                 {
-                    throw new InvalidDataException("无效的 QSV 设备标识");
+                    throw new InvalidDataException("Invalid QSV device identifier");
                 }
                 platform += ",child_device=" + device;
             }
@@ -31,7 +31,7 @@ internal static class EncoderArguments
         {
             if (!int.TryParse(device, out var index) || index < 0)
             {
-                throw new InvalidDataException("AMF 设备标识必须是非负适配器序号");
+                throw new InvalidDataException("The AMF device identifier must be a non-negative adapter index");
             }
             result.AddRange(["-init_hw_device", $"d3d11va=worker:{index}", "-filter_hw_device", "worker"]);
         }
@@ -42,7 +42,7 @@ internal static class EncoderArguments
     {
         if (!ENCODERS.Contains(encoder.Encoder, StringComparer.Ordinal))
         {
-            throw new InvalidDataException("不支持的编码器");
+            throw new InvalidDataException("Unsupported encoder");
         }
         var result = new List<string> { "-c:v", encoder.Encoder, "-profile:v", "high" };
         switch (encoder.Encoder)

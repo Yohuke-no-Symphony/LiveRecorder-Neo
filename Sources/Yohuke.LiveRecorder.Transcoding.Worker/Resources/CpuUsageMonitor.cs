@@ -19,7 +19,7 @@ internal sealed class CpuUsageMonitor
                 var counters = OperatingSystem.IsWindows() ? WindowsCpuReader.Read()
                     : OperatingSystem.IsMacOS() ? MacCpuReader.Read()
                     : OperatingSystem.IsLinux() ? LinuxCpuReader.Read()
-                    : throw new PlatformNotSupportedException("当前系统没有 CPU 负载采样器");
+                    : throw new PlatformNotSupportedException("CPU load sampling is unavailable on this operating system");
                 window.Add(clock.Elapsed, counters);
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException

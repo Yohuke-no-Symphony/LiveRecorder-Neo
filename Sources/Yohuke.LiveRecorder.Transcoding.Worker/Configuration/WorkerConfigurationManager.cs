@@ -12,7 +12,7 @@ internal sealed class WorkerConfigurationManager
     private readonly TimeProvider timeProvider;
     private WorkerRuntimeConfiguration current = new(new(), new(), 0);
     private int requestedRevision;
-    private string? error = "正在读取主站配置";
+    private string? error = "Loading server configuration";
     private CancellationTokenSource? refreshCancellation;
     private Task refreshTask = Task.CompletedTask;
     private long lastProbe;
@@ -30,7 +30,7 @@ internal sealed class WorkerConfigurationManager
             var result = await processes.RunAsync(configuration.FfprobePath, ["-version"], timeout.Token);
             if (result.ExitCode != 0)
             {
-                throw new InvalidOperationException("ffprobe 检查失败");
+                throw new InvalidOperationException("ffprobe version check failed");
             }
             return await new EncoderProbe(processes).ProbeAsync(configuration, token);
         });
@@ -121,7 +121,7 @@ internal sealed class WorkerConfigurationManager
                 Capabilities = current.Capabilities with
                 {
                     Encoders = current.Capabilities.Encoders.Select(item => item.Encoder == encoder.Encoder && item.DeviceId == encoder.DeviceId
-                        ? item with { Available = false, Error = "最近一次编码失败，等待重新检测" } : item with { }).ToList()
+                        ? item with { Available = false, Error = "The last encoding attempt failed. Waiting to probe again" } : item with { }).ToList()
                 }
             };
         }
@@ -132,7 +132,7 @@ internal sealed class WorkerConfigurationManager
         var previous = refreshTask;
         refreshCancellation?.Cancel();
         refreshCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        error = "正在验证主站配置和编码能力";
+        error = "Validating server configuration and encoder capabilities";
         refreshTask = RefreshAsync(configuration with { }, revision, forceProbe, previous, refreshCancellation);
     }
 

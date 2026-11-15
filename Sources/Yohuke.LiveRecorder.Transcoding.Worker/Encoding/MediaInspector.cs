@@ -18,7 +18,7 @@ internal sealed class MediaInspector(WorkerProcessRunner processes)
             cancellationToken, outputLine: timeline.Add);
         if (result.ExitCode != 0)
         {
-            throw new InvalidDataException("转码时间轴验证失败：" + result.Diagnostic);
+            throw new InvalidDataException("Transcoded timeline validation failed: " + result.Diagnostic);
         }
         timeline.Complete();
     }
@@ -71,7 +71,7 @@ internal sealed class MediaInspector(WorkerProcessRunner processes)
             ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", path], timeout.Token);
         if (result.ExitCode != 0)
         {
-            throw new InvalidDataException("媒体探测失败：" + result.Diagnostic);
+            throw new InvalidDataException("Media probing failed: " + result.Diagnostic);
         }
         using var document = JsonDocument.Parse(result.Output);
         var root = document.RootElement;
@@ -113,7 +113,7 @@ internal sealed class MediaInspector(WorkerProcessRunner processes)
         };
         if (resultInfo.DurationMs <= 0 || width < 2 || height < 2 || !double.IsFinite(rate) || rate <= 0)
         {
-            throw new InvalidDataException("媒体没有有效的视频尺寸、时长或帧率");
+            throw new InvalidDataException("The media has invalid video dimensions, duration, or frame rate");
         }
         if (resultInfo.VideoBitrate <= 0 || (resultInfo.HasAudio && resultInfo.AudioBitrate <= 0))
         {

@@ -104,7 +104,7 @@ internal sealed class WorkerFileTransfer : IDisposable
         {
             if (response.Content.Headers.ContentRange?.From != offset || response.Content.Headers.ContentRange?.Length != assignment.SourceLength)
             {
-                throw new InvalidDataException("主站返回的下载范围不匹配");
+                throw new InvalidDataException("The server returned an unexpected download range.");
             }
         }
         else
@@ -125,7 +125,7 @@ internal sealed class WorkerFileTransfer : IDisposable
             }
             if (offset + count > assignment.SourceLength)
             {
-                throw new InvalidDataException("主站返回的输入超过任务声明长度");
+                throw new InvalidDataException("The server returned input exceeding the length declared by the job.");
             }
             await downloadThrottle.WaitAsync(count, bytesPerSecond, cancellationToken);
             await output.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
@@ -135,7 +135,7 @@ internal sealed class WorkerFileTransfer : IDisposable
         await output.FlushAsync(cancellationToken);
         if (offset != assignment.SourceLength)
         {
-            throw new EndOfStreamException("原片传输提前结束，将从已完成位置续传");
+            throw new EndOfStreamException("The source transfer ended early and will resume from the last completed offset.");
         }
     }
 
@@ -169,7 +169,7 @@ internal sealed class WorkerFileTransfer : IDisposable
                     {
                         if (++retries > 4)
                         {
-                            throw new IOException("上传偏移反复冲突");
+                            throw new IOException("The upload offset repeatedly conflicted with the server offset.");
                         }
                         offset = await UploadOffsetAsync(assignment, endpoint, artifact.Length, cancellationToken);
                         continue;
@@ -178,7 +178,7 @@ internal sealed class WorkerFileTransfer : IDisposable
                     var next = Offset(response, artifact.Length);
                     if (next != offset + count)
                     {
-                        throw new InvalidDataException("主站确认的上传偏移不匹配");
+                        throw new InvalidDataException("The server acknowledged an unexpected upload offset.");
                     }
                     offset = next;
                     retries = 0;
@@ -250,7 +250,7 @@ internal sealed class WorkerFileTransfer : IDisposable
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new IOException("等待主站响应超时");
+            throw new IOException("Timed out waiting for the server response.");
         }
     }
 
@@ -262,7 +262,7 @@ internal sealed class WorkerFileTransfer : IDisposable
         }
         catch (OperationCanceledException) when (!jobToken.IsCancellationRequested)
         {
-            throw new IOException("上传长时间没有网络进展");
+            throw new IOException("The upload timed out without network progress.");
         }
     }
 
@@ -276,7 +276,7 @@ internal sealed class WorkerFileTransfer : IDisposable
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new IOException("下载长时间没有网络进展");
+            throw new IOException("The download timed out without network progress.");
         }
     }
 
@@ -285,7 +285,7 @@ internal sealed class WorkerFileTransfer : IDisposable
         if (!response.Headers.TryGetValues("Upload-Offset", out var values)
             || !long.TryParse(values.SingleOrDefault(), CultureInfo.InvariantCulture, out var offset) || offset < 0 || offset > total)
         {
-            throw new InvalidDataException("主站返回了无效的上传续传偏移");
+            throw new InvalidDataException("The server returned an invalid upload resume offset.");
         }
         return offset;
     }
@@ -294,12 +294,12 @@ internal sealed class WorkerFileTransfer : IDisposable
     {
         if (!string.IsNullOrEmpty(assignment.SourceETag) && response.Headers.ETag?.ToString() != assignment.SourceETag)
         {
-            throw new WorkerLeaseLostException("原片版本已变化");
+            throw new WorkerLeaseLostException("The source version has changed.");
         }
         if ((!ranged || response.StatusCode != HttpStatusCode.PartialContent)
             && response.Content.Headers.ContentLength != assignment.SourceLength)
         {
-            throw new WorkerLeaseLostException("原片长度已变化");
+            throw new WorkerLeaseLostException("The source length has changed.");
         }
     }
 
@@ -308,7 +308,7 @@ internal sealed class WorkerFileTransfer : IDisposable
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.NotFound
             or HttpStatusCode.Gone or HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict)
         {
-            throw new WorkerLeaseLostException("主站已拒绝当前任务或执行身份（" + (int)response.StatusCode + "）");
+            throw new WorkerLeaseLostException("The server rejected the current job lease or worker credentials (status " + (int)response.StatusCode + ").");
         }
         response.EnsureSuccessStatusCode();
     }

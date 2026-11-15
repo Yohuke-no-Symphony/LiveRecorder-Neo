@@ -13,7 +13,7 @@ internal sealed class CpuLoadWindow
             if (counters is null || counters.Total <= 0 || counters.EffectiveProcessors <= 0)
             {
                 samples.Clear();
-                error = reason ?? "CPU 指标不可用";
+                error = reason ?? "CPU metrics are unavailable";
                 return;
             }
             var previous = samples.LastOrDefault();
@@ -41,18 +41,18 @@ internal sealed class CpuLoadWindow
             var latest = samples.LastOrDefault();
             if (latest is null || now < latest.Time || now - latest.Time > TimeSpan.FromSeconds(3))
             {
-                return CpuLoadSnapshot.Unknown(error ?? "CPU 指标已过期");
+                return CpuLoadSnapshot.Unknown(error ?? "CPU metrics are stale");
             }
             var boundary = latest.Time - TimeSpan.FromSeconds(windowSeconds);
             var first = samples.LastOrDefault(sample => sample.Time <= boundary);
             if (first is null)
             {
-                return new(null, latest.Counters.EffectiveProcessors, "正在收集完整 CPU 采样窗口");
+                return new(null, latest.Counters.EffectiveProcessors, "Collecting a complete CPU sampling window");
             }
             var total = latest.Counters.Total - first.Counters.Total;
             if (total <= 0)
             {
-                return CpuLoadSnapshot.Unknown("CPU 计数器没有前进");
+                return CpuLoadSnapshot.Unknown("CPU counters have not advanced");
             }
             var ratio = (latest.Counters.Busy - first.Counters.Busy) / total;
             if (latest.Counters.QuotaUsedSeconds is { } used && first.Counters.QuotaUsedSeconds is { } previousUsed)

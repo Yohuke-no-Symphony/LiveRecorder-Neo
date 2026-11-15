@@ -1,0 +1,27 @@
+<Project>
+    <Target Name="RemoveLegacyBundledPublishFiles" AfterTargets="Publish"
+            Condition="'$(PublishSingleFile)' == 'true'">
+        <ItemGroup>
+            <_BundledPublishFile Include="@(FilesToBundle)"
+                                 Condition="'%(FilesToBundle.RelativePath)' != '$(PublishedSingleFileName)'" />
+            <_BundledPublishFile Remove="@(ResolvedFileToPublish)" />
+            <_LegacySingleFileRuntimeAsset Include="@(RuntimePackAsset)"
+                                           Condition="'%(RuntimePackAsset.DropFromSingleFile)' == 'true'" />
+            <_BundledPublishAssembly Include="@(_BundledPublishFile)"
+                                     Condition="'%(_BundledPublishFile.Extension)' == '.dll'">
+                <SymbolRelativePath>$([System.IO.Path]::ChangeExtension('%(_BundledPublishFile.RelativePath)', '.pdb'))</SymbolRelativePath>
+            </_BundledPublishAssembly>
+            <_LegacyBundledPublishFile Include="@(_BundledPublishFile)"
+                                      Condition="'%(_BundledPublishFile.Extension)' == '.dll'
+                                                 Or '%(_BundledPublishFile.Extension)' == '.so'
+                                                 Or '%(_BundledPublishFile.Extension)' == '.dylib'
+                                                 Or '%(_BundledPublishFile.RelativePath)' == '$(ProjectDepsFileName)'
+                                                 Or '%(_BundledPublishFile.RelativePath)' == '$(ProjectRuntimeConfigFileName)'
+                                                 Or '%(_BundledPublishFile.Filename)' == 'createdump'" />
+        </ItemGroup>
+        <Delete Files="@(_LegacyBundledPublishFile->'$(PublishDir)%(RelativePath)')" />
+        <Delete Files="@(_LegacySingleFileRuntimeAsset->'$(PublishDir)%(DestinationSubPath)')" />
+        <Delete Files="@(_BundledPublishAssembly->'$(PublishDir)%(SymbolRelativePath)')"
+                Condition="'$(DebugType)' == 'embedded'" />
+    </Target>
+</Project>

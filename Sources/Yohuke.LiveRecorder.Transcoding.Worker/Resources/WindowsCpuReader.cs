@@ -30,16 +30,16 @@ internal static class WindowsCpuReader
         if (processors > 64 || System.Numerics.BitOperations.PopCount((ulong)process.ProcessorAffinity) != processors
             || !GetSystemTimes(out var idle, out var kernel, out var user))
         {
-            throw new InvalidOperationException("无法可靠读取受限 CPU 资源域的负载");
+            throw new InvalidOperationException("Unable to reliably read CPU load under the current resource limits");
         }
         if (!IsProcessInJob(process.Handle, IntPtr.Zero, out var inJob))
         {
-            throw new InvalidOperationException("无法读取 Windows CPU 资源限制");
+            throw new InvalidOperationException("Unable to read Windows CPU resource limits");
         }
         if (inJob && (!QueryInformationJobObject(IntPtr.Zero, 15, out var rate, (uint)Marshal.SizeOf<WindowsCpuRate>(), IntPtr.Zero)
                       || (rate.ControlFlags & 1) != 0))
         {
-            throw new InvalidOperationException("Windows Job CPU 配额负载不可可靠计量，自动 CPU 补位已禁用");
+            throw new InvalidOperationException("Windows Job CPU quota usage cannot be measured reliably. Automatic CPU fallback is disabled");
         }
         return new(kernel + (double)user - idle, kernel + (double)user, processors);
     }

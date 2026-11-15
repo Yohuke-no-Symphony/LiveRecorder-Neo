@@ -2,9 +2,15 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <AssemblyName>Yohuke.LiveRecorder.Transcoding.Worker</AssemblyName>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
+    <DebugType Condition="'$(Configuration)' == 'Release'">embedded</DebugType>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Spectre.Console" Version="0.57.2" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.13" />
     <ProjectReference Include="../Yohuke.LiveRecorder.Transcoding.Contracts/Yohuke.LiveRecorder.Transcoding.Contracts.csproj" />
     <InternalsVisibleTo Include="Yohuke.LiveRecorder.Transcoding.Worker.Tests" />
     <InternalsVisibleTo Include="Yohuke.LiveRecorder.Http.Tests" />
@@ -12,4 +18,5 @@
   <ItemGroup>
     <None Remove="settings.json;settings.json.lock;settings.json.*.tmp" />
   </ItemGroup>
+  <Import Project="../../scripts/SingleFile.Publish.targets" />
 </Project>

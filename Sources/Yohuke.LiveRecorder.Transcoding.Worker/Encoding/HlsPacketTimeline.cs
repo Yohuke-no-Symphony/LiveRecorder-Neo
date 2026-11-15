@@ -37,14 +37,14 @@ internal sealed class HlsPacketTimeline(IReadOnlyList<double> boundaries, double
         }
         if (pts is not { } timestamp || !double.IsFinite(timestamp))
         {
-            error ??= "转码包缺少有限的视频时间戳";
+            error ??= "A transcoded packet is missing a finite video timestamp";
             return;
         }
         if (dts is { } decodeTime)
         {
             if (!double.IsFinite(decodeTime) || lastDts is { } previous && decodeTime < previous - 0.000001)
             {
-                error ??= "转码分片的解码时间戳发生倒退";
+                error ??= "Decoding timestamps in transcoded segments moved backward";
             }
             lastDts = decodeTime;
         }
@@ -53,7 +53,7 @@ internal sealed class HlsPacketTimeline(IReadOnlyList<double> boundaries, double
             origin = timestamp;
             if (!keyframe)
             {
-                error ??= "转码视频未以关键帧开始";
+                error ??= "The transcoded video does not start with a keyframe";
             }
         }
         if (!keyframe)
@@ -65,7 +65,7 @@ internal sealed class HlsPacketTimeline(IReadOnlyList<double> boundaries, double
         {
             if (Math.Abs(position - boundaries[nextBoundary]) > tolerance)
             {
-                error ??= "转码分片边界没有独立关键帧";
+                error ??= "A transcoded segment boundary is missing an independent keyframe";
             }
             nextBoundary++;
         }
@@ -75,7 +75,7 @@ internal sealed class HlsPacketTimeline(IReadOnlyList<double> boundaries, double
     {
         if (error is not null || origin is null || nextBoundary != boundaries.Count)
         {
-            throw new InvalidDataException(error ?? "转码视频没有覆盖所有分片边界");
+            throw new InvalidDataException(error ?? "The transcoded video does not cover all segment boundaries");
         }
     }
 }

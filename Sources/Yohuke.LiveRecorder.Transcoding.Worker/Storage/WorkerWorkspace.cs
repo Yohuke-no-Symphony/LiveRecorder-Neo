@@ -23,7 +23,7 @@ internal sealed class WorkerWorkspace(string workerId)
             var sourcePath = Path.Combine(input, "source.flv");
             if (outputReservations.ContainsKey(output))
             {
-                throw new InvalidOperationException("同一次任务不能重复占用工作目录");
+                throw new InvalidOperationException("The same job attempt cannot acquire its workspace more than once");
             }
             var roots = protectedPaths.Keys.Select(path => Path.GetDirectoryName(Path.GetDirectoryName(path)!)!)
                 .Append(root).Distinct(StringComparer.Ordinal);
@@ -55,7 +55,7 @@ internal sealed class WorkerWorkspace(string workerId)
             }
             if (occupied + reserved + expected > configuration.MaxCacheBytes || free - diskReserved - expected < configuration.MinimumFreeBytes)
             {
-                throw new IOException("Worker 缓存或可用磁盘空间不足，请在主站调整缓存上限或临时目录");
+                throw new IOException("Insufficient worker cache capacity or free disk space. Adjust the cache limit or temporary directory on the server");
             }
             Protect(input);
             Protect(output);
@@ -91,7 +91,7 @@ internal sealed class WorkerWorkspace(string workerId)
         var full = Path.GetFullPath(root);
         var drive = DriveInfo.GetDrives().Where(item => item.IsReady && IsWithin(full, item.RootDirectory.FullName))
             .OrderByDescending(item => item.RootDirectory.FullName.Length).FirstOrDefault();
-        return drive ?? throw new IOException("无法读取临时目录所在磁盘的空闲空间");
+        return drive ?? throw new IOException("Unable to read free space on the disk containing the temporary directory");
     }
 
     private void Protect(string path) => protectedPaths[path] = protectedPaths.GetValueOrDefault(path) + 1;
@@ -145,5 +145,5 @@ internal sealed class WorkerWorkspace(string workerId)
     }
 
     private static string SafeJob(string value) => value.Length is > 0 and <= 128 && value.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_')
-        ? value : throw new InvalidDataException("无效的任务标识");
+        ? value : throw new InvalidDataException("Invalid job identifier");
 }

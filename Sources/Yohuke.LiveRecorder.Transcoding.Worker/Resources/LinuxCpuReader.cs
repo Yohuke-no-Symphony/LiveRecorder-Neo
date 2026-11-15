@@ -7,11 +7,11 @@ internal static class LinuxCpuReader
     internal static CpuCounters Read()
     {
         var allowedLine = File.ReadLines("/proc/self/status").FirstOrDefault(line => line.StartsWith("Cpus_allowed_list:", StringComparison.Ordinal))
-            ?? throw new InvalidOperationException("无法读取 Linux CPU 亲和性");
+            ?? throw new InvalidOperationException("Unable to read Linux CPU affinity");
         var allowed = ParseCpuList(allowedLine.Split(':', 2)[1].Trim());
         if (allowed.Count == 0)
         {
-            throw new InvalidOperationException("Linux CPU 集合为空");
+            throw new InvalidOperationException("The Linux CPU set is empty");
         }
         var busy = 0d;
         var total = 0d;
@@ -62,7 +62,7 @@ internal static class LinuxCpuReader
         else if (cgroupLines.Any(line => line.Split(':', 3) is [_, var controllers, _]
                      && controllers.Split(',').Any(value => value is "cpu" or "cpuacct")))
         {
-            throw new InvalidOperationException("cgroup v1 CPU 配额尚不能可靠计量，自动 CPU 补位已禁用");
+            throw new InvalidOperationException("cgroup v1 CPU quota usage cannot be measured reliably. Automatic CPU fallback is disabled");
         }
         return new(busy, total, effective, quotaUsed, identity);
     }
@@ -76,12 +76,12 @@ internal static class LinuxCpuReader
             if (!int.TryParse(bounds[0], out var first) || first < 0 || bounds.Length > 2
                 || (bounds.Length == 2 && (!int.TryParse(bounds[1], out var parsedEnd) || parsedEnd < first)))
             {
-                throw new InvalidDataException("无效的 CPU 集合");
+                throw new InvalidDataException("Invalid CPU set");
             }
             var last = bounds.Length == 1 ? first : int.Parse(bounds[1], CultureInfo.InvariantCulture);
             if (last > 65535)
             {
-                throw new InvalidDataException("CPU 集合超出支持范围");
+                throw new InvalidDataException("The CPU set exceeds the supported range");
             }
             for (var cpu = first; cpu <= last; cpu++)
             {
@@ -102,6 +102,6 @@ internal static class LinuxCpuReader
         {
             return "/sys/fs/cgroup";
         }
-        throw new InvalidOperationException("无法定位当前 cgroup CPU 资源域");
+        throw new InvalidOperationException("Unable to locate the current CPU cgroup");
     }
 }

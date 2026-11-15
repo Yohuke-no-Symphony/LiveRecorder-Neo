@@ -4,7 +4,19 @@
         <TargetFramework>net10.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
+        <PublishSingleFile>true</PublishSingleFile>
+        <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+        <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
+        <DebugType Condition="'$(Configuration)' == 'Release'">embedded</DebugType>
     </PropertyGroup>
+
+    <ItemGroup>
+        <Content Remove="settings.json*;Data/**" />
+        <None Remove="settings.json*;Data/**" />
+        <Content Update="appsettings*.json">
+            <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+        </Content>
+    </ItemGroup>
 
     <ItemGroup>
         <InternalsVisibleTo Include="Yohuke.LiveRecorder.Http.Tests" />
@@ -24,7 +36,10 @@
             <ResolvedFileToPublish Include="@(_WebUiAsset)">
                 <RelativePath>webui/%(_WebUiAsset.RecursiveDir)%(_WebUiAsset.Filename)%(_WebUiAsset.Extension)</RelativePath>
                 <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+                <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
             </ResolvedFileToPublish>
         </ItemGroup>
     </Target>
+
+    <Import Project="../../scripts/SingleFile.Publish.targets" />
 </Project>

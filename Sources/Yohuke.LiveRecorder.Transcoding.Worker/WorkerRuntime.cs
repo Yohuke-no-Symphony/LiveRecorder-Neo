@@ -17,6 +17,7 @@ internal sealed class WorkerRuntime
 {
     private readonly WorkerConnectionOptions options;
     private readonly WorkerSettingsStore settings;
+    private readonly Action<string> log;
     private readonly WorkerProcessRunner processes = new();
     private readonly CpuUsageMonitor cpu = new();
     private readonly EncodingAdmission admission = new();
@@ -26,10 +27,11 @@ internal sealed class WorkerRuntime
     private readonly WorkerFileTransfer transfers;
     private readonly MediaInspector inspector;
 
-    internal WorkerRuntime(WorkerConnectionOptions options, WorkerSettingsStore settings)
+    internal WorkerRuntime(WorkerConnectionOptions options, WorkerSettingsStore settings, Action<string>? log = null)
     {
         this.options = options;
         this.settings = settings;
+        this.log = log ?? Console.WriteLine;
         workspace = new(options.WorkerId);
         transfers = new(options);
         inspector = new(processes);
@@ -58,7 +60,7 @@ internal sealed class WorkerRuntime
                     await settings.SaveRemoteConfigurationAsync(welcome.Configuration, welcome.ConfigurationRevision, lifetime.Token);
                     configurations.Request(welcome.Configuration, welcome.ConfigurationRevision, lifetime.Token);
                     reconnectDelay = 1;
-                    Log("已连接主站，配置版本 " + welcome.ConfigurationRevision);
+                    Log("Connected to the server, configuration revision " + welcome.ConfigurationRevision);
                     while (!lifetime.IsCancellationRequested)
                     {
                         configurations.RefreshCapabilitiesWhenDue(lifetime.Token);
@@ -102,7 +104,7 @@ internal sealed class WorkerRuntime
                 catch (Exception exception) when (!lifetime.IsCancellationRequested && exception is IOException or SocketException
                     or AuthenticationException or InvalidOperationException or OperationCanceledException)
                 {
-                    Log("控制连接中断，等待重连：" + exception.Message);
+                    Log("Control connection interrupted. Reconnecting: " + exception.Message);
                     await Task.Delay(TimeSpan.FromSeconds(reconnectDelay), lifetime.Token);
                     reconnectDelay = Math.Min(30, reconnectDelay * 2);
                 }
@@ -156,7 +158,7 @@ internal sealed class WorkerRuntime
         {
             var initial = configurations.Current;
             using var files = workspace.Acquire(initial.Configuration, job.Assignment);
-            Log("准备任务 " + job.Assignment.JobId + "，档位 " + job.Assignment.Profile.Name);
+            Log("Preparing job " + job.Assignment.JobId + ", profile " + job.Assignment.Profile.Name);
             await transfers.DownloadAsync(job.Assignment, files.SourcePath, initial.Configuration.DownloadBytesPerSecond,
                 value => job.Update("Downloading", value * 10), token);
             var source = await inspector.InspectInputAsync(initial.Configuration.FfprobePath, files.SourcePath, token);
@@ -187,9 +189,9 @@ internal sealed class WorkerRuntime
                     {
                         await transfers.ReportResultAsync(job.Assignment, new()
                         {
-                            State = "Queued", ErrorCode = "WorkerCapacityUnavailable", Error = "节点配置或设备能力已变化，释放任务等待可用节点"
+                            State = "Queued", ErrorCode = "WorkerCapacityUnavailable", Error = "Worker configuration or device capabilities changed. Releasing the job to wait for an available worker."
                         }, token);
-                        Log("任务退队等待可用资源 " + job.Assignment.JobId);
+                        Log("Releasing job to wait for available resources " + job.Assignment.JobId);
                         return;
                     }
                     reservation = admission.TryAcquire(selected.Configuration, selected.Capabilities,
@@ -207,13 +209,13 @@ internal sealed class WorkerRuntime
                 var plan = TranscodePlanner.Create(files.SourcePath, files.OutputDirectory, source,
                     job.Assignment.Profile, reservation.Encoder, reservation.Threads);
                 job.Update("Encoding", 15, reservation.Encoder.Encoder);
-                Log("开始编码 " + job.Assignment.JobId + "：" + reservation.Encoder.Encoder);
+                Log("Starting encode " + job.Assignment.JobId + ": " + reservation.Encoder.Encoder);
                 var result = await processes.RunAsync(selected.Configuration.FfmpegPath, plan.Arguments, token,
                     value => job.Update("Encoding", 15 + value * 65), source.DurationMs / 1000);
                 if (result.ExitCode != 0)
                 {
                     configurations.InvalidateEncoder(reservation.Encoder);
-                    throw new InvalidDataException("FFmpeg 编码失败：" + result.Diagnostic);
+                    throw new InvalidDataException("FFmpeg encoding failed: " + result.Diagnostic);
                 }
                 job.Update("Validating", 80);
                 manifest = await new TranscodeOutputValidator(inspector).ValidateAsync(selected.Configuration.FfprobePath,
@@ -222,15 +224,15 @@ internal sealed class WorkerRuntime
             job.Update("Uploading", 85);
             await transfers.UploadAsync(job.Assignment, files.OutputDirectory, manifest, selected.Configuration.UploadBytesPerSecond,
                 value => job.Update("Uploading", 85 + value * 14), token);
-            Log("已完成任务 " + job.Assignment.JobId);
+            Log("Completed job " + job.Assignment.JobId);
         }
         catch (OperationCanceledException)
         {
-            Log("已停止任务 " + job.Assignment.JobId);
+            Log("Stopped job " + job.Assignment.JobId);
         }
         catch (Exception exception)
         {
-            Log("任务未完成 " + job.Assignment.JobId + "：" + exception.Message);
+            Log("Job failed " + job.Assignment.JobId + ": " + exception.Message);
             try
             {
                 await transfers.ReportResultAsync(job.Assignment, new()
@@ -242,7 +244,7 @@ internal sealed class WorkerRuntime
             }
             catch (Exception reportError) when (reportError is HttpRequestException or IOException or OperationCanceledException)
             {
-                Log("无法提交任务终态，等待主站回收租约：" + reportError.Message);
+                Log("Unable to report the final job state. Waiting for the server to reclaim the lease: " + reportError.Message);
             }
         }
         finally
@@ -290,5 +292,5 @@ internal sealed class WorkerRuntime
         }
     }
 
-    private static void Log(string message) => Console.WriteLine($"[{DateTimeOffset.Now:HH:mm:ss}] {message}");
+    private void Log(string message) => log($"[{DateTimeOffset.Now:HH:mm:ss}] {message}");
 }

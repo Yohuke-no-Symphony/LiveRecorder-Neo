@@ -16,7 +16,7 @@ internal static class MacCpuReader
         var count = 4u;
         if (host_statistics(mach_host_self(), 3, info, ref count) != 0 || count != 4)
         {
-            throw new InvalidOperationException("无法读取 macOS CPU 计数器");
+            throw new InvalidOperationException("Unable to read macOS CPU counters");
         }
         var busy = (double)info[0] + info[1] + info[3];
         return new(busy, busy + info[2], Environment.ProcessorCount);

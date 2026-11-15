@@ -16,7 +16,7 @@ internal static class TranscodePlanner
         if (profile.Height < 2 || profile.VideoBitrateKbps <= 0 || profile.AudioBitrateKbps <= 0
             || !double.IsFinite(source.FrameRate) || source.FrameRate <= 0 || source.Width < 2 || source.Height < 2)
         {
-            throw new InvalidDataException("无效的转码档位或输入媒体参数");
+            throw new InvalidDataException("Invalid transcoding profile or input media parameters");
         }
         var shortEdge = Math.Min(source.Width, source.Height);
         if (profile.Height > shortEdge)
@@ -35,7 +35,7 @@ internal static class TranscodePlanner
         var frameRate = Math.Min(source.FrameRate, profile.MaxFrameRate ?? source.FrameRate);
         if (!double.IsFinite(frameRate) || frameRate <= 0)
         {
-            throw new InvalidDataException("目标帧率必须是有限正数");
+            throw new InvalidDataException("The target frame rate must be a finite positive number");
         }
         var rate = frameRate.ToString("0.########", CultureInfo.InvariantCulture);
         var filter = FormattableString.Invariant($"scale={width}:{height}:flags=bicubic,setsar=1,fps={rate}");

@@ -57,22 +57,37 @@ internal sealed class WorkerControlClient : IAsyncDisposable
         var requestId = Guid.NewGuid().ToString("N");
         await WorkerProtocol.WriteAsync(stream, type, requestId, payload, timeout.Token);
         var message = await WorkerProtocol.ReadAsync(stream, timeout.Token)
-            ?? throw new IOException("主站关闭了控制连接");
+            ?? throw new IOException("The server closed the control connection.");
         if (message.Type == "Error" && message.RequestId == requestId)
         {
-            var description = message.Payload.TryGetProperty("message", out var detail) ? detail.GetString() : "主站拒绝了控制请求";
-            if (message.Payload.TryGetProperty("statusCode", out var status) && status.GetInt32() is 401 or 403)
+            var statusCode = 0;
+            if (message.Payload.ValueKind == JsonValueKind.Object
+                && message.Payload.TryGetProperty("statusCode", out var status) && status.ValueKind == JsonValueKind.Number)
             {
-                throw new WorkerAuthenticationException(description ?? "Worker 身份已失效");
+                status.TryGetInt32(out statusCode);
             }
-            throw new InvalidOperationException(description + "；请重新读取主站配置后重试");
+            Exception error = statusCode switch
+            {
+                401 => new WorkerAuthenticationException("Worker credentials were rejected (status 401). Run register to update the binding."),
+                403 => new WorkerAuthenticationException("Worker access was denied (status 403). Check that the worker is enabled and its credentials are current."),
+                409 => new InvalidOperationException("Worker configuration conflict (status 409). Run 'config' to review the latest server configuration and retry."),
+                0 => new InvalidOperationException("The server rejected the control request without a valid status code."),
+                _ => new InvalidOperationException($"The server rejected the control request (status {statusCode}).")
+            };
+            error.Data["ServerStatusCode"] = statusCode;
+            if (message.Payload.ValueKind == JsonValueKind.Object
+                && message.Payload.TryGetProperty("message", out var detail) && detail.ValueKind == JsonValueKind.String)
+            {
+                error.Data["ServerMessage"] = detail.GetString();
+            }
+            throw error;
         }
         if (message.Type != expectedType || message.RequestId != requestId)
         {
-            throw new InvalidDataException("主站控制响应不匹配：" + message.Type);
+            throw new InvalidDataException("The control response did not match the requested message type or request ID.");
         }
         return message.Payload.Deserialize<TResponse>(WorkerProtocol.JsonOptions)
-            ?? throw new InvalidDataException("主站返回了空控制响应");
+            ?? throw new InvalidDataException("The server returned an empty control response.");
     }
 
     /// <inheritdoc />

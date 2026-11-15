@@ -11,11 +11,13 @@ namespace Yohuke.LiveRecorder.Transcoding.Worker.Tests;
 /// <summary>验证连接信任策略与主站共享的运行配置边界。</summary>
 public sealed class WorkerConfigurationTests
 {
-    /// <summary>连接只能使用 HTTPS，证书固定也不能忽略主机名。</summary>
+    /// <summary>连接支持 HTTP 与 HTTPS，证书固定仍校验主机名。</summary>
     [Fact]
-    public void ConnectionRequiresHttpsAndNeverTrustsWrongPinnedCertificate()
+    public void ConnectionAllowsHttpAndHttpsAndNeverTrustsWrongPinnedCertificate()
     {
         var options = new WorkerConnectionOptions { ApiBaseUrl = "http://localhost", WorkerId = "worker", Secret = "secret" };
+        options.Validate();
+        options.ApiBaseUrl = "ftp://localhost";
         Assert.Throws<InvalidDataException>(options.Validate);
         options.ApiBaseUrl = "https://localhost";
         options.Validate();

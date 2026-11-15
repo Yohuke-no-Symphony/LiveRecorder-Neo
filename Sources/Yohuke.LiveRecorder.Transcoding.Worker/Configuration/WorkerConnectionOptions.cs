@@ -14,21 +14,21 @@ internal sealed record WorkerConnectionOptions
 
     internal void Validate()
     {
-        if (!Uri.TryCreate(ApiBaseUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps
+        if (!Uri.TryCreate(ApiBaseUrl, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https")
             || !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment))
         {
-            throw new InvalidDataException("Worker.ApiBaseUrl 必须是没有凭据或查询参数的 HTTPS 主站地址");
+            throw new InvalidDataException("Worker.ApiBaseUrl must be an HTTP or HTTPS server URL without credentials, query parameters or a fragment.");
         }
         if (string.IsNullOrWhiteSpace(ControlHost) || ControlPort is < 1 or > 65535
             || string.IsNullOrWhiteSpace(WorkerId) || string.IsNullOrWhiteSpace(Secret) || Secret.Length > 256)
         {
-            throw new InvalidDataException("请运行 --bind 配置主站地址、控制端口、Worker ID 和 Secret，或修改 settings.json；Secret 不能超过 256 个字符");
+            throw new InvalidDataException("Run 'register' to configure the server address, control port, worker ID and secret, or edit settings.json. The secret must contain at most 256 characters.");
         }
         foreach (var pin in new[] { ServerCertificateSha256, ControlCertificateSha256, ApiCertificateSha256 })
         {
             if (!string.IsNullOrEmpty(pin) && (pin.Length != 64 || pin.Any(character => !Uri.IsHexDigit(character))))
             {
-                throw new InvalidDataException("TLS 证书 SHA-256 指纹必须是 64 位十六进制字符串");
+                throw new InvalidDataException("TLS certificate SHA-256 fingerprints must contain exactly 64 hexadecimal characters.");
             }
         }
     }

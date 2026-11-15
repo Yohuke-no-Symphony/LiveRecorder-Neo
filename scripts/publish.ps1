@@ -20,6 +20,9 @@ $publishArguments = @(
     '--configuration', 'Release',
     '--runtime', $Runtime,
     '--self-contained', 'true',
+    '-p:PublishSingleFile=true',
+    '-p:IncludeNativeLibrariesForSelfExtract=true',
+    '-p:DebugType=embedded',
     '-p:RuntimeFrameworkVersion=10.0.13',
     '--output', $outputDirectory
 )
