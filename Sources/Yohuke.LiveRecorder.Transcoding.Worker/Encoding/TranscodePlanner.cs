@@ -38,6 +38,7 @@ internal static class TranscodePlanner
             throw new InvalidDataException("The target frame rate must be a finite positive number");
         }
         var rate = frameRate.ToString("0.########", CultureInfo.InvariantCulture);
+        var keyframeFrames = (int)Math.Clamp(Math.Ceiling(frameRate * profile.KeyframeIntervalSeconds), 1, int.MaxValue);
         var filter = FormattableString.Invariant($"scale={width}:{height}:flags=bicubic,setsar=1,fps={rate}");
         if (encoder.Encoder == "h264_vaapi")
         {
@@ -55,14 +56,14 @@ internal static class TranscodePlanner
             "-b:v", videoBitrate.ToString(CultureInfo.InvariantCulture),
             "-maxrate:v", videoBitrate.ToString(CultureInfo.InvariantCulture),
             "-bufsize:v", (videoBitrate * 2).ToString(CultureInfo.InvariantCulture),
-            "-g", ((int)Math.Ceiling(frameRate * 2)).ToString(CultureInfo.InvariantCulture),
-            "-force_key_frames", "expr:gte(t,n_forced*2)", "-flags", "+cgop",
+            "-g", keyframeFrames.ToString(CultureInfo.InvariantCulture),
+            "-force_key_frames", FormattableString.Invariant($"expr:gte(t,n_forced*{profile.KeyframeIntervalSeconds})"), "-flags", "+cgop",
             "-c:a", "aac", "-b:a", Math.Max(1, audioBitrate).ToString(CultureInfo.InvariantCulture),
             "-ar", "48000", "-ac", "2", "-threads:a", "1", "-af", "aresample=async=1:first_pts=0",
-            "-avoid_negative_ts", "make_zero", "-f", "hls", "-hls_time", "6", "-hls_segment_type", "fmp4",
-            "-hls_playlist_type", "vod", "-hls_flags", "independent_segments+temp_file",
+            "-avoid_negative_ts", "make_zero", "-f", "hls", "-hls_time", profile.SegmentDurationSeconds.ToString(CultureInfo.InvariantCulture), "-hls_segment_type", "fmp4",
+            "-hls_playlist_type", "vod", "-hls_flags", profile.SingleFile ? "independent_segments+single_file" : "independent_segments+temp_file",
             "-hls_segment_options", "use_editlist=0",
-            "-hls_fmp4_init_filename", "init.mp4", "-hls_segment_filename", Path.Combine(outputDirectory, "chunk_%05d.m4s"),
+            "-hls_fmp4_init_filename", "init.mp4", "-hls_segment_filename", Path.Combine(outputDirectory, profile.SingleFile ? "media.mp4" : "chunk_%05d.m4s"),
             Path.Combine(outputDirectory, "index.m3u8")
         ]);
         return new(arguments, new()

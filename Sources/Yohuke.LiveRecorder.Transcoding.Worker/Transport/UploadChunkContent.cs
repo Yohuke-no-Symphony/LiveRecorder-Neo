@@ -3,7 +3,7 @@ using System.Net;
 namespace Yohuke.LiveRecorder.Transcoding.Worker.Transport;
 
 internal sealed class UploadChunkContent(Stream source, long length, TransferThrottle throttle, long bytesPerSecond,
-    TransferProgressTimeout timeout) : HttpContent
+    TransferProgressTimeout timeout, Action<long>? progress = null) : HttpContent
 {
     /// <inheritdoc />
     protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
@@ -28,6 +28,7 @@ internal sealed class UploadChunkContent(Stream source, long length, TransferThr
             await stream.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
             timeout.Progress();
             remaining -= count;
+            progress?.Invoke(length - remaining);
         }
     }
 

@@ -9,4 +9,5 @@ public sealed record WorkerJobProgress
     public string Stage { get; set; } = "Downloading";
     public double Progress { get; set; }
     public string? Encoder { get; set; }
+    public WorkerJobActivity? Activity { get; set; }
 }

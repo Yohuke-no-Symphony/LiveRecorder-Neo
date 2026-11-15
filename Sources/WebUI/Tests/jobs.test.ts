@@ -317,6 +317,82 @@ describe('后台任务中的 AI 分析', () =>
 
 describe('后台转码任务', () =>
 {
+  it('下载显示阶段完成量、速率和剩余时间，并区分整体进度', async () =>
+  {
+    useAuthStore().user = { ...viewer(), role: 'Admin' }
+    transcodeJobs.mockResolvedValue([{ id: 'download', sessionId: 'session', title: '正在下载的录像', profileName: '720p', state: 'Running', stage: 'Downloading', progress: 6, workerId: 'worker', activity: { bytesTransferred: 60 * 1024 ** 2, totalBytes: 100 * 1024 ** 2, bytesPerSecond: 8 * 1024 ** 2, estimatedSecondsRemaining: 5, currentFile: 'source.flv' }, lastProgressAtUtc: '2026-11-15T12:17:42Z', createdAtUtc: '2026-11-15T12:00:00Z' }])
+    const wrapper = await mountView()
+    const row = wrapper.get('[data-job-id="download"]')
+    expect(row.text()).toContain('6% 总进度')
+    expect(row.text()).toContain('阶段进度 60%')
+    expect(row.text()).toContain('60 MB / 100 MB')
+    expect(row.text()).toContain('8 MB/s')
+    expect(row.text()).toContain('预计剩余 00:00:05')
+    expect(row.text()).toContain('source.flv')
+    expect(row.text()).toContain('最近上报')
+    expect(row.text()).toMatch(/\d{1,2}:\d{2}:42/)
+  })
+
+  it('转码展示媒体时长、帧率、倍率和编码器，完成后隐藏即时速率', async () =>
+  {
+    useAuthStore().user = { ...viewer(), role: 'Admin' }
+    const job = { id: 'encoding', sessionId: 'session', title: '正在转码的录像', profileName: '720p', state: 'Running', stage: 'Encoding', progress: 34.5, encoder: 'h264_videotoolbox', activity: { processedDurationMs: 180000, totalDurationMs: 600000, framesPerSecond: 83.5, speed: 2.4, estimatedSecondsRemaining: 175 }, createdAtUtc: '2026-11-15T12:00:00Z' }
+    transcodeJobs.mockResolvedValue([job])
+    const wrapper = await mountView()
+    const row = wrapper.get('[data-job-id="encoding"]')
+    expect(row.text()).toContain('阶段进度 30%')
+    expect(row.text()).toContain('00:03:00 / 00:10:00')
+    expect(row.text()).toContain('83.5 FPS')
+    expect(row.text()).toContain('2.4×')
+    expect(row.text()).toContain('预计剩余 00:02:55')
+    expect(row.text()).toContain('编码器 h264_videotoolbox')
+    transcodeJobs.mockResolvedValue([{ ...job, state: 'Completed', stage: 'Completed', progress: 100 }])
+    await findButton(wrapper, '刷新').trigger('click')
+    await flushPromises()
+    expect(row.text()).toContain('100% 总进度')
+    expect(row.text()).not.toContain('FPS')
+    expect(row.text()).not.toContain('预计剩余')
+  })
+
+  it('上传显示文件数量与当前文件，等待发布时清除阶段指标', async () =>
+  {
+    useAuthStore().user = { ...viewer(), role: 'Admin' }
+    const job = { id: 'uploading', sessionId: 'session', title: '正在上传的录像', profileName: '720p', state: 'Running', stage: 'Uploading', progress: 92, activity: { bytesTransferred: 50 * 1024 ** 2, totalBytes: 100 * 1024 ** 2, filesCompleted: 125, filesTotal: 602, currentFile: 'chunk_00125.m4s' }, createdAtUtc: '2026-11-15T12:00:00Z' }
+    transcodeJobs.mockResolvedValue([job])
+    const wrapper = await mountView()
+    const row = wrapper.get('[data-job-id="uploading"]')
+    expect(row.text()).toContain('阶段进度 50%')
+    expect(row.text()).toContain('文件 125 / 602')
+    expect(row.text()).toContain('chunk_00125.m4s')
+    transcodeJobs.mockResolvedValue([{ ...job, stage: 'Finalizing', progress: 99 }])
+    await findButton(wrapper, '刷新').trigger('click')
+    await flushPromises()
+    expect(row.text()).toContain('等待发布')
+    expect(row.text()).not.toContain('阶段进度')
+    expect(row.text()).not.toContain('50 MB')
+    expect(row.text()).not.toContain('chunk_00125.m4s')
+  })
+
+  it('旧节点缺少指标时显示原有进度，新阶段随网页语言更新', async () =>
+  {
+    useAuthStore().user = { ...viewer(), role: 'Admin' }
+    transcodeJobs.mockResolvedValue([{ id: 'legacy', sessionId: 'session', title: '旧节点录像', profileName: '720p', state: 'Running', stage: 'Inspecting', progress: 10, createdAtUtc: '2026-11-15T12:00:00Z' }])
+    const wrapper = await mountView()
+    const row = wrapper.get('[data-job-id="legacy"]')
+    expect(row.text()).toContain('检查原片')
+    expect(row.text()).toContain('10% 总进度')
+    expect(row.text()).not.toContain('阶段进度')
+    expect(row.text()).not.toContain('undefined')
+    i18n.global.locale.value = 'en-US'
+    await nextTick()
+    expect(row.text()).toContain('Inspecting input')
+    expect(row.text()).toContain('10% overall')
+    i18n.global.locale.value = 'ja-JP'
+    await nextTick()
+    expect(row.text()).toContain('入力を確認中')
+    expect(row.text()).toContain('全体 10%')
+  })
+
   it('仅管理员读取转码作业，与其他作业同ID也各自显示，取消走独立接口', async () =>
   {
     useAuthStore().user = { ...viewer(), role: 'Admin' }

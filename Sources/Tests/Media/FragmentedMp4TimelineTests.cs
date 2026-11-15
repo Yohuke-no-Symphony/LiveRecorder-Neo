@@ -40,7 +40,28 @@ public sealed class FragmentedMp4TimelineTests
         await Assert.ThrowsAsync<InvalidDataException>(() => FragmentedMp4Timeline.ReadAsync(fixture.DirectoryPath, CancellationToken.None));
     }
 
-    private static async Task<string> CreateAsync(MediaFixture fixture, int bFrames, bool editList)
+    /// <summary>单媒体文件按播放清单定位初始化和首个片段，混合目录中的旧文件不影响选择。</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public async Task ReadsSingleFileTimingFromThePlaylist(int bFrames)
+    {
+        using var fixture = new MediaFixture();
+        var path = await CreateAsync(fixture, bFrames, false, true);
+        Assert.True(File.Exists(Path.Combine(fixture.DirectoryPath, "media.mp4")));
+        Assert.False(File.Exists(Path.Combine(fixture.DirectoryPath, "init.mp4")));
+        var timing = await FragmentedMp4Timeline.ReadAsync(fixture.DirectoryPath, CancellationToken.None);
+        var inspected = await new TranscodeMediaInspector(fixture.Processes).InspectAsync(path);
+        Assert.Equal(timing.PresentationMs, inspected.RawVideoStartMs);
+        Assert.Equal(timing.DurationMs, inspected.FirstVideoSampleDurationMs);
+        Assert.True(inspected.RawVideoEndMs > inspected.RawVideoStartMs);
+        Assert.InRange(timing.DurationMs, 1000d / 15 - 0.01, 1000d / 15 + 30);
+        await File.WriteAllBytesAsync(Path.Combine(fixture.DirectoryPath, "init.mp4"), [0]);
+        await File.WriteAllBytesAsync(Path.Combine(fixture.DirectoryPath, "chunk_00000.m4s"), [0]);
+        Assert.Equal(timing, await FragmentedMp4Timeline.ReadAsync(fixture.DirectoryPath, CancellationToken.None));
+    }
+
+    private static async Task<string> CreateAsync(MediaFixture fixture, int bFrames, bool editList, bool singleFile = false)
     {
         var path = Path.Combine(fixture.DirectoryPath, "index.m3u8");
         await MediaProcessRunner.RunProcessAsync("ffmpeg",
@@ -51,7 +72,8 @@ public sealed class FragmentedMp4TimelineTests
             "-g", "30", "-pix_fmt", "yuv420p", "-c:a", "aac", "-avoid_negative_ts", "make_zero",
             "-f", "hls", "-hls_time", "6", "-hls_segment_type", "fmp4", "-hls_playlist_type", "vod",
             "-hls_segment_options", "use_editlist=" + (editList ? "1" : "0"),
-            "-hls_fmp4_init_filename", "init.mp4", "-hls_segment_filename", Path.Combine(fixture.DirectoryPath, "chunk_%05d.m4s"), path
+            "-hls_fmp4_init_filename", "init.mp4", "-hls_segment_filename", Path.Combine(fixture.DirectoryPath, singleFile ? "media.mp4" : "chunk_%05d.m4s"),
+            "-hls_flags", singleFile ? "single_file" : "0", path
         ], CancellationToken.None);
         return path;
     }

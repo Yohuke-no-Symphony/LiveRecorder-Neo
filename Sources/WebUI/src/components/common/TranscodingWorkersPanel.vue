@@ -8,7 +8,7 @@
     <p v-if="!workers.length && !loading" class="muted">{{ t('transcoding.noWorkers') }}</p>
     <div class="worker-list">
       <article v-for="worker in workers" :key="worker.id" class="worker-row">
-        <div class="d-flex align-center flex-wrap ga-3"><strong>{{ worker.name }}</strong><StatusChip :status="worker.enabled ? (isOnline(worker) ? 'active' : 'offline') : 'disabled'" /><span class="text-caption muted">{{ worker.capabilities?.operatingSystem }} {{ worker.capabilities?.architecture }}</span><v-spacer /><v-btn size="small" variant="text" :disabled="busy" @click="edit(worker)">{{ t('transcoding.editWorker') }}</v-btn><v-btn size="small" variant="text" :disabled="busy" @click="rotateTarget = worker">{{ t('transcoding.rotateKey') }}</v-btn><v-btn icon="mdi-delete-outline" size="small" variant="text" color="error" :disabled="busy" :aria-label="t('transcoding.deleteWorker')" @click="deleteTarget = worker" /></div>
+        <div class="d-flex align-center flex-wrap ga-3"><strong>{{ worker.name }}</strong><StatusChip :status="worker.enabled ? (isOnline(worker) ? 'active' : 'offline') : 'disabled'" /><span class="text-caption muted">{{ worker.capabilities?.operatingSystem }} {{ worker.capabilities?.architecture }}</span><v-spacer /><v-btn size="small" variant="text" @click="logWorker = worker">{{ t('transcoding.viewLogs') }}</v-btn><v-btn size="small" variant="text" :disabled="busy" @click="edit(worker)">{{ t('transcoding.editWorker') }}</v-btn><v-btn size="small" variant="text" :disabled="busy" @click="rotateTarget = worker">{{ t('transcoding.rotateKey') }}</v-btn><v-btn icon="mdi-delete-outline" size="small" variant="text" color="error" :disabled="busy" :aria-label="t('transcoding.deleteWorker')" @click="deleteTarget = worker" /></div>
         <div class="text-caption muted mt-2">{{ t('transcoding.workerId') }}: {{ worker.id }} · {{ t('transcoding.lastSeen') }}: {{ worker.lastSeenAtUtc ? formatDate(worker.lastSeenAtUtc) : '—' }}</div>
         <div v-if="worker.telemetry" class="text-caption mt-2">CPU {{ worker.telemetry.cpuPercent === null ? '—' : `${Math.round(worker.telemetry.cpuPercent)}%` }} · GPU {{ worker.telemetry.runningGpu }} · CPU {{ worker.telemetry.runningCpu }} · {{ formatBytes(worker.telemetry.freeBytes) }}</div>
         <div v-if="worker.capabilities?.encoders.length" class="d-flex flex-wrap ga-1 mt-2"><v-chip v-for="encoder in worker.capabilities.encoders" :key="`${encoder.encoder}:${encoder.deviceId}`" size="x-small" :color="encoder.available ? 'success' : 'warning'" :title="encoder.error || undefined">{{ encoder.encoder }}<template v-if="encoder.deviceId"> · {{ encoder.deviceId }}</template></v-chip></div>
@@ -38,6 +38,7 @@
     <v-dialog :model-value="!!secret" max-width="650" @update:model-value="!$event && (secret = undefined)"><ContentCard v-if="secret" :title="t('transcoding.token')"><v-alert type="info" class="mb-4">{{ t('transcoding.keyCreated') }}</v-alert><v-text-field :model-value="secret.workerId" :label="t('transcoding.workerId')" readonly /><v-textarea :model-value="secret.value" :label="t('transcoding.token')" readonly rows="3" /><template #actions><v-btn color="primary" @click="secret = undefined">{{ t('transcoding.close') }}</v-btn></template></ContentCard></v-dialog>
     <ConfirmDialog :model-value="!!deleteTarget" :title="t('transcoding.deleteWorker')" :message="t('transcoding.deleteWorkerConfirm')" :action-label="t('transcoding.delete')" danger :busy="busy" :error="error" @update:model-value="!$event && !busy && (deleteTarget = undefined)" @confirm="remove" />
     <ConfirmDialog :model-value="!!rotateTarget" :title="t('transcoding.rotateKey')" :message="t('transcoding.rotateKeyConfirm')" :action-label="t('transcoding.rotateKey')" :busy="busy" :error="error" @update:model-value="!$event && !busy && (rotateTarget = undefined)" @confirm="rotate" />
+    <TranscodingLogDialog v-if="logWorker" :worker="logWorker" @close="logWorker = undefined" />
   </ContentCard>
 </template>
 
@@ -52,6 +53,7 @@ import { formatBytes, formatDate } from '@/utilities/format'
 import ContentCard from './ContentCard.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import StatusChip from './StatusChip.vue'
+import TranscodingLogDialog from './TranscodingLogDialog.vue'
 
 type NumericKey = { [K in keyof WorkerConfiguration]: WorkerConfiguration[K] extends number ? K : never }[keyof WorkerConfiguration]
 const numericFields: { key: NumericKey; label: string; min: number; max?: number; step?: number; unit?: number }[] = [
@@ -72,6 +74,7 @@ const draft = ref<TranscodingWorker>()
 const secret = ref<{ workerId: string; value: string }>()
 const deleteTarget = ref<TranscodingWorker>()
 const rotateTarget = ref<TranscodingWorker>()
+const logWorker = ref<TranscodingWorker>()
 let disposed = false
 let requestRevision = 0
 let controller: AbortController | undefined

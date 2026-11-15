@@ -10,7 +10,7 @@ internal sealed class WorkerWorkspace(string workerId)
     private readonly Dictionary<string, long> inputReservations = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> outputReservations = new(StringComparer.Ordinal);
 
-    internal WorkerWorkspaceLease Acquire(WorkerConfiguration configuration, TranscodeAssignment assignment)
+    internal WorkerWorkspaceLease Acquire(WorkerConfiguration configuration, TranscodeAssignment assignment, Action<string>? log = null)
     {
         var root = Path.Combine(Path.GetFullPath(configuration.TempDirectory), "live-recorder-worker", SafeJob(workerId));
         var inputKey = Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
@@ -49,6 +49,7 @@ internal sealed class WorkerWorkspace(string workerId)
                     break;
                 }
                 var bytes = Size(sizes, candidate);
+                log?.Invoke(FormattableString.Invariant($"Removing unused cached directory {Path.GetFileName(candidate)} ({bytes} bytes) to reserve workspace capacity."));
                 Directory.Delete(candidate, true);
                 occupied -= bytes;
                 free = FreeBytes(root);

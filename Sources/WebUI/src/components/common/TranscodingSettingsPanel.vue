@@ -18,7 +18,10 @@
           <v-text-field v-model.number="item.profile.videoBitrateKbps" :label="t('transcoding.videoBitrate')" type="number" min="32" max="1000000" :disabled="disabled" />
           <v-text-field :model-value="item.profile.maxFrameRate" :label="t('transcoding.frameRate')" type="number" min="1" max="240" clearable :disabled="disabled" @update:model-value="setFrameRate(item.id, $event)" />
           <v-text-field v-model.number="item.profile.audioBitrateKbps" :label="t('transcoding.audioBitrate')" type="number" min="16" max="512" :disabled="disabled" />
+          <v-text-field v-model.number="item.profile.segmentDurationSeconds" :label="t('transcoding.segmentDuration')" type="number" min="0.1" max="300" step="any" :disabled="disabled" />
+          <v-text-field v-model.number="item.profile.keyframeIntervalSeconds" :label="t('transcoding.keyframeInterval')" type="number" min="0.1" max="300" step="any" :disabled="disabled" />
         </div>
+        <v-switch v-if="item.profile" v-model="item.profile.singleFile" :label="t('transcoding.singleFile')" :disabled="disabled" hide-details color="primary" />
         <p v-else class="text-body-2 muted mt-2">{{ t('transcoding.originalHint') }}</p>
       </template>
     </ReorderableList>
@@ -44,7 +47,7 @@ function addQuality(): void
 {
   if (props.disabled || settings.value.profiles.length >= 12) { return }
   const id = crypto.randomUUID()
-  settings.value.profiles.push({ id, name: '1080p', height: 1080, videoBitrateKbps: 5000, maxFrameRate: null, audioBitrateKbps: 128, enabled: true })
+  settings.value.profiles.push({ id, name: '1080p', height: 1080, videoBitrateKbps: 5000, maxFrameRate: null, audioBitrateKbps: 128, segmentDurationSeconds: 6, keyframeIntervalSeconds: 2, singleFile: false, enabled: true })
   settings.value.qualityOrder.push(id)
 }
 
@@ -77,7 +80,7 @@ function setFrameRate(id: string, value: string | number | null): void
 .quality-heading { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .quality-heading > .v-input:first-child { flex: 1; min-width: 160px; }
 .original-label { flex: 1; min-height: 40px; display: flex; align-items: center; }
-.quality-fields { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 12px; }
+.quality-fields { display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)); gap: 12px; }
 @media (max-width: 900px) { .quality-fields { grid-template-columns: repeat(2, minmax(120px, 1fr)); } }
 @media (max-width: 500px) { .quality-fields { grid-template-columns: minmax(0, 1fr); } }
 </style>

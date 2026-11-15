@@ -36,7 +36,7 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
         string fileName, long length, CancellationToken cancellationToken)
     {
         var job = await leases.RequireAsync(workerId, jobId, attempt, leaseToken, cancellationToken);
-        ValidateUpload(fileName, length);
+        ValidateUpload(fileName, length, job.Profile);
         var gate = Gate(jobId);
         await gate.WaitAsync(cancellationToken);
         try
@@ -55,7 +55,7 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
         string fileName, long offset, long length, Stream content, CancellationToken cancellationToken)
     {
         var job = await leases.RequireAsync(workerId, jobId, attempt, leaseToken, cancellationToken);
-        ValidateUpload(fileName, length);
+        ValidateUpload(fileName, length, job.Profile);
         var settings = await settingsStore.GetAsync(cancellationToken);
         if (new DriveInfo(paths.RecordsDirectory).AvailableFreeSpace - MAX_CHUNK_BYTES <= StorageService.MediaThreshold(settings))
         {
@@ -116,7 +116,7 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
     public async Task CompleteAsync(string workerId, string jobId, int attempt, string leaseToken,
         TranscodeOutputManifest manifest, CancellationToken cancellationToken)
     {
-        if (manifest.Files is null || manifest.Files.Count is < 3 or > 100000)
+        if (manifest.Files is null || manifest.Files.Count is < 2 or > 100000)
         {
             throw new InfrastructureException("转码完成清单无效。");
         }
@@ -136,7 +136,7 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
             var verified = new List<RenditionArtifact>();
             foreach (var artifact in manifest.Files)
             {
-                ValidateUpload(artifact.Name, artifact.Length);
+                ValidateUpload(artifact.Name, artifact.Length, job.Profile);
                 if (artifact.Sha256 is not { Length: 64 } || !artifact.Sha256.All(char.IsAsciiHexDigit))
                 {
                     throw new InfrastructureException("转码文件校验值无效。");
@@ -155,7 +155,7 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
                 }
                 verified.Add(new() { Name = artifact.Name, Length = artifact.Length, Sha256 = hash, WriteTicks = file.LastWriteTimeUtc.Ticks });
             }
-            await TranscodeArtifactPolicy.ValidatePlaylistAsync(directory, manifest.Files, cancellationToken);
+            await TranscodeArtifactPolicy.ValidatePlaylistAsync(directory, manifest.Files, cancellationToken, job.Profile);
             await context.Collection<TranscodeJob>("transcodeJobs").UpdateOneAsync(
                 TranscodeLeaseService.Fence(workerId, jobId, attempt, leaseToken),
                 Builders<TranscodeJob>.Update.Set(x => x.State, "Publishing").Set(x => x.Stage, "Validating"), cancellationToken: cancellationToken);
@@ -166,6 +166,7 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
                     Builders<MediaAsset>.Update.Set(x => x.MediaInfo, source), cancellationToken: cancellationToken);
             }
             var media = await inspector.InspectAsync(Path.Combine(directory, "index.m3u8"), cancellationToken);
+            await TranscodeArtifactPolicy.ValidatePlaylistAsync(directory, manifest.Files, cancellationToken, job.Profile, media.FrameRate);
             ValidateMedia(job.Profile, source, media);
             var rendition = new PlaybackRendition
             {
@@ -217,7 +218,7 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
         }
     }
 
-    /// <summary>提交跳过或失败状态，同时释放执行租约。</summary>
+    /// <summary>提交退队、跳过或失败状态，同时释放执行租约。</summary>
     public async Task FinishAsync(string workerId, string jobId, int attempt, string leaseToken,
         WorkerJobResult result, CancellationToken cancellationToken)
     {
@@ -226,12 +227,13 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
         {
             throw new InfrastructureException("转码任务终态无效。");
         }
+        var update = result.State == "Queued" ? TranscodeJobScheduler.Reset()
+            : Builders<TranscodeJob>.Update.Set(x => x.State, result.State).Set(x => x.Stage, result.State)
+                .Set(x => x.LeaseTokenHash, null).Set(x => x.LeaseUntilUtc, null).Set(x => x.FinishedAtUtc, DateTime.UtcNow);
         await context.Collection<TranscodeJob>("transcodeJobs").UpdateOneAsync(
             TranscodeLeaseService.Fence(workerId, jobId, attempt, leaseToken),
-            Builders<TranscodeJob>.Update.Set(x => x.State, result.State).Set(x => x.Stage, result.State)
-                .Set(x => x.Error, Limit(result.Error, 2048)).Set(x => x.ErrorCode, Limit(result.ErrorCode, 100))
-                .Set(x => x.LeaseTokenHash, null).Set(x => x.LeaseUntilUtc, null)
-                .Set(x => x.FinishedAtUtc, result.State == "Queued" ? null : DateTime.UtcNow), cancellationToken: cancellationToken);
+            update.Set(x => x.Error, Limit(result.Error, 2048)).Set(x => x.ErrorCode, Limit(result.ErrorCode, 100)),
+            cancellationToken: cancellationToken);
     }
 
     private async Task<bool> ResumeCompletedAsync(string workerId, string jobId, int attempt, string leaseToken,
@@ -321,10 +323,15 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
 
     private SemaphoreSlim Gate(string jobId) => gates[(int)(Convert.ToUInt32(TranscodeAssetRegistry.Hash(jobId)[..8], 16) % (uint)gates.Length)];
 
-    private static void ValidateUpload(string fileName, long length)
+    private static void ValidateUpload(string fileName, long length, TranscodeProfile profile)
     {
         TranscodeArtifactPolicy.ValidateName(fileName);
-        if (length <= 0 || length > 1024L * 1024 * 1024 || fileName == "index.m3u8" && length > 16 * 1024 * 1024)
+        if (fileName != "index.m3u8" && profile.SingleFile != (fileName == "media.mp4"))
+        {
+            throw new InfrastructureException("转码文件与当前任务的存储模式不符。");
+        }
+        if (length <= 0 || fileName == "init.mp4" && length > 1024L * 1024 * 1024
+            || fileName == "index.m3u8" && length > 16 * 1024 * 1024)
         {
             throw new InfrastructureException("转码文件长度无效。");
         }

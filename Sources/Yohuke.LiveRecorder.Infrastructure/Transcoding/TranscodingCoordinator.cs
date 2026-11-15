@@ -5,7 +5,7 @@ namespace Yohuke.LiveRecorder.Infrastructure.Transcoding;
 
 /// <summary>向主站管理、控制连接和媒体传输端点提供一致的转码边界。</summary>
 public sealed class TranscodingCoordinator(TranscodeWorkerService workers, TranscodeJobScheduler scheduler,
-    TranscodeTransferService transfers, TranscodeRenditionCatalog catalog)
+    TranscodeTransferService transfers, TranscodeRenditionCatalog catalog, TranscodeWorkerLogStore logs)
 {
     /// <summary>读取已登记节点。</summary>
     public Task<IReadOnlyList<TranscodeWorker>> ListWorkersAsync(CancellationToken cancellationToken = default) => workers.ListAsync(cancellationToken);
@@ -20,9 +20,16 @@ public sealed class TranscodingCoordinator(TranscodeWorkerService workers, Trans
     /// <summary>验证节点凭据。</summary>
     public Task<bool> AuthenticateAsync(string workerId, string secret, CancellationToken cancellationToken = default) => workers.AuthenticateAsync(workerId, secret, cancellationToken);
     /// <summary>完成控制连接握手。</summary>
-    public Task<WorkerWelcome> ConnectAsync(WorkerHello hello, CancellationToken cancellationToken = default) => workers.ConnectAsync(hello, cancellationToken);
+    public async Task<WorkerWelcome> ConnectAsync(WorkerHello hello, CancellationToken cancellationToken = default) =>
+        (await workers.ConnectAsync(hello, cancellationToken)) with { LogProtocolVersion = 1 };
     /// <summary>同步运行状态、续租和任务派发。</summary>
     public Task<WorkerState> HeartbeatAsync(string workerId, WorkerHeartbeat heartbeat, CancellationToken cancellationToken = default) => scheduler.HeartbeatAsync(workerId, heartbeat, cancellationToken);
+    /// <summary>持久化独立日志批次，完成发布后返回精确确认。</summary>
+    public Task<WorkerLogAcknowledgement> AppendWorkerLogsAsync(string workerId, WorkerLogBatch batch, CancellationToken cancellationToken = default) =>
+        logs.AppendAsync(workerId, batch, cancellationToken);
+    /// <summary>读取指定节点的最近日志或游标之后的增量内容。</summary>
+    public Task<TranscodeWorkerLogPage> ReadWorkerLogsAsync(string workerId, long? after, int take, CancellationToken cancellationToken = default) =>
+        logs.ReadAsync(workerId, after, take, cancellationToken);
     /// <summary>读取近期转码任务。</summary>
     public Task<IReadOnlyList<TranscodeJob>> ListJobsAsync(string? sessionId, CancellationToken cancellationToken = default) => scheduler.ListAsync(sessionId, cancellationToken);
     /// <summary>为结束场次补齐选中的档位。</summary>

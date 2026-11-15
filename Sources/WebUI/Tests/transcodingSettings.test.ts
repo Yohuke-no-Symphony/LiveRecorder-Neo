@@ -6,7 +6,7 @@ import { defineComponent, h, nextTick } from 'vue'
 import { AuthAPI } from '../src/apis/AuthAPI'
 import { MediaAPI } from '../src/apis/MediaAPI'
 import { i18n } from '../src/plugins/i18n'
-import { defaultTranscodingSettings, defaultWorkerConfiguration, isValidTranscodingSettings, isValidWorkerConfiguration } from '../src/models/transcoding'
+import { defaultTranscodingSettings, defaultWorkerConfiguration, isValidTranscodingSettings, isValidWorkerConfiguration, normalizeTranscodingSettings } from '../src/models/transcoding'
 import type { ServerSettings } from '../src/models/settings'
 import SettingsView from '../src/views/SettingsView.vue'
 
@@ -175,6 +175,7 @@ describe('清晰度设置', () =>
     expect(added.id).not.toBe('720p')
     expect(added.name).toBe('1080p')
     expect(added.maxFrameRate).toBeNull()
+    expect(added).toMatchObject({ segmentDurationSeconds: 6, keyframeIntervalSeconds: 2, singleFile: false })
     const reopened = await openTranscoding()
     expect(reopened.find(`[data-sortable-id="${added.id}"]`).exists()).toBe(true)
   })
@@ -205,13 +206,99 @@ describe('清晰度设置', () =>
     expect(wrapper.get('[role="alert"]').text()).toContain('请检查清晰度设置')
   })
 
-  it.each([['en-US', 'Resolution short edge (px)'], ['ja-JP', '解像度の短辺（px）']] as const)('%s 包含清晰度控件文案', async (locale, label) =>
+  it.each([
+    ['zh-CN', '分辨率短边（px）', '分片时长（秒）', '关键帧间隔（秒）', '单文件存储（HLS 字节范围播放）'],
+    ['en-US', 'Resolution short edge (px)', 'Segment duration (seconds)', 'Keyframe interval (seconds)', 'Single-file storage (HLS byte-range playback)'],
+    ['ja-JP', '解像度の短辺（px）', 'セグメント長（秒）', 'キーフレーム間隔（秒）', '単一ファイル保存（HLSバイト範囲再生）'],
+  ] as const)('%s 包含清晰度和分片控件文案', async (locale, label, segment, keyframe, singleFile) =>
   {
     const wrapper = await openTranscoding()
     i18n.global.locale.value = locale
     await nextTick()
     expect(wrapper.find(`input[aria-label="${label}"]`).exists()).toBe(true)
+    expect(wrapper.find(`input[aria-label="${segment}"]`).exists()).toBe(true)
+    expect(wrapper.find(`input[aria-label="${keyframe}"]`).exists()).toBe(true)
+    expect(wrapper.find(`input[aria-label="${singleFile}"]`).exists()).toBe(true)
     expect(wrapper.text()).not.toContain('transcoding.')
+  })
+
+  it('旧档位缺少分片字段时补默认值，保存后写入完整配置且不提前修改原数据', async () =>
+  {
+    current.transcoding = JSON.parse(JSON.stringify({
+      enabled: true,
+      profiles: [{ id: 'legacy', name: '旧清晰度', height: 720, videoBitrateKbps: 2500, maxFrameRate: null, audioBitrateKbps: 128, enabled: true }],
+      qualityOrder: ['original', 'legacy'], defaultPlaybackQualityId: 'legacy',
+    }))
+    const original = structuredClone(current.transcoding!)
+    const normalized = normalizeTranscodingSettings(current.transcoding)
+    expect(normalized.profiles[0]).toMatchObject({ segmentDurationSeconds: 6, keyframeIntervalSeconds: 2, singleFile: false })
+    expect(current.transcoding).toEqual(original)
+    const wrapper = await openTranscoding()
+    expect(wrapper.get('input[aria-label="分片时长（秒）"]').element).toHaveProperty('value', '6')
+    expect(wrapper.get('input[aria-label="关键帧间隔（秒）"]').element).toHaveProperty('value', '2')
+    expect(wrapper.get('input[aria-label="单文件存储（HLS 字节范围播放）"]').element).toHaveProperty('checked', false)
+    expect(MediaAPI.updateSettings).not.toHaveBeenCalled()
+    await save(wrapper)
+    expect(current.transcoding!.profiles[0]).toMatchObject({ id: 'legacy', segmentDurationSeconds: 6, keyframeIntervalSeconds: 2, singleFile: false })
+  })
+
+  it('每档位独立保存小数分片参数和单文件模式，重新读取保留完整值', async () =>
+  {
+    const wrapper = await openTranscoding()
+    const segment = wrapper.get('input[aria-label="分片时长（秒）"]')
+    expect(segment.attributes()).toMatchObject({ min: '0.1', max: '300', step: 'any' })
+    await segment.setValue('7.125')
+    await wrapper.get('input[aria-label="关键帧间隔（秒）"]').setValue('1.75')
+    await wrapper.get('input[aria-label="单文件存储（HLS 字节范围播放）"]').setValue(true)
+    await wrapper.findAll('button').find(button => button.text() === '添加清晰度')!.trigger('click')
+    expect(wrapper.findAll('input[aria-label="分片时长（秒）"]')[1]!.element).toHaveProperty('value', '6')
+    expect(current.transcoding).toBeUndefined()
+    expect(MediaAPI.updateSettings).not.toHaveBeenCalled()
+    await save(wrapper)
+    expect(current.transcoding!.profiles[0]).toMatchObject({ segmentDurationSeconds: 7.125, keyframeIntervalSeconds: 1.75, singleFile: true })
+    expect(current.transcoding!.profiles[1]).toMatchObject({ segmentDurationSeconds: 6, keyframeIntervalSeconds: 2, singleFile: false })
+    const reopened = await openTranscoding()
+    expect(reopened.findAll('input[aria-label="分片时长（秒）"]').map(input => (input.element as HTMLInputElement).value)).toEqual(['7.125', '6'])
+    expect(reopened.findAll('input[aria-label="单文件存储（HLS 字节范围播放）"]').map(input => (input.element as HTMLInputElement).checked)).toEqual([true, false])
+  })
+
+  it.each([
+    ['分片时长（秒）', '0.09'], ['分片时长（秒）', '300.01'], ['分片时长（秒）', ''],
+    ['关键帧间隔（秒）', '0.09'], ['关键帧间隔（秒）', '300.01'], ['关键帧间隔（秒）', ''],
+  ])('拒绝无效的 %s 值 %s 并保留草稿', async (label, value) =>
+  {
+    const wrapper = await openTranscoding()
+    await wrapper.get(`input[aria-label="${label}"]`).setValue(value)
+    await save(wrapper)
+    expect(MediaAPI.updateSettings).not.toHaveBeenCalled()
+    expect(wrapper.get(`input[aria-label="${label}"]`).element).toHaveProperty('value', value)
+    expect(wrapper.get('[role="alert"]').text()).toContain('请检查清晰度设置')
+  })
+
+  it.each([[.1, 300], [300, .1], [6.125, 2.375]])('分片时长 %s 与关键帧间隔 %s 可独立设置，边界及小数合法', (segmentDurationSeconds, keyframeIntervalSeconds) =>
+  {
+    const settings = defaultTranscodingSettings()
+    Object.assign(settings.profiles[0]!, { segmentDurationSeconds, keyframeIntervalSeconds, singleFile: true })
+    const normalized = normalizeTranscodingSettings(JSON.parse(JSON.stringify(settings)))
+    expect(normalized).toEqual(settings)
+    expect(isValidTranscodingSettings(normalized)).toBe(true)
+  })
+
+  it.each(['segmentDurationSeconds', 'keyframeIntervalSeconds'] as const)('%s 拒绝非有限值和范围外数值', field =>
+  {
+    for (const invalid of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -.1, 0, .099, 300.001])
+    {
+      const settings = defaultTranscodingSettings()
+      settings.profiles[0]![field] = invalid
+      expect(isValidTranscodingSettings(settings)).toBe(false)
+    }
+  })
+
+  it('单文件模式要求布尔值，字符串配置不能通过校验', () =>
+  {
+    const settings = JSON.parse(JSON.stringify(defaultTranscodingSettings()))
+    settings.profiles[0].singleFile = 'true'
+    expect(isValidTranscodingSettings(settings)).toBe(false)
   })
 
   it('清晰度和Worker校验与主站边界一致，禁止多个默认身份和无资源配置', () =>

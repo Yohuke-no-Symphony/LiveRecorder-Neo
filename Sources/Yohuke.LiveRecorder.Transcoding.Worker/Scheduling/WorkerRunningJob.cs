@@ -32,13 +32,14 @@ internal sealed class WorkerRunningJob : IDisposable
         }
     }
 
-    internal void Update(string stage, double value, string? encoder = null)
+    internal void Update(string stage, double value, string? encoder = null, WorkerJobActivity? activity = null)
     {
         lock (sync)
         {
             progress.Stage = stage;
             progress.Progress = Math.Clamp(value, 0, 99.9);
             progress.Encoder = encoder ?? progress.Encoder;
+            progress.Activity = activity;
         }
     }
 
@@ -46,7 +47,7 @@ internal sealed class WorkerRunningJob : IDisposable
     {
         lock (sync)
         {
-            return progress with { };
+            return progress with { Activity = progress.Activity is null ? null : progress.Activity with { } };
         }
     }
 

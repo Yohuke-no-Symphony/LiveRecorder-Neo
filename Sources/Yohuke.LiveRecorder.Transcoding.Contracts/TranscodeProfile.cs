@@ -9,5 +9,8 @@ public sealed record TranscodeProfile
     public int VideoBitrateKbps { get; set; } = 2500;
     public double? MaxFrameRate { get; set; }
     public int AudioBitrateKbps { get; set; } = 128;
+    public double SegmentDurationSeconds { get; set; } = 6;
+    public double KeyframeIntervalSeconds { get; set; } = 2;
+    public bool SingleFile { get; set; }
     public bool Enabled { get; set; } = true;
 }

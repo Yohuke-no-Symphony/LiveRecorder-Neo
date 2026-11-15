@@ -36,12 +36,19 @@ internal sealed class WorkerFileTransfer : IDisposable
     }
 
     internal async Task DownloadAsync(TranscodeAssignment assignment, string path, long bytesPerSecond,
-        Action<double> progress, CancellationToken cancellationToken)
+        Action<double> progress, CancellationToken cancellationToken,
+        Action<WorkerTransferProgress>? transferProgress = null, Action<string>? log = null)
     {
         var gate = inputGates[(StringComparer.Ordinal.GetHashCode(path) & int.MaxValue) % inputGates.Length];
-        await gate.WaitAsync(cancellationToken);
+        var waiting = gate.WaitAsync(cancellationToken);
+        if (!waiting.IsCompletedSuccessfully)
+        {
+            log?.Invoke("Waiting for another job to finish downloading the shared source.");
+        }
+        await waiting;
         try
         {
+            log?.Invoke("Checking source length and version with the server.");
             using (var head = Request(HttpMethod.Head, assignment, "input"))
             using (var response = await SendHeadersAsync(head, cancellationToken))
             {
@@ -50,7 +57,9 @@ internal sealed class WorkerFileTransfer : IDisposable
             }
             if (File.Exists(path) && new FileInfo(path).Length == assignment.SourceLength)
             {
+                log?.Invoke("Reusing the verified cached source file.");
                 progress(1);
+                transferProgress?.Invoke(new(assignment.SourceLength, assignment.SourceLength, assignment.SourceFileName, 1, 1));
                 return;
             }
             var partial = path + ".partial";
@@ -58,13 +67,14 @@ internal sealed class WorkerFileTransfer : IDisposable
             {
                 try
                 {
-                    await DownloadAttemptAsync(assignment, partial, bytesPerSecond, progress, cancellationToken);
+                    await DownloadAttemptAsync(assignment, partial, bytesPerSecond, progress, cancellationToken, transferProgress, log);
                     File.Move(partial, path, overwrite: true);
                     return;
                 }
                 catch (Exception exception) when (attempt < 4 && !cancellationToken.IsCancellationRequested
                                                   && exception is HttpRequestException or IOException)
                 {
+                    log?.Invoke($"Download attempt {attempt + 1} failed. Retrying: {exception.Message}");
                     await Task.Delay(TimeSpan.FromSeconds(attempt + 1), cancellationToken);
                 }
             }
@@ -76,7 +86,8 @@ internal sealed class WorkerFileTransfer : IDisposable
     }
 
     private async Task DownloadAttemptAsync(TranscodeAssignment assignment, string partial, long bytesPerSecond,
-        Action<double> progress, CancellationToken cancellationToken)
+        Action<double> progress, CancellationToken cancellationToken,
+        Action<WorkerTransferProgress>? transferProgress, Action<string>? log)
     {
         var offset = File.Exists(partial) ? new FileInfo(partial).Length : 0;
         if (offset > assignment.SourceLength)
@@ -86,7 +97,13 @@ internal sealed class WorkerFileTransfer : IDisposable
         }
         if (offset == assignment.SourceLength)
         {
+            progress(1);
+            transferProgress?.Invoke(new(offset, assignment.SourceLength, assignment.SourceFileName, 1, 1));
             return;
+        }
+        if (offset > 0)
+        {
+            log?.Invoke(FormattableString.Invariant($"Resuming the source download at {offset} of {assignment.SourceLength} bytes."));
         }
         using var request = Request(HttpMethod.Get, assignment, "input");
         if (offset > 0)
@@ -109,8 +126,13 @@ internal sealed class WorkerFileTransfer : IDisposable
         }
         else
         {
+            if (offset > 0)
+            {
+                log?.Invoke("The server returned the complete source. Restarting the partial download.");
+            }
             offset = 0;
         }
+        transferProgress?.Invoke(new(offset, assignment.SourceLength, assignment.SourceFileName, 0, 1));
         await using var output = new FileStream(partial, offset == 0 ? FileMode.Create : FileMode.Open,
             FileAccess.Write, FileShare.Read, 65536, FileOptions.Asynchronous);
         output.Position = offset;
@@ -131,6 +153,8 @@ internal sealed class WorkerFileTransfer : IDisposable
             await output.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
             offset += count;
             progress((double)offset / assignment.SourceLength);
+            transferProgress?.Invoke(new(offset, assignment.SourceLength, assignment.SourceFileName,
+                offset == assignment.SourceLength ? 1 : 0, 1));
         }
         await output.FlushAsync(cancellationToken);
         if (offset != assignment.SourceLength)
@@ -140,14 +164,22 @@ internal sealed class WorkerFileTransfer : IDisposable
     }
 
     internal async Task UploadAsync(TranscodeAssignment assignment, string directory, TranscodeOutputManifest manifest,
-        long bytesPerSecond, Action<double> progress, CancellationToken cancellationToken)
+        long bytesPerSecond, Action<double> progress, CancellationToken cancellationToken,
+        Action<WorkerTransferProgress>? transferProgress = null, Action<string>? log = null, Action? completing = null)
     {
         var total = manifest.Files.Sum(file => file.Length);
         var completed = 0L;
+        var completedFiles = 0;
+        log?.Invoke(FormattableString.Invariant($"Uploading {manifest.Files.Count} output files ({total} bytes)."));
         foreach (var artifact in manifest.Files)
         {
             var endpoint = "artifacts/" + Uri.EscapeDataString(artifact.Name);
             var offset = await UploadOffsetAsync(assignment, endpoint, artifact.Length, cancellationToken);
+            transferProgress?.Invoke(new(completed + offset, total, artifact.Name, completedFiles, manifest.Files.Count));
+            if (offset > 0 && offset < artifact.Length)
+            {
+                log?.Invoke(FormattableString.Invariant($"Resuming upload of {artifact.Name} at {offset} of {artifact.Length} bytes."));
+            }
             var retries = 0;
             await using var source = new FileStream(Path.Combine(directory, artifact.Name), FileMode.Open, FileAccess.Read,
                 FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
@@ -162,16 +194,23 @@ internal sealed class WorkerFileTransfer : IDisposable
                     using var timeout = new TransferProgressTimeout(networkTimeout, cancellationToken);
                     request.Headers.TryAddWithoutValidation("Upload-Length", artifact.Length.ToString(CultureInfo.InvariantCulture));
                     request.Headers.TryAddWithoutValidation("Upload-Offset", offset.ToString(CultureInfo.InvariantCulture));
-                    request.Content = new UploadChunkContent(source, count, uploadThrottle, bytesPerSecond, timeout);
+                    var chunkOffset = offset;
+                    var completedBeforeFile = completed;
+                    var filesBeforeFile = completedFiles;
+                    request.Content = new UploadChunkContent(source, count, uploadThrottle, bytesPerSecond, timeout,
+                        sent => transferProgress?.Invoke(new(completedBeforeFile + chunkOffset + sent, total,
+                            artifact.Name, filesBeforeFile, manifest.Files.Count)));
                     request.Content.Headers.ContentType = new("application/octet-stream");
                     using var response = await SendUploadAsync(request, timeout.Token, cancellationToken);
                     if (response.StatusCode == HttpStatusCode.Conflict)
                     {
+                        log?.Invoke("Upload offset changed for " + artifact.Name + ". Synchronizing the resume offset.");
                         if (++retries > 4)
                         {
                             throw new IOException("The upload offset repeatedly conflicted with the server offset.");
                         }
                         offset = await UploadOffsetAsync(assignment, endpoint, artifact.Length, cancellationToken);
+                        transferProgress?.Invoke(new(completed + offset, total, artifact.Name, completedFiles, manifest.Files.Count));
                         continue;
                     }
                     RequireSuccess(response);
@@ -183,17 +222,23 @@ internal sealed class WorkerFileTransfer : IDisposable
                     offset = next;
                     retries = 0;
                     progress((double)(completed + offset) / total);
+                    transferProgress?.Invoke(new(completed + offset, total, artifact.Name, completedFiles, manifest.Files.Count));
                 }
                 catch (Exception exception) when (++retries <= 4 && !cancellationToken.IsCancellationRequested
                                                   && exception is HttpRequestException or IOException)
                 {
+                    log?.Invoke($"Upload attempt {retries} failed for {artifact.Name}. Retrying: {exception.Message}");
                     await Task.Delay(TimeSpan.FromSeconds(retries), cancellationToken);
                     offset = await UploadOffsetAsync(assignment, endpoint, artifact.Length, cancellationToken);
+                    transferProgress?.Invoke(new(completed + offset, total, artifact.Name, completedFiles, manifest.Files.Count));
                 }
             }
             completed += artifact.Length;
+            completedFiles++;
             progress((double)completed / total);
+            transferProgress?.Invoke(new(completed, total, artifact.Name, completedFiles, manifest.Files.Count));
         }
+        completing?.Invoke();
         for (var attempt = 0; ; attempt++)
         {
             try
@@ -208,6 +253,7 @@ internal sealed class WorkerFileTransfer : IDisposable
             catch (Exception exception) when (attempt < 3 && !cancellationToken.IsCancellationRequested
                                               && exception is HttpRequestException or IOException)
             {
+                log?.Invoke($"The server has not confirmed publication. Retrying: {exception.Message}");
                 await Task.Delay(TimeSpan.FromSeconds(attempt + 1), cancellationToken);
             }
         }

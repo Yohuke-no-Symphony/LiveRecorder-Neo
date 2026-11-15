@@ -14,6 +14,7 @@ public static class TranscodingServiceCollectionExtensions
         services.AddSingleton<TranscodeJobScheduler>();
         services.AddSingleton<TranscodeTransferService>();
         services.AddSingleton<TranscodeRenditionCatalog>();
+        services.AddSingleton<TranscodeWorkerLogStore>();
         services.AddSingleton<TranscodeLifecycle>();
         services.AddSingleton<TranscodingCoordinator>();
         services.AddHostedService<TranscodeMaintenanceService>();

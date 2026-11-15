@@ -7,4 +7,5 @@ public sealed record WorkerState
     public int ConfigurationRevision { get; set; }
     public List<TranscodeAssignment> Assignments { get; set; } = [];
     public List<WorkerLeaseStatus> Leases { get; set; } = [];
+    public WorkerLogAcknowledgement? LogAcknowledgement { get; set; }
 }

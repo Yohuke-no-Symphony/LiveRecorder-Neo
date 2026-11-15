@@ -11,7 +11,7 @@ internal sealed class WorkerProcessRunner
     internal async Task<WorkerProcessResult> RunAsync(string executable, IReadOnlyList<string> arguments,
         CancellationToken cancellationToken, Action<double>? progress = null, double durationSeconds = 0,
         Action<string>? outputLine = null, IReadOnlyDictionary<string, string>? environment = null,
-        Action<string>? errorLine = null)
+        Action<string>? errorLine = null, Action<WorkerEncodingProgress>? encodingProgress = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var start = new ProcessStartInfo(executable)
@@ -35,7 +35,7 @@ internal sealed class WorkerProcessRunner
         using var process = new Process { StartInfo = start };
         process.Start();
         using var registration = cancellationToken.Register(() => Kill(process));
-        var output = ReadAsync(process.StandardOutput, progress, durationSeconds, outputLine);
+        var output = ReadAsync(process.StandardOutput, progress, durationSeconds, outputLine, encodingProgress);
         var diagnostic = ReadAsync(process.StandardError, null, 0, errorLine);
         _ = output.ContinueWith(_ => Kill(process), CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
@@ -56,12 +56,15 @@ internal sealed class WorkerProcessRunner
         }
     }
 
-    private static async Task<string> ReadAsync(StreamReader reader, Action<double>? progress, double durationSeconds, Action<string>? outputLine)
+    private static async Task<string> ReadAsync(StreamReader reader, Action<double>? progress, double durationSeconds,
+        Action<string>? outputLine, Action<WorkerEncodingProgress>? encodingProgress = null)
     {
         var result = new StringBuilder();
+        var parser = encodingProgress is null ? null : new WorkerEncodingProgressParser(encodingProgress);
         while (await reader.ReadLineAsync() is { } line)
         {
             outputLine?.Invoke(line);
+            parser?.Add(line);
             result.AppendLine(line);
             if (result.Length > MAX_OUTPUT_LENGTH)
             {

@@ -25,6 +25,7 @@ public sealed class WorkerTransferTests
             var assignment = Assignment(bytes.Length);
             var headCount = 0;
             var getCount = 0;
+            var metrics = new List<WorkerTransferProgress>();
             using var transfer = new WorkerFileTransfer(Options(), new WorkerTestHttpHandler((request, _) =>
             {
                 Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
@@ -49,7 +50,9 @@ public sealed class WorkerTransferTests
                 }
                 return Task.FromResult(response);
             }));
-            await transfer.DownloadAsync(assignment, path, 0, _ => { }, CancellationToken.None);
+            await transfer.DownloadAsync(assignment, path, 0, _ => { }, CancellationToken.None, metrics.Add);
+            Assert.Equal(400, metrics[0].BytesTransferred);
+            Assert.Equal(1000, metrics[^1].BytesTransferred);
             Assert.Equal(bytes, await File.ReadAllBytesAsync(path));
             await transfer.DownloadAsync(assignment, path, 0, _ => { }, CancellationToken.None);
             Assert.Equal(2, headCount);
@@ -76,6 +79,7 @@ public sealed class WorkerTransferTests
             var offsets = new List<long>();
             var first = true;
             var completed = false;
+            var metrics = new List<WorkerTransferProgress>();
             using var transfer = new WorkerFileTransfer(Options(), new WorkerTestHttpHandler(async (request, token) =>
             {
                 if (request.Method == HttpMethod.Post)
@@ -87,6 +91,7 @@ public sealed class WorkerTransferTests
                 {
                     offsets.Add(long.Parse(request.Headers.GetValues("Upload-Offset").Single()));
                     await request.Content!.CopyToAsync(received, token);
+                    Assert.Equal(received.Length, metrics[^1].BytesTransferred);
                     if (first)
                     {
                         first = false;
@@ -97,10 +102,13 @@ public sealed class WorkerTransferTests
                 response.Headers.Add("Upload-Offset", received.Length.ToString());
                 return response;
             }));
-            await transfer.UploadAsync(Assignment(bytes.Length), directory, manifest, 0, _ => { }, CancellationToken.None);
+            await transfer.UploadAsync(Assignment(bytes.Length), directory, manifest, 0, _ => { }, CancellationToken.None, metrics.Add);
             Assert.Equal(new long[] { 0, 8 * 1024 * 1024 }, offsets);
             Assert.Equal(bytes, received.ToArray());
             Assert.True(completed);
+            Assert.Equal(bytes.Length, metrics[^1].BytesTransferred);
+            Assert.Equal(1, metrics[^1].FilesCompleted);
+            Assert.Contains(metrics, value => value.BytesTransferred > 0 && value.BytesTransferred < bytes.Length);
         }
         finally
         {

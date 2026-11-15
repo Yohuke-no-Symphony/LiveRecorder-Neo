@@ -16,6 +16,7 @@
               <a :href="recordingUrl(entry.job.sessionId)" target="_blank" rel="noopener noreferrer" class="job-title font-weight-medium">{{ entry.job.title || t('components.library.unnamedSession') }}</a>
               <div class="text-caption muted mt-1">{{ t('transcoding.title') }} · {{ entry.job.profileName }}<template v-if="entry.job.stage"> · {{ transcodeStage(entry.job.stage) }}</template></div>
               <div v-if="entry.job.workerId" class="text-caption muted">{{ t('transcoding.worker') }}: {{ entry.job.workerId }}</div>
+              <div v-for="(detail, index) in transcodeDetails(entry.job)" :key="index" class="job-activity text-caption muted mt-1">{{ detail }}</div>
               <div v-if="entry.job.error" class="text-caption text-error mt-2">{{ entry.job.error }}</div>
             </template>
             <template v-else>
@@ -25,7 +26,11 @@
             </template>
           </td>
           <td class="job-status"><StatusChip :status="entry.job.state" /></td>
-          <td class="job-progress"><v-progress-linear :model-value="progress(entry.job)" :indeterminate="['Running', 'Publishing'].includes(entry.job.state) && entry.job.progress === 0" color="primary" height="4" rounded /><div class="text-caption mono muted mt-2">{{ progress(entry.job) }}%</div></td>
+          <td class="job-progress">
+            <v-progress-linear :model-value="progress(entry.job)" :indeterminate="['Running', 'Publishing'].includes(entry.job.state) && entry.job.progress === 0" color="primary" height="4" rounded />
+            <div class="text-caption mono muted mt-2">{{ entry.kind === 'transcode' ? t('transcoding.progressOverall', { value: formatNumber(progress(entry.job)) }) : `${progress(entry.job)}%` }}</div>
+            <div v-if="entry.kind === 'transcode' && stageProgress(entry.job) !== undefined" class="text-caption mono muted mt-1">{{ t('transcoding.progressStage') }} {{ formatNumber(stageProgress(entry.job)!, { maximumFractionDigits: 1 }) }}%</div>
+          </td>
           <td class="job-created text-caption muted text-no-wrap">{{ formatDate(entry.job.createdAtUtc) }}</td>
           <td class="job-actions">
             <div class="action-buttons">
@@ -61,14 +66,15 @@ import { MediaAPI } from '@/apis/MediaAPI'
 import { useAuthStore } from '@/stores/auth'
 import { useBackgroundJobs } from '@/composables/useBackgroundJobs'
 import type { BackgroundJob } from '@/models/backgroundJob'
+import type { TranscodeJob } from '@/models/transcoding'
 import { aiJobResultLocation } from '@/utilities/aiJobs'
-import { formatDate, formatNumber } from '@/utilities/format'
+import { formatBytes, formatDate, formatDuration, formatNumber } from '@/utilities/format'
 import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import AiAnalysisDetailsDialog from '@/components/analytics/AiAnalysisDetailsDialog.vue'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const auth = useAuthStore()
 const router = useRouter()
 const { jobs, aiJobs, loading, actionKey, error, actionError, actionErrorKey, canGenerateAiJob, refresh, act } = useBackgroundJobs()
@@ -90,7 +96,70 @@ function transcodeStage(stage: string): string
   if (stage === 'Skipped') { return t('transcoding.skipped') }
   const states: Record<string, string> = { Completed: 'completed', Cancelled: 'canceled', Failed: 'failed', Running: 'running', SourceUnavailable: 'unavailable' }
   if (states[stage]) { return t(`components.status.${states[stage]}`) }
-  return ['Downloading', 'WaitingForGpu', 'Encoding', 'Uploading', 'Validating', 'Publishing'].includes(stage) ? t(`transcoding.stage${stage}`) : stage
+  return ['Downloading', 'Inspecting', 'WaitingForGpu', 'Encoding', 'Uploading', 'Validating', 'Finalizing', 'Publishing'].includes(stage) ? t(`transcoding.stage${stage}`) : stage
+}
+
+function hasMetric(value: number | null | undefined): value is number
+{
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
+function stageProgress(job: TranscodeJob): number | undefined
+{
+  const activity = job.activity
+  if (!activity) { return undefined }
+  const completed = job.stage === 'Encoding' ? activity.processedDurationMs : ['Downloading', 'Uploading'].includes(job.stage) ? activity.bytesTransferred : undefined
+  const total = job.stage === 'Encoding' ? activity.totalDurationMs : ['Downloading', 'Uploading'].includes(job.stage) ? activity.totalBytes : undefined
+  return hasMetric(completed) && hasMetric(total) && total > 0 ? Math.min(100, completed / total * 100) : undefined
+}
+
+function transcodeDetails(job: TranscodeJob): string[]
+{
+  const details: string[] = []
+  const activity = job.activity
+  const metrics: string[] = []
+  if (activity && ['Downloading', 'Uploading'].includes(job.stage))
+  {
+    if (hasMetric(activity.bytesTransferred) && hasMetric(activity.totalBytes))
+    {
+      metrics.push(t('transcoding.progressTransferred', { completed: formatBytes(activity.bytesTransferred), total: formatBytes(activity.totalBytes) }))
+    }
+    if (isActive(job.state) && hasMetric(activity.bytesPerSecond)) { metrics.push(`${formatBytes(activity.bytesPerSecond)}/s`) }
+  }
+  if (activity && job.stage === 'Encoding')
+  {
+    if (hasMetric(activity.processedDurationMs) && hasMetric(activity.totalDurationMs))
+    {
+      metrics.push(t('transcoding.progressMedia', { completed: formatDuration(activity.processedDurationMs, true), total: formatDuration(activity.totalDurationMs, true) }))
+    }
+    if (isActive(job.state) && hasMetric(activity.framesPerSecond)) { metrics.push(t('transcoding.progressFramesPerSecond', { value: formatNumber(activity.framesPerSecond, { maximumFractionDigits: 1 }) })) }
+    if (isActive(job.state) && hasMetric(activity.speed)) { metrics.push(t('transcoding.progressSpeed', { value: formatNumber(activity.speed, { maximumFractionDigits: 2 }) })) }
+  }
+  if (activity && isActive(job.state) && ['Downloading', 'Encoding', 'Uploading'].includes(job.stage) && hasMetric(activity.estimatedSecondsRemaining))
+  {
+    metrics.push(t('transcoding.progressRemaining', { time: formatDuration(activity.estimatedSecondsRemaining * 1000, true) }))
+  }
+  if (metrics.length) { details.push(metrics.join(' · ')) }
+  if (activity && ['Downloading', 'Uploading'].includes(job.stage))
+  {
+    const files: string[] = []
+    if (hasMetric(activity.filesCompleted) && hasMetric(activity.filesTotal))
+    {
+      files.push(t('transcoding.progressFiles', { completed: formatNumber(activity.filesCompleted), total: formatNumber(activity.filesTotal) }))
+    }
+    if (activity.currentFile) { files.push(activity.currentFile) }
+    if (files.length) { details.push(files.join(' · ')) }
+  }
+  if (job.encoder) { details.push(t('transcoding.progressEncoder', { encoder: job.encoder })) }
+  if (job.lastProgressAtUtc)
+  {
+    const time = new Date(job.lastProgressAtUtc)
+    if (Number.isFinite(time.getTime()))
+    {
+      details.push(t('transcoding.progressUpdated', { time: new Intl.DateTimeFormat(locale.value, { dateStyle: 'short', timeStyle: 'medium', hour12: false }).format(time) }))
+    }
+  }
+  return details
 }
 function isActive(state: string): boolean
 {
@@ -136,6 +205,7 @@ watch(selectedAiJob, value =>
 .job-task { min-width: 220px; width: 28%; }
 .job-title { display: block; max-width: 360px; white-space: normal; overflow-wrap: anywhere; }
 .job-type, .job-status { white-space: nowrap; }
+.job-activity { max-width: 460px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .job-status { min-width: 110px; }
 .job-progress { min-width: 150px; }
 .job-created { min-width: 180px; }

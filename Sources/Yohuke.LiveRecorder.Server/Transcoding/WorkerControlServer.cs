@@ -146,6 +146,19 @@ public sealed class WorkerControlServer(TranscodingCoordinator coordinator, IOpt
                         throw new InvalidDataException("Worker reports too many active tasks.");
                     }
                     var state = await coordinator.HeartbeatAsync(workerId, heartbeat, timeout.Token);
+                    if (heartbeat.LogBatch is { } batch)
+                    {
+                        using var logTimeout = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+                        logTimeout.CancelAfter(TimeSpan.FromSeconds(2));
+                        try
+                        {
+                            state.LogAcknowledgement = await coordinator.AppendWorkerLogsAsync(workerId, batch, logTimeout.Token);
+                        }
+                        catch (Exception exception) when (!stoppingToken.IsCancellationRequested && !timeout.IsCancellationRequested)
+                        {
+                            logger.LogWarning("Worker log batch was not persisted ({WorkerId}): {ErrorType}", workerId, exception.GetType().Name);
+                        }
+                    }
                     await WorkerProtocol.WriteAsync(stream, "State", message.RequestId, state, timeout.Token);
                 }
             }

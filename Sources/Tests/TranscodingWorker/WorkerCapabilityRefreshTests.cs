@@ -26,6 +26,7 @@ public sealed class WorkerCapabilityRefreshTests
             manager.Request(new() { TempDirectory = directory }, 1, CancellationToken.None);
             await WaitUntilAsync(() => manager.Current.Revision == 1 && manager.Error is null);
             Assert.Equal(1, probes);
+            Assert.Equal(1, manager.Current.Capabilities.HlsPackagingVersion);
             clock.Elapsed = TimeSpan.FromSeconds(59);
             manager.RefreshCapabilitiesWhenDue(CancellationToken.None);
             Assert.Null(manager.Error);

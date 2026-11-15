@@ -23,7 +23,8 @@ internal sealed class MediaInspector(WorkerProcessRunner processes)
         timeline.Complete();
     }
 
-    internal async Task<TranscodeMediaInfo> InspectInputAsync(string tool, string path, CancellationToken cancellationToken)
+    internal async Task<TranscodeMediaInfo> InspectInputAsync(string tool, string path, CancellationToken cancellationToken,
+        Action<string>? log = null)
     {
         var gate = sourceGates[(StringComparer.Ordinal.GetHashCode(path) & int.MaxValue) % sourceGates.Length];
         await gate.WaitAsync(cancellationToken);
@@ -37,6 +38,7 @@ internal sealed class MediaInspector(WorkerProcessRunner processes)
                     var cached = JsonSerializer.Deserialize<TranscodeMediaInfo>(await File.ReadAllTextAsync(metadata, cancellationToken), WorkerProtocol.JsonOptions);
                     if (cached is { Width: > 0, Height: > 0, DurationMs: > 0, FrameRate: > 0 })
                     {
+                        log?.Invoke("Reusing cached source media information.");
                         return cached;
                     }
                 }
@@ -44,7 +46,7 @@ internal sealed class MediaInspector(WorkerProcessRunner processes)
                 {
                 }
             }
-            var media = await InspectAsync(tool, path, cancellationToken);
+            var media = await InspectAsync(tool, path, cancellationToken, log);
             var temporary = metadata + ".tmp";
             try
             {
@@ -63,12 +65,14 @@ internal sealed class MediaInspector(WorkerProcessRunner processes)
         }
     }
 
-    internal async Task<TranscodeMediaInfo> InspectAsync(string tool, string path, CancellationToken cancellationToken)
+    internal async Task<TranscodeMediaInfo> InspectAsync(string tool, string path, CancellationToken cancellationToken,
+        Action<string>? log = null)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(45));
         var result = await processes.RunAsync(tool,
-            ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", path], timeout.Token);
+            ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", path], timeout.Token,
+            errorLine: message => log?.Invoke("ffprobe: " + message));
         if (result.ExitCode != 0)
         {
             throw new InvalidDataException("Media probing failed: " + result.Diagnostic);
@@ -117,6 +121,7 @@ internal sealed class MediaInspector(WorkerProcessRunner processes)
         }
         if (resultInfo.VideoBitrate <= 0 || (resultInfo.HasAudio && resultInfo.AudioBitrate <= 0))
         {
+            log?.Invoke("Scanning source packets to determine missing bitrate information.");
             var bitrates = new Dictionary<int, PacketBitrate> { [(int)Number(video, "index")] = new() };
             if (resultInfo.HasAudio)
             {

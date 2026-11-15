@@ -8,4 +8,5 @@ public sealed record WorkerHeartbeat
     public WorkerCapabilities? Capabilities { get; set; }
     public int AppliedConfigurationRevision { get; set; }
     public string? ConfigurationError { get; set; }
+    public WorkerLogBatch? LogBatch { get; set; }
 }

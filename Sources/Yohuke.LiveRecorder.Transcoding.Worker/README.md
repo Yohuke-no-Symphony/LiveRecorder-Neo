@@ -83,6 +83,8 @@ Unix 系统服务使用 root，Windows 使用 LocalSystem。运行账户需要�
 
 macOS 的服务定义、日志和 bundle 提取目录统一位于 `/Library/Application Support/Yohuke.LiveRecorder/WorkerService/`，开机启动定义位于 `/Library/LaunchDaemons/com.yohuke.live-recorder.worker.plist`。`worker.log` 与 `worker-error.log` 保存运行输出。Linux 的服务定义位于 `/etc/systemd/system/yohuke-live-recorder-worker.service`，bundle 提取目录为 `/var/cache/yohuke-live-recorder-worker/bundles`。
 
+任务日志包含下载、媒体探测、资源等待、编码、成品校验、上传及主站发布等待。阶段变化立即记录，运行进度每 5 秒记录一次，传输重试与 FFmpeg 错误即时输出。每条任务日志附带任务 ID 和执行代次。主站设置页的节点卡片提供“查看日志”，日志随已有心跳批量上报，网页每秒读取增量，主站保存最近 7 天。日志窗口首次加载近期 200 条，最多显示最近 1000 条，向上阅读时暂停跟随，通过“返回最新”恢复。断线日志缓冲有界，恢复后重发尚未确认的批次，超过缓冲容量时显示缺失条数。
+
 ## 唯一设置文件
 
 发布包提供 `settings.example.json`，包含全部连接与运行参数。交互注册时无需复制模板。无人值守部署可将模板复制为 `settings.json`，填写 `Worker` 内的地址和凭据，再运行 `run`。若在主站后台预先配置了运行参数，`Configuration` 可保留默认值，首次连接时自动同步。若在本地配置运行参数，必须填写本机绝对路径的 `TempDirectory`。
@@ -103,7 +105,9 @@ macOS 的服务定义、日志和 bundle 提取目录统一位于 `/Library/Appl
 
 ## 编码和资源
 
-主站和 Worker 保留原片。转码提供额外的 H.264 8-bit/AAC HLS 档位：6 秒 fMP4 分片，2 秒关键帧间隔；保持横竖屏比例，目标高度按显示短边计算，尺寸取偶数。档位高于原片分辨率、HDR 输入或无法确认源码率时跳过；输出码率与帧率不超过源上限。原画仍走现有播放链路。
+主站和 Worker 保留原片。转码提供额外的 H.264 8-bit/AAC HLS 档位。主站每个档位可配置目标分片时长、关键帧间隔和单文件存储，默认分别为 6 秒、2 秒及多文件。两个时长支持 0.1～300 秒的小数，实际切分位置按关键帧和帧时长对齐。多文件输出 `init.mp4`、`chunk_*.m4s` 与 `index.m3u8`，单文件输出 `media.mp4` 与 `index.m3u8`，通过 HLS 字节范围读取逻辑分片。任务保存排队时的参数快照，默认旧配方标识继续兼容已有成品，新参数生成独立配方和产物目录。自定义包装任务交给报告相应能力的 Worker。
+
+编码保持横竖屏比例，目标高度按显示短边计算，尺寸取偶数。档位高于原片分辨率、HDR 输入或无法确认源码率时跳过。输出码率与帧率不超过源上限，原画继续使用现有播放链路。
 
 Windows 探测 NVENC、Intel QSV、AMD AMF；Linux 探测 NVENC、QSV、VAAPI 及 AMF；macOS 探测 VideoToolbox。所有候选先执行短样本编码，只有成功的后端可接单。FFmpeg 构建必须含对应编码器，并安装兼容驱动。Linux QSV/VAAPI 需要渲染设备节点访问权限。不同 GPU/驱动具有不同能力，发布成功不代表当前机器具有相应硬件。软件解码与缩放可以配合 GPU 编码。
 
@@ -112,6 +116,8 @@ Windows 探测 NVENC、Intel QSV、AMD AMF；Linux 探测 NVENC、QSV、VAAPI �
 GPU 恢复后正在运行的 CPU 任务继续完成，新任务优先 GPU。GPU 编码失败后暂时停用该设备；缺少可用编码器时每隔至少 60 秒重新检测，检测也占用同一执行槽，并等待 GPU 空闲。总编码并发包括 GPU 和 CPU；设为 1 时两者不会并行。降低并发只影响新任务，运行中的任务使用已确定的执行配置。工具与设备配置修改会等待 GPU 空闲，再重新检测能力。
 
 输入下载支持 HTTP Range 续传，成品按最多 8 MiB 的数据块上传并按主站已确认偏移恢复。临时目录下仅维护 `live-recorder-worker/<WorkerId>/` 的文件；同一源版本可在多个档位之间复用本地输入，使用中的文件不会被缓存清理。缓存上限需覆盖原片和转码临时成品，超大录播应相应增大上限。执行租约超时、取消或源文件版本失效时终止工作，过期结果不能在主站发布。
+
+任务释放工作目录时删除该次 `jobs` 输出，并解除 `inputs` 的活动引用。输入缓存包含完整源文件、媒体信息和断点下载，领取新任务时根据缓存上限及最小空闲空间，从旧到新淘汰空闲目录。输入缓存可以保留到后续空间压力触发清理，切换临时目录后历史缓存留存在旧目录。
 
 ## 发布
 

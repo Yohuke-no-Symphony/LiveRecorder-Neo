@@ -10,6 +10,9 @@ export interface TranscodingProfile
   videoBitrateKbps: number
   maxFrameRate: number | null
   audioBitrateKbps: number
+  segmentDurationSeconds: number
+  keyframeIntervalSeconds: number
+  singleFile: boolean
   enabled: boolean
 }
 
@@ -74,21 +77,70 @@ export interface TranscodeJob extends Entity
   stage: string
   progress: number
   workerId?: string | null
+  encoder?: string | null
+  activity?: WorkerJobActivity | null
+  lastProgressAtUtc?: string | null
   error?: string | null
   finishedAtUtc?: string | null
   cancelRequested?: boolean
 }
 
+export interface WorkerJobActivity
+{
+  bytesTransferred?: number | null
+  totalBytes?: number | null
+  bytesPerSecond?: number | null
+  processedDurationMs?: number | null
+  totalDurationMs?: number | null
+  framesPerSecond?: number | null
+  speed?: number | null
+  estimatedSecondsRemaining?: number | null
+  currentFile?: string | null
+  filesCompleted?: number | null
+  filesTotal?: number | null
+}
+
+export interface WorkerLogEntry
+{
+  id: string
+  workerId: string
+  streamId: string
+  sequence: number
+  cursor: number
+  jobId?: string | null
+  attempt?: number | null
+  timestampUtc: string
+  receivedAtUtc: string
+  level: string
+  message: string
+  droppedCount?: number
+  stage?: string | null
+  progress?: number | null
+}
+
+export interface WorkerLogPage
+{
+  entries: WorkerLogEntry[]
+  nextCursor: number | null
+  hasMore: boolean
+}
+
 export function defaultTranscodingSettings(): TranscodingSettings
 {
-  return { enabled: true, profiles: [{ id: '720p', name: '720p', height: 720, videoBitrateKbps: 2500, maxFrameRate: null, audioBitrateKbps: 128, enabled: true }], qualityOrder: [ORIGINAL_QUALITY_ID, '720p'], defaultPlaybackQualityId: '720p' }
+  return { enabled: true, profiles: [{ id: '720p', name: '720p', height: 720, videoBitrateKbps: 2500, maxFrameRate: null, audioBitrateKbps: 128, segmentDurationSeconds: 6, keyframeIntervalSeconds: 2, singleFile: false, enabled: true }], qualityOrder: [ORIGINAL_QUALITY_ID, '720p'], defaultPlaybackQualityId: '720p' }
 }
 
 export function normalizeTranscodingSettings(value?: Partial<TranscodingSettings> | null): TranscodingSettings
 {
   const defaults = defaultTranscodingSettings()
   if (!value) { return defaults }
-  const profiles = (value.profiles ?? defaults.profiles).map(profile => ({ ...profile, maxFrameRate: profile.maxFrameRate ?? null }))
+  const profiles = (value.profiles ?? defaults.profiles).map(profile => ({
+    ...profile,
+    maxFrameRate: profile.maxFrameRate ?? null,
+    segmentDurationSeconds: profile.segmentDurationSeconds ?? 6,
+    keyframeIntervalSeconds: profile.keyframeIntervalSeconds ?? 2,
+    singleFile: profile.singleFile ?? false,
+  }))
   const ids = new Set([ORIGINAL_QUALITY_ID, ...profiles.map(profile => profile.id)])
   const qualityOrder = [...new Set(value.qualityOrder ?? defaults.qualityOrder)].filter(id => ids.has(id))
   for (const id of ids) { if (!qualityOrder.includes(id)) { qualityOrder.push(id) } }
@@ -105,7 +157,10 @@ export function isValidTranscodingSettings(settings: TranscodingSettings): boole
     && settings.profiles.every(profile => /^[a-zA-Z0-9_-]{1,64}$/.test(profile.id) && !!profile.name.trim() && profile.name.length <= 80
       && integer(profile.height, 64, 8640) && profile.height % 2 === 0 && integer(profile.videoBitrateKbps, 32, 1000000)
       && (profile.maxFrameRate === null || Number.isFinite(profile.maxFrameRate) && profile.maxFrameRate > 0 && profile.maxFrameRate <= 240)
-      && integer(profile.audioBitrateKbps, 16, 512))
+      && integer(profile.audioBitrateKbps, 16, 512)
+      && Number.isFinite(profile.segmentDurationSeconds) && profile.segmentDurationSeconds >= .1 && profile.segmentDurationSeconds <= 300
+      && Number.isFinite(profile.keyframeIntervalSeconds) && profile.keyframeIntervalSeconds >= .1 && profile.keyframeIntervalSeconds <= 300
+      && typeof profile.singleFile === 'boolean')
     && settings.qualityOrder.length === ids.length + 1 && new Set(settings.qualityOrder).size === ids.length + 1
     && [ORIGINAL_QUALITY_ID, ...ids].every(id => settings.qualityOrder.includes(id))
     && (settings.defaultPlaybackQualityId === ORIGINAL_QUALITY_ID || settings.profiles.some(profile => profile.id === settings.defaultPlaybackQualityId && profile.enabled))

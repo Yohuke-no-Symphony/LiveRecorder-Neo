@@ -16,6 +16,8 @@ public sealed class TranscodeJob : Entity
     public string State { get; set; } = "Queued";
     public string Stage { get; set; } = "WaitingForWorker";
     public double Progress { get; set; }
+    public WorkerJobActivity? Activity { get; set; }
+    public DateTime? LastProgressAtUtc { get; set; }
     public string? WorkerId { get; set; }
     public string? Encoder { get; set; }
     public string? Error { get; set; }

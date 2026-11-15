@@ -33,9 +33,15 @@ public static class TranscodeConfigurationPolicy
             || string.IsNullOrWhiteSpace(value.Name) || value.Name.Length > 80
             || value.Height is < 64 or > 8640 || value.Height % 2 != 0
             || value.VideoBitrateKbps is < 32 or > 1000000 || value.AudioBitrateKbps is < 16 or > 512
+            || !double.IsFinite(value.SegmentDurationSeconds) || value.SegmentDurationSeconds is < 0.1 or > 300
+            || !double.IsFinite(value.KeyframeIntervalSeconds) || value.KeyframeIntervalSeconds is < 0.1 or > 300
             || (value.MaxFrameRate is { } frameRate && (!double.IsFinite(frameRate) || frameRate is <= 0 or > 240)))
         {
             throw new ArgumentException("Invalid transcoding profile.", nameof(value));
         }
     }
+
+    /// <summary>判断是否使用旧版本 Worker 支持的默认分片配方。</summary>
+    public static bool IsDefaultPackaging(TranscodeProfile profile) => profile.SegmentDurationSeconds == 6
+        && profile.KeyframeIntervalSeconds == 2 && !profile.SingleFile;
 }

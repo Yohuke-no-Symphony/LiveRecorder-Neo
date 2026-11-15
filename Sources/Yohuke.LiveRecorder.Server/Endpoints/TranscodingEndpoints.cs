@@ -18,6 +18,8 @@ public static class TranscodingEndpoints
         var admin = endpoints.MapGroup("/api/transcoding").RequireAuthorization(policy => policy.RequireRole("Admin"));
         admin.MapGet("/workers", async (TranscodingCoordinator coordinator, CancellationToken ct) =>
             Results.Ok((await coordinator.ListWorkersAsync(ct)).Select(WorkerView)));
+        admin.MapGet("/workers/{id}/logs", async (string id, long? after, int? take, TranscodingCoordinator coordinator, CancellationToken ct) =>
+            Results.Ok(await coordinator.ReadWorkerLogsAsync(id, after, take ?? 200, ct)));
         admin.MapPost("/workers", async (CreateTranscodeWorkerRequest request, TranscodingCoordinator coordinator, CancellationToken ct) =>
         {
             RequireName(request.Name);

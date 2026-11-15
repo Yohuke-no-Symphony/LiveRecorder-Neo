@@ -1,33 +1,30 @@
 using System.Security.Cryptography;
-using System.Text.RegularExpressions;
-using System.Globalization;
 using Yohuke.LiveRecorder.Transcoding.Contracts;
 
 namespace Yohuke.LiveRecorder.Transcoding.Worker.Encoding;
 
 internal sealed class TranscodeOutputValidator(MediaInspector inspector)
 {
-    private static Regex InitializationUri { get; } = new("#EXT-X-MAP:URI=\"([^\"]+)\"", RegexOptions.Compiled);
-
-    private static Regex SafeFileName { get; } = new("^(init\\.mp4|chunk_[0-9]+\\.m4s)$",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
     internal async Task<TranscodeOutputManifest> ValidateAsync(string ffprobePath, string directory,
-        TranscodeMediaInfo source, TranscodeMediaInfo expected, string encoder, CancellationToken cancellationToken)
+        TranscodeMediaInfo source, TranscodeMediaInfo expected, string encoder, CancellationToken cancellationToken,
+        TranscodeProfile? profile = null)
     {
+        profile ??= new();
         var playlist = Path.Combine(directory, "index.m3u8");
-        var text = await File.ReadAllTextAsync(playlist, cancellationToken);
-        if (!text.Contains("#EXT-X-ENDLIST", StringComparison.Ordinal) || !text.Contains("#EXT-X-PLAYLIST-TYPE:VOD", StringComparison.Ordinal))
+        if (new FileInfo(playlist).Length > 16 * 1024 * 1024)
         {
-            throw new InvalidDataException("The transcoded playlist is incomplete");
+            throw new InvalidDataException("The transcoded playlist exceeds the supported size.");
         }
-        var names = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(line => !line.StartsWith('#')).ToList();
-        names.AddRange(InitializationUri.Matches(text).Select(match => match.Groups[1].Value));
-        if (names.Count < 2 || names.Any(name => !SafeFileName.IsMatch(name)))
+        var text = await File.ReadAllTextAsync(playlist, cancellationToken);
+        var names = profile.SingleFile ? ["media.mp4", "index.m3u8"]
+            : text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(line => !line.StartsWith('#')).Append("init.mp4").Append("index.m3u8").Distinct(StringComparer.Ordinal).ToArray();
+        if (names.Any(name => !TranscodePlaylistPolicy.IsSupportedFileName(name)))
         {
             throw new InvalidDataException("The transcoded playlist contains invalid local file references");
         }
+        var lengths = names.ToDictionary(name => name, name => new FileInfo(Path.Combine(directory, name)).Length, StringComparer.Ordinal);
+        var parsed = TranscodePlaylistPolicy.Parse(text, profile, lengths, expected.FrameRate);
         var media = await inspector.InspectAsync(ffprobePath, playlist, cancellationToken);
         if (media.Width != expected.Width || media.Height != expected.Height || media.VideoCodec != "h264"
             || media.HasAudio != source.HasAudio || (media.HasAudio && media.AudioCodec != "aac")
@@ -37,20 +34,15 @@ internal sealed class TranscodeOutputValidator(MediaInspector inspector)
         }
         var boundaries = new List<double>();
         var elapsed = 0d;
-        foreach (var line in text.Split('\n').Where(line => line.StartsWith("#EXTINF:", StringComparison.Ordinal)))
+        foreach (var duration in parsed.SegmentDurations)
         {
             boundaries.Add(elapsed);
-            var duration = double.Parse(line.AsSpan(8).Trim().TrimEnd(','), CultureInfo.InvariantCulture);
-            if (!double.IsFinite(duration) || duration <= 0 || duration > 6.5)
-            {
-                throw new InvalidDataException("A transcoded segment duration is outside the allowed range");
-            }
             elapsed += duration;
         }
         await inspector.ValidatePlaylistTimelineAsync(ffprobePath, playlist, boundaries, media.FrameRate, cancellationToken);
         media.SourceStartMs = source.SourceStartMs;
         var manifest = new TranscodeOutputManifest { Source = source, Media = media, Encoder = encoder };
-        foreach (var name in names.Append("index.m3u8").Distinct(StringComparer.Ordinal))
+        foreach (var name in parsed.FileNames)
         {
             var path = Path.Combine(directory, name);
             await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);

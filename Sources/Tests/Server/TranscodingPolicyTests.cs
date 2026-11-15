@@ -1,4 +1,6 @@
 using Xunit;
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Transcoding;
@@ -10,6 +12,36 @@ namespace Yohuke.LiveRecorder.Tests;
 /// <summary>验证物理引用、清晰度配方与派生文件发布边界。</summary>
 public sealed class TranscodingPolicyTests
 {
+    /// <summary>旧配置与排队任务缺少包装字段时仍保留默认参数及原配方身份。</summary>
+    [Fact]
+    public void DefaultPackagingPreservesTheLegacyRecipeHash()
+    {
+        var profile = BsonSerializer.Deserialize<TranscodeProfile>(new BsonDocument
+        {
+            ["Height"] = 720, ["VideoBitrateKbps"] = 2500, ["MaxFrameRate"] = BsonNull.Value, ["AudioBitrateKbps"] = 128
+        });
+        Assert.Equal(6, profile.SegmentDurationSeconds);
+        Assert.Equal(2, profile.KeyframeIntervalSeconds);
+        Assert.False(profile.SingleFile);
+        Assert.True(TranscodeConfigurationPolicy.IsDefaultPackaging(profile));
+        Assert.Equal("a383bfeb05b61645feeb36f87119d2b8b50a14df6c1f258b57f338688ae694f5", TranscodeRecipe.Hash(profile));
+        Assert.Equal(0, new WorkerCapabilities().HlsPackagingVersion);
+    }
+
+    /// <summary>自定义包装参数改变产物身份，显示信息仍不改变配方。</summary>
+    [Fact]
+    public void CustomPackagingParametersHaveTheirOwnRecipeIdentity()
+    {
+        var original = new TranscodeProfile();
+        var hash = TranscodeRecipe.Hash(original);
+        Assert.NotEqual(hash, TranscodeRecipe.Hash(original with { SegmentDurationSeconds = 12 }));
+        Assert.NotEqual(hash, TranscodeRecipe.Hash(original with { KeyframeIntervalSeconds = 3 }));
+        Assert.NotEqual(hash, TranscodeRecipe.Hash(original with { SingleFile = true }));
+        var custom = original with { SegmentDurationSeconds = 12, KeyframeIntervalSeconds = 3, SingleFile = true };
+        Assert.Equal(TranscodeRecipe.Hash(custom), TranscodeRecipe.Hash(custom with { Name = "新名称", Enabled = false }));
+        Assert.False(TranscodeConfigurationPolicy.IsDefaultPackaging(custom));
+    }
+
     /// <summary>新增转码引用不改变旧修复完成清单的输入指纹，升级后仍可恢复已发布作业。</summary>
     [Fact]
     public void TranscodeMetadataPreservesLegacyMediaJobFingerprint()

@@ -6,4 +6,5 @@ public sealed record WorkerWelcome
     public WorkerConfiguration Configuration { get; set; } = new();
     public int ConfigurationRevision { get; set; }
     public int HeartbeatSeconds { get; set; } = 2;
+    public int LogProtocolVersion { get; set; }
 }

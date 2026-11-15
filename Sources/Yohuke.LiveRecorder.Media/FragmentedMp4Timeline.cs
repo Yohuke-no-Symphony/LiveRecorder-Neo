@@ -8,8 +8,29 @@ internal static class FragmentedMp4Timeline
 
     internal static async Task<(double PresentationMs, double DurationMs)> ReadAsync(string directory, CancellationToken cancellationToken)
     {
-        var initialization = await ReadBoxAsync(Path.Combine(directory, "init.mp4"), "moov", cancellationToken);
-        var fragment = await ReadBoxAsync(Path.Combine(directory, "chunk_00000.m4s"), "moof", cancellationToken);
+        using var playlist = File.OpenText(Path.Combine(directory, "index.m3u8"));
+        string? initializationName = null;
+        while (await playlist.ReadLineAsync(cancellationToken) is { } line)
+        {
+            if (!line.StartsWith("#EXT-X-MAP:", StringComparison.Ordinal))
+            {
+                continue;
+            }
+            initializationName = line switch
+            {
+                "#EXT-X-MAP:URI=\"init.mp4\"" => "init.mp4",
+                _ when line.StartsWith("#EXT-X-MAP:URI=\"media.mp4\",BYTERANGE=\"", StringComparison.Ordinal) => "media.mp4",
+                _ => throw new InvalidDataException("The transcoded initialization map is unsupported.")
+            };
+            break;
+        }
+        if (initializationName is null)
+        {
+            throw new InvalidDataException("The transcoded playlist has no initialization map.");
+        }
+        var initialization = await ReadBoxAsync(Path.Combine(directory, initializationName), "moov", cancellationToken);
+        var fragmentName = initializationName == "media.mp4" ? initializationName : "chunk_00000.m4s";
+        var fragment = await ReadBoxAsync(Path.Combine(directory, fragmentName), "moof", cancellationToken);
         return Read(initialization, fragment);
     }
 

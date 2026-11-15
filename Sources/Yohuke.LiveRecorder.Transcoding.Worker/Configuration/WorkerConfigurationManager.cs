@@ -174,7 +174,7 @@ internal sealed class WorkerConfigurationManager
             {
                 if (requestedRevision == revision && !cancellation.IsCancellationRequested)
                 {
-                    current = new(configuration, capabilities, revision);
+                    current = new(configuration, capabilities with { HlsPackagingVersion = 1 }, revision);
                     error = null;
                 }
             }
