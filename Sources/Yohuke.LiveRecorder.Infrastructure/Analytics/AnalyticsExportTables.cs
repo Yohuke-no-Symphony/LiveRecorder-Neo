@@ -68,8 +68,9 @@ internal sealed class AnalyticsExportTables(AnalyticsExportLabels labels)
         yield return [labels["to"], Duration(report.ToMs)];
         yield return [labels["duration"], Duration(report.ToMs - report.FromMs)];
         yield return [labels["knownTotal"], Money(report.ObservedAmount)];
-        yield return [labels["goldValue"], Money(report.GoldGiftValue)];
-        yield return [labels["protocolPaid"], Money(report.ProtocolPaidAmount)];
+        yield return [labels["superChatAmount"], Money(report.Categories.FirstOrDefault(category => category.Kind == "SuperChat")?.Amount ?? 0)];
+        yield return [labels["giftAmount"], Money(report.Categories.FirstOrDefault(category => category.Kind == "Gift")?.Amount ?? 0)];
+        yield return [labels["guardAmount"], Money(report.Categories.FirstOrDefault(category => category.Kind == "Guard")?.Amount ?? 0)];
         yield return [labels["quotedAmount"], Money(report.QuotedAmount)];
         yield return [labels["unknownAmountCount"], report.UnknownAmountCount];
         yield return [labels["unknownGiftQuantity"], report.UnknownGiftQuantity];
@@ -123,7 +124,7 @@ internal sealed class AnalyticsExportTables(AnalyticsExportLabels labels)
                     yield return
                     [
                         user.UserId, user.UserName, labels[category.Kind], project.GiftId, project.GiftName, GuardLevel(project.GuardLevel),
-                        project.GuardLevel, project.CoinType, project.Count, project.Quantity, project.KnownAmount, project.QuotedAmount, project.UnknownAmountCount
+                        project.GuardLevel, GiftType(project.CoinType), project.Count, project.Quantity, project.KnownAmount, project.QuotedAmount, project.UnknownAmountCount
                     ];
                 }
             }
@@ -151,7 +152,7 @@ internal sealed class AnalyticsExportTables(AnalyticsExportLabels labels)
             Column("receivedAt", 30), Column("sourceTime", 30), Column("eventId", 30), Column("transactionId", 26), Column("text", 50)
         ], records["Gift"].Select(item => new object?[]
         {
-            Duration(item.OffsetMs), item.OffsetMs, item.UserId, item.UserName, item.GiftId, item.GiftName, item.Quantity, item.CoinType,
+            Duration(item.OffsetMs), item.OffsetMs, item.UserId, item.UserName, item.GiftId, item.GiftName, item.Quantity, GiftType(item.CoinType),
             KnownAmount(item), item.QuotedAmount, item.UnknownAmountCount, PriceSource(item.PriceSource), Date(item.Event?.ReceivedAtUtc),
             Date(item.Event?.SourceTimeUtc), item.Event?.EventId, item.Event?.TransactionId, item.Text
         }));
@@ -246,6 +247,12 @@ internal sealed class AnalyticsExportTables(AnalyticsExportLabels labels)
     }
 
     private string GuardLevel(int? level) => level is >= 1 and <= 3 ? labels["guard" + level.Value.ToString(CultureInfo.InvariantCulture)] : "";
+    private string GiftType(string? coinType) => string.IsNullOrWhiteSpace(coinType) ? "" : labels[coinType.Trim().ToLowerInvariant() switch
+    {
+        "gold" => "paidGift",
+        "silver" => "freeGift",
+        _ => "Unknown"
+    }];
     private string PriceSource(string source) => labels[source is "ProtocolGold" or "ProtocolPaid" or "ProtocolQuote" or "NonMonetary" or "Mixed" ? source : "Unknown"];
     private AnalyticsExportColumn Column(string key, double width = 20, uint style = AnalyticsSpreadsheetStyles.DEFAULT) => new(labels[key], width, style);
     private AnalyticsExportColumn Number(string key) => Column(key, 20, AnalyticsSpreadsheetStyles.NUMBER);

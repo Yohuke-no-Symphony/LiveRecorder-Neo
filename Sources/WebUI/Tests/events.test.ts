@@ -81,16 +81,16 @@ describe('实际消息内容组件', () =>
     expect(wrapper.text()).toContain('小花花')
   })
 
-  it('大航海显示档位、数量，仅协议报价标注“报价”', async () =>
+  it('大航海显示档位、数量，仅参考金额附加标注', async () =>
   {
     const value = event({ kind: 'Guard', quantity: 2, amount: 1380, priceSource: 'ProtocolQuote', payload: { guardLevel: 2 } })
     const wrapper = mount(GuardContent, { props: { event: value } })
     mounted.push(wrapper)
     expect(wrapper.text()).toContain('提督')
     expect(wrapper.text()).toContain('×2')
-    expect(wrapper.text()).toContain('报价')
+    expect(wrapper.text()).toContain('参考金额')
     await wrapper.setProps({ event: { ...value, priceSource: 'ProtocolPaid' } })
-    expect(wrapper.text()).not.toContain('报价')
+    expect(wrapper.text()).not.toContain('参考金额')
   })
 
   it('红包真实组件在开奖前不泄漏未来中奖者，开奖后保留已知奖品与用户名', async () =>
