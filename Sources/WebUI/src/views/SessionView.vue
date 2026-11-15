@@ -39,6 +39,11 @@
               </v-tooltip>
             </div>
             <div class="session-actions">
+              <v-tooltip v-if="auth.canViewAnalytics" :text="t('views.analytics.title')" location="top">
+                <template #activator="{ props: tooltipProps }">
+                  <v-btn v-bind="tooltipProps" icon="mdi-chart-timeline-variant" size="40" variant="tonal" :aria-label="t('views.analytics.title')" :to="{ path: '/analytics', query: { sessionId: detail.session.id } }" />
+                </template>
+              </v-tooltip>
               <v-tooltip v-if="auth.canConfigureRecordings" :text="t('shell.recordingConfiguration.title')" location="top">
                 <template #activator="{ props: tooltipProps }">
                   <v-btn v-bind="tooltipProps" icon="mdi-cog-outline" size="40" variant="tonal" :aria-label="t('shell.recordingConfiguration.title')" @click="configurationOpen = true" />

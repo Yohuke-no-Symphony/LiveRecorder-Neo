@@ -7,6 +7,7 @@ public sealed class UserAccount : Entity
     public string NormalizedEmail { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public string? Language { get; set; }
+    public bool AnalyticsRangePinned { get; set; } = true;
     public string AvatarUrl { get; set; } = "";
     public string PasswordHash { get; set; } = "";
     public long SessionVersion { get; set; }

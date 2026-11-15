@@ -37,6 +37,7 @@ export interface UserProfile
   status: 'Active' | 'Pending' | 'Rejected' | 'Disabled'
   avatarUrl?: string | null
   language?: AppLanguage | null
+  analyticsRangePinned?: boolean
 }
 
 export interface UserSession

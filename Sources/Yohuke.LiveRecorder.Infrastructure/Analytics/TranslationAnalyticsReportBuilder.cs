@@ -32,11 +32,11 @@ internal sealed class TranslationAnalyticsReportBuilder
         user.Count++;
     }
 
-    internal TranslationAnalyticsReport Build()
+    internal TranslationAnalyticsReport Build(int rankingLimit = AnalyticsReport.USER_RANKING_LIMIT)
     {
         report.Users = users.Count;
         report.TopUsers = users.Values.OrderByDescending(user => user.Count)
-            .ThenBy(user => user.UserId, StringComparer.Ordinal).Take(AnalyticsReport.USER_RANKING_LIMIT).ToList();
+            .ThenBy(user => user.UserId, StringComparer.Ordinal).Take(rankingLimit).ToList();
         report.Buckets = buckets.OrderBy(pair => pair.Key).Select(pair => pair.Value).ToList();
         return report;
     }

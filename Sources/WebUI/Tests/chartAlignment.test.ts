@@ -25,7 +25,7 @@ describe('shared timeline pixel alignment', () =>
       buckets: Array.from({ length: 44 }, (_, index) => ({ offsetMs: index * 60000, danmuCount: index * 13, superChatCount: 0, superChatAmount: 0 })),
     } as unknown as Analytics
     const wrapper = mount(RelationshipCharts, { props: { sessionId: 'session', report, durationMs }, global: {
-      plugins: [i18n], stubs: { EChartSurface: true, CardHeader: true, VBtn: passthrough, VTooltip: true },
+      plugins: [i18n], stubs: { EChartSurface: true, VCombobox: true, CardHeader: true, VBtn: passthrough, VTooltip: true },
     } })
     const chart = init(null, undefined, { renderer: 'svg', ssr: true, width, height: 540 })
     try

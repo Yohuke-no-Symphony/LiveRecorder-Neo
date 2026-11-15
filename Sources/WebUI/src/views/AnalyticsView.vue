@@ -1,18 +1,24 @@
 <template>
   <PageHeader :title="t('views.analytics.title')">
     <AiAnalysisToolbar v-if="selectedId" :can-generate="canGenerateAi" :can-start="canStartAi" :has-result="hasAiResult" :can-generate-live-markers="canGenerateMarkers" :can-start-live-markers="canStartMarkers" :can-view-live-markers="Boolean(markerStatus || markerError)" @generate="generateAi" @details="aiDetailsOpen = true" @generate-live-markers="generateMarkers" @live-marker-details="markerDetailsOpen = true" />
+    <AnalyticsExportButton v-if="selectedId && auth.canViewAnalytics" :session-id="selectedId" :range="appliedRange" :duration-ms="durationMs" :disabled="busy || rangeBusy || !analytics" />
     <v-btn v-if="selectedId" variant="text" icon="mdi-refresh" :aria-label="t('replay.refresh')" :disabled="busy" @click="loadSession(selectedId)" />
-    <v-select :model-value="selectedId" :items="sessionOptions" :loading="sessionLoading" :label="t('views.analytics.selectRecording')" class="session-selector" density="compact" @update:model-value="selectSession">
-      <template #append-item><v-list-item v-if="hasMore" :title="t('views.analytics.loadMore')" prepend-icon="mdi-chevron-down" :disabled="loadingMore" @click.stop="loadMore"><template #append><v-progress-circular v-if="loadingMore" size="18" width="2" indeterminate /></template></v-list-item></template>
-    </v-select>
+    <v-btn variant="outlined" prepend-icon="mdi-folder-play-outline" append-icon="mdi-chevron-down" class="session-selector" :loading="sessionLoading" :title="selectedSessionLabel" :aria-label="t('views.analytics.selectRecording')" aria-haspopup="dialog" @click="sessionPickerOpen = true"><span class="session-selector-label">{{ selectedSessionLabel || t('views.analytics.selectRecording') }}</span></v-btn>
   </PageHeader>
+  <SessionPickerDialog v-model="sessionPickerOpen" :selected-id="selectedId" @select="selectSession" />
   <AiAnalysisDetailsDialog v-if="selectedId" v-model="aiDetailsOpen" :status="aiStatus" :loading="aiLoading" :busy="aiBusy" :error="aiError" :ended="sessionEnded" :can-cancel="canCancelAi" @refresh="refreshAi" @cancel="cancelAi" />
   <AiAnalysisDetailsDialog v-if="selectedId" v-model="markerDetailsOpen" purpose="LiveMarkers" :status="markerStatus" :loading="markerLoading" :busy="markerBusy" :error="markerError" :ended="sessionEnded" :can-cancel="canCancelMarkers" @refresh="refreshMarkers" @cancel="cancelMarkers" />
   <v-alert v-if="error || sessionError || streamerError" type="error" class="mb-6">{{ error || sessionError || streamerError }}</v-alert>
+  <v-snackbar :model-value="Boolean(pinSaveError)" color="error" @update:model-value="pinSaveError = $event ? pinSaveError : ''">{{ pinSaveError }}</v-snackbar>
   <v-progress-linear v-if="busy" indeterminate color="primary" class="mb-6" />
-  <template v-if="analytics && selectedId">
-    <p v-if="selectedRange" class="text-caption mb-3">{{ t('replay.selection', { from: formatDuration(selectedRange.fromMs), to: formatDuration(selectedRange.toMs) }) }}</p>
-    <v-progress-linear v-if="rangeBusy" indeterminate color="primary" :aria-label="t('replay.loadingRange')" class="mb-4" />
+  <div v-if="analytics && selectedId" class="analytics-layout" :style="{ '--analytics-controls-height': `${rangePinned ? controlsHeight : 0}px`, '--analytics-navigation-height': `${navigationHeight}px` }">
+    <div ref="navigationElement" class="analytics-navigation">
+      <AnalyticsContents :key="`${selectedId}:contents`" :sections="sections" :scroll-offset="(rangePinned ? controlsHeight : 0) + navigationHeight" />
+    </div>
+    <div ref="controlsElement" class="analytics-controls" :class="{ 'is-pinned': rangePinned }">
+      <AnalyticsRangeToolbar v-model:pinned="rangePinned" :pin-saving="auth.analyticsPreferenceSaving" :range="selectedRange" :duration-ms="durationMs" :busy="rangeBusy" :report="fullAnalytics" :timeline="timeline" :timeline-loading="timelineLoading" :timeline-error="timelineError" @range="selectRange" @retry-timeline="refreshTimeline" />
+    </div>
+    <section id="analytics-overview" class="analytics-section" tabindex="-1" :aria-label="t('views.analytics.overview')">
     <div class="analytics-stats summary-grid mb-6">
       <v-card v-for="stat in stats" :key="stat.key" class="card-content" :data-stat="stat.key">
         <div class="stat-heading d-flex align-center ga-2">
@@ -28,21 +34,37 @@
       <span>{{ t('replay.coverage', { value: formatNumber(analytics.online.coverageRate, { style: 'percent', maximumFractionDigits: 1 }) }) }}</span>
       <span>{{ t('replay.observed', { duration: formatDuration(analytics.online.observedMs) }) }}</span>
     </div>
-    <ContentCard v-if="fullAnalytics" class="mb-6"><RelationshipCharts :key="selectedId" :report="fullAnalytics" :duration-ms="durationMs" :session-id="selectedId" :range="selectedRange" :topics="topics" @range="selectRange" /></ContentCard>
-    <AiAnalysisPanel v-model:show-partial="showPartialAi" :session-id="selectedId" :result="aiResult" :result-stale="aiResultStale" :has-both-results="hasBothAiResults" :loading="aiLoading" class="mb-6" @range="selectRange" />
+    </section>
+    <section id="analytics-relationships" class="analytics-section mb-6" tabindex="-1" :aria-label="t('replay.title')">
+      <ContentCard v-if="fullAnalytics"><RelationshipCharts :key="selectedId" :report="fullAnalytics" :duration-ms="durationMs" :session-id="selectedId" :range="selectedRange" :topics="topics" @range="selectRange" /></ContentCard>
+    </section>
+    <section id="analytics-ai" class="analytics-section mb-6" tabindex="-1" :aria-label="t('replay.aiTitle')">
+      <AiAnalysisPanel v-model:show-partial="showPartialAi" :session-id="selectedId" :result="aiResult" :result-stale="aiResultStale" :has-both-results="hasBothAiResults" :loading="aiLoading" @range="selectRange" />
+    </section>
+    <section id="analytics-sources" class="analytics-section" tabindex="-1" :aria-label="t('views.analytics.amountSources')">
     <h2 class="section-heading mb-4">{{ t('views.analytics.amountSources') }}</h2>
     <div class="category-grid mb-6"><CategoryRevenueCard v-for="category in analytics.categories" :key="category.kind" :category="category" /></div>
-    <ContentCard class="mb-6"><ActivityChart :key="selectedId" :buckets="analytics.buckets" :duration-ms="durationMs" /></ContentCard>
-    <div class="settings-grid mb-6">
+    </section>
+    <section id="analytics-activity" class="analytics-section mb-6" tabindex="-1" :aria-label="t('views.analytics.activityTitle')">
+      <ContentCard><ActivityChart :key="selectedId" :buckets="analytics.buckets" :duration-ms="durationMs" /></ContentCard>
+    </section>
+    <section id="analytics-distribution" class="analytics-section settings-grid mb-6" tabindex="-1" :aria-label="t('views.analytics.distributions')">
       <ContentCard :title="t('views.analytics.revenueShare')"><RevenueComposition :categories="analytics.categories" /></ContentCard>
       <ContentCard :title="t('views.analytics.messageDistribution')">
         <div v-for="item in distribution" :key="item.label" class="distribution-row"><span class="text-body-2">{{ item.label }}</span><div class="distribution-track"><div :style="{ width: `${item.count / maxCount * 100}%` }" :class="`bg-${item.color}`" /></div><span class="mono text-caption">{{ formatNumber(item.count) }}</span></div>
         <v-divider class="my-5" /><div class="text-caption muted">{{ t('views.analytics.coverageGaps', { count: formatNumber(analytics.coverageGaps) }) }}</div>
       </ContentCard>
-    </div>
-    <TranslationAnalytics :key="`${selectedId}:translations`" :report="analytics.translations" :duration-ms="durationMs" class="mt-6" />
-    <UserRanking :key="`${selectedId}:ranking`" :rankings="analytics.userRankings" class="mt-6" />
-  </template>
+    </section>
+    <section id="analytics-translations" class="analytics-section mt-6" tabindex="-1" :aria-label="t('views.analytics.translationsTitle')">
+      <TranslationAnalytics :key="`${selectedId}:translations`" :report="analytics.translations" :duration-ms="durationMs" />
+    </section>
+    <section id="analytics-users" class="analytics-section mt-6" tabindex="-1" :aria-label="t('views.analytics.activeUsers')">
+      <UserRanking :key="`${selectedId}:ranking`" :rankings="analytics.userRankings" />
+    </section>
+    <section id="analytics-contributions" class="analytics-section mt-6" tabindex="-1" :aria-label="t('contributions.title')">
+      <AnalyticsContributions :key="`${selectedId}:contributions`" :session-id="selectedId" :duration-ms="durationMs" :range="appliedRange" />
+    </section>
+  </div>
   <EmptyState v-else-if="!busy && !sessionLoading && !selectedId" :title="t('views.analytics.empty')" icon="mdi-chart-timeline-variant" />
 </template>
 
@@ -52,12 +74,14 @@ import ContentCard from '@/components/common/ContentCard.vue'
 import { computed, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MediaAPI } from '@/apis/MediaAPI'
-import { useSessionPages } from '@/composables/useSessionPages'
+import { useAuthStore } from '@/stores/auth'
 import { useAiAnalysis } from '@/composables/useAiAnalysis'
 import { useAiLiveMarkers } from '@/composables/useAiLiveMarkers'
+import { useSessionTimeline } from '@/composables/useSessionTimeline'
 import type { Analytics, BroadcastSession, Streamer } from '@/models/media'
 import { formatDate, formatDuration, formatMoney, formatNumber } from '@/utilities/format'
 import type { AnalyticsRange } from '@/models/analyticsRange'
+import type { AnalyticsSection } from '@/models/analyticsSection'
 import { clampAnalyticsRange } from '@/components/analytics/relationshipData'
 import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -70,11 +94,20 @@ import RelationshipCharts from '@/components/analytics/RelationshipCharts.vue'
 import AiAnalysisPanel from '@/components/analytics/AiAnalysisPanel.vue'
 import AiAnalysisToolbar from '@/components/analytics/AiAnalysisToolbar.vue'
 import AiAnalysisDetailsDialog from '@/components/analytics/AiAnalysisDetailsDialog.vue'
+import AnalyticsContents from '@/components/analytics/AnalyticsContents.vue'
+import AnalyticsRangeToolbar from '@/components/analytics/AnalyticsRangeToolbar.vue'
+import AnalyticsContributions from '@/components/analytics/AnalyticsContributions.vue'
+import AnalyticsExportButton from '@/components/analytics/AnalyticsExportButton.vue'
+import SessionPickerDialog from '@/components/library/SessionPickerDialog.vue'
 
 const { t } = useI18n()
+const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
-const { sessions, loading: sessionLoading, loadingMore, hasMore, error: sessionError, loadMore } = useSessionPages(() => ({}))
+const sessionLoading = ref(false)
+const sessionError = ref('')
+const latestSession = ref<BroadcastSession>()
+const sessionPickerOpen = ref(false)
 const streamers = ref<Streamer[]>([])
 const selectedId = ref('')
 const selectedSession = ref<BroadcastSession>()
@@ -86,6 +119,7 @@ const rangeBusy = ref(false)
 const aiDetailsOpen = ref(false)
 const markerDetailsOpen = ref(false)
 const sessionEnded = computed(() => selectedSession.value?.id === selectedId.value && Boolean(selectedSession.value?.endedAtUtc))
+const { timeline, loading: timelineLoading, error: timelineError, refresh: refreshTimeline } = useSessionTimeline(selectedId, () => Boolean(selectedId.value && fullAnalytics.value), () => !sessionEnded.value)
 const {
   status: aiStatus, loading: aiLoading, busy: aiBusy, error: aiError, showPartial: showPartialAi,
   canGenerate: canGenerateAi, canStart: canStartAi, canCancel: canCancelAi, hasResult: hasAiResult,
@@ -106,15 +140,67 @@ let disposed = false
 let rangeGeneration = 0
 let rangeController: AbortController | undefined
 let rangeTimer: ReturnType<typeof setTimeout> | undefined
+const controlsElement = ref<HTMLElement>()
+const navigationElement = ref<HTMLElement>()
+const controlsHeight = ref(100)
+const navigationHeight = ref(40)
+const pinSaveError = ref('')
+const rangePinned = computed({
+  get: () => auth.user?.analyticsRangePinned ?? true,
+  set: value => { void saveRangePin(value) },
+})
 
-const sessionOptions = computed(() =>
+async function saveRangePin(value: boolean): Promise<void>
 {
-  const options = [...sessions.value]
-  if (selectedSession.value && !options.some(session => session.id === selectedSession.value!.id))
+  pinSaveError.value = ''
+  try
   {
-    options.unshift(selectedSession.value)
+    await auth.setAnalyticsRangePinned(value)
   }
-  return options.map(session => ({ title: [streamers.value.find(streamer => streamer.id === session.streamerId)?.name, session.title || t('components.library.unnamedSession'), formatDate(session.startedAtUtc)].filter(Boolean).join(' · '), value: session.id }))
+  catch
+  {
+    pinSaveError.value = t('replay.pinSaveFailed')
+  }
+}
+
+let controlsObserver: ResizeObserver | undefined
+const sections = computed<AnalyticsSection[]>(() => [
+  { id: 'analytics-overview', title: t('views.analytics.overview') },
+  { id: 'analytics-relationships', title: t('replay.title') },
+  { id: 'analytics-ai', title: t('replay.aiTitle') },
+  { id: 'analytics-sources', title: t('views.analytics.amountSources') },
+  { id: 'analytics-activity', title: t('views.analytics.activityTitle') },
+  { id: 'analytics-distribution', title: t('views.analytics.distributions') },
+  { id: 'analytics-translations', title: t('views.analytics.translationsTitle') },
+  { id: 'analytics-users', title: t('views.analytics.activeUsers') },
+  { id: 'analytics-contributions', title: t('contributions.title') },
+])
+
+watch([controlsElement, navigationElement], ([controls, navigation]) =>
+{
+  controlsObserver?.disconnect()
+  if (controls && navigation?.firstElementChild)
+  {
+    const directory = navigation.firstElementChild
+    const measure = () =>
+    {
+      controlsHeight.value = Math.ceil(controls.getBoundingClientRect().height)
+      navigationHeight.value = Math.ceil(directory.getBoundingClientRect().height)
+    }
+    measure()
+    if (typeof ResizeObserver !== 'undefined')
+    {
+      controlsObserver = new ResizeObserver(measure)
+      controlsObserver.observe(controls)
+      controlsObserver.observe(directory)
+    }
+  }
+}, { flush: 'post' })
+
+const selectedSessionLabel = computed(() =>
+{
+  const session = selectedSession.value
+  return session ? [streamers.value.find(streamer => streamer.id === session.streamerId)?.name, session.title || t('components.library.unnamedSession'), formatDate(session.startedAtUtc)].filter(Boolean).join(' · ') : ''
 })
 const stats = computed(() => analytics.value ? [
   { key: 'totalRevenue', label: t('views.analytics.observedTotal'), value: formatMoney(analytics.value.observedAmount) },
@@ -210,6 +296,7 @@ function selectRange(value: AnalyticsRange | undefined): void
 
 function selectSession(id: string): void
 {
+  sessionPickerOpen.value = false
   if (id && id !== selectedId.value)
   {
     void router.push({ path: '/analytics', query: { ...route.query, sessionId: id } })
@@ -217,15 +304,54 @@ function selectSession(id: string): void
 }
 watch(() => route.query.sessionId, id =>
 {
-  selectedId.value = typeof id === 'string' && id ? id : sessions.value[0]?.id ?? ''
-}, { immediate: true })
-watch(() => sessions.value[0]?.id, id =>
-{
-  if (!selectedId.value && id)
+  selectedId.value = typeof id === 'string' && id ? id : latestSession.value?.id ?? ''
+  if (selectedId.value)
   {
-    selectedId.value = id
+    sessionError.value = ''
   }
-})
+  else
+  {
+    void loadLatestSession()
+  }
+}, { immediate: true })
+
+async function loadLatestSession(): Promise<void>
+{
+  if (sessionLoading.value)
+  {
+    return
+  }
+  sessionLoading.value = true
+  sessionError.value = ''
+  try
+  {
+    const sessions = await MediaAPI.sessions(undefined, undefined, undefined, 1)
+    if (!disposed)
+    {
+      latestSession.value = sessions[0]
+      const id = route.query.sessionId
+      if (!(typeof id === 'string' && id))
+      {
+        selectedId.value = latestSession.value?.id ?? ''
+      }
+    }
+  }
+  catch (value)
+  {
+    if (!disposed && !selectedId.value)
+    {
+      sessionError.value = value instanceof Error ? value.message : t('views.analytics.loadFailed')
+    }
+  }
+  finally
+  {
+    if (!disposed)
+    {
+      sessionLoading.value = false
+    }
+  }
+}
+
 async function loadSession(id: string): Promise<void>
 {
   const operation = ++generation
@@ -295,11 +421,25 @@ onMounted(async () =>
     }
   }
 })
-onScopeDispose(() => { generation++; rangeGeneration++; disposed = true; clearTimeout(rangeTimer); rangeController?.abort() })
+onScopeDispose(() => { generation++; rangeGeneration++; disposed = true; clearTimeout(rangeTimer); rangeController?.abort(); controlsObserver?.disconnect() })
 </script>
 
 <style scoped>
-.session-selector { min-width: 280px; max-width: 520px; }
+.analytics-layout { position: relative; --analytics-navigation-offset: calc(var(--analytics-navigation-height) + 8px); }
+.analytics-navigation { position: sticky; top: calc(var(--v-layout-top, 0px) + 12px); z-index: 11; margin-bottom: 8px; }
+.analytics-controls { position: relative; z-index: 10; margin-bottom: 24px; }
+.analytics-controls.is-pinned { position: sticky; top: calc(var(--v-layout-top, 0px) + var(--analytics-navigation-offset) + 12px); }
+.analytics-section { scroll-margin-top: calc(var(--v-layout-top, 0px) + var(--analytics-navigation-offset) + var(--analytics-controls-height) + 28px); min-width: 0; }
+.analytics-section:focus { outline: none; }
+@media (min-width: 1280px) {
+  .analytics-layout { margin-left: 212px; --analytics-navigation-offset: 0px; }
+  .analytics-navigation { position: absolute; right: calc(100% + 24px); top: 0; bottom: 0; width: 188px; margin: 0; }
+  .analytics-navigation > .analytics-contents { position: sticky; top: calc(var(--v-layout-top, 0px) + 12px); }
+}
+@media (min-width: 2240px) { .analytics-layout { margin-left: 0; } }
+.session-selector { min-width: 0; max-width: 440px; }
+.session-selector :deep(.v-btn__content) { min-width: 0; }
+.session-selector-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stat-heading { min-height: 24px; }
 .analytics-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .category-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 20px; }

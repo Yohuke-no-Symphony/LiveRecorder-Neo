@@ -66,6 +66,7 @@ public static class ServerStartup
             builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
                 .WithOrigins(developmentOrigins)
                 .AllowAnyHeader()
+                .WithExposedHeaders("Content-Disposition")
                 .AllowAnyMethod()
                 .AllowCredentials()));
         }
@@ -125,6 +126,8 @@ public static class ServerStartup
         builder.Services.AddSingleton<PlaybackService>();
         builder.Services.AddSingleton<MediaJobService>();
         builder.Services.AddSingleton<AnalyticsService>();
+        builder.Services.AddSingleton<AnalyticsContributionService>();
+        builder.Services.AddSingleton<AnalyticsExportService>();
         builder.Services.AddSingleton<ArtworkCache>();
         builder.Services.AddSingleton<SessionCoverService>();
         builder.Services.AddSingleton<IUserAvatarSource>(services => new BilibiliUserAvatarSource(services.GetRequiredService<IHttpClientFactory>().CreateClient("bilibili")));
@@ -321,6 +324,7 @@ public static class ServerStartup
         app.MapIdentityEndpoints(developmentOrigins);
         app.MapBilibiliEndpoints();
         app.MapLibraryEndpoints();
+        app.MapAnalyticsExportEndpoints();
         app.MapSessionConfigurationEndpoints();
         app.MapSessionBookmarkEndpoints();
         app.MapSessionLiveMarkerEndpoints();

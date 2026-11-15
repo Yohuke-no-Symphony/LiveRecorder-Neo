@@ -1,3 +1,5 @@
+using Yohuke.LiveRecorder.Domain;
+
 namespace Yohuke.LiveRecorder.Infrastructure.Analytics;
 
 internal sealed class AnalyticsInteractionObservation
@@ -8,4 +10,5 @@ internal sealed class AnalyticsInteractionObservation
     internal string UserName { get; set; } = "";
     internal long BucketKey { get; init; }
     internal decimal? RedPocketAmount { get; set; }
+    internal RecordedEventEnvelope? SourceEvent { get; set; }
 }

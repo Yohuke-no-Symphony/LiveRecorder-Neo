@@ -37,6 +37,8 @@ public static class IdentityEndpointExtensions
         });
         auth.MapPut("/language", async (LanguagePreferenceRequest request, HttpContext http, IIdentityService identity, CancellationToken ct) =>
             Results.Ok(await identity.SetLanguageAsync(http.User.FindFirstValue(ClaimTypes.NameIdentifier)!, request, ct))).RequireAuthorization();
+        auth.MapPut("/analytics-preferences", async (AnalyticsPreferencesRequest request, HttpContext http, IIdentityService identity, CancellationToken ct) =>
+            Results.Ok(await identity.SetAnalyticsPreferencesAsync(http.User.FindFirstValue(ClaimTypes.NameIdentifier)!, request, ct))).RequireAuthorization();
         auth.MapPost("/login", async (LoginRequest request, HttpContext http, IIdentityService identity, IAntiforgery antiforgery, CancellationToken ct) =>
         {
             var user = await identity.AuthenticateAsync(request, ct);

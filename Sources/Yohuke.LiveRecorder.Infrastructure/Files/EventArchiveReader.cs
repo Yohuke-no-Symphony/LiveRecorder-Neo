@@ -88,14 +88,20 @@ public sealed class EventArchiveReader
     }
 
     /// <summary>枚举调用开始时已完整换行的记录，后续追加内容留给下一次读取。</summary>
-    public async IAsyncEnumerable<RecordedEventEnvelope> EnumerateAsync(string path, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    public IAsyncEnumerable<RecordedEventEnvelope> EnumerateAsync(string path, CancellationToken cancellationToken = default)
+    {
+        return EnumerateAsync(path, long.MaxValue, cancellationToken);
+    }
+
+    internal async IAsyncEnumerable<RecordedEventEnvelope> EnumerateAsync(string path, long maximumLength,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await using var stream = OpenRead(path);
         if (stream is null)
         {
             yield break;
         }
-        var length = CommittedLength(stream, stream.Length);
+        var length = CommittedLength(stream, maximumLength);
         await foreach (var line in CompleteLinesAsync(stream, 0, length, cancellationToken))
         {
             if (DeserializeEvent(line.Bytes) is { } item)

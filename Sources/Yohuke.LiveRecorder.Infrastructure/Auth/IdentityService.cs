@@ -65,6 +65,16 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
     }
 
     /// <inheritdoc />
+    public async Task<UserProfile> SetAnalyticsPreferencesAsync(string id, AnalyticsPreferencesRequest request, CancellationToken cancellationToken = default)
+    {
+        var user = await Users.FindOneAndUpdateAsync(x => x.Id == id && x.Status == "Active",
+            Builders<UserAccount>.Update.Set(x => x.AnalyticsRangePinned, request.RangePinned).Set(x => x.UpdatedAtUtc, DateTime.UtcNow),
+            new FindOneAndUpdateOptions<UserAccount> { ReturnDocument = ReturnDocument.After }, cancellationToken)
+            ?? throw new InfrastructureException(MessageCode.AUTH_USER_NOT_FOUND, 404);
+        return Profile(user);
+    }
+
+    /// <inheritdoc />
     public async Task<UserProfile?> ValidateSessionAsync(string id, long sessionVersion = 0, CancellationToken cancellationToken = default)
     {
         var profile = await GetUserAsync(id, cancellationToken);
@@ -630,6 +640,7 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
     private static UserProfile Profile(UserAccount user) => new(user.Id, user.Email, user.DisplayName, user.AvatarUrl, user.Role, user.Status, user.Language)
     {
         SessionVersion = user.SessionVersion,
+        AnalyticsRangePinned = user.AnalyticsRangePinned,
         Permissions = user.Role == "Admin"
             ? PermissionCatalog.All
             : user.Permissions

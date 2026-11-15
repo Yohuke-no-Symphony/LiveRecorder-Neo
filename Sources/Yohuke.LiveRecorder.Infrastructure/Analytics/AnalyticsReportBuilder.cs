@@ -20,7 +20,8 @@ internal sealed class AnalyticsReportBuilder
         ["Guard"] = new(StringComparer.Ordinal)
     };
 
-    internal AnalyticsReport Build(IReadOnlyCollection<AnalyticsInteractionObservation> interactions, IReadOnlyCollection<AnalyticsMoneyObservation> money, int coverageGaps)
+    internal AnalyticsReport Build(IReadOnlyCollection<AnalyticsInteractionObservation> interactions, IReadOnlyCollection<AnalyticsMoneyObservation> money, int coverageGaps,
+        int rankingLimit = AnalyticsReport.USER_RANKING_LIMIT)
     {
         report.SchemaVersion = AnalyticsReport.CURRENT_SCHEMA_VERSION;
         report.BuiltAtUtc = DateTime.UtcNow;
@@ -62,21 +63,21 @@ internal sealed class AnalyticsReportBuilder
         report.PayingUsers = users.Values.Count(user => user.PaidAmount > 0);
         report.Categories = categories.Values.ToList();
         report.TopUsers = users.Values.OrderByDescending(user => user.Messages).ThenByDescending(user => user.PaidAmount)
-            .ThenBy(user => user.UserId, StringComparer.Ordinal).Take(AnalyticsReport.USER_RANKING_LIMIT).ToList();
+            .ThenBy(user => user.UserId, StringComparer.Ordinal).Take(rankingLimit).ToList();
         report.UserRankings = new(StringComparer.Ordinal)
         {
-            ["danmuCount"] = Rank(user => user.DanmuCount),
-            ["superChatAmount"] = Rank(user => user.SuperChatAmount),
-            ["superChatCount"] = Rank(user => user.SuperChatCount),
-            ["giftAmount"] = Rank(user => user.GiftAmount),
-            ["giftQuantity"] = Rank(user => user.GiftQuantity),
-            ["guardAmount"] = Rank(user => user.GuardAmount),
-            ["guardQuantity"] = Rank(user => user.GuardQuantity),
-            ["redPocketAmount"] = Rank(user => user.RedPocketAmount),
-            ["redPocketCount"] = Rank(user => user.RedPocketCount)
+            ["danmuCount"] = Rank(user => user.DanmuCount, rankingLimit),
+            ["superChatAmount"] = Rank(user => user.SuperChatAmount, rankingLimit),
+            ["superChatCount"] = Rank(user => user.SuperChatCount, rankingLimit),
+            ["giftAmount"] = Rank(user => user.GiftAmount, rankingLimit),
+            ["giftQuantity"] = Rank(user => user.GiftQuantity, rankingLimit),
+            ["guardAmount"] = Rank(user => user.GuardAmount, rankingLimit),
+            ["guardQuantity"] = Rank(user => user.GuardQuantity, rankingLimit),
+            ["redPocketAmount"] = Rank(user => user.RedPocketAmount, rankingLimit),
+            ["redPocketCount"] = Rank(user => user.RedPocketCount, rankingLimit)
         };
         report.Buckets = buckets.OrderBy(pair => pair.Key).Select(pair => pair.Value.Value).ToList();
-        report.Translations = translations.Build();
+        report.Translations = translations.Build(rankingLimit);
         return report;
     }
 
@@ -249,7 +250,7 @@ internal sealed class AnalyticsReportBuilder
         return bucket;
     }
 
-    private List<AnalyticsUser> Rank(Func<AnalyticsUser, decimal?> metric) => users.Values.Where(user => metric(user) is > 0)
+    private List<AnalyticsUser> Rank(Func<AnalyticsUser, decimal?> metric, int rankingLimit) => users.Values.Where(user => metric(user) is > 0)
         .OrderByDescending(metric).ThenByDescending(user => user.PaidAmount).ThenByDescending(user => user.Messages)
-        .ThenBy(user => user.UserId, StringComparer.Ordinal).Take(AnalyticsReport.USER_RANKING_LIMIT).ToList();
+        .ThenBy(user => user.UserId, StringComparer.Ordinal).Take(rankingLimit).ToList();
 }

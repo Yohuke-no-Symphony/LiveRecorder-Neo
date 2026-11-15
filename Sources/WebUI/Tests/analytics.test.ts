@@ -6,21 +6,22 @@ import { createPinia } from 'pinia'
 import RelationshipCharts from '../src/components/analytics/RelationshipCharts.vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import AnalyticsView from '../src/views/AnalyticsView.vue'
+import SessionPickerDialog from '../src/components/library/SessionPickerDialog.vue'
 import ActivityChart from '../src/components/analytics/ActivityChart.vue'
 import UserRanking from '../src/components/analytics/UserRanking.vue'
 import type { Analytics, BroadcastSession } from '../src/models/media'
 import { formatMoney } from '../src/utilities/format'
 import { i18n } from '../src/plugins/i18n'
 
-const { sessions, streamers, analytics, sessionDetail } = vi.hoisted(() => ({ sessions: vi.fn(), streamers: vi.fn(), analytics: vi.fn(), sessionDetail: vi.fn() }))
-vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { sessions, streamers, analytics, session: sessionDetail } }))
+const { sessions, streamers, analytics, sessionDetail, timeline } = vi.hoisted(() => ({ sessions: vi.fn(), streamers: vi.fn(), analytics: vi.fn(), sessionDetail: vi.fn(), timeline: vi.fn() }))
+vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { sessions, streamers, analytics, session: sessionDetail, timeline } }))
 const { aiStatus } = vi.hoisted(() => ({ aiStatus: vi.fn() }))
 vi.mock('../src/apis/AiAnalysisAPI', () => ({ AiAnalysisAPI: { status: aiStatus } }))
 const card = defineComponent({ setup: (_, { slots }) => () => h('div', slots.default?.()) })
 const table = defineComponent({ setup: (_, { slots }) => () => h('table', slots.default?.()) })
 const select = defineComponent({ props: ['modelValue', 'items', 'label'], emits: ['update:modelValue'], setup: (props, { emit }) => () => h('select', { value: props.modelValue, 'aria-label': props.label, onChange: (event: Event) => emit('update:modelValue', (event.target as HTMLSelectElement).value) }, props.items.map((item: { value: string; title: string }) => h('option', { value: item.value }, item.title))) })
 const button = defineComponent({ emits: ['click'], setup: (_, { slots, emit }) => () => h('button', { onClick: () => emit('click') }, slots.default?.()) })
-const stubs = { RelationshipCharts: true, AiAnalysisPanel: true, AiAnalysisToolbar: true, AiAnalysisDetailsDialog: true, VCard: card, VTable: table, VSelect: select, VAlert: card, VProgressLinear: true, VMenu: true, VTooltip: true, VBtn: button, VBtnToggle: card, VDivider: true, VListItem: true, VProgressCircular: true, VIcon: true }
+const stubs = { SessionPickerDialog: true, AnalyticsRangeOverview: true, AnalyticsContributions: true, VCombobox: true, RelationshipCharts: true, AiAnalysisPanel: true, AiAnalysisToolbar: true, AiAnalysisDetailsDialog: true, VCard: card, VTable: table, VSelect: select, VAlert: card, VProgressLinear: true, VMenu: true, VTooltip: true, VBtn: button, VBtnToggle: card, VDivider: true, VListItem: true, VProgressCircular: true, VIcon: true }
 const mounted: VueWrapper[] = []
 
 function source(id = 's1'): BroadcastSession
@@ -72,6 +73,7 @@ beforeEach(() =>
   sessions.mockResolvedValue([source()])
   streamers.mockResolvedValue([])
   analytics.mockResolvedValue(report())
+  timeline.mockResolvedValue({ durationMs: 60000, bucketWidthMs: 60000, revision: 'test', heat: [], markers: [] })
   sessionDetail.mockImplementation(async (id: string) => ({ session: source(id), durationMs: 60000, segments: [], gaps: [] }))
 })
 afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()); vi.useRealTimers(); vi.restoreAllMocks(); i18n.global.locale.value = 'zh-CN' })
@@ -223,14 +225,15 @@ describe('分析流水与分类', () =>
 
 describe('指定录播分析导航', () =>
 {
-  it('直接分析不在第一页中的指定录播，并补齐选择项', async () =>
+  it('直接分析不在第一页中的指定录播，并同步选择弹窗与当前标题', async () =>
   {
     const { wrapper } = await mountView('/analytics?sessionId=older-session')
     expect(analytics).toHaveBeenCalledTimes(1)
     expect(analytics).toHaveBeenCalledWith('older-session')
     expect(sessionDetail).toHaveBeenCalledWith('older-session')
-    expect(wrapper.get('select').element.value).toBe('older-session')
-    expect(wrapper.findAll('option').some(option => option.text().includes('测试直播 older-session'))).toBe(true)
+    expect(wrapper.findComponent(SessionPickerDialog).props('selectedId')).toBe('older-session')
+    expect(wrapper.get('.session-selector').text()).toContain('测试直播 older-session')
+    expect(sessions).not.toHaveBeenCalled()
   })
 
   it('切换与浏览器返回时同步query，过期请求的失败不会覆盖新录播', async () =>
@@ -249,9 +252,12 @@ describe('指定录播分析导航', () =>
     await vi.waitFor(() => expect(router.currentRoute.value.query.sessionId).toBe('old'))
     await flushPromises()
     expect(wrapper.get('.analytics-stats .stat-value').text()).toContain('333.00')
-    await wrapper.get('select').setValue('s1')
+    await wrapper.get('.session-selector').trigger('click')
+    expect(wrapper.findComponent(SessionPickerDialog).props('modelValue')).toBe(true)
+    wrapper.findComponent(SessionPickerDialog).vm.$emit('select', 's1')
     await flushPromises()
     expect(router.currentRoute.value.query.sessionId).toBe('s1')
+    expect(wrapper.findComponent(SessionPickerDialog).props('modelValue')).toBe(false)
   })
 
   it('媒体结束后的归档仍可查看数据，点击图表不离开分析页', async () =>

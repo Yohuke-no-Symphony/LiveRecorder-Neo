@@ -1,3 +1,5 @@
+using Yohuke.LiveRecorder.Domain;
+
 namespace Yohuke.LiveRecorder.Infrastructure.Analytics;
 
 internal sealed class AnalyticsMoneyObservation
@@ -14,4 +16,5 @@ internal sealed class AnalyticsMoneyObservation
     internal long Quantity { get; set; }
     internal long UnknownGiftQuantity { get; set; }
     internal bool Unidentified { get; init; }
+    internal RecordedEventEnvelope? SourceEvent { get; set; }
 }

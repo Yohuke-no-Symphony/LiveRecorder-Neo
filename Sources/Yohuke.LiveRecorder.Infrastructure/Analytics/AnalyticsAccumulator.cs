@@ -8,6 +8,7 @@ namespace Yohuke.LiveRecorder.Infrastructure.Analytics;
 /// <summary>按协议行身份、连击数量差值及报价来源计算可重放的观测流水。</summary>
 public sealed class AnalyticsAccumulator
 {
+    private readonly bool captureContributions;
     private readonly Dictionary<string, AnalyticsInteractionObservation> interactions = new(StringComparer.Ordinal);
     private readonly HashSet<string> events = new(StringComparer.Ordinal);
     private readonly HashSet<string> giftRows = new(StringComparer.Ordinal);
@@ -17,6 +18,19 @@ public sealed class AnalyticsAccumulator
     private readonly HashSet<string> baselineInteractions = new(StringComparer.Ordinal);
     private int coverageGaps;
     private long anonymous;
+
+    /// <summary>创建仅保留统计观测的累加器。</summary>
+    public AnalyticsAccumulator()
+    {
+    }
+
+    internal AnalyticsAccumulator(bool captureContributions)
+    {
+        this.captureContributions = captureContributions;
+    }
+
+    internal IReadOnlyCollection<AnalyticsInteractionObservation> Interactions => interactions.Values;
+    internal IReadOnlyCollection<AnalyticsMoneyObservation> Money => money.Values;
 
     /// <summary>累计去重后的互动并独立标记同传弹幕；相同身份的价格补齐仍可更新金额。</summary>
     public void Add(RecordedEventEnvelope item, bool isTranslation = false)
@@ -95,6 +109,10 @@ public sealed class AnalyticsAccumulator
         {
             interaction.UserName = item.UserName;
         }
+        if (captureContributions && item.Kind == "RedPocket")
+        {
+            interaction.SourceEvent = AnalyticsContributionEvent.Merge(interaction.SourceEvent, item);
+        }
         if (item.Kind == "RedPocket" && item.Amount is >= 0 && item.PriceSource == "ProtocolPaid")
         {
             interaction.RedPocketAmount = Math.Max(interaction.RedPocketAmount ?? 0, item.Amount.Value);
@@ -153,6 +171,7 @@ public sealed class AnalyticsAccumulator
             money.Add(key, entry);
         }
         EnrichUser(entry, item);
+        CaptureEvent(entry, item);
         entry.GiftQuantity = checked(entry.GiftQuantity + delta);
         if (category == AnalyticsMoneyCategory.NonMonetary)
         {
@@ -207,6 +226,7 @@ public sealed class AnalyticsAccumulator
             entry.UnknownAmount = true;
         }
         EnrichUser(entry, item);
+        CaptureEvent(entry, item);
         var quantity = ReadCount(item.Payload, "quantity");
         entry.Quantity = Math.Max(entry.Quantity, quantity > 0 ? quantity : Math.Max(1, item.Quantity));
         if (item.Amount is >= 0 && item.PriceSource != "Unknown" && category != AnalyticsMoneyCategory.Unknown)
@@ -222,11 +242,24 @@ public sealed class AnalyticsAccumulator
         return new AnalyticsReportBuilder().Build(interactions.Values, money.Values, coverageGaps);
     }
 
+    internal AnalyticsReport BuildForExport()
+    {
+        return new AnalyticsReportBuilder().Build(interactions.Values, money.Values, coverageGaps, int.MaxValue);
+    }
+
     private static AnalyticsMoneyObservation CreateObservation(RecordedEventEnvelope item, AnalyticsMoneyCategory category, bool unidentified, string identity) => new()
     {
         Kind = item.Kind, Identity = identity, Category = category, UserId = item.UserId, UserName = item.UserName,
         BucketKey = Bucket(item), Unidentified = unidentified
     };
+
+    private void CaptureEvent(AnalyticsMoneyObservation entry, RecordedEventEnvelope item)
+    {
+        if (captureContributions)
+        {
+            entry.SourceEvent = AnalyticsContributionEvent.Merge(entry.SourceEvent, item);
+        }
+    }
 
     private static string InteractionKey(RecordedEventEnvelope item)
     {

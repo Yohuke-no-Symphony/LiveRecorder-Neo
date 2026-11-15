@@ -23,6 +23,8 @@ export const useAuthStore = defineStore('auth', () =>
   const permissionDefinitions = ref<PermissionDefinition[]>([])
   let permissionLoad: Promise<PermissionDefinition[]> | undefined
   let sessionGeneration = 0
+  const analyticsPreferenceSaving = ref(false)
+  let analyticsPreferenceRevision = 0
   function hasPermission(permission: string): boolean
   {
     return hasAccess.value && (isAdmin.value || user.value?.permissions?.includes(permission) === true)
@@ -44,9 +46,10 @@ export const useAuthStore = defineStore('auth', () =>
   async function refresh(): Promise<void>
   {
     const operation = sessionGeneration
+    const preferenceRevision = analyticsPreferenceRevision
     const session = await AuthAPI.me()
     if (operation !== sessionGeneration) { return }
-    user.value = session.user
+    user.value = preserveAnalyticsPreference(session.user, preferenceRevision)
     setCsrfToken(session.csrfToken)
     if (hasAccess.value)
     {
@@ -91,6 +94,7 @@ export const useAuthStore = defineStore('auth', () =>
   async function login(email: string, password: string): Promise<void>
   {
     const operation = ++sessionGeneration
+    analyticsPreferenceSaving.value = false
     const session = await AuthAPI.login(email, password)
     if (operation !== sessionGeneration) { return }
     user.value = session.user
@@ -100,8 +104,51 @@ export const useAuthStore = defineStore('auth', () =>
   async function setLanguage(language: AppLanguage | null): Promise<void>
   {
     const operation = sessionGeneration
+    const preferenceRevision = analyticsPreferenceRevision
     const updated = await AuthAPI.setLanguage(language)
-    if (operation === sessionGeneration) { user.value = updated }
+    if (operation === sessionGeneration) { user.value = preserveAnalyticsPreference(updated, preferenceRevision) }
+  }
+
+  function preserveAnalyticsPreference(profile: UserProfile | null, revision: number): UserProfile | null
+  {
+    return profile && profile.id === user.value?.id && (analyticsPreferenceSaving.value || revision !== analyticsPreferenceRevision)
+      ? { ...profile, analyticsRangePinned: user.value.analyticsRangePinned ?? true }
+      : profile
+  }
+
+  async function setAnalyticsRangePinned(rangePinned: boolean): Promise<void>
+  {
+    if (!user.value || analyticsPreferenceSaving.value) { return }
+    const operation = sessionGeneration
+    const userId = user.value.id
+    const previous = user.value.analyticsRangePinned ?? true
+    analyticsPreferenceRevision++
+    analyticsPreferenceSaving.value = true
+    user.value = { ...user.value, analyticsRangePinned: rangePinned }
+    try
+    {
+      const updated = await AuthAPI.setAnalyticsRangePinned(rangePinned)
+      if (operation === sessionGeneration && user.value?.id === userId)
+      {
+        user.value = { ...user.value, analyticsRangePinned: updated.analyticsRangePinned ?? true }
+      }
+    }
+    catch (error)
+    {
+      if (operation === sessionGeneration && user.value?.id === userId)
+      {
+        user.value = { ...user.value, analyticsRangePinned: previous }
+      }
+      throw error
+    }
+    finally
+    {
+      if (operation === sessionGeneration)
+      {
+        analyticsPreferenceRevision++
+        analyticsPreferenceSaving.value = false
+      }
+    }
   }
 
   async function logout(): Promise<void>
@@ -114,6 +161,7 @@ export const useAuthStore = defineStore('auth', () =>
   function clearSession(): void
   {
     sessionGeneration++
+    analyticsPreferenceSaving.value = false
     user.value = null
     oauthDraft.value = null
     permissionDefinitions.value = []
@@ -121,5 +169,5 @@ export const useAuthStore = defineStore('auth', () =>
     setCsrfToken('')
   }
 
-  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canConfigureRecordings, canViewAnalytics, canGenerateAnalytics, canPurgeRecordings, canViewRecordings, canDownloadRecordings, canCreateClips, canUploadLiveMarkers, canGenerateLiveMarkers, canManageLiveMarkers, permissionDefinitions, hasPermission, homePath, bootstrap, refresh, login, logout, clearSession, setLanguage }
+  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canConfigureRecordings, canViewAnalytics, canGenerateAnalytics, canPurgeRecordings, canViewRecordings, canDownloadRecordings, canCreateClips, canUploadLiveMarkers, canGenerateLiveMarkers, canManageLiveMarkers, permissionDefinitions, hasPermission, homePath, bootstrap, refresh, login, logout, clearSession, setLanguage, analyticsPreferenceSaving, setAnalyticsRangePinned }
 })

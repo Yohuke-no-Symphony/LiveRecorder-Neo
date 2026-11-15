@@ -49,8 +49,21 @@ public sealed class AnalyticsService(EventArchiveReader reader)
         return GetSessionAsync(session, storageRoot, playbackEndMs, TranslationDanmuPattern.Create(translationPattern), fromMs, toMs, cancellationToken);
     }
 
-    private Task<AnalyticsReport> GetSessionAsync(BroadcastSession session, string storageRoot, double? playbackEndMs,
+    private async Task<AnalyticsReport> GetSessionAsync(BroadcastSession session, string storageRoot, double? playbackEndMs,
         Regex? translationPattern, double? fromMs, double? toMs, CancellationToken cancellationToken)
+    {
+        return (await ReadSessionAsync(session, storageRoot, playbackEndMs, translationPattern, fromMs, toMs, false, cancellationToken)).Report;
+    }
+
+    internal Task<AnalyticsBuildData> BuildExportAsync(SessionDetail detail, string storageRoot, string translationPattern,
+        double? fromMs, double? toMs, CancellationToken cancellationToken)
+    {
+        return ReadSessionAsync(detail.Session, storageRoot, detail.DurationMs, TranslationDanmuPattern.Create(translationPattern),
+            fromMs, toMs, true, cancellationToken);
+    }
+
+    private Task<AnalyticsBuildData> ReadSessionAsync(BroadcastSession session, string storageRoot, double? playbackEndMs,
+        Regex? translationPattern, double? fromMs, double? toMs, bool export, CancellationToken cancellationToken)
     {
         var sources = SessionGroupingService.Sources(session, playbackEndMs).Select(source =>
             (Path: Path.Combine(MediaPaths.Resolve(storageRoot, source.DirectoryPath), "弹幕", "事件.jsonl"),
@@ -66,20 +79,20 @@ public sealed class AnalyticsService(EventArchiveReader reader)
             fixedEndMs = sources.Select(source => Math.Max(0, source.Offset + source.To!.Value)).DefaultIfEmpty().Max();
         }
         var liveStart = fixedEndMs is null && session.StartedAtUtc != default ? session.StartedAtUtc : (DateTime?)null;
-        return ReadAsync(sources, output, translationPattern, fixedEndMs, liveStart, fromMs, toMs, cancellationToken);
+        return ReadAsync(sources, output, translationPattern, fixedEndMs, liveStart, fromMs, toMs, export, cancellationToken);
     }
 
     /// <summary>读取完整场次文件统计，文件增长时最多每三十秒重建一次。</summary>
-    public Task<AnalyticsReport> GetAsync(string sessionDirectory, CancellationToken cancellationToken = default)
+    public async Task<AnalyticsReport> GetAsync(string sessionDirectory, CancellationToken cancellationToken = default)
     {
-        return ReadAsync([(Path.Combine(sessionDirectory, "弹幕", "事件.jsonl"), 0d, 0d, null)],
-            Path.Combine(sessionDirectory, "分析", "summary.json"), null, null, null, null, null, cancellationToken);
+        return (await ReadAsync([(Path.Combine(sessionDirectory, "弹幕", "事件.jsonl"), 0d, 0d, null)],
+            Path.Combine(sessionDirectory, "分析", "summary.json"), null, null, null, null, null, false, cancellationToken)).Report;
     }
 
-    private async Task<AnalyticsReport> ReadAsync(
+    private async Task<AnalyticsBuildData> ReadAsync(
         IReadOnlyList<(string Path, double Offset, double From, double? To)> sources, string output,
         Regex? translationPattern, double? fixedEndMs, DateTime? liveStart, double? fromMs, double? toMs,
-        CancellationToken cancellationToken)
+        bool export, CancellationToken cancellationToken)
     {
         await gate.WaitAsync(cancellationToken);
         try
@@ -94,37 +107,40 @@ public sealed class AnalyticsService(EventArchiveReader reader)
                 ToMs = toMs
             }, JsonFiles.Options));
             var files = sources.Select(source => new FileInfo(source.Path)).ToArray();
-            var length = files.Where(file => file.Exists).Sum(file => file.Length);
+            var snapshotLengths = files.Select(file => file.Exists ? file.Length : 0).ToArray();
+            var length = snapshotLengths.Sum();
             var fingerprint = Hash(JsonSerializer.Serialize(files.Select(file => new
             {
                 file.FullName, Length = file.Exists ? file.Length : 0,
                 Modified = file.Exists ? file.LastWriteTimeUtc.Ticks : 0
             }), JsonFiles.Options));
             var selection = fromMs.HasValue || toMs.HasValue;
-            var saved = selection ? null : await ReadCacheAsync(output, cancellationToken);
+            var saved = selection || export ? null : await ReadCacheAsync(output, cancellationToken);
             var now = DateTime.UtcNow;
             var fresh = saved is not null && saved.BuiltAtUtc <= now && now - saved.BuiltAtUtc < TimeSpan.FromSeconds(30);
             if (saved is not null && saved.SchemaVersion == AnalyticsReport.CURRENT_SCHEMA_VERSION &&
                 AnalyticsCacheValidator.IsComplete(saved) && saved.SourceIdentity == identity
                 && (fresh || liveStart is null && saved.SourceFingerprint == fingerprint))
             {
-                return saved;
+                return new() { Report = saved };
             }
 
-            var accumulator = new AnalyticsAccumulator();
+            var accumulator = new AnalyticsAccumulator(export);
+            var exportSequence = 0L;
             var onlineSources = new List<(OnlineAnalyticsAccumulator Accumulator, double Offset, double From, double? To)>();
             var fullEndMs = fixedEndMs ?? (liveStart is { } start ? Math.Max(0, (now - start).TotalMilliseconds) : 0);
             var requestedFrom = Math.Min(fromMs ?? 0, fixedEndMs ?? double.MaxValue);
             var requestedTo = Math.Min(toMs ?? double.MaxValue, fixedEndMs ?? double.MaxValue);
-            foreach (var source in sources)
+            for (var sourceIndex = 0; sourceIndex < sources.Count; sourceIndex++)
             {
+                var source = sources[sourceIndex];
                 var sourceFrom = Math.Max(source.From, Math.Max(0, requestedFrom - source.Offset));
                 var sourceTo = Math.Min(source.To ?? double.MaxValue, requestedTo - source.Offset);
                 var online = new OnlineAnalyticsAccumulator();
                 onlineSources.Add((online, source.Offset, sourceFrom, sourceTo));
                 if (sourceFrom > 0)
                 {
-                    await foreach (var item in reader.EnumerateAsync(source.Path, cancellationToken))
+                    await foreach (var item in reader.EnumerateAsync(source.Path, snapshotLengths[sourceIndex], cancellationToken))
                     {
                         if (item.OffsetMs >= 0 && item.OffsetMs < Math.Min(sourceFrom, source.To ?? double.MaxValue))
                         {
@@ -133,7 +149,7 @@ public sealed class AnalyticsService(EventArchiveReader reader)
                     }
                 }
 
-                await foreach (var item in reader.EnumerateAsync(source.Path, cancellationToken))
+                await foreach (var item in reader.EnumerateAsync(source.Path, snapshotLengths[sourceIndex], cancellationToken))
                 {
                     if (fixedEndMs is null && item.OffsetMs >= source.From &&
                         (source.To is null || item.OffsetMs < source.To) && item.OffsetMs + source.Offset >= 0)
@@ -155,11 +171,15 @@ public sealed class AnalyticsService(EventArchiveReader reader)
                         continue;
                     }
                     item.OffsetMs = projectedOffset;
+                    if (export)
+                    {
+                        item.Sequence = checked(++exportSequence);
+                    }
                     accumulator.Add(item, item.Kind == "Danmu" && translationPattern?.IsMatch(item.Text) == true);
                 }
             }
 
-            var result = accumulator.Build();
+            var result = export ? accumulator.BuildForExport() : accumulator.Build();
             var rangeTo = Math.Min(requestedTo, fullEndMs);
             var rangeFrom = Math.Min(requestedFrom, rangeTo);
             var intervals = onlineSources.SelectMany(source =>
@@ -171,11 +191,15 @@ public sealed class AnalyticsService(EventArchiveReader reader)
             result.SourceBytes = length;
             result.SourceIdentity = identity;
             result.SourceFingerprint = fingerprint;
-            if (!selection)
+            if (!selection && !export)
             {
                 await JsonFiles.WriteAsync(output, result, cancellationToken);
             }
-            return result;
+            return new()
+            {
+                Report = result,
+                Contributions = export ? AnalyticsContributionBuilder.Build(accumulator, "All") : null
+            };
         }
         finally
         {

@@ -13,14 +13,16 @@ import { bandwidthSettingsZh, bandwidthSettingsEn, bandwidthSettingsJa } from '@
 
 import { accountManagementZh, accountManagementEn, accountManagementJa } from '@/localization/messages/accountManagement'
 import { passwordResetZh, passwordResetEn, passwordResetJa } from '@/localization/messages/passwordReset'
+import { contributionsZh, contributionsEn, contributionsJa } from '@/localization/messages/contributions'
+import { analyticsExportZh, analyticsExportEn, analyticsExportJa } from '@/localization/messages/analyticsExport'
 
 export const i18n = createI18n({
   legacy: false,
   locale: DEFAULT_LANGUAGE as string,
   fallbackLocale: DEFAULT_LANGUAGE,
   messages: {
-    'zh-CN': { bandwidthSettings: bandwidthSettingsZh, accountManagement: accountManagementZh, passwordReset: passwordResetZh, aiSettings: aiSettingsZh, replay: replayZh, core: coreZh, views: viewsZh, components: componentsZh, shell: shellZh, liveMarkers: liveMarkersZh, translations: translationsZh, $vuetify: zhHans },
-    'en-US': { bandwidthSettings: bandwidthSettingsEn, accountManagement: accountManagementEn, passwordReset: passwordResetEn, aiSettings: aiSettingsEn, replay: replayEn, core: coreEn, views: viewsEn, components: componentsEn, shell: shellEn, liveMarkers: liveMarkersEn, translations: translationsEn, $vuetify: en },
-    'ja-JP': { bandwidthSettings: bandwidthSettingsJa, accountManagement: accountManagementJa, passwordReset: passwordResetJa, aiSettings: aiSettingsJa, replay: replayJa, core: coreJa, views: viewsJa, components: componentsJa, shell: shellJa, liveMarkers: liveMarkersJa, translations: translationsJa, $vuetify: ja },
+    'zh-CN': { analyticsExport: analyticsExportZh, contributions: contributionsZh, bandwidthSettings: bandwidthSettingsZh, accountManagement: accountManagementZh, passwordReset: passwordResetZh, aiSettings: aiSettingsZh, replay: replayZh, core: coreZh, views: viewsZh, components: componentsZh, shell: shellZh, liveMarkers: liveMarkersZh, translations: translationsZh, $vuetify: zhHans },
+    'en-US': { analyticsExport: analyticsExportEn, contributions: contributionsEn, bandwidthSettings: bandwidthSettingsEn, accountManagement: accountManagementEn, passwordReset: passwordResetEn, aiSettings: aiSettingsEn, replay: replayEn, core: coreEn, views: viewsEn, components: componentsEn, shell: shellEn, liveMarkers: liveMarkersEn, translations: translationsEn, $vuetify: en },
+    'ja-JP': { analyticsExport: analyticsExportJa, contributions: contributionsJa, bandwidthSettings: bandwidthSettingsJa, accountManagement: accountManagementJa, passwordReset: passwordResetJa, aiSettings: aiSettingsJa, replay: replayJa, core: coreJa, views: viewsJa, components: componentsJa, shell: shellJa, liveMarkers: liveMarkersJa, translations: translationsJa, $vuetify: ja },
   },
 })

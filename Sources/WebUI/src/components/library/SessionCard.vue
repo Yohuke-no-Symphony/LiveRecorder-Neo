@@ -1,15 +1,16 @@
 <template>
   <v-card class="session-card" :class="{ 'is-selected': selected }" @contextmenu="openContextMenu" @keydown="onMenuKeydown">
     <router-link v-slot="{ href, navigate }" :to="`/sessions/${session.id}`" custom>
-      <a :href="href" class="session-link" :role="selectionMode ? 'button' : undefined" :aria-pressed="selectionMode ? selected : undefined" :aria-disabled="selectionMode && !canSelect ? true : undefined" @click="onClick($event, navigate)" @keydown.space="onSelectionKeydown">
+      <component :is="pickMode ? 'button' : 'a'" :href="pickMode ? undefined : href" :type="pickMode ? 'button' : undefined" :disabled="pickMode ? disabled : undefined" class="session-link" :role="!pickMode && selectionMode ? 'button' : undefined" :aria-pressed="pickMode || selectionMode ? selected : undefined" :aria-disabled="!pickMode && selectionMode && !canSelect ? true : undefined" @click="onClick($event, navigate)" @keydown.space="onSelectionKeydown">
         <div class="session-cover">
           <v-img :src="imageSource" :aspect-ratio="4 / 3" cover @error="retry" @load="loaded">
             <template #error><div class="cover-fallback"><v-icon icon="mdi-play-box-outline" size="40" /></div></template>
           </v-img>
           <div class="cover-top"><v-chip v-if="session.state.toLowerCase() === 'recording'" color="error" variant="flat" size="x-small" prepend-icon="mdi-record">{{ t('components.status.recording') }}</v-chip></div>
+          <v-chip v-if="pickMode && selected" class="session-current" color="primary" variant="flat" size="x-small" prepend-icon="mdi-check">{{ t('components.library.currentSession') }}</v-chip>
           <v-chip v-if="session.isPermanent" class="permanent-badge" color="primary" variant="flat" size="x-small" prepend-icon="mdi-shield-check-outline">{{ t('shell.retention.permanent') }}</v-chip>
           <span class="duration mono">{{ duration }}</span>
-          <div class="cover-play"><v-icon icon="mdi-play" size="34" /></div>
+          <div class="cover-play"><v-icon :icon="pickMode ? 'mdi-check' : 'mdi-play'" size="34" /></div>
         </div>
         <div class="session-info">
           <h3 class="session-title">{{ session.title || t('components.library.unnamedSession') }}</h3>
@@ -20,10 +21,10 @@
           <div v-if="streamerName" class="text-caption muted">{{ formatDate(session.startedAtUtc) }}</div>
           <SessionExpiry :session="session" />
         </div>
-      </a>
+      </component>
     </router-link>
-    <v-checkbox-btn v-if="selectionMode" class="session-select" :model-value="selected" :disabled="disabled || !canSelect" :aria-label="t('components.library.selectSession', { title: session.title || t('components.library.unnamedSession') })" @update:model-value="emit('toggle')" />
-    <v-btn v-if="allowActions" class="session-actions" icon="mdi-dots-horizontal" size="small" variant="flat" :disabled="disabled" aria-haspopup="menu" :aria-label="t('components.library.actionsForSession', { title: session.title || t('components.library.unnamedSession') })" @click.stop="emit('actions', $event)" />
+    <v-checkbox-btn v-if="selectionMode && !pickMode" class="session-select" :model-value="selected" :disabled="disabled || !canSelect" :aria-label="t('components.library.selectSession', { title: session.title || t('components.library.unnamedSession') })" @update:model-value="emit('toggle')" />
+    <v-btn v-if="allowActions && !pickMode" class="session-actions" icon="mdi-dots-horizontal" size="small" variant="flat" :disabled="disabled" aria-haspopup="menu" :aria-label="t('components.library.actionsForSession', { title: session.title || t('components.library.unnamedSession') })" @click.stop="emit('actions', $event)" />
   </v-card>
 </template>
 
@@ -38,14 +39,15 @@ import SessionExpiry from './SessionExpiry.vue'
 
 const { t } = useI18n()
 
-const props = defineProps<{ session: BroadcastSession; streamerName?: string; allowActions?: boolean; selectionMode?: boolean; selected?: boolean; canSelect?: boolean; disabled?: boolean }>()
+const props = defineProps<{ session: BroadcastSession; streamerName?: string; allowActions?: boolean; selectionMode?: boolean; pickMode?: boolean; selected?: boolean; canSelect?: boolean; disabled?: boolean }>()
 const { imageSource, retry, loaded } = useRetryableImage(() => MediaAPI.cover(props.session.id))
-const emit = defineEmits<{ actions: [event: MouseEvent | KeyboardEvent]; toggle: [] }>()
+const emit = defineEmits<{ actions: [event: MouseEvent | KeyboardEvent]; toggle: []; pick: [] }>()
 const duration = computed(() => formatDuration(Math.max(0, new Date(props.session.endedAtUtc ?? props.session.lastMediaAtUtc).getTime() - new Date(props.session.startedAtUtc).getTime())))
 
 function onClick(event: MouseEvent, navigate: (event?: MouseEvent) => unknown): void
 {
   if (props.disabled) { event.preventDefault(); return }
+  if (props.pickMode) { event.preventDefault(); emit('pick'); return }
   if (!props.selectionMode) { navigate(event); return }
   event.preventDefault()
   if (props.canSelect && !props.disabled) { emit('toggle') }
@@ -53,14 +55,14 @@ function onClick(event: MouseEvent, navigate: (event?: MouseEvent) => unknown): 
 
 function onSelectionKeydown(event: KeyboardEvent): void
 {
-  if (!props.selectionMode) { return }
+  if (props.pickMode || !props.selectionMode) { return }
   event.preventDefault()
   if (props.canSelect && !props.disabled) { emit('toggle') }
 }
 
 function openContextMenu(event: MouseEvent): void
 {
-  if (!props.allowActions) { return }
+  if (props.pickMode || !props.allowActions) { return }
   event.preventDefault()
   event.stopPropagation()
   if (!props.disabled) { emit('actions', event) }
@@ -69,7 +71,7 @@ function openContextMenu(event: MouseEvent): void
 function onMenuKeydown(event: KeyboardEvent): void
 {
   if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) { return }
-  if (!props.allowActions) { return }
+  if (props.pickMode || !props.allowActions) { return }
   event.preventDefault()
   event.stopPropagation()
   if (!props.disabled) { emit('actions', event) }
@@ -80,9 +82,12 @@ function onMenuKeydown(event: KeyboardEvent): void
 .session-card { position: relative; overflow: hidden; transition: transform .18s ease, border-color .18s ease; }
 .session-card:hover { transform: translateY(-3px); border-color: rgba(var(--v-theme-primary), .4); }
 .session-card.is-selected { border-color: rgb(var(--v-theme-primary)); box-shadow: 0 0 0 1px rgb(var(--v-theme-primary)); }
-.session-link { display: block; color: inherit; text-decoration: none; }
+.session-link { display: block; width: 100%; color: inherit; text-decoration: none; text-align: left; }
+button.session-link { border: 0; background: transparent; font: inherit; cursor: pointer; }
+button.session-link:disabled { cursor: default; opacity: .5; }
 .session-link:focus-visible { outline: 2px solid rgb(var(--v-theme-primary)); outline-offset: -3px; }
 .session-actions { position: absolute; top: 8px; right: 8px; color: white; background: #0008; }
+.session-current { position: absolute; top: 8px; right: 8px; }
 .session-select { position: absolute; top: 8px; left: 8px; border-radius: 6px; background: rgb(var(--v-theme-surface)); }
 .session-card:has(.session-select) .cover-top { top: 56px; }
 .session-cover { position: relative; background: rgba(var(--v-theme-on-surface), .035); }

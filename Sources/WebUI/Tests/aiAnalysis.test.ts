@@ -7,14 +7,16 @@ import { useAuthStore } from '../src/stores/auth'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import AnalyticsView from '../src/views/AnalyticsView.vue'
 import RelationshipCharts from '../src/components/analytics/RelationshipCharts.vue'
+import EChartSurface from '../src/components/analytics/EChartSurface.vue'
+import AnalyticsRangeToolbar from '../src/components/analytics/AnalyticsRangeToolbar.vue'
 import AiAnalysisToolbar from '../src/components/analytics/AiAnalysisToolbar.vue'
 import type { AiAnalysisJob, AiAnalysisStatus } from '../src/models/aiAnalysis'
 import type { Analytics, BroadcastSession } from '../src/models/media'
 import { i18n } from '../src/plugins/i18n'
 
-const { status, generate, cancel, liveMarkerStatus, generateLiveMarkers, sessions, streamers, analytics, sessionDetail } = vi.hoisted(() => ({ status: vi.fn(), generate: vi.fn(), cancel: vi.fn(), liveMarkerStatus: vi.fn(), generateLiveMarkers: vi.fn(), sessions: vi.fn(), streamers: vi.fn(), analytics: vi.fn(), sessionDetail: vi.fn() }))
+const { status, generate, cancel, liveMarkerStatus, generateLiveMarkers, sessions, streamers, analytics, sessionDetail, timeline } = vi.hoisted(() => ({ status: vi.fn(), generate: vi.fn(), cancel: vi.fn(), liveMarkerStatus: vi.fn(), generateLiveMarkers: vi.fn(), sessions: vi.fn(), streamers: vi.fn(), analytics: vi.fn(), sessionDetail: vi.fn(), timeline: vi.fn() }))
 vi.mock('../src/apis/AiAnalysisAPI', () => ({ AiAnalysisAPI: { status, generate, cancel, liveMarkerStatus, generateLiveMarkers } }))
-vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { sessions, streamers, analytics, session: sessionDetail } }))
+vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { sessions, streamers, analytics, session: sessionDetail, timeline } }))
 const card = defineComponent({ props: ['title'], setup: (props, { slots }) => () => h('section', [props.title ? h('h2', props.title) : null, slots.default?.(), slots.actions?.()]) })
 const button = defineComponent({ props: { disabled: Boolean }, emits: ['click'], setup: (props, { slots, emit }) => () => h('button', { disabled: props.disabled, onClick: () => emit('click') }, slots.default?.()) })
 const dialog = defineComponent({ props: { modelValue: Boolean }, setup: (props, { slots }) => () => props.modelValue ? h('div', { role: 'dialog' }, slots.default?.()) : null })
@@ -28,7 +30,7 @@ const menu = defineComponent({ setup: (_, { slots }) =>
   ])
 } })
 const menuItem = defineComponent({ props: { title: String, disabled: Boolean }, emits: ['click'], setup: (props, { emit }) => () => h('button', { role: 'menuitem', disabled: props.disabled, onClick: () => emit('click') }, props.title) })
-const stubs = { ContentCard: card, CardHeader: card, EChartSurface: true, VBtn: button, VAlert: card, VProgressLinear: progress, VProgressCircular: true, VDialog: dialog, VMenu: menu, VList: card, VListItem: menuItem, VCard: card, VSelect: true, VTooltip: true, VDivider: true }
+const stubs = { SessionPickerDialog: true, AnalyticsRangeOverview: true, AnalyticsContributions: true, VCombobox: true, ContentCard: card, CardHeader: card, EChartSurface: true, VBtn: button, VAlert: card, VProgressLinear: progress, VProgressCircular: true, VDialog: dialog, VMenu: menu, VList: card, VListItem: menuItem, VCard: card, VSelect: true, VTooltip: true, VDivider: true }
 const mounted: VueWrapper[] = []
 
 function source(id = 's1'): BroadcastSession
@@ -97,6 +99,7 @@ beforeEach(() =>
   sessions.mockResolvedValue([source()])
   streamers.mockResolvedValue([])
   analytics.mockResolvedValue(report())
+  timeline.mockResolvedValue({ durationMs: 60000, bucketWidthMs: 60000, revision: 'test', heat: [], markers: [] })
   sessionDetail.mockImplementation(async (id: string) => ({ session: source(id), durationMs: 60000, segments: [], gaps: [] }))
   i18n.global.locale.value = 'zh-CN'
 })
@@ -313,23 +316,27 @@ describe('统计页共享 AI 复盘', () =>
     expect(wrapper.text()).not.toContain('旧录像的迟到响应')
   })
 
-  it('关系图校验输入，总时长不跟随选区缩短', async () =>
+  it('全局时间选区校验输入，关系图总时长不跟随选区缩短', async () =>
   {
     const wrapper = mount(RelationshipCharts, { props: { sessionId: 's1', report: report(), durationMs: 60000 }, global: { plugins: [i18n, await router()], stubs } })
     mounted.push(wrapper)
-    const inputs = wrapper.findAll('input')
-    await wrapper.setProps({ durationMs: 60000.123, range: { fromMs: 10000.125, toMs: 60000.123 } })
+    const range = { fromMs: 10000.125, toMs: 60000.123 }
+    const toolbar = mount(AnalyticsRangeToolbar, { props: { durationMs: 60000.123, range }, global: { plugins: [i18n], stubs } })
+    mounted.push(toolbar)
+    const inputs = toolbar.findAll('input')
+    await wrapper.setProps({ durationMs: 60000.123, range })
     expect((inputs[0]!.element as HTMLInputElement).checkValidity()).toBe(true)
     expect((inputs[1]!.element as HTMLInputElement).checkValidity()).toBe(true)
-    await inputs[0]!.setValue(20)
-    await inputs[1]!.setValue(40)
-    await wrapper.get('form').trigger('submit')
-    expect(wrapper.emitted('range')?.[0]).toEqual([{ fromMs: 20000, toMs: 40000 }])
-    await inputs[1]!.setValue(10)
-    await wrapper.get('form').trigger('submit')
-    expect(wrapper.find('[role="alert"]').exists()).toBe(true)
-    expect(wrapper.emitted('range')).toHaveLength(1)
+    await inputs[0]!.setValue('00:00:20')
+    await inputs[1]!.setValue('00:00:40')
+    await toolbar.get('form').trigger('submit')
+    expect(toolbar.emitted('range')?.[0]).toEqual([{ fromMs: 20000, toMs: 40000 }])
+    await inputs[1]!.setValue('00:00:10')
+    await toolbar.get('form').trigger('submit')
+    expect(toolbar.find('[role="alert"]').exists()).toBe(true)
+    expect(toolbar.emitted('range')).toHaveLength(1)
     expect(wrapper.find('a').exists()).toBe(false)
-    expect(wrapper.get('.point-detail').text()).toContain('总时长 01:00')
+    const timelineOption = wrapper.findAllComponents(EChartSurface)[0]!.props('option') as { xAxis: { max: number }[] }
+    expect(timelineOption.xAxis[0]!.max).toBe(60000.123)
   })
 })

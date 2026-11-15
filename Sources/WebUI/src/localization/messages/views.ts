@@ -62,6 +62,7 @@ export const viewsZh = {
   },
   analytics: {
     title: '直播分析', selectRecording: '选择录播', loadMore: '加载更多', amountSources: '流水来源',
+    contents: '目录', overview: '数据概览', distributions: '分布统计',
     translationsTitle: '同传统计', translationTotal: '同传总条数', translationUsers: '同传者', translationCount: '同传条数', translationVolume: '同传量',
     noTranslations: '暂无同传弹幕', noTranslationUsers: '暂无同传者数据',
     messageDistribution: '消息分布', coverageGaps: '录制中断 {count}', activeUsers: '活跃用户', messages: '消息', observedAmount: '流水',
@@ -148,6 +149,7 @@ export const viewsEn: MessageSchema<typeof viewsZh> = {
   },
   analytics: {
     title: 'Stream analytics', selectRecording: 'Select recording', loadMore: 'Load more', amountSources: 'Revenue sources',
+    contents: 'Contents', overview: 'Overview', distributions: 'Distributions',
     translationsTitle: 'Translation statistics', translationTotal: 'Total translated messages', translationUsers: 'Translators', translationCount: 'Translated messages', translationVolume: 'Translation volume',
     noTranslations: 'No translated chat', noTranslationUsers: 'No translator data',
     messageDistribution: 'Message distribution', coverageGaps: 'Recording interruptions: {count}', activeUsers: 'Active users', messages: 'Messages', observedAmount: 'Revenue',
@@ -234,6 +236,7 @@ export const viewsJa: MessageSchema<typeof viewsZh> = {
   },
   analytics: {
     title: '配信分析', selectRecording: '録画を選択', loadMore: 'さらに読み込む', amountSources: '売上の内訳',
+    contents: '目次', overview: '概要', distributions: '分布統計',
     translationsTitle: '同時通訳の統計', translationTotal: '同時通訳コメント合計', translationUsers: '通訳者', translationCount: '同時通訳コメント数', translationVolume: '同時通訳コメントの推移',
     noTranslations: '同時通訳コメントはありません', noTranslationUsers: '通訳者のデータはありません',
     messageDistribution: 'メッセージの内訳', coverageGaps: '録画の中断 {count} 回', activeUsers: 'アクティブユーザー', messages: 'メッセージ', observedAmount: '売上',

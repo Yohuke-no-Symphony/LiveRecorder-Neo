@@ -6,6 +6,7 @@ namespace Yohuke.LiveRecorder.Application.Auth;
 public sealed record UserProfile(string Id, string Email, string DisplayName, string AvatarUrl, string Role, string Status, string? Language = null)
 {
     public PermissionSet Permissions { get; init; } = PermissionSet.Empty;
+    public bool AnalyticsRangePinned { get; init; } = true;
     [System.Text.Json.Serialization.JsonIgnore]
     public long SessionVersion { get; init; }
 }

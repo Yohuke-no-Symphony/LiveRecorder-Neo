@@ -140,6 +140,11 @@ public static class LibraryEndpoints
                 throw new InfrastructureException(MessageCode.TRANSLATION_DANMU_PATTERN_TIMEOUT);
             }
         });
+        viewing.MapGet("/sessions/{id}/analytics/contributions", async (string id, string kind, string? view, double? fromMs, double? toMs, int? cursor, int? limit, string? snapshotId, LibraryService library, IAppPaths paths, AnalyticsContributionService contributions, CancellationToken ct) =>
+        {
+            var detail = await library.GetAsync(id, ct);
+            return Results.Ok(await contributions.GetAsync(detail, paths.RecordsDirectory, kind, view ?? "events", fromMs, toMs, cursor ?? 0, limit ?? 50, snapshotId, ct));
+        }).RequireAuthorization(UserPermissionNames.VIEW_ANALYTICS);
         viewing.MapGet("/sessions/{id}/analytics", async (string id, double? fromMs, double? toMs, LibraryService library, IAppPaths paths, AnalyticsService analytics, ISettingsStore settingsStore, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
