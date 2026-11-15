@@ -1,0 +1,32 @@
+{
+  "Worker": {
+    "ApiBaseUrl": "https://localhost:4784",
+    "ControlHost": "localhost",
+    "ControlPort": 4790,
+    "WorkerId": "",
+    "Secret": "",
+    "TlsServerName": null,
+    "ServerCertificateSha256": null,
+    "ControlCertificateSha256": null,
+    "ApiCertificateSha256": null
+  },
+  "Configuration": {
+    "FfmpegPath": "ffmpeg",
+    "FfprobePath": "ffprobe",
+    "TempDirectory": "",
+    "MaxConcurrentEncodes": 2,
+    "GpuConcurrency": 1,
+    "CpuConcurrency": 1,
+    "CpuFallbackMode": "Balanced",
+    "GpuWaitSeconds": 60,
+    "CpuLoadThreshold": 60,
+    "CpuSampleWindowSeconds": 30,
+    "CpuThreadFraction": 0.5,
+    "PreferredEncoder": "auto",
+    "DeviceId": null,
+    "MaxCacheBytes": 21474836480,
+    "MinimumFreeBytes": 2147483648,
+    "DownloadBytesPerSecond": 0,
+    "UploadBytesPerSecond": 0
+  }
+}

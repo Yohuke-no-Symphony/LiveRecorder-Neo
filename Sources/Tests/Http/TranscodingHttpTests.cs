@@ -17,6 +17,9 @@ using Yohuke.LiveRecorder.Infrastructure.Playback;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
 using Yohuke.LiveRecorder.Infrastructure.Transcoding;
 using Yohuke.LiveRecorder.Transcoding.Contracts;
+using Yohuke.LiveRecorder.Transcoding.Worker;
+using Yohuke.LiveRecorder.Transcoding.Worker.Configuration;
+using Yohuke.LiveRecorder.Transcoding.Worker.Transport;
 using Xunit;
 
 namespace Yohuke.LiveRecorder.Http.Tests;
@@ -24,6 +27,82 @@ namespace Yohuke.LiveRecorder.Http.Tests;
 /// <summary>验证独立 Worker 的真实 TLS、HTTP 传输、成品播放及回收边界。</summary>
 public sealed class TranscodingHttpTests
 {
+    /// <summary>本地完整设置按版本提交，运行中的节点将后台变更同步到同一文件。</summary>
+    [MongoHttpFact]
+    public async Task WorkerSettingsRoundTripThroughTlsAndPersistLiveAdminChanges()
+    {
+        using var certificate = new TranscodingTestCertificate();
+        await using var fixture = await CreateAsync(certificate, true);
+        var created = await CreateWorkerAsync(fixture);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        using var settings = new WorkerSettingsStore(Path.Combine(fixture.DirectoryPath, "worker-settings.json"));
+        var options = new WorkerConnectionOptions
+        {
+            ApiBaseUrl = fixture.Address.AbsoluteUri,
+            ControlHost = "127.0.0.1",
+            ControlPort = certificate.ControlPort,
+            WorkerId = created.Id,
+            Secret = created.Secret,
+            ServerCertificateSha256 = certificate.Sha256
+        };
+        await settings.SaveAsync(new() { Worker = options, Configuration = Configuration(fixture) }, timeout.Token);
+        WorkerWelcome welcome;
+        await using (var connection = await WorkerControlClient.ConnectAsync(options, timeout.Token))
+        {
+            welcome = await connection.ExchangeAsync<WorkerHello, WorkerWelcome>("Hello", "Welcome", new()
+            {
+                WorkerId = options.WorkerId, Secret = options.Secret
+            }, timeout.Token);
+        }
+        var update = WorkerSettingsSynchronization.CreateUpdate(settings.Current, welcome);
+        Assert.NotNull(update);
+        await using (var connection = await WorkerControlClient.ConnectAsync(options, timeout.Token))
+        {
+            welcome = await connection.ExchangeAsync<WorkerHello, WorkerWelcome>("Hello", "Welcome", update, timeout.Token);
+        }
+        await settings.SaveRemoteConfigurationAsync(welcome.Configuration, welcome.ConfigurationRevision, timeout.Token);
+        Assert.Equal(2, settings.Current.ConfigurationRevision);
+        using var runtimeCancellation = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+        var running = new WorkerRuntime(options, settings).RunAsync(runtimeCancellation.Token);
+        try
+        {
+            foreach (var revision in new[] { 3, 4 })
+            {
+                using var edited = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/transcoding/workers/" + created.Id, new
+                {
+                    name = "同步设置回归 Worker", enabled = true,
+                    configuration = welcome.Configuration with { MaxConcurrentEncodes = revision + 1, GpuWaitSeconds = revision * 4 },
+                    expectedRevision = revision - 1
+                });
+                Assert.Equal(HttpStatusCode.OK, edited.StatusCode);
+                while (true)
+                {
+                    var saved = JsonSerializer.Deserialize<WorkerSettings>(await File.ReadAllTextAsync(settings.Path, timeout.Token))!;
+                    if (saved.ConfigurationRevision == revision)
+                    {
+                        Assert.Equal(revision + 1, saved.Configuration.MaxConcurrentEncodes);
+                        Assert.Equal(revision * 4, saved.Configuration.GpuWaitSeconds);
+                        Assert.Equal(created.Id, saved.Worker.WorkerId);
+                        Assert.Equal(created.Secret, saved.Worker.Secret);
+                        break;
+                    }
+                    await Task.Delay(50, timeout.Token);
+                }
+            }
+        }
+        finally
+        {
+            await runtimeCancellation.CancelAsync();
+            try
+            {
+                await running;
+            }
+            catch (OperationCanceledException) when (runtimeCancellation.IsCancellationRequested)
+            {
+            }
+        }
+    }
+
     /// <summary>Worker 使用独立凭据和配置版本，密钥轮换立即撤销已建立连接。</summary>
     [MongoHttpFact]
     public async Task TlsControlUsesVersionedConfigurationAndRevocableCredentials()

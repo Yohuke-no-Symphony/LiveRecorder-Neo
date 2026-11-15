@@ -106,7 +106,7 @@ Worker 以独立进程运行，通过 TCP＋TLS 控制通道取得任务，通�
 
 证书需要私钥，且主机名应与 Worker 连接配置一致；PFX 密码可通过 `TranscodingControl__CertificatePassword` 环境变量提供。控制端口需要 TCP 直连或四层代理；Web HTTPS 反代继续使用原站点端口。HTTPS 反代需发送 `X-Forwarded-Proto`，主站通过 `KnownProxies` 配置信任实际代理，Worker 文件接口拒绝未识别为 HTTPS 的请求。
 
-点击 Worker 卡片右上角加号创建节点，保存一次性密钥，将主机地址、Worker ID 与密钥写入节点的 `appsettings.json`。首次交互启动进入终端配置向导；之后运行参数由主站统一保存并下发，也可在节点使用 `--configure` 按版本修改。后台填写的临时目录、FFmpeg 与 ffprobe 路径属于 Worker 所在机器。详细启动、GPU 探测、CPU 补位策略和五平台发布方法见 [Worker 说明](Yohuke.LiveRecorder.Transcoding.Worker/README.md)。
+点击 Worker 卡片右上角加号创建节点，保存一次性密钥。节点首次交互启动或运行 `--bind` 时，可在终端填写主机地址、Worker ID 与 Secret；密钥隐藏输入。Worker 的连接信息与全部运行参数统一保存到其可执行文件旁的 `settings.json`，也可用 `--config` 指定文件。`--configure` 可在终端修改完整配置，主站后台修改的运行参数也会同步到该文件；双方修改使用版本检查防止覆盖。后台填写的临时目录、FFmpeg 与 ffprobe 路径属于 Worker 所在机器。详细启动、GPU 探测、CPU 补位策略和五平台发布方法见 [Worker 说明](Yohuke.LiveRecorder.Transcoding.Worker/README.md)。
 
 成品集中存放在录像目录的 `.derived/`，按物理文件、源版本和编码配方共享，磁盘页单独统计。逻辑归组、拆分复用同一成品；修复替换原片会撤销旧任务，并保留需要重转的档位意图。删除片段或场次时同步停止对应转码和隐藏成品；回收站还原可重新使用成品，仍被其他场次引用的文件继续保留。最后一份原片引用从回收站清除后，派生文件也会清除。
 

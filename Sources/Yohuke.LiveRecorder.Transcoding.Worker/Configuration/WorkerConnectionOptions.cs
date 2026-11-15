@@ -20,9 +20,9 @@ internal sealed record WorkerConnectionOptions
             throw new InvalidDataException("Worker.ApiBaseUrl 必须是没有凭据或查询参数的 HTTPS 主站地址");
         }
         if (string.IsNullOrWhiteSpace(ControlHost) || ControlPort is < 1 or > 65535
-            || string.IsNullOrWhiteSpace(WorkerId) || string.IsNullOrWhiteSpace(Secret))
+            || string.IsNullOrWhiteSpace(WorkerId) || string.IsNullOrWhiteSpace(Secret) || Secret.Length > 256)
         {
-            throw new InvalidDataException("请在 appsettings.json 填写 Worker 的主站地址、控制端口、身份与密钥");
+            throw new InvalidDataException("请运行 --bind 配置主站地址、控制端口、Worker ID 和 Secret，或修改 settings.json；Secret 不能超过 256 个字符");
         }
         foreach (var pin in new[] { ServerCertificateSha256, ControlCertificateSha256, ApiCertificateSha256 })
         {

@@ -7,8 +7,9 @@
     <PackageReference Include="Spectre.Console" Version="0.57.2" />
     <ProjectReference Include="../Yohuke.LiveRecorder.Transcoding.Contracts/Yohuke.LiveRecorder.Transcoding.Contracts.csproj" />
     <InternalsVisibleTo Include="Yohuke.LiveRecorder.Transcoding.Worker.Tests" />
+    <InternalsVisibleTo Include="Yohuke.LiveRecorder.Http.Tests" />
   </ItemGroup>
   <ItemGroup>
-    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Remove="settings.json;settings.json.lock;settings.json.*.tmp" />
   </ItemGroup>
 </Project>

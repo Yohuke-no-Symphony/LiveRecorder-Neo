@@ -89,3 +89,6 @@ x86/
 
 # Publish output
 publish/
+
+# Worker local binding credentials and settings
+/Sources/Yohuke.LiveRecorder.Transcoding.Worker/settings.json*

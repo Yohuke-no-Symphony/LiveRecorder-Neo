@@ -14,7 +14,7 @@ internal static class Program
     {
         if (args.Contains("--help", StringComparer.Ordinal) || args.Contains("-h", StringComparer.Ordinal))
         {
-            Console.WriteLine("转码 Worker：--config <appsettings.json> [--configure | --check]\n--configure：在终端修改主站保存的运行配置\n--check：验证主站配置和本机编码能力后退出\n不带动作参数：连接主站并持续处理任务，Ctrl+C 安全停止");
+            Console.WriteLine("转码 Worker：[--config <settings.json>] [--bind | --configure | --check]\n--bind：在终端配置主站地址、Worker ID 和 Secret，保存后退出\n--configure：配置连接信息和运行参数，保存并同步主站后退出\n--check：同步设置、验证主站配置和本机编码能力后退出\n默认使用可执行文件旁的 settings.json；首次启动进入终端绑定向导\n不带动作参数：连接主站并持续处理任务，Ctrl+C 安全停止");
             return 0;
         }
         using var cancellation = new CancellationTokenSource();
@@ -30,7 +30,8 @@ internal static class Program
         };
         try
         {
-            var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+            var path = Path.Combine(AppContext.BaseDirectory, "settings.json");
+            var bind = false;
             var configure = false;
             var check = false;
             for (var index = 0; index < args.Length; index++)
@@ -43,6 +44,9 @@ internal static class Program
                     case "--configure":
                         configure = true;
                         break;
+                    case "--bind":
+                        bind = true;
+                        break;
                     case "--check":
                         check = true;
                         break;
@@ -50,9 +54,25 @@ internal static class Program
                         throw new ArgumentException("无法识别的启动参数：" + args[index]);
                 }
             }
-            var settings = JsonSerializer.Deserialize<WorkerAppSettings>(await File.ReadAllTextAsync(path, cancellation.Token),
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? throw new InvalidDataException("启动配置为空");
-            var options = settings.Worker;
+            if (bind && (configure || check))
+            {
+                throw new ArgumentException("--bind 请单独使用；完整配置使用 --configure");
+            }
+            using var settings = new WorkerSettingsStore(path);
+            await settings.LoadAsync(cancellation.Token);
+            if (bind || configure || string.IsNullOrWhiteSpace(settings.Current.Worker.WorkerId)
+                || string.IsNullOrWhiteSpace(settings.Current.Worker.Secret))
+            {
+                var configured = WorkerSetup.ConfigureConnection(settings.Current.Worker);
+                configured.Validate();
+                await settings.SaveAsync(settings.Current with { Worker = configured }, cancellation.Token);
+                Console.WriteLine("Worker 绑定设置已保存：" + settings.Path);
+                if (bind)
+                {
+                    return 0;
+                }
+            }
+            var options = settings.Current.Worker;
             options.Validate();
             WorkerWelcome welcome;
             await using (var connection = await WorkerControlClient.ConnectAsync(options, cancellation.Token))
@@ -63,23 +83,26 @@ internal static class Program
                     Secret = options.Secret
                 }, cancellation.Token);
             }
-            if (configure || string.IsNullOrWhiteSpace(welcome.Configuration.TempDirectory))
+            if (configure || string.IsNullOrWhiteSpace(welcome.Configuration.TempDirectory)
+                && settings.Current.Configuration == new WorkerConfiguration())
             {
                 var configured = WorkerSetup.Configure(welcome.Configuration);
                 WorkerSetup.Validate(configured);
+                var draft = WorkerSettingsSynchronization.Accept(settings.Current, welcome.Configuration, welcome.ConfigurationRevision)
+                    with { Configuration = configured };
+                await settings.SaveAsync(draft, cancellation.Token);
+            }
+            var update = WorkerSettingsSynchronization.CreateUpdate(settings.Current, welcome);
+            if (update is not null)
+            {
                 await using var connection = await WorkerControlClient.ConnectAsync(options, cancellation.Token);
-                welcome = await connection.ExchangeAsync<WorkerHello, WorkerWelcome>("Hello", "Welcome", new()
-                {
-                    WorkerId = options.WorkerId,
-                    Secret = options.Secret,
-                    InitialConfiguration = configured,
-                    ExpectedConfigurationRevision = welcome.ConfigurationRevision
-                }, cancellation.Token);
-                Console.WriteLine("Worker 运行配置已保存到主站。");
-                if (configure && !check)
-                {
-                    return 0;
-                }
+                welcome = await connection.ExchangeAsync<WorkerHello, WorkerWelcome>("Hello", "Welcome", update, cancellation.Token);
+            }
+            await settings.SaveRemoteConfigurationAsync(welcome.Configuration, welcome.ConfigurationRevision, cancellation.Token);
+            if (configure && !check)
+            {
+                Console.WriteLine("Worker 完整设置已保存并同步主站：" + settings.Path);
+                return 0;
             }
             if (check)
             {
@@ -88,7 +111,7 @@ internal static class Program
                 Console.WriteLine(JsonSerializer.Serialize(capabilities, new JsonSerializerOptions(WorkerProtocol.JsonOptions) { WriteIndented = true }));
                 return capabilities.Encoders.Any(encoder => encoder.Available) ? 0 : 1;
             }
-            await new WorkerRuntime(options).RunAsync(cancellation.Token);
+            await new WorkerRuntime(options, settings).RunAsync(cancellation.Token);
             return 0;
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)

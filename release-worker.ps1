@@ -50,4 +50,5 @@ foreach ($workerRuntime in $workerRuntimes)
 
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'LICENSE') -Destination $workerOutputDirectory
     Copy-Item -LiteralPath (Join-Path $workerProjectDirectory 'README.md') -Destination $workerOutputDirectory
+    Copy-Item -LiteralPath (Join-Path $workerProjectDirectory 'settings.example.json') -Destination $workerOutputDirectory
 }

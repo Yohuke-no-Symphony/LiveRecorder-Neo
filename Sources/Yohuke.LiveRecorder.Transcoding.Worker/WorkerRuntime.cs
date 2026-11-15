@@ -16,6 +16,7 @@ namespace Yohuke.LiveRecorder.Transcoding.Worker;
 internal sealed class WorkerRuntime
 {
     private readonly WorkerConnectionOptions options;
+    private readonly WorkerSettingsStore settings;
     private readonly WorkerProcessRunner processes = new();
     private readonly CpuUsageMonitor cpu = new();
     private readonly EncodingAdmission admission = new();
@@ -25,9 +26,10 @@ internal sealed class WorkerRuntime
     private readonly WorkerFileTransfer transfers;
     private readonly MediaInspector inspector;
 
-    internal WorkerRuntime(WorkerConnectionOptions options)
+    internal WorkerRuntime(WorkerConnectionOptions options, WorkerSettingsStore settings)
     {
         this.options = options;
+        this.settings = settings;
         workspace = new(options.WorkerId);
         transfers = new(options);
         inspector = new(processes);
@@ -53,6 +55,7 @@ internal sealed class WorkerRuntime
                         Secret = options.Secret,
                         Capabilities = configurations.Current.Capabilities
                     }, lifetime.Token);
+                    await settings.SaveRemoteConfigurationAsync(welcome.Configuration, welcome.ConfigurationRevision, lifetime.Token);
                     configurations.Request(welcome.Configuration, welcome.ConfigurationRevision, lifetime.Token);
                     reconnectDelay = 1;
                     Log("已连接主站，配置版本 " + welcome.ConfigurationRevision);
@@ -68,6 +71,7 @@ internal sealed class WorkerRuntime
                             Telemetry = Telemetry(current.Configuration),
                             Jobs = jobs.Values.Select(job => job.Snapshot()).ToList()
                         }, lifetime.Token);
+                        await settings.SaveRemoteConfigurationAsync(state.Configuration, state.ConfigurationRevision, lifetime.Token);
                         configurations.Request(state.Configuration, state.ConfigurationRevision, lifetime.Token);
                         foreach (var lease in state.Leases)
                         {
