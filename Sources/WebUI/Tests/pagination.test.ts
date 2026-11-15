@@ -117,6 +117,31 @@ describe('录播服务端分页', () =>
     expect(state.sessions.value).toHaveLength(49)
   })
 
+  it.each([1, 50])('取消永久保留后，旧的 %i 项轮询响应不能覆盖新期限，后续轮询可继续', async count =>
+  {
+    let finishRefresh: ((value: BroadcastSession[]) => void) | undefined
+    const protectedPage = page(100, count).map(item => ({ ...item, isPermanent: true, expiresAtUtc: null }))
+    const updated = {
+      ...session(100), retentionStartedAtUtc: '2026-11-15T12:00:00Z', expiresAtUtc: '2026-11-22T12:00:00Z',
+    }
+    fetchSessions.mockResolvedValueOnce(protectedPage)
+      .mockReturnValueOnce(new Promise<BroadcastSession[]>(resolve => { finishRefresh = resolve }))
+      .mockResolvedValueOnce([{ ...updated, title: '更新后的标题' }])
+    const state = start()
+    await vi.waitFor(() => expect(state.loading.value).toBe(false))
+    const refreshing = state.refresh()
+
+    state.updateSessionRetention(updated)
+    finishRefresh?.(protectedPage)
+    await refreshing
+
+    expect(state.sessions.value[0]).toMatchObject({
+      isPermanent: false, retentionStartedAtUtc: updated.retentionStartedAtUtc, expiresAtUtc: updated.expiresAtUtc,
+    })
+    await state.refresh()
+    expect(state.sessions.value[0]?.title).toBe('更新后的标题')
+  })
+
   it('删除当前分页游标项不丢失下一页位置，重新加载可显示恢复的录播', async () =>
   {
     fetchSessions.mockResolvedValueOnce(page(100)).mockResolvedValueOnce(page(50, 1)).mockResolvedValueOnce(page(100))

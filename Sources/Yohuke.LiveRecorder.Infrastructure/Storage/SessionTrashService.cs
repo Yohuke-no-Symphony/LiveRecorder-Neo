@@ -25,7 +25,7 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
         await TrashCoreAsync(id, ownerId, false, cancellationToken);
     }
 
-    /// <summary>更新正常场次的永久保留标记，并同步保存可重建的场次清单。</summary>
+    /// <summary>更新正常场次的永久保留标记，取消时重新计时，并同步保存可重建的场次清单。</summary>
     public async Task<BroadcastSession> SetPermanentAsync(string id, bool isPermanent, CancellationToken cancellationToken = default)
     {
         await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
@@ -41,13 +41,15 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
 
         var segments = await context.Collection<RecordingSegment>("segments").Find(x => x.SessionId == id)
             .ToListAsync(cancellationToken);
-        await SessionManifestFiles.SetPermanentAsync(
+        var persisted = await SessionManifestFiles.SetPermanentAsync(
             new() { Session = session, Segments = segments }, ResolveDirectory(session.DirectoryPath),
             isPermanent, cancellationToken);
         await context.Collection<BroadcastSession>("sessions").UpdateOneAsync(x => x.Id == id,
-            Builders<BroadcastSession>.Update.Set(x => x.IsPermanent, isPermanent),
+            Builders<BroadcastSession>.Update.Set(x => x.IsPermanent, persisted.IsPermanent)
+                .Set(x => x.RetentionStartedAtUtc, persisted.RetentionStartedAtUtc),
             cancellationToken: cancellationToken);
-        session.IsPermanent = isPermanent;
+        session.IsPermanent = persisted.IsPermanent;
+        session.RetentionStartedAtUtc = persisted.RetentionStartedAtUtc;
         return session;
     }
 

@@ -52,14 +52,19 @@ internal static class SessionManifestFiles
         return manifest.Session;
     }
 
-    internal static async Task SetPermanentAsync(SessionManifest fallback, string directory, bool isPermanent,
+    internal static async Task<BroadcastSession> SetPermanentAsync(SessionManifest fallback, string directory, bool isPermanent,
         CancellationToken cancellationToken)
     {
         var path = Path.Combine(directory, "场次.json");
         await using var fileLock = await AcquireAsync(path, cancellationToken);
         var manifest = File.Exists(path) ? await ReadCoreAsync(path, cancellationToken) : fallback;
+        if (manifest.Session.IsPermanent && !isPermanent)
+        {
+            manifest.Session.RetentionStartedAtUtc = DateTime.UtcNow;
+        }
         manifest.Session.IsPermanent = isPermanent;
         await JsonFiles.WriteAsync(path, manifest, cancellationToken);
+        return manifest.Session;
     }
 
     internal static async Task<BroadcastSession?> ReadSessionAsync(string path,

@@ -360,7 +360,7 @@ public sealed class SessionDeletionHttpTests
         }
     }
 
-    /// <summary>保护接口立即返回最新期限，取消保护保持原期限，恢复后列表与详情采用新的保留起点。</summary>
+    /// <summary>取消保护和恢复均返回新的保留期限，并同步到列表与详情。</summary>
     [MongoHttpFact]
     public async Task ProtectionResponsesAndRestorationKeepProjectedExpirationCurrent()
     {
@@ -385,14 +385,19 @@ public sealed class SessionDeletionHttpTests
         AssertProjectedExpiration(retainedSession, null);
         await AssertSessionExpirationAsync(fixture.Admin, manifest.Session.Id, null);
 
+        var beforeCancellation = DateTime.UtcNow;
         using var unprotected = await fixture.Admin.SendAsync(HttpMethod.Put,
             "/api/sessions/" + manifest.Session.Id + "/retention", new { isPermanent = false });
         Assert.Equal(HttpStatusCode.OK, unprotected.StatusCode);
         var unprotectedSession = await unprotected.Content.ReadFromJsonAsync<JsonObject>();
         Assert.Equal(manifest.Session.Id, unprotectedSession!["id"]!.GetValue<string>());
         Assert.False(unprotectedSession["isPermanent"]!.GetValue<bool>());
-        AssertProjectedExpiration(unprotectedSession, originalExpiration);
-        await AssertSessionExpirationAsync(fixture.Admin, manifest.Session.Id, originalExpiration);
+        var cancelledAt = unprotectedSession["retentionStartedAtUtc"]!.GetValue<DateTime>();
+        Assert.InRange(cancelledAt, beforeCancellation, DateTime.UtcNow);
+        var cancellationExpiration = cancelledAt.AddDays(7);
+        Assert.True(cancellationExpiration > originalExpiration);
+        AssertProjectedExpiration(unprotectedSession, cancellationExpiration);
+        await AssertSessionExpirationAsync(fixture.Admin, manifest.Session.Id, cancellationExpiration);
 
         using var deleted = await fixture.Admin.SendAsync(HttpMethod.Delete, "/api/sessions/" + manifest.Session.Id);
         Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);

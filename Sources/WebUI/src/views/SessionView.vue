@@ -1,5 +1,5 @@
 <template>
-  <v-alert v-if="error || retentionError" type="error" class="mb-6">{{ error || retentionError }}<template v-if="error" #append><v-btn variant="text" size="small" :disabled="busy" @click="refreshSession">{{ t('views.common.retry') }}</v-btn></template></v-alert>
+  <v-alert v-if="error || (retentionError && !cancelPermanentOpen)" type="error" class="mb-6">{{ error || retentionError }}<template v-if="error" #append><v-btn variant="text" size="small" :disabled="busy" @click="refreshSession">{{ t('views.common.retry') }}</v-btn></template></v-alert>
   <v-progress-linear v-if="!detail && busy" indeterminate color="primary" />
   <template v-if="detail">
     <div class="session-heading mb-6"><router-link :to="`/streamers/${detail.session.streamerId}`" class="text-body-2 muted"><v-icon icon="mdi-chevron-left" size="18" />{{ streamer?.name || t('views.common.streamerRecordings') }}</router-link><StatusChip :status="detail.session.state" /></div>
@@ -120,6 +120,7 @@
     <SessionBookmarkDialog v-model="bookmarkOpen" :bookmark="editingBookmark" :offset-ms="bookmarkOffsetMs" :duration-ms="detail.durationMs" :busy="bookmarkSaving" :error="bookmarksError" @save="saveBookmark" />
     <ConfirmDialog :model-value="!!deletingBookmark" :title="t('components.bookmarks.delete')" :message="t('components.bookmarks.deleteConfirm', { title: deletingBookmark?.title ?? '' })" :action-label="t('components.bookmarks.delete')" :busy="bookmarkSaving" :error="bookmarksError" danger @update:model-value="!$event && (deletingBookmark = undefined)" @confirm="deleteBookmark" />
     <ConfirmDialog v-if="auth.canManageRecordings" :model-value="!!deletingSegment" :title="t('views.session.deleteSegment')" :message="t('views.session.deleteSegmentConfirm', { number: deletingSegment?.number ?? '', start: formatDuration(deletingSegment?.segment.startOffsetMs ?? 0, true), duration: formatDuration(deletingSegment?.segment.durationMs ?? 0) })" :action-label="t('views.common.moveToTrash')" :busy="segmentDeleting" :error="segmentDeleteError" danger @update:model-value="!$event && !segmentDeleting && (deletingSegment = undefined)" @confirm="deleteSegment" />
+    <ConfirmDialog v-if="auth.canManageRecordings" :model-value="cancelPermanentOpen" :title="t('shell.retention.cancelPermanent')" :message="t('shell.retention.cancelPermanentConfirm', { title: detail.session.title || t('components.library.unnamedSession') })" :action-label="t('shell.retention.cancelPermanent')" danger :busy="retentionBusy" :error="retentionError" @update:model-value="!$event && !retentionBusy && (cancelPermanentOpen = false)" @confirm="savePermanent(false)" />
     <SessionConfigurationDialog v-if="auth.canConfigureRecordings" v-model="configurationOpen" :session-id="id" @saved="onConfigurationSaved" />
     <SessionGroupDialog v-if="groupOpen && auth.canManageRecordings && isFinished" v-model="groupOpen" :session="detail.session" @grouped="router.replace(`/sessions/${$event.id}`)" />
     <SessionSplitDialog v-if="splitOpen && auth.canManageRecordings && isFinished" v-model="splitOpen" :session-id="id" :segments="detail.segments" @split="router.replace(`/streamers/${detail.session.streamerId}`)" />
@@ -182,6 +183,7 @@ const clipOpen = ref(false)
 const downloadOpen = ref(false)
 const transcodeOpen = ref(false)
 const configurationOpen = ref(false)
+const cancelPermanentOpen = ref(false)
 const clipSelection = ref<ClipSelection>({})
 const clipSelectionInvalid = computed(() =>
 {
@@ -221,7 +223,7 @@ const segmentDeletionUnavailable = computed(() =>
 const loadWindow = (value: number, options?: PlaybackLoadOptions) => MediaAPI.playback(id, value, options)
 let detailRequest = 0
 let disposed = false
-usePolling(async () => { if (!segmentDeleting.value) { await refreshSession() } }, 10000)
+usePolling(async () => { if (!segmentDeleting.value && !retentionBusy.value) { await refreshSession() } }, 10000)
 onBeforeUnmount(() => { disposed = true; detailRequest++ })
 onMounted(async () =>
 {
@@ -286,14 +288,27 @@ async function deleteSegment(): Promise<void>
 async function setPermanent(): Promise<void>
 {
   if (!auth.canManageRecordings || !detail.value || retentionBusy.value) { return }
-  const isPermanent = !detail.value.session.isPermanent
+  retentionError.value = ''
+  if (detail.value.session.isPermanent)
+  {
+    cancelPermanentOpen.value = true
+    return
+  }
+  await savePermanent(true)
+}
+async function savePermanent(isPermanent: boolean): Promise<void>
+{
+  if (!auth.canManageRecordings || !detail.value || retentionBusy.value || (!isPermanent && !cancelPermanentOpen.value)) { return }
   await runRetention(async () =>
   {
     const updated = await MediaAPI.setSessionPermanent(id, isPermanent)
+    if (disposed) { return }
+    detailRequest++
     if (detail.value)
     {
-      detail.value = { ...detail.value, session: { ...detail.value.session, isPermanent: updated.isPermanent, expiresAtUtc: updated.expiresAtUtc } }
+      detail.value = { ...detail.value, session: { ...detail.value.session, isPermanent: updated.isPermanent, retentionStartedAtUtc: updated.retentionStartedAtUtc, expiresAtUtc: updated.expiresAtUtc } }
     }
+    cancelPermanentOpen.value = false
   })
 }
 function onConfigurationSaved(configuration: SessionConfiguration): void

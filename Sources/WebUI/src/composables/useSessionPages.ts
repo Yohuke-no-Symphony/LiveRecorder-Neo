@@ -16,6 +16,7 @@ export function useSessionPages(parameters: () => { streamerId?: string; search?
   const removedIds = new Set<string>()
   let cursor: string | undefined
   let generation = 0
+  let retentionRevision = 0
   let refreshing = false
 
   function merge(first: BroadcastSession[], second: BroadcastSession[]): BroadcastSession[]
@@ -92,6 +93,7 @@ export function useSessionPages(parameters: () => { streamerId?: string; search?
     if (loading.value || loadingMore.value || refreshing) { return }
     if (!sessions.value.length) { await reload(); return }
     const operation = generation
+    const retentionAtStart = retentionRevision
     const existingIds = new Set(sessions.value.map(session => session.id))
     const collected: BroadcastSession[] = []
     let before: string | undefined
@@ -101,7 +103,7 @@ export function useSessionPages(parameters: () => { streamerId?: string; search?
       while (true)
       {
         const page = await fetchPage(before)
-        if (operation !== generation) { return }
+        if (operation !== generation || retentionAtStart !== retentionRevision) { return }
         collected.push(...page)
         if (page.length < PAGE_SIZE)
         {
@@ -123,7 +125,7 @@ export function useSessionPages(parameters: () => { streamerId?: string; search?
     }
     catch (value)
     {
-      if (operation === generation) { error.value = value instanceof Error ? value.message : i18n.global.t('components.library.refreshFailed') }
+      if (operation === generation && retentionAtStart === retentionRevision) { error.value = value instanceof Error ? value.message : i18n.global.t('components.library.refreshFailed') }
     }
     finally
     {
@@ -133,8 +135,9 @@ export function useSessionPages(parameters: () => { streamerId?: string; search?
 
   function updateSessionRetention(updated: BroadcastSession): void
   {
+    retentionRevision++
     sessions.value = sessions.value.map(session => session.id === updated.id
-      ? { ...session, isPermanent: updated.isPermanent, expiresAtUtc: updated.expiresAtUtc }
+      ? { ...session, isPermanent: updated.isPermanent, retentionStartedAtUtc: updated.retentionStartedAtUtc, expiresAtUtc: updated.expiresAtUtc }
       : session)
   }
 

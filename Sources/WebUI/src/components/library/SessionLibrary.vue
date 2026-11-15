@@ -17,7 +17,7 @@
     >
       <slot name="filters" />
     </SessionLibraryToolbar>
-    <v-alert v-if="error && !confirmOpen" type="error" class="mb-4 deletion-error">{{ error }}</v-alert>
+    <v-alert v-if="error && !confirmOpen && !pendingCancellation" type="error" class="mb-4 deletion-error">{{ error }}</v-alert>
     <div v-if="sessions.length" class="media-grid">
       <SessionCard v-for="session in sessions" :key="session.id" :session="session" :streamer-name="streamerNames?.[session.streamerId]" :allow-actions="actionsAllowed" :selection-mode="selectionMode" :selected="selectedIds.includes(session.id)" :can-select="canSelect(session)" :disabled="busy" @actions="openActions(session, $event)" @toggle="toggle(session)" />
     </div>
@@ -34,6 +34,7 @@
     <TranscodeDialog v-if="auth.isAdmin" v-model="transcodeOpen" :session-ids="transcodeIds" @created="transcodeNotice = true" />
     <v-snackbar v-model="transcodeNotice">{{ t('transcoding.created') }}<template #actions><v-btn to="/jobs" color="primary">{{ t('transcoding.viewJobs') }}</v-btn></template></v-snackbar>
     <ConfirmDialog :model-value="confirmOpen" :title="t('components.library.trashTitle')" :message="t('components.library.trashConfirm', { count: formatNumber(pendingIds.length) })" :action-label="t('components.library.moveToTrash')" danger :busy="busy" :error="error" @update:model-value="setConfirmationOpen" @confirm="trash" />
+    <ConfirmDialog v-if="auth.canManageRecordings" :model-value="!!pendingCancellation" :title="t('shell.retention.cancelPermanent')" :message="t('shell.retention.cancelPermanentConfirm', { title: pendingCancellation?.title || t('components.library.unnamedSession') })" :action-label="t('shell.retention.cancelPermanent')" danger :busy="busy" :error="error" @update:model-value="!$event && !busy && (pendingCancellation = undefined)" @confirm="pendingCancellation && savePermanent(pendingCancellation.id, false)" />
     <v-snackbar v-model="noticeOpen" color="surface-variant">{{ t('components.library.trashed', { count: formatNumber(trashedCount) }) }}<template #actions><v-btn color="primary" to="/trash">{{ t('components.library.viewTrash') }}</v-btn></template></v-snackbar>
   </div>
 </template>
@@ -66,6 +67,7 @@ const menuOpen = ref(false)
 const menuPosition = ref<[number, number]>([0, 0])
 const menuId = ref('')
 const confirmOpen = ref(false)
+const pendingCancellation = ref<BroadcastSession>()
 const pendingIds = ref<string[]>([])
 const noticeOpen = ref(false)
 const trashedCount = ref(0)
@@ -141,11 +143,23 @@ async function setPermanent(): Promise<void>
   const session = menuSession.value
   if (!auth.canManageRecordings || !session || busy.value) { return }
   menuOpen.value = false
-  const isPermanent = !session.isPermanent
+  error.value = ''
+  if (session.isPermanent)
+  {
+    pendingCancellation.value = session
+    return
+  }
+  await savePermanent(session.id, true)
+}
+
+async function savePermanent(id: string, isPermanent: boolean): Promise<void>
+{
+  if (!auth.canManageRecordings || busy.value || (!isPermanent && pendingCancellation.value?.id !== id)) { return }
   await run(async () =>
   {
-    const updated = await MediaAPI.setSessionPermanent(session.id, isPermanent)
+    const updated = await MediaAPI.setSessionPermanent(id, isPermanent)
     emit('retentionChanged', updated)
+    pendingCancellation.value = undefined
   })
 }
 
@@ -260,6 +274,7 @@ watch(() => auth.canManageRecordings, allowed =>
   if (allowed) { return }
   menuOpen.value = false
   confirmOpen.value = false
+  pendingCancellation.value = undefined
   selectionMode.value = false
   selectedIds.value = []
   pendingIds.value = []

@@ -300,17 +300,45 @@ describe('录播库操作', () =>
     await wrapper.get('a').trigger('contextmenu')
     setSessionPermanent.mockRejectedValueOnce(new Error('无法保存'))
     await button(wrapper, '取消永久保留').trigger('click')
+    expect(setSessionPermanent).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('[role="dialog"]').text()).toContain('重新计算')
+    await button(wrapper, '取消永久保留').trigger('click')
     await flushPromises()
     expect(wrapper.props('sessions')[0]?.isPermanent).toBe(true)
     expect(wrapper.get('[role="alert"]').text()).toContain('无法保存')
     expect(wrapper.find('time').exists()).toBe(false)
     const updated = { ...session('a'), expiresAtUtc: '2026-12-01T01:00:00Z' }
     setSessionPermanent.mockResolvedValueOnce(updated)
-    await wrapper.get('a').trigger('contextmenu')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
     await button(wrapper, '取消永久保留').trigger('click')
     await flushPromises()
     expect(wrapper.props('sessions')[0]?.isPermanent).toBe(false)
     expect(wrapper.get('time').attributes('datetime')).toBe(updated.expiresAtUtc)
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('关闭取消永久保留弹窗时不提交，请求期间只确认一次', async () =>
+  {
+    const { wrapper } = await start([{ ...session('a'), isPermanent: true, expiresAtUtc: null }])
+    await wrapper.get('a').trigger('contextmenu')
+    await button(wrapper, '取消永久保留').trigger('click')
+    await button(wrapper, '取消').trigger('click')
+    expect(setSessionPermanent).not.toHaveBeenCalled()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    await wrapper.get('a').trigger('contextmenu')
+    await button(wrapper, '取消永久保留').trigger('click')
+    let finish: ((updated: BroadcastSession) => void) | undefined
+    setSessionPermanent.mockReturnValueOnce(new Promise<BroadcastSession>(resolve => { finish = resolve }))
+    const confirm = wrapper.findAllComponents(ConfirmDialog).find(dialog => dialog.props('modelValue'))!
+    confirm.vm.$emit('confirm')
+    confirm.vm.$emit('confirm')
+    confirm.vm.$emit('update:modelValue', false)
+    await nextTick()
+    expect(setSessionPermanent).toHaveBeenCalledExactlyOnceWith('a', false)
+    expect(confirm.props('modelValue')).toBe(true)
+    finish?.(session('a'))
+    await flushPromises()
+    expect(confirm.props('modelValue')).toBe(false)
   })
 
   it('相同卡片组件在三语下提供明确的操作名称', async () =>

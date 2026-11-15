@@ -106,30 +106,83 @@ public sealed class SessionRetentionTests
             .ToListAsync());
     }
 
-    /// <summary>取消永久保留后再次受自动期限约束，永久保留录像仍可手动删除。</summary>
-    [Fact]
-    public async Task PermanentFlagSkipsOnlyAutomaticDeletionAndCanBeRemoved()
+    /// <summary>取消永久保留后获得完整的新周期，永久保留录像仍可手动删除。</summary>
+    [Theory]
+    [InlineData(30, 7)]
+    [InlineData(1, 7)]
+    [InlineData(30, 0)]
+    public async Task PermanentFlagSkipsOnlyAutomaticDeletionAndCanBeRemoved(int daysSinceCompletion, int retentionDays)
     {
         await using var fixture = await JobTestContext.CreateAsync();
-        var (session, _) = await fixture.SeedSessionAsync();
-        fixture.Settings.Settings.RecordingRetentionDays = 7;
-        await fixture.Mongo.Collection<BroadcastSession>("sessions").UpdateOneAsync(x => x.Id == session.Id,
-            Builders<BroadcastSession>.Update.Set(x => x.EndedAtUtc, DateTime.UtcNow.AddDays(-30)));
+        var (session, segments) = await fixture.SeedSessionAsync();
+        fixture.Settings.Settings.RecordingRetentionDays = retentionDays;
+        session.EndedAtUtc = DateTime.UtcNow.AddDays(-daysSinceCompletion);
+        session.RetentionStartedAtUtc = session.EndedAtUtc;
+        await fixture.Mongo.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == session.Id, session);
+        await JsonFiles.WriteAsync(Path.Combine(fixture.Root, session.DirectoryPath, "场次.json"),
+            new SessionManifest { Session = session, Segments = segments });
         var service = new SessionTrashService(fixture.Mongo, fixture.Settings, fixture.Paths);
         await service.SetPermanentAsync(session.Id, true);
         await service.MaintainAsync();
         Assert.False((await SessionAsync(fixture, session.Id)).IsTrashed);
         Assert.True((await ReadManifestAsync(fixture, session)).Session.IsPermanent);
+        var beforeCancellation = DateTime.UtcNow;
 
-        await service.SetPermanentAsync(session.Id, false);
+        var cancelled = await service.SetPermanentAsync(session.Id, false);
         await service.MaintainAsync();
-        Assert.True((await SessionAsync(fixture, session.Id)).IsTrashed);
-        var entry = await fixture.Mongo.Collection<TrashEntry>("trash").Find(x => x.EntityId == session.Id).SingleAsync();
-        await service.RestoreAsync(entry);
+
+        Assert.False(cancelled.IsPermanent);
+        Assert.NotNull(cancelled.RetentionStartedAtUtc);
+        Assert.InRange(cancelled.RetentionStartedAtUtc.Value, beforeCancellation, DateTime.UtcNow);
+        var current = await SessionAsync(fixture, session.Id);
+        Assert.False(current.IsTrashed);
+        Assert.False(current.IsPermanent);
+        Assert.InRange(current.RetentionStartedAtUtc!.Value,
+            cancelled.RetentionStartedAtUtc.Value.AddMilliseconds(-1), cancelled.RetentionStartedAtUtc.Value);
+        var manifest = await ReadManifestAsync(fixture, session);
+        Assert.False(manifest.Session.IsPermanent);
+        Assert.Equal(cancelled.RetentionStartedAtUtc, manifest.Session.RetentionStartedAtUtc);
+        Assert.Empty(await fixture.Mongo.Collection<TrashEntry>("trash").Find(x => x.EntityId == session.Id).ToListAsync());
+        Assert.True(File.Exists(Path.Combine(fixture.Root, session.DirectoryPath, segments[0].RelativePath)));
+
+        fixture.Settings.Settings.RecordingRetentionDays = 7;
+        await service.MaintainAsync();
+        Assert.False((await SessionAsync(fixture, session.Id)).IsTrashed);
+        Assert.Equal(cancelled.RetentionStartedAtUtc.Value.AddDays(7),
+            SessionRetentionPolicy.GetExpiresAtUtc(cancelled, fixture.Settings.Settings));
         await service.SetPermanentAsync(session.Id, true);
         await service.TrashAsync(session.Id, "member");
         Assert.True((await SessionAsync(fixture, session.Id)).IsTrashed);
         Assert.True((await SessionAsync(fixture, session.Id)).IsPermanent);
+    }
+
+    /// <summary>重复取消沿用首次持久化的起点，并能修复尚未完成的数据库提交。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RepeatedCancellationPreservesTheDurableRetentionStart(bool databaseCommitInterrupted)
+    {
+        await using var fixture = await JobTestContext.CreateAsync();
+        var (session, _) = await fixture.SeedSessionAsync();
+        var service = new SessionTrashService(fixture.Mongo, fixture.Settings, fixture.Paths);
+        await service.SetPermanentAsync(session.Id, true);
+        var cancelled = await service.SetPermanentAsync(session.Id, false);
+        Assert.NotNull(cancelled.RetentionStartedAtUtc);
+        if (databaseCommitInterrupted)
+        {
+            await fixture.Mongo.Collection<BroadcastSession>("sessions").UpdateOneAsync(x => x.Id == session.Id,
+                Builders<BroadcastSession>.Update.Set(x => x.IsPermanent, true).Set(x => x.RetentionStartedAtUtc, null));
+        }
+
+        var repeated = await service.SetPermanentAsync(session.Id, false);
+
+        Assert.False(repeated.IsPermanent);
+        Assert.Equal(cancelled.RetentionStartedAtUtc, repeated.RetentionStartedAtUtc);
+        var current = await SessionAsync(fixture, session.Id);
+        Assert.False(current.IsPermanent);
+        Assert.InRange(current.RetentionStartedAtUtc!.Value,
+            cancelled.RetentionStartedAtUtc.Value.AddMilliseconds(-1), cancelled.RetentionStartedAtUtc.Value);
+        Assert.Equal(cancelled.RetentionStartedAtUtc, (await ReadManifestAsync(fixture, session)).Session.RetentionStartedAtUtc);
     }
 
     /// <summary>录制中的旧内存快照不能覆盖随后保存的保留或取消保留标记。</summary>
@@ -142,7 +195,8 @@ public sealed class SessionRetentionTests
         var (stale, segments) = await fixture.SeedSessionAsync();
         stale.IsPermanent = !isPermanent;
         var service = new SessionTrashService(fixture.Mongo, fixture.Settings, fixture.Paths);
-        await service.SetPermanentAsync(stale.Id, isPermanent);
+        await service.SetPermanentAsync(stale.Id, !isPermanent);
+        var updated = await service.SetPermanentAsync(stale.Id, isPermanent);
 
         await using (var sink = new RecordingProgressSink(stale, segments, "attempt",
                          Path.Combine(fixture.Root, stale.DirectoryPath), fixture.Mongo, fixture.Publisher,
@@ -159,6 +213,9 @@ public sealed class SessionRetentionTests
 
         Assert.Equal(isPermanent, (await ReadManifestAsync(fixture, stale)).Session.IsPermanent);
         Assert.Equal(isPermanent, (await SessionAsync(fixture, stale.Id)).IsPermanent);
+        Assert.Equal(updated.RetentionStartedAtUtc, (await ReadManifestAsync(fixture, stale)).Session.RetentionStartedAtUtc);
+        Assert.Equal(updated.RetentionStartedAtUtc?.ToString("yyyyMMddHHmmss"),
+            (await SessionAsync(fixture, stale.Id)).RetentionStartedAtUtc?.ToString("yyyyMMddHHmmss"));
     }
 
     /// <summary>修复发布新媒体版本时保留持久化的保留或取消保留选择。</summary>
@@ -171,7 +228,7 @@ public sealed class SessionRetentionTests
         var (session, segments) = await fixture.SeedSessionAsync();
         var service = new SessionTrashService(fixture.Mongo, fixture.Settings, fixture.Paths);
         await service.SetPermanentAsync(session.Id, !isPermanent);
-        await service.SetPermanentAsync(session.Id, isPermanent);
+        var updated = await service.SetPermanentAsync(session.Id, isPermanent);
         var job = JobTestContext.CreateJob(session, segments, "Repair");
 
         var (_, execution) = await fixture.ExecuteOwnedAsync(job);
@@ -183,6 +240,9 @@ public sealed class SessionRetentionTests
         var manifest = await ReadManifestAsync(fixture, session);
         Assert.Equal(2, manifest.Session.MediaRevision);
         Assert.Equal(isPermanent, manifest.Session.IsPermanent);
+        Assert.Equal(updated.RetentionStartedAtUtc, manifest.Session.RetentionStartedAtUtc);
+        Assert.Equal(updated.RetentionStartedAtUtc?.ToString("yyyyMMddHHmmss"),
+            current.RetentionStartedAtUtc?.ToString("yyyyMMddHHmmss"));
     }
 
     /// <summary>磁盘先保存而数据库尚未提交时，维护遵循持久化保留信息并修复数据库。</summary>

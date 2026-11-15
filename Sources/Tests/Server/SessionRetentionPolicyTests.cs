@@ -103,9 +103,9 @@ public sealed class SessionRetentionPolicyTests
             SessionRetentionPolicy.IsExpired(session, settings, deadline.AddMilliseconds(millisecondsAfterDeadline)));
     }
 
-    /// <summary>取消永久保留不会重新开始计时，原已到期的录像立即恢复期限约束。</summary>
+    /// <summary>未提供新的保留起点时，策略仍按原始期限计算。</summary>
     [Fact]
-    public void RemovingProtectionRestoresTheOriginalDeadline()
+    public void RemovingProtectionWithoutUpdatingRetentionStartKeepsTheOriginalDeadline()
     {
         var session = CreateSession();
         var settings = new ServerSettings { RecordingRetentionDays = 7 };

@@ -23,6 +23,8 @@ public sealed class SessionRetentionGroupingTests
         var retainedAt = DateTime.UtcNow.AddDays(-1);
         await fixture.Mongo.Collection<BroadcastSession>("sessions").UpdateOneAsync(x => x.Id == second.Session.Id,
             Builders<BroadcastSession>.Update.Set(x => x.RetentionStartedAtUtc, retainedAt));
+        second.Session.RetentionStartedAtUtc = retainedAt;
+        await JsonFiles.WriteAsync(Path.Combine(fixture.Root, second.Session.DirectoryPath, "场次.json"), second);
         var retention = new SessionTrashService(fixture.Mongo, fixture.Settings, fixture.Paths);
         await retention.SetPermanentAsync(second.Session.Id, isPermanent);
 
