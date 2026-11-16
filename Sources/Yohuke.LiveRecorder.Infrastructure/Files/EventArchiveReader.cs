@@ -1,15 +1,23 @@
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Caching.Memory;
 using Yohuke.LiveRecorder.Domain;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Files;
 
 /// <summary>利用可重建侧索引查询已提交的事件文件快照。</summary>
-public sealed class EventArchiveReader
+public sealed class EventArchiveReader : IDisposable
 {
     private const int BUFFER_BYTES = 65536;
+    private const int SIGNATURE_BYTES = 4096;
+    private const int CACHE_LOCK_SHARDS = 16;
+    private const int MAX_CACHE_ENTRIES = 128;
+    private const long CACHE_LIMIT_BYTES = 32 * 1024 * 1024;
+    private readonly MemoryCache indexCache = new(new MemoryCacheOptions { SizeLimit = CACHE_LIMIT_BYTES });
+    private readonly SemaphoreSlim[] indexGates = Enumerable.Range(0, CACHE_LOCK_SHARDS).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
 
     /// <summary>按归档顺序分页读取时间范围，索引损坏时补建完整记录的索引。</summary>
     public Task<EventPage> ReadAsync(string directory, double fromMs, double toMs, string? kind, long? cursor, int limit, CancellationToken cancellationToken = default)
@@ -59,17 +67,42 @@ public sealed class EventArchiveReader
     internal async Task<EventArchiveSnapshot?> OpenSnapshotAsync(string directory, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var stream = OpenRead(Path.Combine(directory, "事件.jsonl"));
-        if (stream is null)
-        {
-            return null;
-        }
+        directory = Path.GetFullPath(directory);
+        var key = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? directory.ToUpperInvariant() : directory;
+        var gate = indexGates[(int)((uint)StringComparer.Ordinal.GetHashCode(key) % indexGates.Length)];
+        await gate.WaitAsync(cancellationToken);
+        FileStream? stream = null;
         try
         {
-            var snapshotLength = stream.Length;
-            var committedLength = CommittedLength(stream, snapshotLength);
+            stream = OpenRead(Path.Combine(directory, "事件.jsonl"));
+            if (stream is null)
+            {
+                indexCache.Remove(key);
+                return null;
+            }
+            var eventsVersion = EventArchiveFileVersion.Capture(stream);
+            var committedLength = CommittedLength(stream, eventsVersion.Length);
+            var prefixHash = await HashAsync(stream, 0, Math.Min(committedLength, SIGNATURE_BYTES), cancellationToken);
+            var tailHash = await HashAsync(stream, Math.Max(0, committedLength - SIGNATURE_BYTES), Math.Min(committedLength, SIGNATURE_BYTES), cancellationToken);
             var indexPath = Path.Combine(directory, "事件.index.jsonl");
-            var (blocks, needsRepair) = LoadIndex(stream, indexPath, committedLength, cancellationToken);
+            await using var index = OpenRead(indexPath);
+            var indexVersion = index is null ? (EventArchiveFileVersion?)null : EventArchiveFileVersion.Capture(index);
+            var indexHash = index is null ? "" : await HashAsync(index, 0, indexVersion!.Value.Length, cancellationToken);
+            indexCache.TryGetValue(key, out EventArchiveIndexCacheEntry? cached);
+            var unchanged = cached is not null && cached.EventsVersion == eventsVersion && cached.CommittedLength == committedLength &&
+                cached.PrefixHash == prefixHash && cached.TailHash == tailHash && cached.IndexHash == indexHash &&
+                cached.IndexVersion?.Length == indexVersion?.Length;
+            var append = !unchanged && cached is not null && await CanAppendAsync(stream, index, eventsVersion, indexVersion, cached, cancellationToken);
+            var reusable = (unchanged || append) && ValidateBlockBoundaries(stream, cached!.Blocks, committedLength, cancellationToken);
+            if (unchanged && reusable && eventsVersion == EventArchiveFileVersion.Capture(stream) &&
+                indexVersion == (index is null ? null : EventArchiveFileVersion.Capture(index)))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return new(stream, cached!.Blocks);
+            }
+            var (blocks, needsRepair) = append && reusable
+                ? (cached!.Blocks.ToList(), true)
+                : LoadIndex(stream, index, committedLength, cancellationToken);
             if (needsRepair)
             {
                 RemovePartialBlock(blocks);
@@ -92,14 +125,44 @@ public sealed class EventArchiveReader
                 {
                     blocks.Add(block);
                 }
-                TryPublishIndex(directory, indexPath, snapshotLength, blocks);
+                cancellationToken.ThrowIfCancellationRequested();
+                await TryPublishIndexAsync(directory, indexPath, eventsVersion, committedLength, prefixHash, tailHash, blocks, cancellationToken);
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            indexCache.Remove(key);
+            if (eventsVersion == EventArchiveFileVersion.Capture(stream) &&
+                indexVersion == (index is null ? null : EventArchiveFileVersion.Capture(index)))
+            {
+                var entry = new EventArchiveIndexCacheEntry(eventsVersion, committedLength, prefixHash, tailHash, indexVersion, indexHash, blocks.ToArray());
+                var size = EstimateSize(entry);
+                if (size <= CACHE_LIMIT_BYTES)
+                {
+                    indexCache.Set(key, entry, new MemoryCacheEntryOptions { Size = size });
+                }
             }
             return new(stream, blocks);
         }
         catch
         {
-            await stream.DisposeAsync();
+            if (stream is not null)
+            {
+                await stream.DisposeAsync();
+            }
             throw;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        indexCache.Dispose();
+        foreach (var gate in indexGates)
+        {
+            gate.Dispose();
         }
     }
 
@@ -146,7 +209,8 @@ public sealed class EventArchiveReader
     {
         var length = CommittedLength(stream, stream.Length);
         stream.SetLength(length);
-        var (blocks, _) = LoadIndex(stream, indexPath, length, CancellationToken.None);
+        using var savedIndex = OpenRead(indexPath);
+        var (blocks, _) = LoadIndex(stream, savedIndex, length, CancellationToken.None);
         RemovePartialBlock(blocks);
         var sequence = blocks.LastOrDefault()?.LastSequence ?? 0;
         var block = CreateBlock(blocks.LastOrDefault()?.EndByte ?? 0, sequence);
@@ -197,9 +261,8 @@ public sealed class EventArchiveReader
         }
     }
 
-    private static (List<EventIndexBlock> Blocks, bool NeedsRepair) LoadIndex(FileStream events, string indexPath, long committedLength, CancellationToken cancellationToken)
+    private static (List<EventIndexBlock> Blocks, bool NeedsRepair) LoadIndex(FileStream events, FileStream? index, long committedLength, CancellationToken cancellationToken)
     {
-        using var index = OpenRead(indexPath);
         if (index is null)
         {
             return ([], true);
@@ -255,14 +318,70 @@ public sealed class EventArchiveReader
         }
     }
 
-    private static void TryPublishIndex(string directory, string indexPath, long snapshotLength, List<EventIndexBlock> blocks)
+    private static async Task<bool> CanAppendAsync(FileStream events, FileStream? index, EventArchiveFileVersion eventsVersion,
+        EventArchiveFileVersion? indexVersion, EventArchiveIndexCacheEntry cached, CancellationToken cancellationToken)
+    {
+        if (eventsVersion.Length <= cached.EventsVersion.Length || eventsVersion.CreatedUtcTicks != cached.EventsVersion.CreatedUtcTicks ||
+            cached.PrefixHash != await HashAsync(events, 0, Math.Min(cached.CommittedLength, SIGNATURE_BYTES), cancellationToken) ||
+            cached.TailHash != await HashAsync(events, Math.Max(0, cached.CommittedLength - SIGNATURE_BYTES), Math.Min(cached.CommittedLength, SIGNATURE_BYTES), cancellationToken))
+        {
+            return false;
+        }
+        if (cached.IndexVersion is null)
+        {
+            return index is null;
+        }
+        return index is not null && indexVersion!.Value.Length >= cached.IndexVersion.Value.Length &&
+               cached.IndexHash == await HashAsync(index, 0, cached.IndexVersion.Value.Length, cancellationToken);
+    }
+
+    private static long EstimateSize(EventArchiveIndexCacheEntry entry) => Math.Max(CACHE_LIMIT_BYTES / MAX_CACHE_ENTRIES,
+        512 + entry.Blocks.Sum(block => 256L + block.Kinds.Concat(block.RedPocketKeys).Sum(value => 64L + value.Length * 2L)));
+
+    private static bool ValidateBlockBoundaries(FileStream stream, IReadOnlyList<EventIndexBlock> blocks, long committedLength, CancellationToken cancellationToken)
+    {
+        Span<byte> newline = stackalloc byte[1];
+        foreach (var block in blocks)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (block.EndByte > committedLength || RandomAccess.Read(stream.SafeFileHandle, newline, block.EndByte - 1) != 1 || newline[0] != '\n')
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static async Task<string> HashAsync(FileStream stream, long start, long length, CancellationToken cancellationToken)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var buffer = new byte[(int)Math.Min(BUFFER_BYTES, length)];
+        var position = 0L;
+        while (position < length)
+        {
+            var read = await RandomAccess.ReadAsync(stream.SafeFileHandle, buffer.AsMemory(0, (int)Math.Min(buffer.Length, length - position)), start + position, cancellationToken);
+            if (read == 0)
+            {
+                throw new EndOfStreamException("事件归档在读取期间被截断。");
+            }
+            hash.AppendData(buffer, 0, read);
+            position += read;
+        }
+        return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    private static async Task TryPublishIndexAsync(string directory, string indexPath, EventArchiveFileVersion eventsVersion,
+        long committedLength, string prefixHash, string tailHash, List<EventIndexBlock> blocks, CancellationToken cancellationToken)
     {
         try
         {
-            using var lease = AcquireLease(directory);
-            using var current = OpenRead(Path.Combine(directory, "事件.jsonl"));
-            if (current?.Length == snapshotLength)
+            await using var lease = AcquireLease(directory);
+            await using var current = OpenRead(Path.Combine(directory, "事件.jsonl"));
+            if (current is not null && EventArchiveFileVersion.Capture(current) == eventsVersion &&
+                prefixHash == await HashAsync(current, 0, Math.Min(committedLength, SIGNATURE_BYTES), cancellationToken) &&
+                tailHash == await HashAsync(current, Math.Max(0, committedLength - SIGNATURE_BYTES), Math.Min(committedLength, SIGNATURE_BYTES), cancellationToken))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 PublishIndex(indexPath, blocks);
             }
         }

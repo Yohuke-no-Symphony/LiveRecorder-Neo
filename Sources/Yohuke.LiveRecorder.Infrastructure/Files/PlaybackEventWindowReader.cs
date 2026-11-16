@@ -174,6 +174,7 @@ internal sealed class PlaybackEventWindowReader(EventArchiveReader reader)
             }
             item.OffsetMs = offset;
             item.Sequence = checked(source.SequencePrefix + item.Sequence);
+            item.RawJson = "";
             yield return item;
         }
     }

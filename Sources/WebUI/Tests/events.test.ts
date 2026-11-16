@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { config, flushPromises, mount, type VueWrapper } from '@vue/test-utils'
-import { defineComponent, h } from 'vue'
+import { defineComponent, h, isProxy } from 'vue'
 import { i18n } from '../src/plugins/i18n'
 import type { RecordedEvent } from '../src/models/media'
 import { displayEvents, redPocketData, safeImageUrl } from '../src/utilities/eventPresentation'
@@ -343,6 +343,21 @@ describe('消息播放与阅读稳定性', () =>
     expect(wrapper.text()).toContain('跳转目标消息')
     expect(wrapper.text()).not.toContain('过期消息')
     expect(eventsRequest).toHaveBeenCalledTimes(2)
+  })
+
+  it('归档消息和协议资料保持普通对象，列表无需逐层创建响应式代理', async () =>
+  {
+    const payload = { content: '普通弹幕', emoticons: [{ text: '[笑]', url: 'https://example.test/smile.png' }] }
+    const message = event({ payload })
+    eventsRequest.mockResolvedValue({ items: [message], nextCursor: null })
+    const wrapper = mountFeed()
+    await flushPromises()
+
+    const items = wrapper.findComponent(virtualScroll).props('items') as RecordedEvent[]
+    expect(items[0]).toBe(message)
+    expect(items[0]!.payload).toBe(payload)
+    expect(isProxy(items[0])).toBe(false)
+    expect(isProxy(items[0]!.payload)).toBe(false)
   })
 
   it('连续播放120帧且没有新消息时保留列表，不重复触发跟随', async () =>

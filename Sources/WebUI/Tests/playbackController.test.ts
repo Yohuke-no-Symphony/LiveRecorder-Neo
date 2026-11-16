@@ -6,6 +6,7 @@ import type { HlsConfig } from 'hls.js'
 import { ApiError } from '../src/apis/APIBase'
 import { usePlaybackController } from '../src/composables/usePlaybackController'
 import MediaPlayer from '../src/components/player/MediaPlayer.vue'
+import EventFeed from '../src/components/player/EventFeed.vue'
 import type { PlaybackLoadOptions } from '../src/models/playbackLoadOptions'
 import type { PlaybackWindow, TimelineGap } from '../src/models/media'
 import { i18n } from '../src/plugins/i18n'
@@ -25,6 +26,8 @@ interface HlsDouble
 }
 
 const hlsState = vi.hoisted(() => ({ supported: true, instances: [] as HlsDouble[] }))
+const eventsRequest = vi.hoisted(() => vi.fn())
+vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { playbackEvents: eventsRequest } }))
 vi.mock('hls.js', () => ({ default: class
 {
   static isSupported() { return hlsState.supported }
@@ -95,6 +98,32 @@ function setupControlledPlayer(initialOffsetMs = 0)
   return { offsetMs, loadWindow, wrapper, player: wrapper.findComponent(MediaPlayer), element: wrapper.get('video').element }
 }
 
+function setupPlayerWithEvents()
+{
+  const offsetMs = ref(0)
+  const navigationRevision = ref(0)
+  const loadWindow = vi.fn(async (value: number) => playback(value))
+  const wrapper = mount(defineComponent({ setup: () => () => h('div', [
+    h(MediaPlayer, {
+      modelValue: offsetMs.value,
+      'onUpdate:modelValue': (value: number) => { offsetMs.value = value },
+      durationMs: 120000,
+      gaps: [],
+      isLive: false,
+      loadWindow,
+      onNavigate: () => { navigationRevision.value++ },
+    }),
+    h(EventFeed, { sessionId: 's1', offsetMs: offsetMs.value, enabled: true, isLive: false, navigationRevision: navigationRevision.value }),
+  ]) }), {
+    global: {
+      plugins: [i18n],
+      stubs: { VCard: { template: '<div><slot /></div>' }, VVirtualScroll: true, VBtn: true, VSlider: true, VMenu: true, VList: true, VListItem: true, VIcon: true, VSpacer: true, VProgressCircular: true, VProgressLinear: true, VChipGroup: true, VChip: true, VAlert: true },
+    },
+  })
+  mounted.push(wrapper)
+  return { offsetMs, loadWindow, wrapper, player: wrapper.findComponent(MediaPlayer), feed: wrapper.findComponent(EventFeed), element: wrapper.get('video').element }
+}
+
 function ready(state: ReturnType<typeof setupPlayer>): void
 {
   readyVideo(state.video.value!)
@@ -121,6 +150,7 @@ beforeEach(() =>
 {
   hlsState.supported = true
   hlsState.instances.length = 0
+  eventsRequest.mockReset()
   visibility = 'visible'
   vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility)
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
@@ -137,6 +167,59 @@ afterEach(() =>
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.useRealTimers()
+})
+
+describe('视频与弹幕独立加载', () =>
+{
+  it.each(['hlsjs', 'native'])('%s 弹幕持续加载时视频独立完成首帧、播放与跳转', async mode =>
+  {
+    hlsState.supported = mode === 'hlsjs'
+    eventsRequest.mockImplementation(() => new Promise(() => {}))
+    const state = setupPlayerWithEvents()
+    await flushPromises()
+    expect(state.loadWindow).toHaveBeenCalledTimes(1)
+    expect(state.feed.find('v-progress-linear-stub').exists()).toBe(true)
+
+    readyVideo(state.element)
+    await flushPromises()
+    expect(state.player.find('v-progress-circular-stub').exists()).toBe(false)
+    await state.player.get('.video-stage').trigger('click')
+    state.element.currentTime = 6
+    tick(1000)
+    await flushPromises()
+    expect(state.offsetMs.value).toBe(6000)
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalled()
+    expect(eventsRequest).toHaveBeenCalledTimes(1)
+    expect(state.feed.find('v-progress-linear-stub').exists()).toBe(true)
+
+    await state.player.vm.seek(45000)
+    await flushPromises()
+    readyVideo(state.element)
+    await flushPromises()
+    expect(state.loadWindow).toHaveBeenCalledTimes(2)
+    expect(state.offsetMs.value).toBe(45000)
+    expect(state.player.find('v-progress-circular-stub').exists()).toBe(false)
+    expect(state.feed.find('v-progress-linear-stub').exists()).toBe(true)
+  })
+
+  it.each(['hlsjs', 'native'])('%s 弹幕读取失败时视频仍能显示画面与播放', async mode =>
+  {
+    hlsState.supported = mode === 'hlsjs'
+    eventsRequest.mockRejectedValue(new Error('弹幕暂时无法读取'))
+    const state = setupPlayerWithEvents()
+    await flushPromises()
+    expect(state.feed.find('v-alert-stub').exists()).toBe(true)
+
+    readyVideo(state.element)
+    await state.player.get('.video-stage').trigger('click')
+    state.element.currentTime = 8
+    tick(1000)
+    await flushPromises()
+    expect(state.offsetMs.value).toBe(8000)
+    expect(state.player.find('.error-overlay').exists()).toBe(false)
+    expect(state.player.find('v-progress-circular-stub').exists()).toBe(false)
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalled()
+  })
 })
 
 describe('暂停预览的媒体预读', () =>
