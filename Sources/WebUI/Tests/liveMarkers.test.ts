@@ -80,7 +80,7 @@ const virtualScroll = defineComponent({
 const stubs = {
   VCard: container, VCardText: container, VDialog: dialog, VBtn: button, VAlert: container,
   VFileInput: fileInput, VTextField: textField, VSelect: select, VVirtualScroll: virtualScroll,
-  VIcon: true, VProgressLinear: true, VTooltip: { props: ['text', 'location'], template: '<slot name="activator" :props="{}" />' },
+  VIcon: true, VListItem: container, VProgressLinear: true, VTooltip: { props: ['text', 'location', 'disabled'], template: '<slot name="activator" :props="{}" />' },
   AiLiveMarkerActions: true, AiAnalysisDetailsDialog: true,
 }
 
@@ -795,7 +795,7 @@ describe('直播记录面板', () =>
     expect(state.read).toHaveBeenCalledTimes(1)
   })
 
-  it('切换同名文件仍按独立 ID 读取，选择器标注上传者', async () =>
+  it('切换同名文件仍按独立 ID 读取，通过 tooltip 查看上传者', async () =>
   {
     const state = mockArchive([
       file('older', { originalFileName: '记录.yaml', uploaderName: '上传者甲' }),
@@ -804,12 +804,18 @@ describe('直播记录面板', () =>
     const wrapper = openPanel()
     await flushPromises()
     const options = wrapper.findAll('option')
-    expect(options.map(value => value.text())).toEqual([expect.stringContaining('上传者乙'), expect.stringContaining('上传者甲')])
+    expect(options.map(value => [value.element.value, value.text()])).toEqual([['newer', '记录.yaml'], ['older', '记录.yaml']])
+    const fileSelect = wrapper.findComponent(select)
+    expect(fileSelect.props('items')).toMatchObject([{ info: expect.stringContaining('上传者乙') }, { info: expect.stringContaining('上传者甲') }])
+    const fileTooltip = wrapper.getComponent(stubs.VTooltip)
+    expect(fileTooltip.props('text')).toContain('上传者乙')
+    expect(wrapper.text()).not.toContain('上传者乙')
     await wrapper.get('select').setValue('older')
     await flushPromises()
     expect(state.read.mock.calls.at(-1)?.slice(0, 2)).toEqual(['session-1', 'older'])
     expect(wrapper.get('select').element.value).toBe('older')
-    expect(wrapper.get('.marker-file-info').text()).toContain('上传者甲')
+    expect(fileTooltip.props('text')).toContain('上传者甲')
+    expect(wrapper.text()).not.toContain('上传者甲')
   })
 
   it('管理按钮依赖服务端文件能力，上传入口依赖上传权限', async () =>

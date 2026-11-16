@@ -399,7 +399,7 @@ async function createMaintenance(): Promise<void>
 
 <style scoped>
 .session-heading { display: flex; justify-content: space-between; align-items: center; }
-.playback-layout { --playback-sidebar-width: 360px; display: grid; grid-template-columns: minmax(0, 1fr) var(--playback-sidebar-width); gap: 24px; align-items: start; }
+.playback-layout { --playback-sidebar-width: 400px; display: grid; grid-template-columns: minmax(0, 1fr) var(--playback-sidebar-width); gap: 24px; align-items: start; }
 .playback-feed { position: sticky; top: calc(var(--v-layout-top, 0px) + 24px); height: calc(100dvh - var(--v-layout-top, 0px) - 120px); }
 .playback-main { min-width: 0; }
 .playback-layout:fullscreen { width: 100%; height: 100%; grid-template-columns: minmax(0, 1fr) min(var(--playback-sidebar-width), 40vw); grid-template-rows: minmax(0, 1fr); gap: 0; align-items: stretch; background: rgb(var(--v-theme-background)); overflow: hidden; }
@@ -418,6 +418,6 @@ async function createMaintenance(): Promise<void>
 .session-segments :deep(.v-table) { border-top: 1px solid rgba(var(--v-theme-on-surface), .07); }
 .segment-action { width: 1%; text-align: center; white-space: nowrap; }
 .maintenance-segments { max-height: 380px; overflow-y: auto; }
-@media (min-width: 1600px) { .playback-layout { --playback-sidebar-width: 390px; } }
+@media (min-width: 1600px) { .playback-layout { --playback-sidebar-width: 420px; } }
 @media (max-width: 1200px) { .playback-layout { grid-template-columns: minmax(0, 1fr); } .playback-feed { position: static; height: calc(100dvh - var(--v-layout-top, 0px) - 48px); } }
 </style>

@@ -1,6 +1,6 @@
 <template>
   <section class="live-marker-panel" :aria-label="t('liveMarkers.title')">
-    <CardHeader :title="t('liveMarkers.title')">
+    <CardHeader class="marker-panel-header" :title="t('liveMarkers.title')">
       <template #suffix><span v-if="detail" class="text-caption muted mono">{{ formatNumber(detail.entries.length) }}</span></template>
       <template #actions>
         <v-btn icon="mdi-crosshairs-gps" variant="text" size="small" :disabled="!hasSeekableEntries || loadingEntries" :title="t('liveMarkers.locate')" :aria-label="t('liveMarkers.locate')" @click="locateCurrentPosition" />
@@ -12,13 +12,26 @@
     <v-progress-linear v-if="loadingFiles || loadingEntries" indeterminate color="primary" :aria-label="t('liveMarkers.loading')" />
     <v-alert v-if="error" type="error" density="compact" class="mx-4 my-3">{{ error }}</v-alert>
     <div v-if="files.length" class="marker-file-controls">
-      <v-select :model-value="selectedId" :items="fileOptions" item-title="title" item-value="value" :label="t('liveMarkers.selectFile')" :disabled="saving" density="compact" hide-details @update:model-value="select(String($event ?? ''))" />
-      <div v-if="selectedFile" class="marker-file-info">
-        <span class="text-caption muted">{{ fileInfo(selectedFile) }}</span>
-        <div v-if="selectedFile.canManage && editable" class="marker-file-actions">
-          <v-btn icon="mdi-timer-edit-outline" variant="text" size="x-small" :disabled="saving" :aria-label="t('liveMarkers.align')" @click="openAlignment" />
-          <v-btn icon="mdi-delete-outline" color="error" variant="text" size="x-small" :disabled="saving" :aria-label="t('liveMarkers.delete')" @click="openDelete" />
-        </div>
+      <v-tooltip :text="selectedFile ? fileInfo(selectedFile) : ''" :disabled="!selectedFile" location="top">
+        <template #activator="{ props: tooltipProps }">
+          <v-select v-bind="tooltipProps" class="marker-file-select" :model-value="selectedId" :items="fileOptions" item-title="title" item-value="value" :label="t('liveMarkers.selectFile')" :disabled="saving" density="compact" hide-details @update:model-value="select(String($event ?? ''))">
+            <template #item="{ props: itemProps, item }">
+              <v-list-item v-bind="itemProps" role="option">
+                <template #title>
+                  <v-tooltip :text="item.info" location="top">
+                    <template #activator="{ props: itemTooltipProps }">
+                      <span v-bind="itemTooltipProps" class="d-block text-truncate">{{ item.title }}</span>
+                    </template>
+                  </v-tooltip>
+                </template>
+              </v-list-item>
+            </template>
+          </v-select>
+        </template>
+      </v-tooltip>
+      <div v-if="selectedFile?.canManage && editable" class="marker-file-actions">
+        <v-btn icon="mdi-timer-edit-outline" variant="text" size="x-small" :disabled="saving" :aria-label="t('liveMarkers.align')" @click="openAlignment" />
+        <v-btn icon="mdi-delete-outline" color="error" variant="text" size="x-small" :disabled="saving" :aria-label="t('liveMarkers.delete')" @click="openDelete" />
       </div>
     </div>
     <v-virtual-scroll v-if="detail?.entries.length" ref="entriesViewport" class="marker-entry-scroll" :items="detail.entries" :item-height="100" item-key="index">
@@ -101,7 +114,7 @@ const aiDetailsOpen = ref(false)
 let localJobId = ''
 let completedJobKey = ''
 const selectedFile = computed(() => files.value.find(file => file.id === selectedId.value))
-const fileOptions = computed(() => files.value.map(file => ({ value: file.id, title: `${file.originalFileName} · ${file.uploaderName || t('liveMarkers.unknownUploader')} · ${formatDate(file.uploadedAtUtc)}` })))
+const fileOptions = computed(() => files.value.map(file => ({ value: file.id, title: file.originalFileName, info: fileInfo(file) })))
 const uploadOpen = ref(false)
 const alignmentOpen = ref(false)
 const deleteOpen = ref(false)
@@ -221,10 +234,12 @@ async function deleteFile(): Promise<void>
 
 <style scoped>
 .live-marker-panel { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-.marker-file-controls { padding: 4px var(--ui-card-padding) 12px; flex-shrink: 0; }
-.marker-file-info { display: flex; align-items: center; gap: 6px; margin-top: 8px; min-width: 0; }
-.marker-file-info > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.marker-file-actions { display: flex; flex-shrink: 0; gap: 2px; }
+.marker-panel-header { flex-wrap: nowrap; gap: 8px; }
+.marker-panel-header :deep(.card-header-title) { flex-basis: 0; }
+.marker-panel-header :deep(.card-header-actions) { flex-shrink: 0; gap: 4px; }
+.marker-file-controls { display: flex; align-items: center; gap: 6px; padding: 4px var(--ui-card-padding) 12px; flex-shrink: 0; min-width: 0; }
+.marker-file-select { flex: 1; min-width: 0; }
+.marker-file-actions { display: flex; flex-shrink: 0; align-items: center; gap: 2px; }
 .marker-entry-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
 .marker-entry { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 14px var(--ui-card-padding); border: 0; border-top: 1px solid rgba(var(--v-theme-on-surface), .06); background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .marker-entry:hover:not(:disabled) { background: rgba(var(--v-theme-on-surface), .035); }
