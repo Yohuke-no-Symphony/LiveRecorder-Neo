@@ -1,5 +1,5 @@
 <template>
-  <div class="selection-toolbar mb-4">
+  <div class="selection-toolbar">
     <slot />
     <template v-if="selectionEnabled">
       <template v-if="selectionMode">

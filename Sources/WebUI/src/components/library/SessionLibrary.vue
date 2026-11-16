@@ -1,22 +1,26 @@
 <template>
   <div>
-    <SessionLibraryToolbar
-      v-if="$slots.filters || (selectionEnabled && sessions.length)"
-      :selection-enabled="selectionEnabled && !!sessions.length"
-      :selection-mode="selectionMode"
-      :selected-count="selectedIds.length"
-      :selectable-count="selectableIds.length"
-      :selection-limit="MAX_SELECTION"
-      :busy="busy"
-      :can-transcode="auth.isAdmin"
-      @start="selectionMode = true"
-      @select-loaded="selectLoaded"
-      @cancel="cancelSelection"
-      @trash="prepareTrash(selectedIds)"
-      @transcode="prepareTranscode(selectedIds)"
-    >
-      <slot name="filters" />
-    </SessionLibraryToolbar>
+    <div v-if="title || $slots.filters || (selectionEnabled && sessions.length)" class="session-library-header mb-4" :class="{ 'session-library-header-titled': title }">
+      <h2 v-if="title" class="section-heading">{{ title }}</h2>
+      <SessionLibraryToolbar
+        v-if="$slots.filters || (selectionEnabled && sessions.length)"
+        class="session-library-toolbar"
+        :selection-enabled="selectionEnabled && !!sessions.length"
+        :selection-mode="selectionMode"
+        :selected-count="selectedIds.length"
+        :selectable-count="selectableIds.length"
+        :selection-limit="MAX_SELECTION"
+        :busy="busy"
+        :can-transcode="auth.isAdmin"
+        @start="selectionMode = true"
+        @select-loaded="selectLoaded"
+        @cancel="cancelSelection"
+        @trash="prepareTrash(selectedIds)"
+        @transcode="prepareTranscode(selectedIds)"
+      >
+        <slot name="filters" />
+      </SessionLibraryToolbar>
+    </div>
     <v-alert v-if="error && !confirmOpen && !pendingCancellation" type="error" class="mb-4 deletion-error">{{ error }}</v-alert>
     <div v-if="sessions.length" class="media-grid">
       <SessionCard v-for="session in sessions" :key="session.id" :session="session" :streamer-name="streamerNames?.[session.streamerId]" :allow-actions="actionsAllowed" :selection-mode="selectionMode" :selected="selectedIds.includes(session.id)" :can-select="canSelect(session)" :disabled="busy" @actions="openActions(session, $event)" @toggle="toggle(session)" />
@@ -55,7 +59,7 @@ import SessionCard from './SessionCard.vue'
 import SessionLibraryToolbar from './SessionLibraryToolbar.vue'
 
 const MAX_SELECTION = 200
-const props = withDefaults(defineProps<{ sessions: BroadcastSession[]; streamerNames?: Record<string, string>; allowSelection?: boolean }>(), { allowSelection: true })
+const props = withDefaults(defineProps<{ sessions: BroadcastSession[]; title?: string; streamerNames?: Record<string, string>; allowSelection?: boolean }>(), { allowSelection: true })
 const emit = defineEmits<{ removed: [ids: string[]]; retentionChanged: [session: BroadcastSession] }>()
 const { t } = useI18n()
 const router = useRouter()
@@ -282,5 +286,9 @@ watch(() => auth.canManageRecordings, allowed =>
 </script>
 
 <style scoped>
+.session-library-header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.session-library-header .section-heading { min-width: 0; margin: 0; }
+.session-library-toolbar { flex: 1 1 auto; min-width: 0; }
+.session-library-header-titled .session-library-toolbar { flex: 0 1 auto; margin-inline-start: auto; justify-content: flex-end; }
 .deletion-error { white-space: pre-line; }
 </style>
