@@ -364,7 +364,7 @@ onBeforeUnmount(() =>
 .feed-tabs :deep(.v-slide-group__content) { gap: 4px; }.feed-tabs :deep(.v-chip) { font-size: .7rem; margin-inline: 0; }
 .event-scroll { flex: 1; min-height: 0; position: relative; overflow-y: auto; overscroll-behavior-y: contain; }
 .event-scroll.is-following { overflow-anchor: none; }
-.event-list { min-height: 100%; display: flex; flex-direction: column; justify-content: flex-end; }
+.event-list { min-height: 100%; display: flex; flex-direction: column; justify-content: flex-start; }
 .event-row, .event-list :deep(.v-virtual-scroll__spacer) { flex-shrink: 0; }
 .event-row { padding: 13px 16px; border-bottom: 1px solid rgba(var(--v-theme-on-surface), .045); }
 .event-empty { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 15px; align-items: center; justify-content: center; font-size: .8rem; color: rgba(var(--v-theme-on-surface), .3); }
