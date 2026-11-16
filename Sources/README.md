@@ -1,64 +1,31 @@
-# Yohuke.LiveRecorder
+# 开发与部署
 
-Bilibili 直播录制服务器，使用 .NET 10、MongoDB 与 Vue / Vuetify。按主播与直播场次组织录像，支持边录边看、文件弹幕、后台切片、修复、合并及可恢复删除。
+项目介绍和安装步骤见[仓库首页](https://github.com/Yohuke-no-Symphony/LiveRecorder-Neo#快速部署)。本页同时随服务端发布包提供。
 
-## 运行环境
+## 源码开发
 
-- Linux 优先；支持 Windows、macOS 原生运行。
-- MongoDB 8.x，支持单节点；使用独立数据库。
-- FFmpeg 与 ffprobe，需要 H.264/AAC 编解码能力。媒体测试已验证 FFmpeg 9.0.2。
-- 开发需要 .NET 10 SDK、Node.js 22.12+ 与 pnpm。
-
-## 开发
+需要 .NET 10 SDK、Node.js 22.12+、pnpm、MongoDB 8.x，以及支持 H.264/AAC 的 FFmpeg 和 ffprobe。以下命令从仓库根目录执行。
 
 ```sh
-dotnet run --project Yohuke.LiveRecorder.Server -- --urls http://127.0.0.1:4784
+git submodule update --init --recursive
+dotnet run --project Sources/Yohuke.LiveRecorder.Server -- --urls http://127.0.0.1:4784 --config /绝对路径/settings.json
 ```
 
+另开终端启动前端：
+
 ```sh
-cd WebUI
+cd Sources/WebUI
 pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-开发前端为 `http://127.0.0.1:5784`。`src/apis/ServerURL.ts` 的 `getServerUrl(path)` 在开发时读取 `VITE_API_BASE_URL`，默认直接访问后端 `http://127.0.0.1:4784`；发布构建使用 `window.location.origin`。API、封面、下载及播放地址共用此入口。
+访问 `http://127.0.0.1:5784`，首次使用按安装向导完成配置。后端地址默认是 `http://127.0.0.1:4784`；需要修改时，在 `Sources/WebUI/.env.development.local` 设置 `VITE_API_BASE_URL` 并重启前端。
 
-修改调试后端地址时，在 `WebUI/.env.development.local` 中设置并重启 `pnpm dev`：
-
-```dotenv
-VITE_API_BASE_URL=http://127.0.0.1:4884
-```
-
-后端使用 `Development` 环境启动，允许 `appsettings.Development.json` 中 `WebUI:DevelopmentOrigins` 指定的前端携带 Cookie 与 CSRF 令牌访问。更换前端端口时同步修改该列表。前后端使用相同主机名与协议，例如均使用 `http://127.0.0.1`，保证登录 Cookie 可用。开发时 OAuth 回调到前端端口，提供方应登记 `http://127.0.0.1:5784/oauth/callback/提供方标识`。
-
-首次启动会输出内存中的安装令牌。安装向导第一步选择「全新安装」或「恢复实例」并填写令牌；全新安装随后填写管理员信息，恢复实例跳过管理员步骤，两种方式再依次填写数据目录、录像目录及 MongoDB 连接。向导和校验阶段不创建 Data、录像目录、密钥或安装文件；验证通过并提交完成安装时才创建，不存在的目录会自动建立。安装直接在所选目录完成，无需重启。安装后在设置中配置 SMTP、邀请码、注册开关和 OAuth。
-
-使用 `--config /持久目录/settings.json` 指定唯一设置文件；省略参数时读取可执行文件旁的 `settings.json`。找不到配置文件时进入未安装状态，成功安装或恢复后写入完整设置。开发时建议将该文件放在编译输出目录之外。
-
-同一个 JSON 直接保存数据目录、录像目录和全部后台设置，例如：
-
-```json
-{
-  "DataDirectory": "Data",
-  "RecordsDirectory": "Data/records",
-  "quality": 10000,
-  "defaultLanguage": "zh-CN"
-}
-```
-
-两条目录都以设置文件所在目录为相对路径基准，不受工作目录影响，也可以使用绝对路径。默认数据目录为该文件旁的 `Data/`，录像目录默认 `Data/records/`，也可放到其他磁盘。原 `--DataDirectory` 参数和 `LIVE_RECORDER_DATA_DIR` 环境变量已由此 JSON 取代。
-
-数据目录保存受保护的安装状态和数据库连接 `bootstrap.json`、安装令牌、`keys/` 密钥、`cache/` 缓存及 `ai/snapshots/` 分析证据快照。全局参数全部保存在可执行文件旁或 `--config` 选定的同一个 `settings.json`，不再新建 Data 内的第二份 settings；SMTP 密码、OAuth 密钥和 AI API key 受数据目录中的密钥保护。录像及其档案保存在独立的录像目录，媒体相对路径不包含主机上的绝对目录。
-
-在后台「设置 → 常规 → 存储目录」可以修改两条目录并保存到同一个 settings.json，安装完成后的路径修改需重启生效，不会自动移动文件。重启前应停止录制并手动复制对应目录；迁移实例还需保留该设置文件。有效的安装状态会自动识别；设置文件丢失时需在安装页选择「恢复实例」。网站账号、B站账号、直播间和录像索引仍在 MongoDB 中，目标实例应连接原数据库，或同时恢复数据库备份。Windows 密钥使用运行账户的 DPAPI，恢复时需要保留对应账户的密钥环境。设置文件存在时，已安装实例的数据库故障、安装配置损坏或密钥缺失不会重新开放安装。
-
-安装页的「全新安装」只接受空数据库；「恢复实例」使用安装令牌授权，无需填写管理员信息，原数据库中必须存在可用的管理员账号。恢复会保留原账号与密码，完成后使用原账号登录。恢复优先使用唯一设置文件；旧实例的 Data/settings.json 或 MongoDB 全局设置可一次性导入该文件，之后不再读取第二份 settings。需要原密钥的凭据无法解密时会拒绝完成恢复，应补齐所选数据目录的 `keys/` 后重试。恢复模式的 FFmpeg、ffprobe 路径留空会沿用原设置，也可以填写目标机器上的新路径。
-
-从旧版本升级时，先备份设置文件、数据目录、录像目录及 MongoDB。在唯一设置文件中填入两条真实目录，保持主播、场次、`.work/` 和 `.trash/` 内部结构不变，不必为独立录像目录重写数据库媒体索引。原 `.cache/` 可合并到数据目录的 `cache/`，也可重新生成。旧 `bootstrap.json`、`installation-token` 和全部 `keys/` 保留在数据目录。程序不会在启动时自动搬动已有录像。
+前后端使用相同主机名与协议。更换前端端口时，同步修改服务端 `appsettings.Development.json` 中的 `WebUI:DevelopmentOrigins`。开发环境的 OAuth 回调地址为 `http://127.0.0.1:5784/oauth/callback/提供方标识`。
 
 ## 发布
 
-以下命令在仓库根目录执行。PowerShell 入口默认发布 `linux-x64`，使用 `-Runtime` 指定单个平台，或使用 `--all` 一次发布全部五个平台：
+从仓库根目录执行：
 
 ```powershell
 pwsh ./release.ps1 --version 1.2.3
@@ -66,214 +33,84 @@ pwsh ./release.ps1 -Runtime win-x64 --version 1.2.3
 pwsh ./release.ps1 --all --version 1.2.3
 ```
 
-`--version` 可省略，未指定时沿用项目默认版本；指定时仅设置本次发布版本，不修改项目文件。批量发布只在第一个平台构建前端，后续平台复用构建结果；任一平台失败时立即终止。
+默认目标为 `linux-x64`，还支持 `linux-arm64`、`win-x64`、`osx-x64`、`osx-arm64`。`--all` 发布全部平台，前端只构建一次；`--version` 可省略，指定时不修改项目文件。Bash 可使用 `./scripts/publish.sh linux-x64`。
 
-也可使用 Bash 脚本发布单个平台：
+产物目录为 `Artifacts/server/<version>/<runtime>/`，压缩包为 `Artifacts/server/<version>/server-<version>-<runtime>.zip`，解压后直接得到运行文件。程序自带 .NET 运行时；保留同目录的 `webui/` 和 `appsettings*.json`，FFmpeg 与 ffprobe 另行安装。
 
-```sh
-./scripts/publish.sh linux-x64
-```
+## 部署与配置
 
-支持 `linux-x64`、`linux-arm64`、`win-x64`、`osx-x64`、`osx-arm64`。发布产物在仓库根目录的 `Artifacts/<runtime>/`，服务端使用自包含 SingleFile，将程序集、.NET 运行库和原生库打入一个可执行文件，`webui/`、`appsettings*.json` 与运行时设置按外部文件读取。原生库首次启动时解压到运行账户可写的 bundle 目录。FFmpeg 与 ffprobe 由目标机器安装，也可以在安装页和管理设置中填写绝对路径。
-
-运行发布产物：
+在发布目录运行，确保运行账户可以写入设置文件、数据目录和录像目录：
 
 ```sh
 ./Yohuke.LiveRecorder.Server --urls http://127.0.0.1:4784 --config /var/lib/live-recorder/settings.json
 ```
 
-反向代理应提供 HTTPS 并保留正确 Host。代理身份来源需要按部署环境配置可信代理，避免信任外部任意转发头。Linux 服务示例见 `deploy/live-recorder.service`。
+Windows 使用 `Yohuke.LiveRecorder.Server.exe`。首次启动会在终端输出安装令牌；安装向导配置管理员、MongoDB、存储目录及媒体工具。全新安装使用空数据库，恢复实例使用原数据库与已有管理员账号。
+
+### 设置与数据
+
+`--config` 指定设置文件，省略时使用可执行文件旁的 `settings.json`。数据与录像目录可放在不同磁盘；相对路径以设置文件所在目录为基准。
+
+| 位置 | 内容 |
+| --- | --- |
+| `settings.json` | 存储路径和后台设置 |
+| 数据目录 | `bootstrap.json`、安装令牌、`keys/`、`cache/`、`ai/snapshots/` |
+| 录像目录 | 按主播和场次保存的录像、弹幕、分析、切片，以及 `.derived/`、`.work/`、`.trash/` |
+| MongoDB | 网站账号、B 站账号、直播间、录像索引和任务 |
+
+默认数据目录为设置文件旁的 `Data/`，录像目录为 `Data/records/`。SMTP、OAuth、AI 接入、注册权限、带宽和保留期限均在后台设置。OAuth 回调为 `https://你的域名/oauth/callback/提供方标识`；邮件找回密码还需配置站点公开地址和 SMTP。
+
+### 反向代理与系统服务
+
+对外提供 HTTPS，转发原始 `Host`、`X-Forwarded-For` 和 `X-Forwarded-Proto`，并支持 `/hubs/status` 的 WebSocket 连接。在服务端 `appsettings.json` 的 `KnownProxies` 数组中填写实际连接主站的代理 IP。
+
+媒体路径 `/api/playback/`、`/api/clips/`、`/api/jobs/`、`/api/sessions/` 应关闭代理缓存和响应缓冲。Nginx 对应配置为 `proxy_cache off;` 与 `proxy_buffering off;`，保留鉴权 Cookie。
+
+Linux systemd 示例：[live-recorder.service](https://github.com/Yohuke-no-Symphony/LiveRecorder-Neo/blob/main/Sources/deploy/live-recorder.service)。使用前创建运行账户，按实际部署位置修改工作目录、程序和设置路径。
+
+### 备份、升级与迁移
+
+备份 `settings.json`、数据目录、录像目录和 MongoDB。数据目录中的 `keys/` 用于解密凭据，必须一并保留；Windows 还需保留原运行账户的 DPAPI 密钥环境。
+
+升级前停止服务，用新版本替换程序文件，保留原设置与数据。迁移或修改存储路径时，先停止录制与服务，复制文件、修改 `settings.json`，再启动；程序不会自动移动录像。设置文件丢失时在安装页选择「恢复实例」，连接原数据库并使用原管理员登录。
+
+旧版 `--DataDirectory` 和 `LIVE_RECORDER_DATA_DIR` 已停用，改用 `--config`。旧数据目录中的 `bootstrap.json`、安装令牌和 `keys/` 原样保留，旧 `Data/settings.json` 或数据库全局设置可在恢复时导入。
 
 ## 分布式转码
 
-在「设置 → 转码」配置清晰度列表，拖拽调整播放菜单顺序，用星标选择唯一默认档位，点击「保存设置」生效。默认提供 720p，保留原画。目标分辨率按画面短边计算，高于原片的档位跳过；帧率、视频及音频码率受源上限约束。成品尚未就绪、失败或不适用时回退原画。播放页可手动切档并保留当前位置和暂停状态。
+转码需要独立 Worker。主站通过 TCP 下发任务，Worker 通过 HTTP/HTTPS 下载原片、上传 HLS 成品，无需共享磁盘或连接 MongoDB。
 
-新建录播在录制结束后自动排队；升级前的历史录播不会自动批量转码，可在录播库选择录像后手动发起。参数修改不自动重转全部历史记录，重转期间旧成品继续可用，新参数的成品完成后优先使用。后台任务页支持查看进度、取消和重试。
+1. 在「设置 → 转码」配置清晰度、默认档位和 Worker，保存节点 ID 与一次性 Secret。
+2. 主站 `appsettings.json` 的 `TranscodingControl` 配置控制监听，默认启用、端口 `4790`、不启用 TLS。Worker 的控制地址必须可以 TCP 直连，修改监听设置后重启主站。
+3. 在节点上运行 `ylr-worker register`，填写网站地址、控制地址和凭据，再运行 `ylr-worker run`。安装系统服务及 GPU 要求见 [Worker 部署说明](https://github.com/Yohuke-no-Symphony/LiveRecorder-Neo/blob/main/Sources/Yohuke.LiveRecorder.Transcoding.Worker/README.md)。
 
-Worker 以独立进程运行，通过可选 TLS 的 TCP 控制通道取得任务，通过 HTTP 或 HTTPS 续传输入和上传 HLS 成品。主站启动用的 `appsettings.json` 已提供完整控制监听模板，可修改该节或使用同名双下划线环境变量配置。内网免证书连接使用以下设置，修改后重启 Server。
+控制通道启用 TLS 时，主站配置包含私钥的 PFX 证书，Worker 的 `ControlUseTls` 与主站 `UseTls` 保持一致；PFX 密码可通过 `TranscodingControl__CertificatePassword` 设置。控制端口与网站 HTTPS 端口分别配置。
 
-```json
-{
-  "TranscodingControl": {
-    "Enabled": true,
-    "UseTls": false,
-    "ListenAddress": "0.0.0.0",
-    "Port": 4790,
-    "CertificatePath": null,
-    "CertificatePassword": null,
-    "MaximumConnections": 128
-  }
-}
-```
-
-Worker 的 `ControlHost` 填主站可达的内网 IP 或域名，`ControlPort` 与主站 `Port` 一致，`ControlUseTls` 与主站 `UseTls` 一致。控制主机在 `register` 中默认取本次输入的网站 URL 主机部分，提示中可手动覆盖。控制端口需要 TCP 直连或四层代理，网站 HTTP 或 HTTPS 地址与控制端口分别配置。
-
-启用控制 TLS 时，将两端开关设为 `true`，主站配置包含私钥的 PFX 证书，主机名与 Worker 连接配置一致。PFX 密码可通过 `TranscodingControl__CertificatePassword` 环境变量提供。旧配置省略 TLS 开关时按开启读取。HTTPS 反代发送 `X-Forwarded-Proto`，主站通过 `KnownProxies` 配置信任实际代理。Worker 文件接口支持 HTTP 和 HTTPS，使用独立的节点凭据和任务租约验证请求。
-
-点击 Worker 卡片右上角加号创建节点，保存一次性密钥。节点运行 `register` 后可在终端填写网站 HTTP 或 HTTPS 地址、TCP 控制地址、Worker ID 与 Secret，密钥隐藏输入。Worker 的连接信息与全部运行参数统一保存到其可执行文件旁的 `settings.json`，也可用 `--config` 指定文件。`config` 修改本机运行参数并同步主站，`run` 使用已保存的设置前台运行。`install` 与 `uninstall` 管理 macOS、Linux 和 Windows 的系统服务，`start`、`stop` 控制运行，`status` 查看服务状态与进程信息，`log` 查看最近 100 条服务日志并持续跟随，`enable`、`disable` 控制开机启动，`help` 与 `version` 查看帮助和版本。命令行全部使用英文。主站后台修改的运行参数也会同步到该文件，双方修改使用版本检查防止覆盖。后台填写的临时目录、FFmpeg 与 ffprobe 路径属于 Worker 所在机器。详细启动、GPU 探测、CPU 补位策略和五平台发布方法见 [Worker 说明](Yohuke.LiveRecorder.Transcoding.Worker/README.md)。
-
-成品集中存放在录像目录的 `.derived/`，按物理文件、源版本和编码配方共享，磁盘页单独统计。逻辑归组、拆分复用同一成品；修复替换原片会撤销旧任务，并保留需要重转的档位意图。删除片段或场次时同步停止对应转码和隐藏成品；回收站还原可重新使用成品，仍被其他场次引用的文件继续保留。最后一份原片引用从回收站清除后，派生文件也会清除。
-
-主站每个转码档位可设置分片时长、关键帧间隔和单文件存储，默认 `6 秒 / 2 秒 / 多文件`，时长范围为 `0.1～300 秒`。单文件使用 `media.mp4` 和 HLS 字节范围播放。新任务保存参数快照，已发布的历史配方继续提供播放回退，自定义分片任务由支持该能力的 Worker 执行。
-
-节点卡片的“查看日志”汇总下载、探测、编码、上传与发布过程，网页每秒增量更新，主站保留 7 天。后台任务页同时显示总进度、阶段进度、完成量、速率、预计剩余时间、编码 FPS 和倍率、文件数量与最近上报时间。
-
-## 带宽控制
-
-管理员可在「设置 → 带宽」设置统一的每账号下载上限，单位为 MiB/s，0 表示不限速。同一账号的多个浏览器、文件和断点续传连接合并计算，管理员也适用。此上限只约束原始分段、任务产物与剪辑下载，不约束在线播放。
-
-网站带宽预算用于面向用户的播放与下载。Worker 源文件下载由节点的 `DownloadBytesPerSecond` 控制，上传由 `UploadBytesPerSecond` 控制，均以 B/s 保存，`0` 表示不限速。
-
-启用智能限速后，填写供本服务媒体传输使用的总可用带宽，单位为 Mbps；原始下载、HLS 播放和剪辑播放共同受此预算约束。播放优先使用下载保底以外的带宽，下载保底默认 10%，可设为 0–100%。双方都有可发送数据时按比例分配，任一方未用完的份额可由另一方使用；下载内部按账号均衡，单账号硬上限继续生效。保底为 0 时播放严格优先，为 100% 时下载严格优先。默认不开启智能限速，也不设置单账号下载上限。
-
-保存后的设置约 1 秒内应用于正在传输的媒体，无需重启或重新下载。预算作用于当前服务进程交给 HTTP 服务器的媒体字节，不包含录制输入、其他应用、静态资源或协议开销，不自动测量物理网卡带宽；多个服务实例需要分别划分可用预算。代理和网络缓冲可能导致客户端瞬时读数波动。直接编辑磁盘上的设置文件仍需重启服务。
-
-稳定的连续 HLS 清单、初始化片和媒体片使用 `Cache-Control: private, no-cache, must-revalidate`，浏览器可保存私有缓存，但每次 HTTP 复用前必须向服务端校验。服务端先检查当前观看权限和录像版本，再通过实际文件内容的强 ETag 判断是否返回无正文的 `304`；回退、重播或刷新时可避免重复传输未改变的媒体。磁盘缓存回收后按需重建，并重新计算内容指纹。其他播放和下载响应继续使用 `Cache-Control: private, no-store`。
-
-媒体响应均带有 `X-Accel-Buffering: no`。反向代理须禁用这些媒体路由的响应缓存与整文件缓冲，不能通过静态目录、CDN 缓存、`X-Sendfile` 或 `X-Accel-Redirect` 绕过应用交付。Nginx 可在现有代理配置中为 `/api/playback/`、`/api/clips/`、`/api/jobs/` 和 `/api/sessions/` 路由设置 `proxy_buffering off;`、`proxy_cache off;`，并保留现有鉴权 Cookie 与转发头配置。严格优先模式可能让另一类传输长时间等待，代理的读取超时应与部署允许的等待时间一致。
-
-## 账号
-
-- 网站账号与 B站采集账号独立。B站扫码或短信登录由管理员操作，浏览器不提交 Cookie。
-- 在「设置 → 注册」可独立控制管理员批准、邀请码和邮箱验证码，三项默认开启并兼容旧配置。关闭管理员批准后，新账号自动批准；关闭邀请码或邮箱验证码后，注册无需提供对应内容。普通注册与首次 OAuth 建号使用相同要求，注册完成均返回登录页；已绑定的 OAuth 账号仍按当前账号状态登录。
-- OAuth 为 Authorization Code + S256 PKCE，配置授权、token、userinfo 端点及字段映射。Yohuke.UserService 可使用 `/oauth2/authorize`、`/oauth2/token`、`/oauth2/userinfo`，scope 为 `profile email`，稳定身份字段为 `sub`。
-- 在提供方注册精确回调地址：`https://你的域名/oauth/callback/提供方标识`。
-- 已有账号需要显式绑定外部身份，不能依用户名或邮箱自动合并。
-
-在「录制管理 → 添加直播间」中，可通过「自动搜索」按昵称、UID 或房号查找主播并添加；关键词留空时显示所选 B站账号正在直播的关注列表，昵称搜索支持加载更多。「手动添加」接受标准房号和短号。两种方式共用录制账号和启用录制设置；切换账号后需重新搜索，已监控的搜索结果会标记为已添加。
-
-## 界面语言
-
-支持中文、English 和日本語，网站名分别为「夜半录播」「Yohuke Live Recorder」「夜更けのレコーダー」。用户可在「账户设置」选择界面语言，登录后跨设备保存；选择「跟随全局默认」时使用管理员在「设置 → 常规」中配置的语言，初始默认中文。访客可临时切换，选择保存在本机。
-
-界面、系统提示及日期和数字格式随语言切换；直播标题、昵称、弹幕、礼物名和录播内容保留原文。
-
-## 账号与访问
-
-管理员可在「B站账号」手动设置或取消默认采集账号。录制目标指定的账号是首选身份；房间查询、取流和弹幕连接失败时，依次尝试指定账号、全局默认账号和其他有效账号，其余账号按创建时间排序，每轮不会反复尝试同一个失败账号。只有明确有效的账号参与替补；已配置账号但没有可用账号时等待恢复，不降级为匿名身份。完全未绑定账号时保留匿名采集能力。替补不会改写录制目标的账号绑定或全局默认设置，首选账号重新登录或重新验证有效后会重新优先使用。
-
-上游明确返回未登录时立即标记对应凭据失效并换号，不等待定时维护。网络超时、风控和其他上游失败只触发当前轮次的重试，不据此判定账号过期；已确认失效的凭据也不会因为后来一次无法校验而被重新放行。后台仍每 10 分钟维护登录状态和刷新 Cookie。更换账号不会主动中断已建立的视频流；弹幕连接会先排空旧连接，再使用替补，全部候选失败后按 2、4、8、16、30 秒退避重试。没有可用账号期间继续等待，账号恢复时自动重连，普通弹幕去重状态跨换号与等待保留。
-
-直播间搜索保留所选身份，尤其「关注中的直播间」不会因显式所选账号失效而换用其他账号的关注列表。未指定账号时继续按默认账号规则选择。失效账号可直接重新扫码或短信登录，必须使用原 B站 UID，已有录制目标引用保持不变。
-
-邮箱密码恢复需要先在「设置 → 常规」填写站点公开地址，并在「设置 → 邮件」配置 SMTP。公开地址必须是 HTTPS 根地址（本机回环地址可用 HTTP），如 `https://recorder.example.com`。用户通过登录页的「忘记密码」申请有效期 30 分钟的邮件链接；此功能不受开放注册开关影响，OAuth 用户也可通过验证登记邮箱建立本站密码。链接不因打开而消费；任意链接完成重设后，该用户此前的恢复链接与登录会话全部失效。重设不改变审核或封禁状态。
-
-管理员可在「用户与邀请」封禁和解封已启用的用户。封禁保留用户数据及已接受的后台作业，并撤销旧登录与实时状态连接；解封后需重新登录。当前管理员不能封禁自己，最后一名有效管理员也受保护。
-
-## 文件与媒体
-
-```text
-settings.json
-Data/
-  bootstrap.json
-  installation-token
-  keys/
-  ai/snapshots/
-  cache/
-    artwork/
-    playback/
-  records/
-    主播名称_UID/
-      主播信息.json
-      日期_时间_直播标题_场次短ID/
-        场次.json
-        录像/
-        弹幕/事件.jsonl
-        弹幕/事件.index.jsonl
-        分析/
-        切片/
-        修复/
-        合并/
-    .work/
-    .trash/
-```
-
-目录与文件名保留中文；管理索引使用稳定 ID。逐条事件、文件侧索引和用户互动分析不写 MongoDB。
-
-同场断流保留真实时间：播放空档显示提示，弹幕按实际时间回放；精确导出包含等时长占位画面。快速切片只适用于无空档且媒体参数兼容的范围，界面显示实际边界。
-
-已关闭、索引完整且编码参数稳定的 H.264/AAC（或无音轨）录像使用整段 HLS 清单。同一录制分段内连续播放和跳转复用当前播放器，不再每 30 秒重新起播。清单按关键帧规划默认约 6 秒的媒体片，只在浏览器请求时读取对应原文件范围并封装，不预先处理整份录像；索引计划受内存容量和过期时间限制，媒体片共用播放并发与磁盘缓存限制，缓存回收后可由原地址重建。使用 Hls.js 的浏览器在正常播放时目标预缓冲 30 秒，前后缓冲范围设有上限。打开页面或暂停中跳转时，仅加载目标画面所需的分片；预览就绪或播放暂停后停止启动后续媒体请求，已在途分片允许完成，恢复播放时复用已有缓冲。原画质和码率保持不变，原生 HLS 浏览器由自身管理缓冲。
-
-仍在录制的分段、HEVC 或无法形成连续清单的索引继续按需生成默认 30 秒的 HLS 窗口，实际范围按关键帧对齐；窗口内跳转复用当前媒体，连续跳转会取消过期请求。正常播放距离当前分段或窗口结束约 10 秒时，会尝试在服务器预取下一段；连续清单的预取只读取索引，窗口预取最多占一个生成名额并预留前台容量，播放并发为 1 或服务器忙时跳过窗口生成，已有缓存仍可复用。暂停、页面隐藏或跳到其他位置时取消无用预取，预取失败不打断当前播放。真实录制分段边界仍需切换媒体，断流空档保持原有提示。
-
-切片完成后默认保留 30 天，删除或到期后进入回收站，默认再保留 7 天；期限可在设置中调整。切片只对创建者和管理员开放。恢复使用当前保留期重新计时。
-
-在「设置 → 媒体与存储」可分别设置录像自动删除周期和回收站自动彻底删除周期，单位为天，0 表示关闭。录像自动删除默认关闭；启用后，从录像结束或回收站恢复时起计算，到期先进入回收站。永久保留录像跳过自动清理，仍可手动删除。拆分继承永久保留标记，归组时任一来源永久保留则归组录像也永久保留。回收站默认 7 天彻底删除，周期变更也应用于已有录像和切片回收记录。
-
-播放页右侧可切换「弹幕」和「直播记录」。在直播记录中上传 DanmuNeo 原生 `.yaml` / `.yml` 文件，同一场录像可保存多份文件，并按文件名、上传者和上传时间选择。每份文件最大 5 MiB、20,000 条；记录文字和七色标识保持原样，点击记录可跳转到录像的对应时间，超出录像范围的记录保留显示但不能跳转。
-
-记录按每条的实际时间对齐录像，支持文件级整体校准：正秒数向录像后方移动，负秒数向前移动，不修改上传的原文。旧文件中的日期没有时区时，上传时选择来源时区，默认使用站点时区；之后修改站点时区不会改变已上传记录的时间。文件向所有能观看该场录像的成员共享，与个人标记分开。上传者、有直播记录管理权限的成员和管理员可校准或永久删除该份文件，删除不进入回收站，也不影响其他录像中的独立副本。
-
-直播记录附件随整场录像回收和恢复，彻底清除场次时一起清理。归组、拆分会保留独立副本和原上传者；拆分后的两侧保留完整记录，超出各自范围的条目不能跳转。再次归组时，仅合并同源、内容及校准完全相同的副本。
-
-管理员可在「用户与邀请」按录播、直播记录和分析分组授予权限，包括观看录像、下载录像、创建切片、上传直播记录、生成直播记录、管理他人直播记录，以及原有的删除录像与设置永久保留、查看分析数据、彻底删除录像。录像管理权限包括恢复共享录像，彻底删除权限仅允许从回收站删除；个人切片仍仅对创建者和管理员开放。下载权限控制原始录像、个人切片和作业产物的下载入口，播放和创建切片等操作仍需观看权限。
-
-普通用户默认拥有观看、下载、创建切片和上传记录四项权限，其他权限初始关闭；旧账号升级保留原有授权并补齐这四项能力。「设置 → 注册」可调整之后注册账号的默认权限，不会覆盖现有用户或重新补回已经明确撤销的权限。管理员始终拥有全部权限，授权或撤权在已登录用户的下一次请求生效，包括已经取得的播放资源地址和任务重试；已接受的后台任务继续运行。
-
-录制优先 AVC/AAC。上游非标准 codec-12 HEVC 能力仍需真实样本验证；增强 FLV 会明确拒绝，不能假装修复成功。原始录制不会被离线修复覆盖。
-
-观测金额由金币面值与协议支付组成，报价单列且不计总额；未知价格和采集缺口单独记录。它不代表用户实付或主播结算，活跃用户也仅包含观察到互动的 UID。
-
-直播分析使用录像的共享同传覆盖规则，未设置覆盖时沿用管理员维护的全局规则，所有账号看到相同结果。个人账户不再提供同传规则设置。拥有 `recordings.configure` 权限的用户可修改录像覆盖，默认仅管理员拥有该权限；修改须带当前配置版本，避免覆盖其他人的更新。归组的来源覆盖不同（包括跟随全局与显式覆盖）时，必须由同时具有录像管理和配置权限的用户明确选择统一覆盖或全局规则；拆分继承原覆盖。同传弹幕从弹幕数、发言人数、互动用户、付费参与率分母、互动曲线和活跃榜中剔除；同传者发送的普通弹幕、SC、礼物和大航海仍正常统计。独立的同传板块展示同传总条数、同传者人数、每分钟合计量和个人条数前 100 名，头像与用户名可打开 B站主页。无法识别发送者的同传只计入总量与分钟图表。规则修改后会立即重建统计，无需重新录制；原始弹幕归档不变。
-
-## 在线人数与 AI 复盘
-
-统计页从原始 `ONLINE_RANK_COUNT.data.online_count` 读取平台上报的同时在线人数。它与人气值、高能榜人数及累计观看次数不同。已有归档包含该事件即可直接重算，无需重新录制；没有该字段的旧录像显示“无数据”。每次采样最多沿用 60 秒，重复数值会续期，明确断连会提前截断；缺测留空，真实零值保留。
-
-新增峰值在线人数、按有效观测时长加权的平均在线人数和观测覆盖率。在线人数、普通弹幕与 SC 共用时间轴，可切换 SC 条数或金额、缩放时段，并由服务端重新计算选区统计与去重用户。关系散点只采用完整一分钟且在线覆盖达到 80% 的桶。独立时间选区支持时分秒输入和概览条拖动，并标记 SC、礼物、红包及大航海位置；图钉控制滚动固定，偏好随账号保存。话题和消息依据的录像跳转打开新标签页，保留当前统计页的选区。
-
-分析页通过浮动目录跳转各板块，录播选择弹窗支持主播浏览、搜索和加载更多；有观看及分析权限时，录像详情工具栏也提供当前录像的分析入口。「付费用户总结」提供四类逐条明细与跨类用户合并卡片，跟随全局选区，全部记录均可分页查看；合并卡片的每页数量按实际列数对齐。分页绑定同一归档快照，避免录制追加数据导致重复或遗漏，快照失效后重新加载第一页。
-
-分析页工具栏支持导出 Excel，可选择当前时间选区或全场。数据概览、付费用户总结、SC、礼物、红包、大航海明细、分钟趋势、在线人数区间及用户统计分为独立工作表，导出包含完整记录，不受页面分页和排行榜显示条数限制。导出复用录像的同传规则和统计口径；金额与数量保存为数值，时间使用可读格式，UID 保存为文本。下载接口为 `GET /api/sessions/{id}/analytics/export`，可传 `fromMs`、`toMs`，要求观看及分析权限。
-
-管理员在「设置 → AI 接入」配置 OpenAI、DeepSeek 或自定义 Chat Completions 兼容服务、模型和 API key。服务必须支持 function calling；测试按钮会发出一次少量模型请求以验证能力。API key 使用实例密钥保护，读取设置只返回是否已保存；输入留空保留旧值，勾选删除后保存才会清除。
-
-AI 功能由独立 `Yohuke.LiveRecorder.AI` 项目实现。拥有观看及统计权限的成员可读取共享结果；发起和取消分析另需 `analytics.generate` 权限，默认仅管理员拥有。统计页顶部「AI分析」菜单提供生成或重新分析及分析详情；Token 用量、运行阶段、分段进度、压缩次数、停滞恢复次数、请求重试次数和取消操作集中在详情弹窗。后台任务页同时列出可见录像的共享 AI 任务，查看用量通过详情弹窗，结果跳转打开新的统计页标签。只有已结束的录像能手动发起分析，打开页面、刷新或选择话题均不会调用模型；查看话题时段只改变统计选区，不过滤话题列表。
-
-分析结合同传、普通弹幕和 SC，不进行音频转写。按 30 分钟创建独立分段子任务，先给出本地统计与精简证据，再通过 `get_metrics`、`get_messages`、`search_messages` 按需取证，使用 `submit_analysis` 分批保存话题。每段单独审阅，全部分段结束后才汇总整场概览和话题。后台的「模型上下文窗口」默认 0（自动），仅在服务商明确拒绝上下文长度时压缩；填入实际窗口容量后，按当前输入加本次输出预留判断容量，优先用服务商单次输入用量校准估算。旧的 32K 压缩参考不再触发提前压缩。已验证话题、证据、读取区间与分页游标保存在检查点中，可通过 `get_analysis_state` 按页重新读取，不依赖不断增长的历史消息。
-
-统计页「AI分析」菜单和播放页「直播记录」面板均可发起生成直播记录。该操作及任务取消独立受 `live-markers.generate` 权限控制，默认仅管理员拥有，不要求查看统计或生成话题分析的权限。生成任务依据 SC、弹幕及热点时段取证，以原始消息时间定位记录；热点强度只用于选择审阅时段，不作为直播内容的事实依据。任务沿用分段和上下文压缩，通过 `submit_live_markers` 保存条目，全部完成后另存一份共享原生记录文件，保留已上传及先前生成的文件。生成文件归属于发起者，并沿用现有校准、管理和场次生命周期规则。生成与话题分析各自去重、保存进度；后台任务按类型显示，记录结果在新标签页打开播放器并选中对应文件。观看权限允许读取生成任务状态和共享记录，查看或切换文件不会请求模型。
-
-压缩后补读已有证据按当前会话的恢复进展判断，不再仅因全局缓存已有该页就判为停滞。首次工具参数 JSON 或字段校验失败会返回具体错误并留出修正机会；持续停滞时根据已保存结果、未确认样本和错误重新建立会话。停滞恢复与容量压缩分别计数，恢复不清除已完成的分段、话题和记录草稿；跨会话重复相同状态仍会停止，避免无上限的无效请求。
-
-总 token 预算仅用于估算与展示，累计超过 1M 仍可继续分析。默认按有效来源时长（排除归组空档）以每小时 20,000 tokens 估算，参考范围为 10,000 至 1,000,000，参考参数支持更大的正整数。单次输出 token 上限默认 2,048，模型请求及工具调用次数默认 0（不限）；已有显式保存的次数限制继续生效。这些参数可独立配置，单次输出是否被模型支持由服务商决定。全局同时运行一个分析，用量跨分段和压缩累加，优先采用服务商返回的 usage，已明确拒绝的请求不计入预留估算。明确的上下文超限可压缩后重试。任务及完整/部分结果保存在 MongoDB，证据快照与上下文检查点保存在数据目录的私有文件中；完整旧结果在重新分析失败后仍可查看。数据、播放范围或规则变更会标记旧结果，需手动重新分析。
-
-请求的无响应超时默认 180 秒，每次收到响应数据后重新计时；后台可调整，设为 0 表示不限等待时间。连接中断、响应不完整或无响应超时等暂时传输故障，会对当前请求执行有限自动重试，默认最多连续重试 2 次，设为 0 可关闭。每次尝试单独记录用量，无法确认用量时采用估算；完整响应仅在连接收尾时异常会直接使用已收到的结果。重试不会清除已完成分段、话题和直播记录草稿，详情弹窗显示实际发起的累计重试次数。进程中断或未分类异常导致请求结果未知时，仍不自动重放请求。
-
-DeepSeek 可选择跟随模型、启用或禁用思考，以及默认、低、高、最大思考强度。思考模式使用兼容的自动工具选择，并完整保留工具循环中的 `reasoning_content`；禁用思考时使用强制工具选择。思考生成同样占输出预算，耗尽输出额度会明确提示。连接测试在思考模式下使用配置的输出上限，其他模式使用小型探测请求。
+新录播结束后自动排队，历史录播需手动发起。原片保留，转码未完成或失败时回退原画；修改档位不会自动重转历史录像。成品保存在录像目录的 `.derived/`。
 
 ## 测试
 
+从仓库根目录按改动选择测试项目：
+
 ```sh
-dotnet test Tests/Server/Yohuke.LiveRecorder.Tests.csproj
-dotnet test Tests/Media/Yohuke.LiveRecorder.Media.Tests.csproj
-dotnet test Tests/AI/Yohuke.LiveRecorder.AI.Tests.csproj
+dotnet test Sources/Tests/Server/Yohuke.LiveRecorder.Tests.csproj
+dotnet test Sources/Tests/Media/Yohuke.LiveRecorder.Media.Tests.csproj
+dotnet test Sources/Tests/AI/Yohuke.LiveRecorder.AI.Tests.csproj
+dotnet test Sources/Tests/TranscodingWorker/Yohuke.LiveRecorder.Transcoding.Worker.Tests.csproj
 ```
 
-MongoDB 集成测试使用独立实例与每次随机数据库名，配置：
+`Identity`、`Http`、`Grouping` 和 `Recording` 集成测试需要独立 MongoDB 实例，通过 `LIVE_RECORDER_TEST_MONGO` 指定连接；每次使用随机数据库名。例如：
 
 ```sh
-export LIVE_RECORDER_TEST_MONGO=mongodb://127.0.0.1:27017
-dotnet test Tests/Identity/Yohuke.LiveRecorder.Identity.Tests.csproj
-dotnet test Tests/Http/Yohuke.LiveRecorder.Http.Tests.csproj
-dotnet test Tests/Grouping/Yohuke.LiveRecorder.Grouping.Tests.csproj
-dotnet test Tests/Recording/Yohuke.LiveRecorder.Recording.Tests.csproj --filter 'FullyQualifiedName!~RecordingPressureTests'
+LIVE_RECORDER_TEST_MONGO=mongodb://127.0.0.1:27017 dotnet test Sources/Tests/Http/Yohuke.LiveRecorder.Http.Tests.csproj
 ```
 
-32 路持续采集、4 路播放窗口及后台切片压力验收：
+运行普通录制测试时，使用 `--filter 'FullyQualifiedName!~RecordingPressureTests'` 排除压力测试。需要压力验收时，设置 `LIVE_RECORDER_STRESS=1`，筛选 `FullyQualifiedName~RecordingPressureTests`。
+
+前端测试与构建：
 
 ```sh
-LIVE_RECORDER_STRESS=1 dotnet test Tests/Recording/Yohuke.LiveRecorder.Recording.Tests.csproj --filter FullyQualifiedName~RecordingPressureTests
-```
-
-```sh
-cd WebUI
+cd Sources/WebUI
 pnpm test
 pnpm build
 ```
-
-真实 B站扫码、手机号、极验和安全中心需使用管理员自己的账号完成验收。自动测试不会向真人发送邮件或短信。
-
-## 许可证
-
-GPL-3.0。FLV 组件固定来源、修改记录和依赖说明见 `ThirdParty/BililiveRecorder.Flv/NOTICE`；B站 API 保留在 Core 子模块中。

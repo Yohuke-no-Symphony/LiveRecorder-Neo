@@ -11,12 +11,15 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Release.Common.ps1')
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $sourceRoot = Join-Path $repoRoot 'Sources'
-$outputDirectory = Join-Path $repoRoot "Artifacts/server/$Runtime"
+$projectPath = Join-Path $sourceRoot 'Yohuke.LiveRecorder.Server/Yohuke.LiveRecorder.Server.csproj'
+$Version = Get-ReleaseVersion -ProjectPath $projectPath -Runtime $Runtime -Version $Version
+$outputDirectory = Join-Path $repoRoot "Artifacts/server/$Version/$Runtime"
 $publishArguments = @(
     'publish',
-    (Join-Path $sourceRoot 'Yohuke.LiveRecorder.Server/Yohuke.LiveRecorder.Server.csproj'),
+    $projectPath,
     '--configuration', 'Release',
     '--runtime', $Runtime,
     '--self-contained', 'true',
@@ -24,13 +27,9 @@ $publishArguments = @(
     '-p:IncludeNativeLibrariesForSelfExtract=true',
     '-p:DebugType=embedded',
     '-p:RuntimeFrameworkVersion=10.0.13',
+    "-p:Version=$Version",
     '--output', $outputDirectory
 )
-
-if ($PSBoundParameters.ContainsKey('Version'))
-{
-    $publishArguments += "-p:Version=$Version"
-}
 
 if ($NoWebUIBuild)
 {
@@ -47,3 +46,4 @@ if ($LASTEXITCODE -ne 0)
 Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE') -Destination $outputDirectory
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'README.md') -Destination $outputDirectory
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'ThirdParty/BililiveRecorder.Flv/NOTICE') -Destination (Join-Path $outputDirectory 'THIRD-PARTY-NOTICES.txt')
+Compress-ReleaseArtifact -OutputDirectory $outputDirectory -Component 'server' -Version $Version -Runtime $Runtime

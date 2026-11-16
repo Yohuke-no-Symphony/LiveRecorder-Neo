@@ -11,7 +11,7 @@ public sealed class StatusConnections : IUserSessionRevoker
     /// <summary>登记连接。</summary>
     public void Add(StatusConnection connection) => connections[connection.Id] = connection;
     /// <summary>移除断开的连接。</summary>
-    public void Remove(string id) => connections.TryRemove(id, out _);
+    public void Removm(string id) => connections.TryRemove(id, out _);
 
     /// <inheritdoc />
     public void Revoke(string userId, long sessionVersion)

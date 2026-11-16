@@ -15,7 +15,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'scripts/Release.Common.ps1')
 $workerProjectDirectory = Join-Path $PSScriptRoot 'Sources/Yohuke.LiveRecorder.Transcoding.Worker'
+$workerProjectPath = Join-Path $workerProjectDirectory 'Yohuke.LiveRecorder.Transcoding.Worker.csproj'
 $workerRuntimes = @($Runtime)
 
 if ($All)
@@ -25,10 +27,11 @@ if ($All)
 
 foreach ($workerRuntime in $workerRuntimes)
 {
-    $workerOutputDirectory = Join-Path $PSScriptRoot "Artifacts/worker/$workerRuntime"
+    $workerVersion = Get-ReleaseVersion -ProjectPath $workerProjectPath -Runtime $workerRuntime -Version $Version
+    $workerOutputDirectory = Join-Path $PSScriptRoot "Artifacts/worker/$workerVersion/$workerRuntime"
     $workerPublishArguments = @(
         'publish',
-        (Join-Path $workerProjectDirectory 'Yohuke.LiveRecorder.Transcoding.Worker.csproj'),
+        $workerProjectPath,
         '--configuration', 'Release',
         '--runtime', $workerRuntime,
         '--self-contained', 'true',
@@ -36,13 +39,9 @@ foreach ($workerRuntime in $workerRuntimes)
         '-p:IncludeNativeLibrariesForSelfExtract=true',
         '-p:DebugType=embedded',
         '-p:RuntimeFrameworkVersion=10.0.13',
+        "-p:Version=$workerVersion",
         '--output', $workerOutputDirectory
     )
-
-    if ($PSBoundParameters.ContainsKey('Version'))
-    {
-        $workerPublishArguments += "-p:Version=$Version"
-    }
 
     & dotnet @workerPublishArguments
 
@@ -54,4 +53,5 @@ foreach ($workerRuntime in $workerRuntimes)
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'LICENSE') -Destination $workerOutputDirectory
     Copy-Item -LiteralPath (Join-Path $workerProjectDirectory 'README.md') -Destination $workerOutputDirectory
     Copy-Item -LiteralPath (Join-Path $workerProjectDirectory 'settings.example.json') -Destination $workerOutputDirectory
+    Compress-ReleaseArtifact -OutputDirectory $workerOutputDirectory -Component 'worker' -Version $workerVersion -Runtime $workerRuntime
 }

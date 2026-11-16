@@ -1,131 +1,89 @@
 # 转码 Worker
 
-独立的 .NET 10 命令行节点，通过可选 TLS 的 TCP 控制通道接收主站任务，通过 HTTP 或 HTTPS 下载原片并回传 HLS 成品。Worker 不需要 MongoDB，不提供入站端口，也不共享主站磁盘。
+独立转码节点，通过 TCP 接收任务，通过 HTTP/HTTPS 下载原片并上传 H.264/AAC HLS 成品。无需 MongoDB、入站端口或共享磁盘。
 
-## 启动与绑定
+## 快速部署
 
-在主站后台创建 Worker，取得 Worker ID 和一次性 Secret，然后运行注册向导。
+1. 安装 FFmpeg、ffprobe 和所需 GPU 驱动，从 [Releases](https://github.com/Yohuke-no-Symphony/LiveRecorder-Neo/releases/latest) 下载并解压 `worker-*.zip`。发布包自带 .NET 运行时，未提供的平台可[从源码发布](#从源码发布)。
+2. 在主站「设置 → 转码」创建 Worker，保存节点 ID 与一次性 Secret；确认网站地址和 TCP 控制端口可达，默认控制端口为 `4790`。
+3. 在解压目录运行：
+
+   ```sh
+   chmod +x ./ylr-worker
+   ./ylr-worker register
+   ./ylr-worker run
+   ```
+
+   Windows 跳过 `chmod`，使用 `.\ylr-worker.exe`。注册向导填写主站地址、控制地址、TLS 选项、ID 和 Secret，并配置临时目录及媒体工具；Ctrl+C 停止前台运行。
+
+网站 HTTP/HTTPS 与 TCP 控制通道分别配置。主站 `TranscodingControl:UseTls` 与节点 `ControlUseTls` 必须一致；内网不使用证书时均设为 `false`。HTTP 反向代理不能直接转发 TCP 控制端口。
+
+## 配置
+
+注册后将连接信息和运行参数保存到可执行文件旁的 `settings.json`，也可指定固定路径：
 
 ```sh
-./ylr-worker register
+./ylr-worker register --config /absolute/path/settings.json
+./ylr-worker config --config /absolute/path/settings.json
+./ylr-worker run --config /absolute/path/settings.json
 ```
 
-Windows 使用 `ylr-worker.exe`。`register` 在终端询问主站 HTTP 或 HTTPS 地址，TCP 控制主机默认使用本次 URL 的主机名或 IP，并可手动填写独立地址。控制端口单独配置，默认 4790。向导会询问是否使用控制 TLS，HTTP 网站地址默认选择关闭，HTTPS 默认选择开启，随后填写 Worker ID 与 Secret，Secret 隐藏输入。连接信息与全部运行参数统一保存在可执行文件旁的 `settings.json`。首次连接后，若主站已配置运行参数则同步到该文件，本机与主站均未配置时继续进入运行参数向导。完成注册后退出。
+`config` 修改 FFmpeg、ffprobe、临时目录、并发、设备、缓存和传输限额。路径属于节点机器；运行账户须可读写设置文件与临时目录。临时空间应能容纳完整原片和转码输出。
 
-命令帮助、交互提示、运行日志和错误输出均使用英文。无参数时显示帮助。
+主站后台与本机共用同一份运行参数，节点会同步并保存；运行中通过主站修改，本机用 `config` 修改前先停服务。发生版本冲突时，运行 `config` 读取主站最新配置并重新确认。
 
-```sh
-# Bind this worker to a server and synchronize its settings
-./ylr-worker register
+无人值守部署可复制 `settings.example.json`，填写 `Worker` 地址和凭据，以及 `Configuration.TempDirectory` 绝对路径。配置含 Secret，不要提交到仓库。旧版 Worker 的 `appsettings.json` 需改名为 `settings.json`。
 
-# Edit local runtime settings, including temporary storage and tool paths
-./ylr-worker config
-
-# Run in the foreground, use Ctrl+C to stop
-./ylr-worker run
-
-# Show command help and the embedded build version
-./ylr-worker help
-./ylr-worker help config
-./ylr-worker version
-
-# Select a settings file, before or after the command
-./ylr-worker --config /path/to/settings.json run
-```
-
-`register` 先保存连接信息，再连接主站验证绑定并同步配置，主站暂时不可用时已经保存的绑定信息仍然保留。密钥轮换后停止 Worker，运行 `register` 输入新 Secret，再重新启动，同一绑定留空可保留已有密钥。
-
-`config` 编辑 FFmpeg、ffprobe、临时目录、编码并发、设备和传输限额。已绑定时读取主站最新配置作为向导基础，保存到同一份 `settings.json` 并同步主站，执行时需要主站在线。未绑定时先保存本机运行参数，随后由 `register` 提交。一个命令只执行一个动作。
+启用控制 TLS 时，主站使用含私钥的 PFX 证书。系统可信证书无需指定指纹；私有证书可配置 `ControlCertificateSha256`、`ApiCertificateSha256`，分别固定控制与文件接口证书，仍校验有效期与主机名。
 
 ## 系统服务
 
-`install` 自动识别操作系统，macOS 注册系统级 LaunchDaemon，Linux 注册 systemd 系统服务，Windows 注册 Windows Service。安装后处于停止、手动启动状态，`start` 启动服务，`enable` 设置开机启动。
-
-| 命令 | 行为 |
-| --- | --- |
-| `install` | 记录当前可执行文件与绝对设置路径，安装系统服务 |
-| `uninstall` | 停止服务并移除服务注册，保留设置和转码缓存 |
-| `start` | 启动已安装服务 |
-| `stop` | 停止服务并等待转码任务与 FFmpeg 进程退出 |
-| `status` | 查看安装状态、运行状态、开机启动方式、进程 ID 和日志来源 |
-| `log` | 显示最近 100 条服务日志并持续跟随新输出，Ctrl+C 退出 |
-| `enable` | 开启下次开机自动启动 |
-| `disable` | 关闭下次开机自动启动 |
-
-`enable` 和 `disable` 修改开机启动策略，即时运行状态通过 `start` 和 `stop` 管理。服务控制命令可在 Worker 占用设置文件期间执行。`install` 的 `--config` 路径会写入服务定义，后续 `start` 使用该注册路径。
-
-macOS 与 Linux 在固定部署目录使用管理员终端执行，下面的绝对设置路径需替换为实际位置。
+将程序放在固定目录，在管理员终端执行；macOS/Linux 使用 `sudo`，Windows 使用管理员 PowerShell：
 
 ```sh
-sudo ./ylr-worker register --config /absolute/path/settings.json
 sudo ./ylr-worker install --config /absolute/path/settings.json
 sudo ./ylr-worker enable
 sudo ./ylr-worker start
-
-sudo ./ylr-worker status
-sudo ./ylr-worker log
-
-sudo ./ylr-worker stop
-sudo ./ylr-worker config --config /absolute/path/settings.json
-sudo ./ylr-worker start
-
-sudo ./ylr-worker disable
-sudo ./ylr-worker uninstall
 ```
 
-Windows 在管理员 PowerShell 中执行对应的 `.\ylr-worker.exe` 命令。
+安装后默认停止且不开机启动，`start` 和 `enable` 分别控制运行与开机启动。
 
-Unix 系统服务使用 root，Windows 使用 LocalSystem。运行账户需要能够执行 Worker、FFmpeg 和 ffprobe，并读写设置文件所在目录与临时目录。运行中的设置同步会原子替换文件，后续 `register` 和 `config` 使用相同管理账户执行。工具安装在自定义目录时，通过 `config` 保存其绝对路径。
+| 命令 | 用途 |
+| --- | --- |
+| `register` / `config` / `run` | 绑定主站、修改参数、前台运行 |
+| `install` / `uninstall` | 安装或移除系统服务，卸载保留配置和缓存 |
+| `start` / `stop` | 启停服务，停止时等待 FFmpeg 退出 |
+| `enable` / `disable` | 开关开机启动 |
+| `status` / `log` | 查看服务状态、跟随日志，Ctrl+C 退出日志 |
+| `help` / `version` | 查看帮助与版本 |
 
-系统服务名为 `yohuke-live-recorder-worker`，macOS 的 launchd 标签为 `com.yohuke.live-recorder.worker`。Linux 日志可使用 `journalctl -u yohuke-live-recorder-worker` 查看，Windows 使用事件查看器中 Application 日志的同名来源。升级可执行文件时先 `stop`，替换后再 `start`，修改部署位置或设置路径时重新执行 `uninstall` 和 `install`。
+Linux 使用 systemd，Windows 使用 Windows Service，服务名为 `yohuke-live-recorder-worker`；macOS 使用 LaunchDaemon，标签为 `com.yohuke.live-recorder.worker`。Unix 服务使用 root，Windows 使用 LocalSystem；工具路径建议填写绝对路径。
 
-`status` 查询已安装的系统服务，服务运行时退出码为 0，其余情况为 1。`log` 在 macOS 分别读取 `worker.log` 和 `worker-error.log` 的最近 100 行，在 Linux 跟随对应 unit 的 journal，在 Windows 读取 Application 日志中的 Worker 来源。日志查看持续运行，Ctrl+C 结束查看。查询使用系统中的服务注册信息和日志读取权限，macOS 已安装的系统服务通过管理员终端查询。
+升级时先 `stop`，替换程序后 `start`；修改程序或配置位置后重新安装服务。主站节点卡片可查看任务日志，保留 7 天。命令行提示与日志使用英文。
 
-macOS 的服务定义、日志和 bundle 提取目录统一位于 `/Library/Application Support/Yohuke.LiveRecorder/WorkerService/`，开机启动定义位于 `/Library/LaunchDaemons/com.yohuke.live-recorder.worker.plist`。`worker.log` 与 `worker-error.log` 保存运行输出。Linux 的服务定义位于 `/etc/systemd/system/yohuke-live-recorder-worker.service`，bundle 提取目录为 `/var/cache/yohuke-live-recorder-worker/bundles`。
+## 编码与资源
 
-任务日志包含下载、媒体探测、资源等待、编码、成品校验、上传及主站发布等待。阶段变化立即记录，运行进度每 5 秒记录一次，传输重试与 FFmpeg 错误即时输出。每条任务日志附带任务 ID 和执行代次。主站设置页的节点卡片提供“查看日志”，日志随已有心跳批量上报，网页每秒读取增量，主站保存最近 7 天。日志窗口首次加载近期 200 条，最多显示最近 1000 条，向上阅读时暂停跟随，通过“返回最新”恢复。断线日志缓冲有界，恢复后重发尚未确认的批次，超过缓冲容量时显示缺失条数。
+| 系统 | 探测的硬件编码后端 |
+| --- | --- |
+| Windows | NVENC、Intel QSV、AMD AMF |
+| Linux | NVENC、QSV、VAAPI、AMF |
+| macOS | VideoToolbox |
 
-## 唯一设置文件
+FFmpeg 需包含对应编码器，驱动与设备权限需可用；Linux QSV/VAAPI 还需访问渲染设备节点。节点通过短样本编码后才接单。
 
-发布包提供 `settings.example.json`，包含全部连接与运行参数。交互注册时无需复制模板。无人值守部署可将模板复制为 `settings.json`，填写 `Worker` 内的地址和凭据，再运行 `run`。若在主站后台预先配置了运行参数，`Configuration` 可保留默认值，首次连接时自动同步。若在本地配置运行参数，必须填写本机绝对路径的 `TempDirectory`。
+默认总并发 2、GPU 并发 1、CPU 补位 1。CPU 补位需等待 GPU 超过 60 秒，且最近 30 秒平均 CPU 使用率低于 60%；这些阈值可在配置中调整，不是 CPU 使用率硬上限。
 
-`Worker` 保存地址、`ControlUseTls`、Worker ID、Secret 与 TLS 证书设置。`Configuration` 保存 FFmpeg、ffprobe、临时目录、编码并发、GPU 偏好、CPU 补位策略、缓存与传输限额。程序会自动维护 `ConfigurationRevision`、`ConfigurationHash` 和 `BindingHash`，用于识别本地修改和主站配置版本，请保留这些同步字段。
+转码保留原片和画面比例，不提高源码率、帧率或分辨率；HDR 或无法确认源码率的输入会跳过。主站配置 HLS 档位、分片时长、关键帧间隔和单文件存储。
 
-主站后台下发的运行参数会写回同一份文件。停止 Worker 后可以直接修改 `Configuration`，下次运行会按已同步的版本提交。若本地与主站都修改了配置，将保留本地文件并报告版本冲突，运行 `config` 可以基于主站最新配置重新确认。保存采用同目录原子替换，同一文件只能由一个 Worker 进程占用，运行期间通过主站后台修改配置。
+下载和上传支持断点续传，断网后自动重连。同一原片可复用输入缓存，空间不足时清理未使用的缓存；更换临时目录后，旧缓存需自行清理。
 
-旧 Worker 的 `appsettings.json` 不再读取或打包。升级时可将旧文件改名为 `settings.json`，原有 `Worker` 连接信息会保留，首次连接会补齐主站运行参数。发布脚本只提供示例，不覆盖实际的 `settings.json`。Linux 和 macOS 上程序保存的设置文件权限为仅当前用户可读写；Windows 继承所选目录的权限，请将文件放在运行账户的私有目录中。配置文件含绑定密钥，不应提交到代码仓库。
+## 从源码发布
 
-`ApiBaseUrl` 支持 HTTP 和 HTTPS。主站 `appsettings.json` 的 `TranscodingControl` 节配置控制监听。内网免证书连接将主站的 `UseTls` 与 Worker 的 `ControlUseTls` 都设为 `false`，`CertificatePath` 可留空。默认控制端口为 4790，网站端口与 TCP 控制端口分别配置。修改主站监听配置后重启 Server。
-
-启用控制 TLS 时，两端开关均设为 `true`，主站填写实际 PFX 证书路径及可选密码。系统可信证书无需填写指纹。私有证书可在绑定向导中填写其 DER 内容的 SHA-256 十六进制指纹，同时校验证书有效期与主机名。`TlsServerName` 用于 TCP 连接的证书主机名，HTTPS 按 URL 的主机名验证。旧设置省略新增开关时按 TLS 模式读取。
-
-`ControlCertificateSha256` 与 `ApiCertificateSha256` 可分别固定两个端点的证书；未设置时回退到共同的 `ServerCertificateSha256`。例如 HTTPS 反代使用系统可信证书而控制端使用私有证书，只需设置控制端指纹。修改可选 TLS 参数时，留空保留现有值，输入 `-` 清除。
-
-`run` 使用已保存的设置。缺少凭据或运行参数时输出配置指引并退出。启动阶段及运行中的网络中断均会自动重连，等待时间逐步增加到最多 30 秒。Ctrl+C 或 SIGTERM 会取消任务并等待当前 FFmpeg 进程树退出。
-
-## 编码和资源
-
-主站和 Worker 保留原片。转码提供额外的 H.264 8-bit/AAC HLS 档位。主站每个档位可配置目标分片时长、关键帧间隔和单文件存储，默认分别为 6 秒、2 秒及多文件。两个时长支持 0.1～300 秒的小数，实际切分位置按关键帧和帧时长对齐。多文件输出 `init.mp4`、`chunk_*.m4s` 与 `index.m3u8`，单文件输出 `media.mp4` 与 `index.m3u8`，通过 HLS 字节范围读取逻辑分片。任务保存排队时的参数快照，默认旧配方标识继续兼容已有成品，新参数生成独立配方和产物目录。自定义包装任务交给报告相应能力的 Worker。
-
-编码保持横竖屏比例，目标高度按显示短边计算，尺寸取偶数。档位高于原片分辨率、HDR 输入或无法确认源码率时跳过。输出码率与帧率不超过源上限，原画继续使用现有播放链路。
-
-Windows 探测 NVENC、Intel QSV、AMD AMF；Linux 探测 NVENC、QSV、VAAPI 及 AMF；macOS 探测 VideoToolbox。所有候选先执行短样本编码，只有成功的后端可接单。FFmpeg 构建必须含对应编码器，并安装兼容驱动。Linux QSV/VAAPI 需要渲染设备节点访问权限。不同 GPU/驱动具有不同能力，发布成功不代表当前机器具有相应硬件。软件解码与缩放可以配合 GPU 编码。
-
-默认总编码并发为 2，GPU 为 1，CPU 补位为 1。CPU 仅在输入下载、校验和探测完成后等待 GPU 超过 60 秒，且最近完整 30 秒 CPU 平均使用率低于 60% 时启动。采样缺失、失效或无法可靠计量受限 CPU 资源域时不启用补位。编码线程预算为有效逻辑核数的一半向下取整；不足 2 个有效核时不启用 CPU 补位。线程预算和启动阈值均不等于 CPU 使用率的硬上限。
-
-GPU 恢复后正在运行的 CPU 任务继续完成，新任务优先 GPU。GPU 编码失败后暂时停用该设备；缺少可用编码器时每隔至少 60 秒重新检测，检测也占用同一执行槽，并等待 GPU 空闲。总编码并发包括 GPU 和 CPU；设为 1 时两者不会并行。降低并发只影响新任务，运行中的任务使用已确定的执行配置。工具与设备配置修改会等待 GPU 空闲，再重新检测能力。
-
-输入下载支持 HTTP Range 续传，成品按最多 8 MiB 的数据块上传并按主站已确认偏移恢复。临时目录下仅维护 `live-recorder-worker/<WorkerId>/` 的文件；同一源版本可在多个档位之间复用本地输入，使用中的文件不会被缓存清理。缓存上限需覆盖原片和转码临时成品，超大录播应相应增大上限。执行租约超时、取消或源文件版本失效时终止工作，过期结果不能在主站发布。
-
-任务释放工作目录时删除该次 `jobs` 输出，并解除 `inputs` 的活动引用。输入缓存包含完整源文件、媒体信息和断点下载，领取新任务时根据缓存上限及最小空闲空间，从旧到新淘汰空闲目录。输入缓存可以保留到后续空间压力触发清理，切换临时目录后历史缓存留存在旧目录。
-
-## 发布
-
-仓库根目录执行：
+在仓库根目录执行，需要 .NET 10 SDK 和 PowerShell：
 
 ```powershell
 pwsh ./release-worker.ps1 -Runtime win-x64 --version 1.2.3
 pwsh ./release-worker.ps1 --all --version 1.2.3
 ```
 
-支持 `linux-x64`、`linux-arm64`、`win-x64`、`osx-x64`、`osx-arm64`，默认 `linux-x64`。产物位于 `Artifacts/worker/<runtime>/`，Worker 发布为自包含 SingleFile 可执行文件，.NET 运行库与程序集包含在该文件内，原生库在首次启动时解压到运行账户可写的 bundle 目录。发布目录同时提供 `settings.example.json` 与说明，实际 `settings.json` 由运行时创建。FFmpeg、ffprobe 和 GPU 驱动由目标机器安装。任一平台发布失败立即停止。终端交互使用 Spectre.Console（MIT）。
+默认 `linux-x64`，支持 `linux-arm64`、`win-x64`、`osx-x64`、`osx-arm64`；`--version` 可省略。产物在 `Artifacts/worker/<version>/<runtime>/`，压缩包为 `Artifacts/worker/<version>/worker-<version>-<runtime>.zip`，解压后直接得到运行文件。
