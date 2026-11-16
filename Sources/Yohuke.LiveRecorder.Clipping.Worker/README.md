@@ -5,7 +5,7 @@
 ## 快速部署
 
 1. 安装 FFmpeg 和 ffprobe，从 [Releases](https://github.com/Yohuke-no-Symphony/LiveRecorder-Neo/releases/latest) 下载对应平台的 `workers-<版本>-<平台>.zip`，解压后进入 `clip/` 目录。发布包自带 .NET 运行时。
-2. 在主站「设置 → 切片」创建 Worker，保存节点 ID 与一次性访问密钥。确认网站地址和 TCP 控制端口可达，默认控制端口为 `4790`。
+2. 在主站「管理 → Worker → 切片」创建 Worker，保存节点 ID 与一次性访问密钥。确认网站地址和 TCP 控制端口可达，默认控制端口为 `4790`。
 3. 在解压目录运行以下命令。
 
    ```sh

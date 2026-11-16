@@ -125,12 +125,12 @@ afterEach(() =>
 
 describe('清晰度设置', () =>
 {
-  it('切片设置入口将正确的节点类型传给共享管理面板', async () =>
+  it('设置保留全局清晰度配置，节点管理不再嵌入设置', async () =>
   {
     const wrapper = await openTranscoding()
-    wrapper.findComponent(tabs).vm.$emit('update:modelValue', 'clipping')
-    await nextTick()
-    expect(wrapper.find('transcoding-workers-panel-stub').attributes('kind')).toBe('Clipping')
+    expect(wrapper.find('transcoding-workers-panel-stub').exists()).toBe(false)
+    expect(wrapper.findComponent(tabs).text()).not.toContain('切片')
+    expect(wrapper.find('[data-sortable-id="720p"]').exists()).toBe(true)
     expect(MediaAPI.updateSettings).not.toHaveBeenCalled()
   })
 

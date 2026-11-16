@@ -24,6 +24,7 @@ const router = createRouter({
     { path: '/admin/accounts', component: () => import('@/views/AccountsView.vue'), meta: { admin: true, breadcrumbs: [{ titleKey: 'shell.nav.management' }, { titleKey: 'shell.nav.accounts' }] } },
     { path: '/admin/users', component: () => import('@/views/UsersView.vue'), meta: { admin: true, breadcrumbs: [{ titleKey: 'shell.nav.management' }, { titleKey: 'shell.nav.users' }] } },
     { path: '/admin/storage', component: () => import('@/views/StorageView.vue'), meta: { admin: true, breadcrumbs: [{ titleKey: 'shell.nav.management' }, { titleKey: 'shell.nav.storage' }] } },
+    { path: '/admin/workers', component: () => import('@/views/WorkersView.vue'), meta: { admin: true, breadcrumbs: [{ titleKey: 'shell.nav.management' }, { titleKey: 'shell.nav.workers' }] } },
     { path: '/admin/settings', component: () => import('@/views/SettingsView.vue'), meta: { admin: true, breadcrumbs: [{ titleKey: 'shell.nav.management' }, { titleKey: 'shell.nav.settings' }] } },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

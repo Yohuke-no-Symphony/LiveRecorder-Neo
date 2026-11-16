@@ -76,6 +76,7 @@ describe('页面导航与面包屑', () =>
     ['/admin/accounts', ['管理', 'B站账号']],
     ['/admin/users', ['管理', '用户与邀请']],
     ['/admin/storage', ['管理', '磁盘']],
+    ['/admin/workers', ['管理', 'Worker']],
     ['/admin/settings', ['管理', '设置']],
   ])('%s 显示实际层级，当前页与管理分组没有链接', async (path, titles) =>
   {
@@ -112,6 +113,18 @@ describe('页面导航与面包屑', () =>
     expect(wrapper.findAll('.v-breadcrumbs a')).toHaveLength(0)
     expect(wrapper.find('.nav-item[data-to="/"]').exists()).toBe(false)
     expect(wrapper.findAll('.nav-item[data-to^="/admin/"]')).toHaveLength(0)
+  })
+
+  it('Worker管理拥有独立的管理员路由和侧栏入口', async () =>
+  {
+    useAuthStore().user!.role = 'Admin'
+    const wrapper = await openShell('/admin/workers')
+    expect(router.resolve('/admin/workers').meta.admin).toBe(true)
+    expect(wrapper.get('.nav-item[data-to="/admin/workers"]').text()).toBe('Worker')
+    useAuthStore().user!.role = 'User'
+    await nextTick()
+    expect(wrapper.find('.nav-item[data-to="/admin/workers"]').exists()).toBe(false)
+    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/'))
   })
 
   it('同一外壳内切换页面会更新层级，未知路径按现有规则回到录播库', async () =>

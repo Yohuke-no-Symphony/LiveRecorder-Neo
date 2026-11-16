@@ -3,7 +3,7 @@
   <v-alert v-if="error || saveError" type="error" class="mb-6">{{ error || saveError }}</v-alert>
   <v-progress-linear v-if="loading" indeterminate color="primary" />
   <template v-if="settings">
-    <v-tabs v-model="tab" color="primary" show-arrows class="mb-6"><v-tab value="general">{{ t('shell.settings.general') }}</v-tab><v-tab value="recording">{{ t('shell.settings.recording') }}</v-tab><v-tab value="media">{{ t('shell.settings.media') }}</v-tab><v-tab value="transcoding">{{ t('transcoding.title') }}</v-tab><v-tab value="clipping">{{ t('transcoding.clippingTitle') }}</v-tab><v-tab value="bandwidth">{{ t('bandwidthSettings.title') }}</v-tab><v-tab value="registration">{{ t('shell.settings.registration') }}</v-tab><v-tab value="smtp">{{ t('shell.settings.mail') }}</v-tab><v-tab value="oauth">{{ t('shell.settings.oauth') }}</v-tab><v-tab value="ai">{{ t('aiSettings.title') }}</v-tab></v-tabs>
+    <v-tabs v-model="tab" color="primary" show-arrows class="mb-6"><v-tab value="general">{{ t('shell.settings.general') }}</v-tab><v-tab value="recording">{{ t('shell.settings.recording') }}</v-tab><v-tab value="media">{{ t('shell.settings.media') }}</v-tab><v-tab value="transcoding">{{ t('transcoding.title') }}</v-tab><v-tab value="bandwidth">{{ t('bandwidthSettings.title') }}</v-tab><v-tab value="registration">{{ t('shell.settings.registration') }}</v-tab><v-tab value="smtp">{{ t('shell.settings.mail') }}</v-tab><v-tab value="oauth">{{ t('shell.settings.oauth') }}</v-tab><v-tab value="ai">{{ t('aiSettings.title') }}</v-tab></v-tabs>
     <div v-if="tab === 'general'" class="settings-grid">
       <ContentCard :title="t('shell.settings.interface')">
         <div class="form-stack">
@@ -37,8 +37,7 @@
       <ContentCard :title="t('shell.settings.retention')"><div class="form-stack"><v-text-field v-model.number="settings.recordingRetentionDays" :label="t('shell.settings.recordingRetention')" :hint="t('shell.settings.recordingRetentionDescription')" persistent-hint type="number" min="0" max="3650" step="1" /><v-text-field v-model.number="settings.clipRetentionDays" :label="t('shell.settings.clipRetention')" type="number" min="1" /><v-text-field v-model.number="settings.trashRetentionDays" :label="t('shell.settings.trashRetention')" :hint="t('shell.settings.trashRetentionDescription')" persistent-hint type="number" min="0" max="3650" step="1" /><v-text-field v-model.number="settings.cacheRetentionMinutes" :label="t('shell.settings.cacheRetention')" type="number" min="1" /></div></ContentCard>
       <ContentCard :title="t('shell.settings.resourceLimits')"><div class="form-stack"><v-text-field v-model.number="cacheGiB" :label="t('shell.settings.cacheLimit')" type="number" min="1" /><v-text-field v-model.number="minimumFreeGiB" :label="t('shell.settings.minimumFree')" type="number" min="1" /><v-text-field v-model.number="settings.mediaConcurrency" :label="t('shell.settings.mediaConcurrency')" type="number" min="1" max="32" /><v-text-field v-model.number="settings.playbackConcurrency" :label="t('shell.settings.playbackConcurrency')" type="number" min="1" max="32" /></div></ContentCard>
     </div>
-    <div v-else-if="tab === 'transcoding' && settings.transcoding" class="form-stack"><TranscodingSettingsPanel v-model="settings.transcoding" :disabled="saving" /><TranscodingWorkersPanel /></div>
-    <TranscodingWorkersPanel v-else-if="tab === 'clipping'" kind="Clipping" />
+    <TranscodingSettingsPanel v-else-if="tab === 'transcoding' && settings.transcoding" v-model="settings.transcoding" :disabled="saving" />
     <BandwidthSettingsPanel v-else-if="tab === 'bandwidth' && settings.bandwidth" v-model="settings.bandwidth" :disabled="saving" />
     <RegistrationSettings v-else-if="tab === 'registration'" v-model="settings" :disabled="saving" />
     <AiSettingsPanel v-else-if="tab === 'ai' && settings.ai" v-model="settings.ai" :disabled="saving" />
@@ -82,7 +81,6 @@ import LanguageSelect from '@/components/common/LanguageSelect.vue'
 import DataDirectorySettings from '@/components/common/DataDirectorySettings.vue'
 import RegistrationSettings from '@/components/common/RegistrationSettings.vue'
 import AiSettingsPanel from '@/components/common/AiSettingsPanel.vue'
-import TranscodingWorkersPanel from '@/components/common/TranscodingWorkersPanel.vue'
 import TranscodingSettingsPanel from '@/components/common/TranscodingSettingsPanel.vue'
 import { isValidTranscodingSettings, normalizeTranscodingSettings } from '@/models/transcoding'
 import BandwidthSettingsPanel from '@/components/common/BandwidthSettingsPanel.vue'
