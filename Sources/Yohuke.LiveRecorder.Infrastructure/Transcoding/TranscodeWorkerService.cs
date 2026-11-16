@@ -130,6 +130,19 @@ public sealed class TranscodeWorkerService(IMongoContext context, IAppPaths path
         return new() { Configuration = worker.Configuration, ConfigurationRevision = worker.ConfigurationRevision };
     }
 
+    /// <summary>Registers an authenticated control generation under the same identity lock used by heartbeat dispatch.</summary>
+    public async Task<Guid> RegisterControlConnectionAsync(string workerId, string secret, Func<Guid> register,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(register);
+        await using var identityLock = await WorkerIdentityLock.AcquireAsync(paths, workerId, cancellationToken);
+        if (!await AuthenticateAsync(workerId, secret, cancellationToken))
+        {
+            throw new InfrastructureException("Worker 凭据无效或节点已停用。", 401);
+        }
+        return register();
+    }
+
     /// <summary>读取仍被允许执行的节点。</summary>
     public async Task<TranscodeWorker> RequireAsync(string id, CancellationToken cancellationToken, bool allowDisabledRecording = false) =>
         await Workers.Find(x => x.Id == id && (x.Enabled || allowDisabledRecording && x.Kind == "Recording")).FirstOrDefaultAsync(cancellationToken)
@@ -181,6 +194,14 @@ public sealed class TranscodeWorkerService(IMongoContext context, IAppPaths path
             Encoding.ASCII.GetBytes(worker.SecretHash), Encoding.ASCII.GetBytes(expectedHash)))
         {
             throw new InfrastructureException("Worker 连接凭据已被撤销。", 401);
+        }
+    }
+
+    internal static void RequireControlConnection(Func<bool>? connectionIsCurrent)
+    {
+        if (connectionIsCurrent is not null && !connectionIsCurrent())
+        {
+            throw new InfrastructureException("Worker 控制连接已被替代。", 409);
         }
     }
 }

@@ -14,6 +14,7 @@ public static class TranscodingServiceCollectionExtensions
         services.AddLiveRecorderRecording();
         services.AddSingleton<TranscodeAssetRegistry>();
         services.AddSingleton<TranscodeWorkerService>();
+        services.AddSingleton<WorkerConnectionStatusTracker>();
         services.AddSingleton<TranscodeLeaseService>();
         services.AddSingleton<TranscodeJobScheduler>();
         services.AddSingleton<TranscodeTransferService>();

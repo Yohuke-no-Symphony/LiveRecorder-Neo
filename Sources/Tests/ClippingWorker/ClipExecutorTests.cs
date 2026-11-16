@@ -1,5 +1,6 @@
 using System.Net;
 using System.Security.Cryptography;
+using System.Text;
 using Xunit;
 using Yohuke.LiveRecorder.Clipping.Worker.Execution;
 using Yohuke.LiveRecorder.Clipping.Worker.Storage;
@@ -13,9 +14,11 @@ public sealed class ClipExecutorTests
 {
     /// <summary>Exact and Fast modes export independently playable MP4s from middle ranges without downloading the original.</summary>
     [Theory]
-    [InlineData("Exact")]
-    [InlineData("Fast")]
-    public async Task ExportsOnlyAssignedMiddleRange(string mode)
+    [InlineData("Exact", 1)]
+    [InlineData("Exact", 3)]
+    [InlineData("Exact", 128)]
+    [InlineData("Fast", 7)]
+    public async Task ExportsOnlyAssignedMiddleRange(string mode, int encodingThreads)
     {
         using var fixture = new ClipTestFixture();
         var (assignment, source) = await fixture.CreateAssignmentAsync(mode);
@@ -23,10 +26,11 @@ public sealed class ClipExecutorTests
         using var handler = RangeHandler(source, bytes => downloaded += bytes);
         using var transfer = new ClipFileTransfer(fixture.Connection, handler);
         using var workspace = new ClipWorkspace("worker");
-        var files = workspace.Acquire(fixture.Configuration, assignment);
+        var configuration = fixture.Configuration with { ClipEncodingThreads = encodingThreads };
+        var files = workspace.Acquire(configuration, assignment);
         try
         {
-            var manifest = await new ClipExecutor(transfer).ExecuteAsync(assignment, fixture.Configuration, files, CancellationToken.None);
+            var manifest = await new ClipExecutor(transfer).ExecuteAsync(assignment, configuration, files, CancellationToken.None);
             Assert.Equal(assignment.ActualStartMs, manifest.ActualStartMs);
             Assert.Equal(assignment.ActualEndMs, manifest.ActualEndMs);
             Assert.Equal(assignment.Inputs.Sum(input => input.Range!.EndOffset - input.Range.StartOffset), downloaded);
@@ -41,6 +45,11 @@ public sealed class ClipExecutorTests
             var decoded = await new WorkerProcessRunner().RunAsync("ffmpeg",
                 ["-v", "error", "-xerror", "-i", files.OutputPath, "-map", "0:v:0", "-map", "0:a:0", "-f", "null", "-"], CancellationToken.None);
             Assert.True(decoded.ExitCode == 0, decoded.Diagnostic);
+            if (mode == "Exact")
+            {
+                var encoded = Encoding.Latin1.GetString(await File.ReadAllBytesAsync(files.OutputPath));
+                Assert.Contains("threads=" + encodingThreads + " ", encoded);
+            }
             Assert.Empty(Directory.EnumerateFiles(files.DirectoryPath, "*.range*"));
         }
         finally

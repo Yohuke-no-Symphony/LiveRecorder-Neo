@@ -18,11 +18,12 @@ public sealed class ClippingJobScheduler(IMongoContext context, TranscodeWorkerS
 {
     /// <summary>Renews active executions and assigns at most one new bounded clipping job.</summary>
     public async Task<WorkerState> HeartbeatAsync(string workerId, WorkerHeartbeat heartbeat, CancellationToken cancellationToken,
-        string? authenticatedSecretHash = null)
+        string? authenticatedSecretHash = null, Func<bool>? connectionIsCurrent = null)
     {
         await using var identityLock = await WorkerIdentityLock.AcquireAsync(paths, workerId, cancellationToken);
         var worker = await workers.RequireAsync(workerId, cancellationToken);
         TranscodeWorkerService.RequireCredential(worker, authenticatedSecretHash);
+        TranscodeWorkerService.RequireControlConnection(connectionIsCurrent);
         await leases.RequireWorkerAsync(workerId, cancellationToken);
         var update = Builders<TranscodeWorker>.Update.Set(value => value.LastSeenAtUtc, DateTime.UtcNow)
             .Set(value => value.Telemetry, heartbeat.Telemetry)

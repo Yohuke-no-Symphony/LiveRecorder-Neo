@@ -15,9 +15,10 @@ namespace Yohuke.LiveRecorder.Server.Transcoding;
 
 /// <summary>为独立转码 Worker 提供有界 TCP 或 TLS 控制连接。</summary>
 public sealed class WorkerControlServer(TranscodingCoordinator coordinator, IOptions<TranscodingControlOptions> options,
-    ILogger<WorkerControlServer> logger) : BackgroundService
+    ILogger<WorkerControlServer> logger, WorkerConnectionStatusTracker connectionStatus) : BackgroundService
 {
-    private readonly ConcurrentDictionary<string, TcpClient> workers = new(StringComparer.Ordinal);
+    private readonly Lock workersGate = new();
+    private readonly Dictionary<string, TcpClient> workers = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<long, Task> connections = new();
     private long connectionId;
 
@@ -68,6 +69,7 @@ public sealed class WorkerControlServer(TranscodingCoordinator coordinator, IOpt
     private async Task HandleAsync(TcpClient client, X509Certificate2? certificate, SemaphoreSlim slots, CancellationToken stoppingToken)
     {
         string? workerId = null;
+        var controlConnectionId = Guid.Empty;
         try
         {
             using (client)
@@ -115,11 +117,17 @@ public sealed class WorkerControlServer(TranscodingCoordinator coordinator, IOpt
                     return;
                 }
                 workerId = hello.WorkerId;
-                workers.AddOrUpdate(workerId, static (_, replacement) => replacement, static (_, previous, replacement) =>
+                TcpClient? previous = null;
+                controlConnectionId = await coordinator.RegisterControlConnectionAsync(workerId, hello.Secret, () =>
                 {
-                    previous.Dispose();
-                    return replacement;
-                }, client);
+                    lock (workersGate)
+                    {
+                        workers.TryGetValue(workerId, out previous);
+                        workers[workerId] = client;
+                        return connectionStatus.Open(workerId);
+                    }
+                }, handshake.Token);
+                previous?.Dispose();
                 await WorkerProtocol.WriteAsync(stream, "Welcome", message.RequestId, welcome, handshake.Token);
                 while (!stoppingToken.IsCancellationRequested)
                 {
@@ -145,7 +153,12 @@ public sealed class WorkerControlServer(TranscodingCoordinator coordinator, IOpt
                     {
                         throw new InvalidDataException("Worker reports too many active tasks.");
                     }
-                    var state = await coordinator.HeartbeatAsync(workerId, hello.Secret, heartbeat, timeout.Token);
+                    var state = await coordinator.HeartbeatAsync(workerId, hello.Secret, heartbeat, timeout.Token,
+                        () => connectionStatus.IsCurrent(workerId, controlConnectionId));
+                    if (!connectionStatus.Heartbeat(workerId, controlConnectionId))
+                    {
+                        break;
+                    }
                     if (heartbeat.LogBatch is { } batch)
                     {
                         using var logTimeout = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
@@ -174,7 +187,14 @@ public sealed class WorkerControlServer(TranscodingCoordinator coordinator, IOpt
         {
             if (workerId is not null)
             {
-                ((ICollection<KeyValuePair<string, TcpClient>>)workers).Remove(new(workerId, client));
+                lock (workersGate)
+                {
+                    if (workers.TryGetValue(workerId, out var current) && ReferenceEquals(current, client))
+                    {
+                        workers.Remove(workerId);
+                    }
+                    connectionStatus.Close(workerId, controlConnectionId);
+                }
             }
             client.Dispose();
             slots.Release();

@@ -9,7 +9,10 @@ internal static class WorkerSetup
     internal static WorkerConnectionOptions ConfigureConnection(WorkerConnectionOptions current) =>
         WorkerConnectionSetup.Configure(current, "Transcoding worker registration");
 
-    internal static WorkerConfiguration Configure(WorkerConfiguration current)
+    internal static WorkerConfiguration Configure(WorkerConfiguration current) =>
+        WorkerConfigurationProjection.ToLegacy(Configure(WorkerConfigurationProjection.ToTranscoding(current)));
+
+    private static TranscodingWorkerConfiguration Configure(TranscodingWorkerConfiguration current)
     {
         RequireInteractive();
         AnsiConsole.MarkupLine("[bold]Worker runtime settings[/]");

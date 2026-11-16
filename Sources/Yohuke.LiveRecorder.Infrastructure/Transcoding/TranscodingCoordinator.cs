@@ -27,6 +27,9 @@ public sealed class TranscodingCoordinator(TranscodeWorkerService workers, Trans
     /// <summary>完成控制连接握手。</summary>
     public async Task<WorkerWelcome> ConnectAsync(WorkerHello hello, CancellationToken cancellationToken = default) =>
         (await workers.ConnectAsync(hello, cancellationToken)) with { LogProtocolVersion = 1 };
+    /// <summary>Registers a replacement control connection atomically with heartbeat generation checks.</summary>
+    public Task<Guid> RegisterControlConnectionAsync(string workerId, string secret, Func<Guid> register,
+        CancellationToken cancellationToken = default) => workers.RegisterControlConnectionAsync(workerId, secret, register, cancellationToken);
     /// <summary>同步运行状态、续租和任务派发。</summary>
     public async Task<WorkerState> HeartbeatAsync(string workerId, WorkerHeartbeat heartbeat, CancellationToken cancellationToken = default)
     {
@@ -41,17 +44,17 @@ public sealed class TranscodingCoordinator(TranscodeWorkerService workers, Trans
     }
     /// <summary>Processes a control heartbeat while binding dispatch to the connection's authenticated credential generation.</summary>
     public async Task<WorkerState> HeartbeatAsync(string workerId, string secret, WorkerHeartbeat heartbeat,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, Func<bool>? connectionIsCurrent = null)
     {
         var worker = await workers.RequireAsync(workerId, cancellationToken, true);
         var expectedHash = TranscodeWorkerService.SecretHash(secret);
         if (worker.Kind == "Recording")
         {
-            return await recording.HeartbeatAsync(workerId, heartbeat, cancellationToken, expectedHash);
+            return await recording.HeartbeatAsync(workerId, heartbeat, cancellationToken, expectedHash, connectionIsCurrent);
         }
         return worker.Kind == "Clipping"
-            ? await clipping.HeartbeatAsync(workerId, heartbeat, cancellationToken, expectedHash)
-            : await scheduler.HeartbeatAsync(workerId, heartbeat, cancellationToken, expectedHash);
+            ? await clipping.HeartbeatAsync(workerId, heartbeat, cancellationToken, expectedHash, connectionIsCurrent)
+            : await scheduler.HeartbeatAsync(workerId, heartbeat, cancellationToken, expectedHash, connectionIsCurrent);
     }
     /// <summary>持久化独立日志批次，完成发布后返回精确确认。</summary>
     public Task<WorkerLogAcknowledgement> AppendWorkerLogsAsync(string workerId, WorkerLogBatch batch, CancellationToken cancellationToken = default) =>

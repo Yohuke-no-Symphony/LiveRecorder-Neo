@@ -108,6 +108,10 @@ public sealed class FfmpegMediaProcessor : IMediaProcessor
         {
             throw new ArgumentException("The export mode must be Exact or Fast.", nameof(request));
         }
+        if (request.Mode == "Exact" && request.EncodingThreads is < 1 or > 128)
+        {
+            throw new ArgumentOutOfRangeException(nameof(request), "Exact export encoding threads must be between 1 and 128.");
+        }
         var spans = BuildSpans(request);
         var details = new Dictionary<string, MediaProbeDetails>(StringComparer.Ordinal);
         foreach (var span in spans.Where(span => span.Path is not null))
@@ -173,7 +177,7 @@ public sealed class FfmpegMediaProcessor : IMediaProcessor
                 var partProgress = new CallbackProgress<double>(value => progress.Report((partProgressStart + span.DurationMs * value) / totalDuration * 0.9));
                 var arguments = request.Mode == "Fast"
                     ? BuildFastArguments(span, part)
-                    : BuildExactArguments(span, part, slate, width, height, frameRate);
+                    : BuildExactArguments(span, part, slate, width, height, frameRate, request.EncodingThreads);
                 Func<Stream, CancellationToken, Task>? input = span.Range is { } range
                     ? (stream, token) => IndexedFlvRange.CopyAsync(span.Path!, range, stream, token)
                     : null;
@@ -350,7 +354,8 @@ public sealed class FfmpegMediaProcessor : IMediaProcessor
         return arguments;
     }
 
-    private static List<string> BuildExactArguments(ExportSpan span, string output, string slate, int width, int height, double frameRate)
+    private static List<string> BuildExactArguments(ExportSpan span, string output, string slate, int width, int height, double frameRate,
+        int encodingThreads)
     {
         var arguments = new List<string> { "-hide_banner", "-loglevel", "error", "-nostdin", "-progress", "pipe:1" };
         if (span.Path is null)
@@ -382,7 +387,7 @@ public sealed class FfmpegMediaProcessor : IMediaProcessor
             "-map", "0:v:0", "-map", audioInput, "-t", Seconds(span.DurationMs),
             "-vf", $"setpts=PTS-STARTPTS,scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={frameRate.ToString(CultureInfo.InvariantCulture)},format=yuv420p",
             "-af", $"asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,apad,atrim=duration={Seconds(span.DurationMs)}",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-threads", "2", "-pix_fmt", "yuv420p",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-threads:v", encodingThreads.ToString(CultureInfo.InvariantCulture), "-pix_fmt", "yuv420p",
             "-g", Math.Max(1, (int)Math.Round(frameRate * 2)).ToString(CultureInfo.InvariantCulture), "-sc_threshold", "0",
             "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2", "-f", "mpegts", "-y", output
         ]);

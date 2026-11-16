@@ -16,17 +16,17 @@ public static class TranscodingEndpoints
     public static IEndpointRouteBuilder MapTranscodingEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var admin = endpoints.MapGroup("/api/transcoding").RequireAuthorization(policy => policy.RequireRole("Admin"));
-        admin.MapGet("/workers", async (TranscodingCoordinator coordinator, CancellationToken ct) =>
-            Results.Ok((await coordinator.ListWorkersAsync(ct)).Select(WorkerView)));
+        admin.MapGet("/workers", async (TranscodingCoordinator coordinator, WorkerConnectionStatusTracker connections, CancellationToken ct) =>
+            Results.Ok((await coordinator.ListWorkersAsync(ct)).Select(worker => WorkerView(worker, connections))));
         admin.MapGet("/workers/{id}/logs", async (string id, long? after, int? take, TranscodingCoordinator coordinator, CancellationToken ct) =>
             Results.Ok(await coordinator.ReadWorkerLogsAsync(id, after, take ?? 200, ct)));
-        admin.MapPost("/workers", async (CreateTranscodeWorkerRequest request, TranscodingCoordinator coordinator, CancellationToken ct) =>
+        admin.MapPost("/workers", async (CreateTranscodeWorkerRequest request, TranscodingCoordinator coordinator, WorkerConnectionStatusTracker connections, CancellationToken ct) =>
         {
             RequireName(request.Name);
             var created = await coordinator.CreateWorkerAsync(request.Name.Trim(), request.Kind, ct);
-            return Results.Ok(new { worker = WorkerView(created.Worker), secret = created.Secret });
+            return Results.Ok(new { worker = WorkerView(created.Worker, connections), secret = created.Secret });
         });
-        admin.MapPut("/workers/{id}", async (string id, UpdateTranscodeWorkerRequest request, TranscodingCoordinator coordinator, CancellationToken ct) =>
+        admin.MapPut("/workers/{id}", async (string id, UpdateTranscodeWorkerRequest request, TranscodingCoordinator coordinator, WorkerConnectionStatusTracker connections, CancellationToken ct) =>
         {
             RequireName(request.Name);
             try
@@ -40,7 +40,7 @@ public static class TranscodingEndpoints
                 throw new InfrastructureException(MessageCode.REQUEST_INVALID);
             }
             return Results.Ok(WorkerView(await coordinator.UpdateWorkerAsync(id, request.Name.Trim(), request.Enabled,
-                request.Configuration, request.ExpectedRevision, ct)));
+                request.Configuration, request.ExpectedRevision, ct), connections));
         });
         admin.MapPost("/workers/{id}/rotate-key", async (string id, TranscodingCoordinator coordinator, CancellationToken ct) =>
             Results.Ok(new { secret = await coordinator.RotateKeyAsync(id, ct) }));
@@ -131,10 +131,12 @@ public static class TranscodingEndpoints
         return endpoints;
     }
 
-    private static object WorkerView(TranscodeWorker worker) => new
+    private static object WorkerView(TranscodeWorker worker, WorkerConnectionStatusTracker connections) => new
     {
-        worker.Id, worker.Name, worker.Kind, worker.Enabled, worker.Configuration, worker.ConfigurationRevision,
-        worker.AppliedConfigurationRevision, worker.Capabilities, worker.Telemetry, worker.LastSeenAtUtc, worker.ConfigurationError
+        worker.Id, worker.Name, worker.Kind, worker.Enabled,
+        Configuration = WorkerConfigurationProjection.Project(worker.Configuration, worker.Kind), worker.ConfigurationRevision,
+        worker.AppliedConfigurationRevision, worker.Capabilities, worker.Telemetry, worker.LastSeenAtUtc, worker.ConfigurationError,
+        IsOnline = connections.IsOnline(worker.Id)
     };
 
     private static string WorkerId(HttpContext http) => http.Request.Headers["X-Worker-Id"].ToString();

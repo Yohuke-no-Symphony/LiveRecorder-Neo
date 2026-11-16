@@ -7,7 +7,7 @@ import { VTab, VTabs } from 'vuetify/components/VTabs'
 import { VBtn } from 'vuetify/components/VBtn'
 import { MediaAPI } from '../src/apis/MediaAPI'
 import { TranscodingAPI } from '../src/apis/TranscodingAPI'
-import { defaultWorkerConfiguration, type TranscodingWorker } from '../src/models/transcoding'
+import { defaultWorkerConfiguration, type ClippingWorker, type RecordingWorker, type TranscodingWorker, type Worker } from '../src/models/transcoding'
 import { i18n } from '../src/plugins/i18n'
 import WorkersView from '../src/views/WorkersView.vue'
 
@@ -25,8 +25,8 @@ const stubs = {
 }
 const mounted: VueWrapper[] = []
 let transcoding: TranscodingWorker
-let clipping: TranscodingWorker
-let recording: TranscodingWorker
+let clipping: ClippingWorker
+let recording: RecordingWorker
 
 async function open(): Promise<VueWrapper>
 {
@@ -55,8 +55,8 @@ beforeEach(() =>
   vi.stubGlobal('ResizeObserver', vi.fn(function () { return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() } }))
   i18n.global.locale.value = 'zh-CN'
   transcoding = { id: 'transcoding-1', kind: 'Transcoding', name: '转码节点甲', enabled: true, configuration: defaultWorkerConfiguration(), configurationRevision: 1, appliedConfigurationRevision: 1, lastSeenAtUtc: null, configurationError: null }
-  clipping = { ...transcoding, id: 'clipping-1', kind: 'Clipping', name: '切片节点乙' }
-  recording = { ...transcoding, id: 'recording-1', kind: 'Recording', name: '录像节点丙' }
+  clipping = { ...transcoding, id: 'clipping-1', kind: 'Clipping', name: '切片节点乙', configuration: defaultWorkerConfiguration('Clipping') }
+  recording = { ...transcoding, id: 'recording-1', kind: 'Recording', name: '录像节点丙', configuration: defaultWorkerConfiguration('Recording') }
   vi.mocked(TranscodingAPI.workers).mockResolvedValue([transcoding, clipping, recording])
 })
 
@@ -102,7 +102,7 @@ describe('独立Worker管理页', () =>
 
   it('旧类型的迟到响应不能覆盖新类型列表', async () =>
   {
-    let resolve!: (workers: TranscodingWorker[]) => void
+    let resolve!: (workers: Worker[]) => void
     vi.mocked(TranscodingAPI.workers).mockReturnValueOnce(new Promise(done => { resolve = done }))
     const wrapper = await open()
     await selectTab(wrapper, '切片')

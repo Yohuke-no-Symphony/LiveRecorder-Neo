@@ -9,6 +9,7 @@ internal sealed class RecordingTestRecorder(Action<IProgress<MediaRecordingUpdat
 
     public async Task RecordAsync(RecordingRequest request, IProgress<MediaRecordingUpdate> progress, CancellationToken cancellationToken)
     {
+        var stopped = Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
         await using var registration = onCancellation is null ? default : cancellationToken.Register(() => onCancellation(progress));
         Started.TrySetResult(request);
         progress.Report(new()
@@ -19,7 +20,7 @@ internal sealed class RecordingTestRecorder(Action<IProgress<MediaRecordingUpdat
         });
         try
         {
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            await stopped;
         }
         finally
         {

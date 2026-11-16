@@ -24,6 +24,23 @@ afterEach(() =>
 
 describe('运行时界面语言', () =>
 {
+  it('Worker在线与离线三语状态独立于有效和未开播状态', async () =>
+  {
+    const statuses = ['online', 'disconnected', 'valid', 'offline']
+    const wrappers = statuses.map(status => mount(StatusChip, { props: { status }, global: { plugins: [i18n], stubs: { VChip: container } } }))
+    mounted.push(...wrappers)
+    for (const [language, expected] of [
+      ['zh-CN', ['在线', '离线', '有效', '未开播']],
+      ['en-US', ['Online', 'Offline', 'Active', 'Offline']],
+      ['ja-JP', ['オンライン', 'オフライン', '有効', 'オフライン']],
+    ] as const)
+    {
+      i18n.global.locale.value = language
+      await nextTick()
+      expect(wrappers.map(wrapper => wrapper.text())).toEqual(expected)
+    }
+  })
+
   it('数据目录组件切换三语标签，同时保留服务器路径', async () =>
   {
     const wrapper = mount(DataDirectoryInfo, {

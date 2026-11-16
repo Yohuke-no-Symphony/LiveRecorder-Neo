@@ -12,9 +12,13 @@ internal sealed class WorkerSettingsStore : IDisposable
     };
 
     private readonly FileStream lease;
+    private readonly string kind;
+    private readonly JsonSerializerOptions serialization;
 
-    internal WorkerSettingsStore(string path)
+    internal WorkerSettingsStore(string path, string kind = "Transcoding")
     {
+        this.kind = kind;
+        serialization = WorkerConfigurationProjection.CreateJsonOptions(kind, JsonOptions);
         Path = System.IO.Path.GetFullPath(path);
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
         lease = new(Path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
@@ -33,7 +37,7 @@ internal sealed class WorkerSettingsStore : IDisposable
             {
                 throw new InvalidDataException("settings.json must contain valid Worker and Configuration objects and a nonnegative configuration revision.");
             }
-            Current = settings;
+            Current = WorkerSettingsSynchronization.NormalizeLoaded(settings, kind);
         }
         catch (FileNotFoundException)
         {
@@ -43,6 +47,7 @@ internal sealed class WorkerSettingsStore : IDisposable
 
     internal async Task SaveAsync(WorkerSettings settings, CancellationToken cancellationToken)
     {
+        settings = WorkerSettingsSynchronization.NormalizeLoaded(settings, kind);
         var temporaryPath = Path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
@@ -59,7 +64,7 @@ internal sealed class WorkerSettingsStore : IDisposable
             }
             await using (var stream = new FileStream(temporaryPath, options))
             {
-                await JsonSerializer.SerializeAsync(stream, settings, JsonOptions, cancellationToken);
+                await JsonSerializer.SerializeAsync(stream, settings, serialization, cancellationToken);
                 await stream.FlushAsync(cancellationToken);
                 stream.Flush(true);
             }
@@ -75,7 +80,7 @@ internal sealed class WorkerSettingsStore : IDisposable
 
     internal Task SaveRemoteConfigurationAsync(WorkerConfiguration configuration, int revision, CancellationToken cancellationToken)
     {
-        var updated = WorkerSettingsSynchronization.Accept(Current, configuration, revision);
+        var updated = WorkerSettingsSynchronization.Accept(Current, configuration, revision, kind);
         return updated == Current ? Task.CompletedTask : SaveAsync(updated, cancellationToken);
     }
 

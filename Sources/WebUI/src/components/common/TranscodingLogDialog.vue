@@ -32,12 +32,12 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MAX_TRANSCODING_LOG_ENTRIES, useTranscodingLogs } from '@/composables/useTranscodingLogs'
-import type { TranscodingWorker } from '@/models/transcoding'
+import type { Worker } from '@/models/transcoding'
 import { useAuthStore } from '@/stores/auth'
 import { formatNumber } from '@/utilities/format'
 import ContentCard from './ContentCard.vue'
 
-const props = defineProps<{ worker: Pick<TranscodingWorker, 'id' | 'name'> }>()
+const props = defineProps<{ worker: Pick<Worker, 'id' | 'name'> }>()
 const emit = defineEmits<{ close: [] }>()
 const auth = useAuthStore()
 const { t, locale } = useI18n()

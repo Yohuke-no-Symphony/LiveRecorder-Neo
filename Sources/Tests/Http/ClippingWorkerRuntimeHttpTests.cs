@@ -79,7 +79,7 @@ public sealed class ClippingWorkerRuntimeHttpTests
             ControlUseTls = tls, WorkerId = id, Secret = secret,
             ServerCertificateSha256 = tls ? certificate.Sha256 : null
         };
-        using var settings = new WorkerSettingsStore(Path.Combine(fixture.DirectoryPath, "node-settings.json"));
+        using var settings = new WorkerSettingsStore(Path.Combine(fixture.DirectoryPath, "node-settings.json"), "Clipping");
         await settings.SaveAsync(new() { Worker = options, Configuration = configuration }, CancellationToken.None);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);

@@ -1,6 +1,6 @@
 namespace Yohuke.LiveRecorder.Transcoding.Contracts;
 
-/// <summary>主站管理的 Worker 运行配置。</summary>
+/// <summary>兼容现有控制协议的配置适配模型；面向用户的配置由各 Worker 类型独立定义。</summary>
 public sealed record WorkerConfiguration
 {
     public string FfmpegPath { get; set; } = "ffmpeg";
@@ -20,4 +20,5 @@ public sealed record WorkerConfiguration
     public long MinimumFreeBytes { get; set; } = 2L * 1024 * 1024 * 1024;
     public long DownloadBytesPerSecond { get; set; }
     public long UploadBytesPerSecond { get; set; }
+    public int ClipEncodingThreads { get; set; } = 2;
 }

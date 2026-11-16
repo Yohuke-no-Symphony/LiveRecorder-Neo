@@ -30,12 +30,20 @@ export interface TranscodingSettings
   defaultPlaybackQualityId: string
 }
 
-export interface WorkerConfiguration
+export interface WorkerResourceConfiguration
+{
+  tempDirectory: string
+  maxConcurrentEncodes: number
+  maxCacheBytes: number
+  minimumFreeBytes: number
+  uploadBytesPerSecond: number
+}
+
+export interface TranscodingWorkerConfiguration extends WorkerResourceConfiguration
 {
   ffmpegPath: string
   ffprobePath: string
-  tempDirectory: string
-  maxConcurrentEncodes: number
+  downloadBytesPerSecond: number
   gpuConcurrency: number
   cpuConcurrency: number
   cpuFallbackMode: 'Balanced' | 'Disabled'
@@ -45,11 +53,21 @@ export interface WorkerConfiguration
   cpuThreadFraction: number
   preferredEncoder: string
   deviceId: string | null
-  maxCacheBytes: number
-  minimumFreeBytes: number
-  downloadBytesPerSecond: number
-  uploadBytesPerSecond: number
 }
+
+export interface ClippingWorkerConfiguration extends WorkerResourceConfiguration
+{
+  ffmpegPath: string
+  ffprobePath: string
+  clipEncodingThreads: number
+  downloadBytesPerSecond: number
+}
+
+export interface RecordingWorkerConfiguration extends WorkerResourceConfiguration
+{
+}
+
+export type WorkerConfiguration = TranscodingWorkerConfiguration | ClippingWorkerConfiguration | RecordingWorkerConfiguration
 
 export interface PlaybackQuality
 {
@@ -60,13 +78,12 @@ export interface PlaybackQuality
   state: string
 }
 
-export interface TranscodingWorker
+export interface WorkerState
 {
   id: string
-  kind?: WorkerKind
   name: string
   enabled: boolean
-  configuration: WorkerConfiguration
+  isOnline?: boolean
   configurationRevision: number
   appliedConfigurationRevision: number
   capabilities?: { operatingSystem: string; architecture: string; toolVersion: string; clippingVersion?: number; recordingVersion?: number; encoders: { encoder: string; deviceId: string | null; available: boolean; error?: string | null }[] } | null
@@ -74,6 +91,26 @@ export interface TranscodingWorker
   lastSeenAtUtc: string | null
   configurationError: string | null
 }
+
+export interface TranscodingWorker extends WorkerState
+{
+  kind?: 'Transcoding'
+  configuration: TranscodingWorkerConfiguration
+}
+
+export interface ClippingWorker extends WorkerState
+{
+  kind: 'Clipping'
+  configuration: ClippingWorkerConfiguration
+}
+
+export interface RecordingWorker extends WorkerState
+{
+  kind: 'Recording'
+  configuration: RecordingWorkerConfiguration
+}
+
+export type Worker = TranscodingWorker | ClippingWorker | RecordingWorker
 
 export interface TranscodeJob extends Entity
 {
@@ -199,9 +236,45 @@ export function isValidTranscodingSettings(settings: TranscodingSettings): boole
     && (settings.defaultPlaybackQualityId === ORIGINAL_QUALITY_ID || settings.profiles.some(profile => profile.id === settings.defaultPlaybackQualityId && profile.enabled))
 }
 
-export function defaultWorkerConfiguration(): WorkerConfiguration
+export function defaultWorkerConfiguration(kind: 'Clipping'): ClippingWorkerConfiguration
+export function defaultWorkerConfiguration(kind: 'Recording'): RecordingWorkerConfiguration
+export function defaultWorkerConfiguration(kind?: 'Transcoding'): TranscodingWorkerConfiguration
+export function defaultWorkerConfiguration(kind: WorkerKind): WorkerConfiguration
+export function defaultWorkerConfiguration(kind: WorkerKind = 'Transcoding'): WorkerConfiguration
 {
-  return { ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe', tempDirectory: '', maxConcurrentEncodes: 2, gpuConcurrency: 1, cpuConcurrency: 1, cpuFallbackMode: 'Balanced', gpuWaitSeconds: 60, cpuLoadThreshold: 60, cpuSampleWindowSeconds: 30, cpuThreadFraction: .5, preferredEncoder: 'auto', deviceId: null, maxCacheBytes: 20 * 1024 ** 3, minimumFreeBytes: 2 * 1024 ** 3, downloadBytesPerSecond: 0, uploadBytesPerSecond: 0 }
+  const resources: WorkerResourceConfiguration = { tempDirectory: '', maxConcurrentEncodes: 2, maxCacheBytes: 20 * 1024 ** 3, minimumFreeBytes: 2 * 1024 ** 3, uploadBytesPerSecond: 0 }
+  if (kind === 'Recording') { return resources }
+  const media = { ...resources, ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe', downloadBytesPerSecond: 0 }
+  if (kind === 'Clipping') { return { ...media, clipEncodingThreads: 2 } }
+  return { ...media, gpuConcurrency: 1, cpuConcurrency: 1, cpuFallbackMode: 'Balanced', gpuWaitSeconds: 60, cpuLoadThreshold: 60, cpuSampleWindowSeconds: 30, cpuThreadFraction: .5, preferredEncoder: 'auto', deviceId: null }
+}
+
+export function normalizeWorker(worker: Worker): Worker
+{
+  const resources: WorkerResourceConfiguration = {
+    tempDirectory: worker.configuration.tempDirectory, maxConcurrentEncodes: worker.configuration.maxConcurrentEncodes,
+    maxCacheBytes: worker.configuration.maxCacheBytes, minimumFreeBytes: worker.configuration.minimumFreeBytes,
+    uploadBytesPerSecond: worker.configuration.uploadBytesPerSecond,
+  }
+  if (worker.kind === 'Recording') { return { ...worker, configuration: resources } }
+  const media = {
+    ...resources, ffmpegPath: worker.configuration.ffmpegPath, ffprobePath: worker.configuration.ffprobePath,
+    downloadBytesPerSecond: worker.configuration.downloadBytesPerSecond,
+  }
+  if (worker.kind === 'Clipping')
+  {
+    return { ...worker, configuration: { ...media, clipEncodingThreads: worker.configuration.clipEncodingThreads ?? 2 } }
+  }
+  return {
+    ...worker,
+    configuration: {
+      ...media, gpuConcurrency: worker.configuration.gpuConcurrency, cpuConcurrency: worker.configuration.cpuConcurrency,
+      cpuFallbackMode: worker.configuration.cpuFallbackMode, gpuWaitSeconds: worker.configuration.gpuWaitSeconds,
+      cpuLoadThreshold: worker.configuration.cpuLoadThreshold, cpuSampleWindowSeconds: worker.configuration.cpuSampleWindowSeconds,
+      cpuThreadFraction: worker.configuration.cpuThreadFraction, preferredEncoder: worker.configuration.preferredEncoder,
+      deviceId: worker.configuration.deviceId,
+    },
+  }
 }
 
 export function isValidWorkerConfiguration(value: WorkerConfiguration, kind: WorkerKind = 'Transcoding'): boolean
@@ -211,9 +284,11 @@ export function isValidWorkerConfiguration(value: WorkerConfiguration, kind: Wor
     && integer(value.maxConcurrentEncodes, 1, 64)
     && integer(value.maxCacheBytes, 1024 ** 2) && integer(value.minimumFreeBytes, 0) && integer(value.uploadBytesPerSecond, 0)
   if (kind === 'Recording') { return resourcesValid }
+  if (!('ffmpegPath' in value)) { return false }
   const commonValid = resourcesValid && !!value.ffmpegPath.trim() && !!value.ffprobePath.trim()
     && value.ffmpegPath.length <= 4096 && value.ffprobePath.length <= 4096 && integer(value.downloadBytesPerSecond, 0)
-  if (kind === 'Clipping') { return commonValid }
+  if (kind === 'Clipping') { return commonValid && integer('clipEncodingThreads' in value ? value.clipEncodingThreads : 2, 1, 128) }
+  if (!('gpuConcurrency' in value)) { return false }
   return commonValid && integer(value.gpuConcurrency, 0, 64) && integer(value.cpuConcurrency, 0, 64) && value.gpuConcurrency + value.cpuConcurrency > 0
     && ['Balanced', 'Disabled'].includes(value.cpuFallbackMode) && integer(value.gpuWaitSeconds, 0, 86400) && integer(value.cpuSampleWindowSeconds, 5, 300)
     && Number.isFinite(value.cpuLoadThreshold) && value.cpuLoadThreshold > 0 && value.cpuLoadThreshold <= 100

@@ -20,6 +20,8 @@ const definitions: Record<string, { labelKey: string; color: string; icon?: stri
   error: { labelKey: 'components.status.error', color: 'error' },
   stopped: { labelKey: 'components.status.stopped', color: 'secondary' },
   offline: { labelKey: 'components.status.offline', color: 'secondary' },
+  online: { labelKey: 'components.status.online', color: 'success' },
+  disconnected: { labelKey: 'transcoding.offline', color: 'secondary' },
   queued: { labelKey: 'components.status.queued', color: 'secondary', icon: 'mdi-clock-outline' },
   pending: { labelKey: 'components.status.pending', color: 'warning' },
   running: { labelKey: 'components.status.running', color: 'info' },

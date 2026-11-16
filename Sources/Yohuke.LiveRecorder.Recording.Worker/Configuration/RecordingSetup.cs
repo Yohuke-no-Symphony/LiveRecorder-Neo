@@ -6,7 +6,10 @@ namespace Yohuke.LiveRecorder.Recording.Worker.Configuration;
 
 internal static class RecordingSetup
 {
-    internal static WorkerConfiguration Configure(WorkerConfiguration current)
+    internal static WorkerConfiguration Configure(WorkerConfiguration current) =>
+        WorkerConfigurationProjection.ToLegacy(Configure(WorkerConfigurationProjection.ToRecording(current)));
+
+    private static RecordingWorkerConfiguration Configure(RecordingWorkerConfiguration current)
     {
         if (Console.IsInputRedirected || !AnsiConsole.Profile.Capabilities.Interactive)
         {
@@ -25,7 +28,7 @@ internal static class RecordingSetup
             MinimumFreeBytes = Bytes("Minimum free disk space (GiB)", current.MinimumFreeBytes, 1024d * 1024 * 1024, 0),
             UploadBytesPerSecond = Bytes("Upload limit (MiB/s, 0 for unlimited)", current.UploadBytesPerSecond, 1024d * 1024, 0)
         };
-        WorkerConfigurationValidation.Validate(result, "Recording");
+        WorkerConfigurationValidation.Validate(WorkerConfigurationProjection.ToLegacy(result), "Recording");
         return result;
     }
 

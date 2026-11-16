@@ -6,7 +6,10 @@ namespace Yohuke.LiveRecorder.Clipping.Worker.Configuration;
 
 internal static class ClipSetup
 {
-    internal static WorkerConfiguration Configure(WorkerConfiguration current)
+    internal static WorkerConfiguration Configure(WorkerConfiguration current) =>
+        WorkerConfigurationProjection.ToLegacy(Configure(WorkerConfigurationProjection.ToClipping(current)));
+
+    private static ClippingWorkerConfiguration Configure(ClippingWorkerConfiguration current)
     {
         if (Console.IsInputRedirected || !AnsiConsole.Profile.Capabilities.Interactive)
         {
@@ -21,12 +24,14 @@ internal static class ClipSetup
                 ? Path.Combine(Path.GetTempPath(), "Yohuke.LiveRecorder") : current.TempDirectory)),
             MaxConcurrentEncodes = AnsiConsole.Prompt(new TextPrompt<int>("Concurrent clipping jobs")
                 .DefaultValue(current.MaxConcurrentEncodes).Validate(value => value is >= 1 and <= 64)),
+            ClipEncodingThreads = AnsiConsole.Prompt(new TextPrompt<int>("CPU encoding threads per Exact clip")
+                .DefaultValue(current.ClipEncodingThreads).Validate(value => value is >= 1 and <= 128)),
             MaxCacheBytes = Bytes("Temporary workspace limit (GiB)", current.MaxCacheBytes, 1024d * 1024 * 1024, 1d / 1024),
             MinimumFreeBytes = Bytes("Minimum free disk space (GiB)", current.MinimumFreeBytes, 1024d * 1024 * 1024, 0),
             DownloadBytesPerSecond = Bytes("Download limit (MiB/s, 0 for unlimited)", current.DownloadBytesPerSecond, 1024d * 1024, 0),
             UploadBytesPerSecond = Bytes("Upload limit (MiB/s, 0 for unlimited)", current.UploadBytesPerSecond, 1024d * 1024, 0)
         };
-        WorkerConfigurationValidation.Validate(result, "Clipping");
+        WorkerConfigurationValidation.Validate(WorkerConfigurationProjection.ToLegacy(result), "Clipping");
         return result;
     }
 

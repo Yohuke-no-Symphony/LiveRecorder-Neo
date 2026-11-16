@@ -502,4 +502,26 @@ describe('清晰度设置', () =>
     worker.downloadBytesPerSecond = Number.NaN
     expect(isValidWorkerConfiguration(worker, 'Clipping')).toBe(false)
   })
+
+  it('各类型默认配置仅包含自身参数，切片精确编码线程独立校验', () =>
+  {
+    const transcoding = defaultWorkerConfiguration('Transcoding')
+    const clipping = defaultWorkerConfiguration('Clipping')
+    const recording = defaultWorkerConfiguration('Recording')
+    expect(transcoding).not.toHaveProperty('clipEncodingThreads')
+    expect(clipping).toHaveProperty('clipEncodingThreads', 2)
+    expect(clipping).not.toHaveProperty('gpuConcurrency')
+    expect(clipping).not.toHaveProperty('cpuThreadFraction')
+    expect(recording).toEqual({ tempDirectory: '', maxConcurrentEncodes: 2, maxCacheBytes: 20 * 1024 ** 3, minimumFreeBytes: 2 * 1024 ** 3, uploadBytesPerSecond: 0 })
+    expect(isValidWorkerConfiguration(recording, 'Recording')).toBe(true)
+    expect(isValidWorkerConfiguration(clipping, 'Clipping')).toBe(true)
+    for (const invalid of [0, 129, 1.5, Number.NaN, Number.POSITIVE_INFINITY])
+    {
+      expect(isValidWorkerConfiguration({ ...clipping, clipEncodingThreads: invalid }, 'Clipping')).toBe(false)
+    }
+    for (const valid of [1, 2, 128])
+    {
+      expect(isValidWorkerConfiguration({ ...clipping, clipEncodingThreads: valid }, 'Clipping')).toBe(true)
+    }
+  })
 })

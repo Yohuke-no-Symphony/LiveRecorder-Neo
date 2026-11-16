@@ -17,7 +17,7 @@ internal static class Program
             var commandLine = WorkerCommandLine.Parse(args);
             if (commandLine.Command == WorkerCommand.Help)
             {
-                WorkerCommandHelp.Write(commandLine.HelpCommand, "ylr-clip-worker", "Clipping worker");
+                WorkerCommandHelp.Write(commandLine.HelpCommand, "ylr-clip-worker", "Clipping worker", "Clipping");
                 return 0;
             }
             if (commandLine.Command == WorkerCommand.Version)

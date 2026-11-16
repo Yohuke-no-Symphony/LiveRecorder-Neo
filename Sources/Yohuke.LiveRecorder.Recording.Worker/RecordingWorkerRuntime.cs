@@ -65,16 +65,16 @@ internal sealed class RecordingWorkerRuntime
         try
         {
             var delay = 1;
+            var startupSynchronized = false;
             while (!lifetime.IsCancellationRequested)
             {
                 try
                 {
-                    await using var control = await WorkerControlClient.ConnectAsync(options, lifetime.Token);
-                    var welcome = await control.ExchangeAsync<WorkerHello, WorkerWelcome>("Hello", "Welcome", new()
-                    {
-                        Kind = "Recording", WorkerId = options.WorkerId, Secret = options.Secret, Capabilities = Capabilities()
-                    }, lifetime.Token);
+                    var connected = await ConnectAsync(!startupSynchronized, lifetime.Token);
+                    await using var control = connected.Control;
+                    var welcome = connected.Welcome;
                     await ApplyConfigurationAsync(welcome.Configuration, welcome.ConfigurationRevision, spool, lifetime.Token);
+                    startupSynchronized = true;
                     delay = 1;
                     WriteLog("Connected to the recording coordinator. Durable room ownership remains independent of the connection.");
                     while (!lifetime.IsCancellationRequested)
@@ -114,6 +114,11 @@ internal sealed class RecordingWorkerRuntime
                     WriteLog("Worker credentials were revoked. Capture is stopping; all unacknowledged spool data is preserved.");
                     throw;
                 }
+                catch (InvalidOperationException) when (!startupSynchronized)
+                {
+                    WriteLog("Startup recording settings conflict with the server. Capture is stopping; review the configuration and restart with the retained spool.");
+                    throw;
+                }
                 catch (Exception error) when (!lifetime.IsCancellationRequested && error is IOException or SocketException
                     or AuthenticationException or OperationCanceledException or InvalidOperationException or HttpRequestException or JsonException)
                 {
@@ -141,6 +146,33 @@ internal sealed class RecordingWorkerRuntime
                 }
                 rooms.Clear();
             }
+        }
+    }
+
+    private async Task<(WorkerControlClient Control, WorkerWelcome Welcome)> ConnectAsync(bool synchronizeStartup,
+        CancellationToken cancellationToken)
+    {
+        var control = await WorkerControlClient.ConnectAsync(options, cancellationToken);
+        try
+        {
+            var welcome = await control.ExchangeAsync<WorkerHello, WorkerWelcome>("Hello", "Welcome", new()
+            {
+                Kind = "Recording", WorkerId = options.WorkerId, Secret = options.Secret, Capabilities = Capabilities()
+            }, cancellationToken);
+            var update = synchronizeStartup ? WorkerSettingsSynchronization.CreateUpdate(settings.Current, welcome, "Recording") : null;
+            if (update is not null)
+            {
+                await control.DisposeAsync();
+                control = await WorkerControlClient.ConnectAsync(options, cancellationToken);
+                update.Capabilities = Capabilities();
+                welcome = await control.ExchangeAsync<WorkerHello, WorkerWelcome>("Hello", "Welcome", update, cancellationToken);
+            }
+            return (control, welcome);
+        }
+        catch
+        {
+            await control.DisposeAsync();
+            throw;
         }
     }
 

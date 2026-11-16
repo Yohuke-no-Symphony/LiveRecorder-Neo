@@ -36,6 +36,10 @@ public sealed class RecordingWorkerRuntimeHttpTests
     [MongoHttpFact]
     public Task OneWorkerRecordsTwoRoomsConcurrently() => RunAsync(tls: false, roomCount: 2);
 
+    /// <summary>Running after editing a valid local recording setting synchronizes it before applying server state.</summary>
+    [MongoHttpFact]
+    public Task RecordingRunSynchronizesValidLocalConfiguration() => RunAsync(tls: false, localOverride: true);
+
     /// <summary>Restarting the main server does not stop capture, transfer room ownership or lose queued media.</summary>
     [MongoHttpFact]
     public async Task MainServerRestartRetainsOwnershipAndResumesUploading()
@@ -73,7 +77,7 @@ public sealed class RecordingWorkerRuntimeHttpTests
             ApiBaseUrl = fixture.Address.AbsoluteUri, ControlHost = "127.0.0.1", ControlPort = control.ControlPort,
             ControlUseTls = false, WorkerId = workerId, Secret = registration["secret"]!.GetValue<string>()
         };
-        using var settings = new WorkerSettingsStore(Path.Combine(fixture.DirectoryPath, "offline-recording-settings.json"));
+        using var settings = new WorkerSettingsStore(Path.Combine(fixture.DirectoryPath, "offline-recording-settings.json"), "Recording");
         await settings.SaveAsync(new() { Worker = options, Configuration = configuration }, CancellationToken.None);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
@@ -140,7 +144,7 @@ public sealed class RecordingWorkerRuntimeHttpTests
         }
     }
 
-    private static async Task RunAsync(bool tls, bool restartWorker = false, int roomCount = 1)
+    private static async Task RunAsync(bool tls, bool restartWorker = false, int roomCount = 1, bool localOverride = false)
     {
         using var certificate = new TranscodingTestCertificate();
         var arguments = new[]
@@ -192,8 +196,16 @@ public sealed class RecordingWorkerRuntimeHttpTests
             Secret = registration["secret"]!.GetValue<string>(),
             ServerCertificateSha256 = tls ? certificate.Sha256 : null
         };
-        using var settings = new WorkerSettingsStore(Path.Combine(fixture.DirectoryPath, "recording-node-settings.json"));
+        using var settings = new WorkerSettingsStore(Path.Combine(fixture.DirectoryPath, "recording-node-settings.json"), "Recording");
         await settings.SaveAsync(new() { Worker = options, Configuration = configuration }, CancellationToken.None);
+        if (localOverride)
+        {
+            await settings.SaveRemoteConfigurationAsync(configuration, 2, CancellationToken.None);
+            await settings.SaveAsync(settings.Current with
+            {
+                Configuration = configuration with { UploadBytesPerSecond = 1024 * 1024 }
+            }, CancellationToken.None);
+        }
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         var lifetime = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
         var logs = new ConcurrentQueue<string>();
@@ -223,6 +235,13 @@ public sealed class RecordingWorkerRuntimeHttpTests
             }, running, logs, timeout.Token);
             Assert.Null(session!.EndedAtUtc);
             Assert.False(segment!.IsClosed);
+            if (localOverride)
+            {
+                var saved = await fixture.Context.Collection<TranscodeWorker>("transcodeWorkers")
+                    .Find(value => value.Id == id).SingleAsync(timeout.Token);
+                Assert.Equal(1024 * 1024, saved.Configuration.UploadBytesPerSecond);
+                Assert.Equal(3, saved.ConfigurationRevision);
+            }
             Assert.InRange(segment.CommittedBytes, 13, new FileInfo(Path.Combine(fixture.StoragePath, session.DirectoryPath, segment.RelativePath)).Length);
             using var playbackResponse = await fixture.Admin.SendAsync(HttpMethod.Post, $"/api/sessions/{session.Id}/playback", new { offsetMs = segment.StartOffsetMs + 500 });
             Assert.Equal(HttpStatusCode.OK, playbackResponse.StatusCode);

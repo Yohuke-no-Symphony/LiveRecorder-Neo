@@ -122,11 +122,12 @@ public sealed class TranscodeJobScheduler(IMongoContext context, ISettingsStore 
 
     /// <summary>续租当前任务并为节点分配至多一个预备任务。</summary>
     public async Task<WorkerState> HeartbeatAsync(string workerId, WorkerHeartbeat heartbeat, CancellationToken cancellationToken,
-        string? authenticatedSecretHash = null)
+        string? authenticatedSecretHash = null, Func<bool>? connectionIsCurrent = null)
     {
         await using var identityLock = await WorkerIdentityLock.AcquireAsync(paths, workerId, cancellationToken);
         var worker = await workers.RequireAsync(workerId, cancellationToken);
         TranscodeWorkerService.RequireCredential(worker, authenticatedSecretHash);
+        TranscodeWorkerService.RequireControlConnection(connectionIsCurrent);
         if (worker.Kind != "Transcoding")
         {
             throw new InfrastructureException("此节点不接受转码任务。", 409);

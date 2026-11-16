@@ -11,7 +11,7 @@ internal static class ClipApplication
 {
     internal static async Task RegisterAsync(string path, CancellationToken cancellationToken)
     {
-        using var settings = new WorkerSettingsStore(path);
+        using var settings = new WorkerSettingsStore(path, "Clipping");
         await settings.LoadAsync(cancellationToken);
         var connection = WorkerConnectionSetup.Configure(settings.Current.Worker, "Clipping worker registration");
         await settings.SaveAsync(settings.Current with { Worker = connection }, cancellationToken);
@@ -29,7 +29,7 @@ internal static class ClipApplication
 
     internal static async Task ConfigureAsync(string path, CancellationToken cancellationToken)
     {
-        using var settings = new WorkerSettingsStore(path);
+        using var settings = new WorkerSettingsStore(path, "Clipping");
         await settings.LoadAsync(cancellationToken);
         if (string.IsNullOrWhiteSpace(settings.Current.Worker.WorkerId) && string.IsNullOrWhiteSpace(settings.Current.Worker.Secret))
         {
@@ -48,7 +48,7 @@ internal static class ClipApplication
     internal static async Task RunAsync(string path, CancellationToken cancellationToken, Action<string>? log = null)
     {
         log ??= Console.WriteLine;
-        using var settings = new WorkerSettingsStore(path);
+        using var settings = new WorkerSettingsStore(path, "Clipping");
         await settings.LoadAsync(cancellationToken);
         settings.Current.Worker.Validate();
         var delay = 1;
@@ -75,7 +75,7 @@ internal static class ClipApplication
 
     private static Task EditAsync(WorkerSettingsStore settings, WorkerWelcome welcome, CancellationToken cancellationToken)
     {
-        var draft = WorkerSettingsSynchronization.Accept(settings.Current, welcome.Configuration, welcome.ConfigurationRevision)
+        var draft = WorkerSettingsSynchronization.Accept(settings.Current, welcome.Configuration, welcome.ConfigurationRevision, "Clipping")
             with { Configuration = ClipSetup.Configure(welcome.Configuration) };
         return settings.SaveAsync(draft, cancellationToken);
     }

@@ -8,13 +8,15 @@ internal static class WorkerSettingsSynchronization
 {
     internal static WorkerHello? CreateUpdate(WorkerSettings settings, WorkerWelcome welcome, string kind = "Transcoding")
     {
-        var configurationHash = Hash(settings.Configuration);
-        if (configurationHash == Hash(welcome.Configuration))
+        settings = NormalizeLoaded(settings, kind);
+        var configurationHash = WorkerConfigurationProjection.ComputeHash(settings.Configuration, kind);
+        if (configurationHash == WorkerConfigurationProjection.ComputeHash(welcome.Configuration, kind))
         {
             return null;
         }
         var sameBinding = settings.BindingHash == BindingHash(settings.Worker) && settings.ConfigurationHash is not null;
-        if (sameBinding ? settings.ConfigurationHash == configurationHash : settings.Configuration == new WorkerConfiguration())
+        if (sameBinding ? settings.ConfigurationHash == configurationHash
+            : configurationHash == WorkerConfigurationProjection.ComputeHash(new(), kind))
         {
             return null;
         }
@@ -33,13 +35,29 @@ internal static class WorkerSettingsSynchronization
         };
     }
 
-    internal static WorkerSettings Accept(WorkerSettings settings, WorkerConfiguration configuration, int revision) => settings with
+    internal static WorkerSettings Accept(WorkerSettings settings, WorkerConfiguration configuration, int revision,
+        string kind = "Transcoding") => settings with
     {
-        Configuration = configuration with { },
+        Configuration = WorkerConfigurationProjection.Normalize(configuration, kind),
         ConfigurationRevision = revision,
-        ConfigurationHash = Hash(configuration),
+        ConfigurationHash = WorkerConfigurationProjection.ComputeHash(configuration, kind),
         BindingHash = BindingHash(settings.Worker)
     };
+
+    internal static WorkerSettings NormalizeLoaded(WorkerSettings settings, string kind)
+    {
+        var hash = settings.ConfigurationHash;
+        if (hash is not null && (hash == Hash(settings.Configuration)
+                || hash == WorkerConfigurationProjection.ComputeHash(settings.Configuration, "Transcoding")))
+        {
+            hash = WorkerConfigurationProjection.ComputeHash(settings.Configuration, kind);
+        }
+        return settings with
+        {
+            Configuration = WorkerConfigurationProjection.Normalize(settings.Configuration, kind),
+            ConfigurationHash = hash
+        };
+    }
 
     private static string BindingHash(WorkerConnectionOptions options) => Hash(new
     {

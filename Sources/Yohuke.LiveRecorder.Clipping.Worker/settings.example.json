@@ -16,6 +16,7 @@
     "FfprobePath": "ffprobe",
     "TempDirectory": "",
     "MaxConcurrentEncodes": 2,
+    "ClipEncodingThreads": 2,
     "MaxCacheBytes": 21474836480,
     "MinimumFreeBytes": 2147483648,
     "DownloadBytesPerSecond": 0,

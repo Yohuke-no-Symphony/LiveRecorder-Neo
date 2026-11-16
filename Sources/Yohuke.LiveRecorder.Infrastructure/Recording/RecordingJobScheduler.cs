@@ -17,11 +17,12 @@ public sealed class RecordingJobScheduler(IMongoContext context, IAppPaths paths
 {
     /// <summary>Returns existing room controls even for disabled nodes, while only enabled configured nodes receive new rooms.</summary>
     public async Task<WorkerState> HeartbeatAsync(string workerId, WorkerHeartbeat heartbeat, CancellationToken cancellationToken,
-        string? authenticatedSecretHash = null)
+        string? authenticatedSecretHash = null, Func<bool>? connectionIsCurrent = null)
     {
         await using var identityLock = await WorkerIdentityLock.AcquireAsync(paths, workerId, cancellationToken);
         var worker = await workers.RequireAsync(workerId, cancellationToken, true);
         TranscodeWorkerService.RequireCredential(worker, authenticatedSecretHash);
+        TranscodeWorkerService.RequireControlConnection(connectionIsCurrent);
         if (worker.Kind != "Recording")
         {
             throw new InfrastructureException("此节点不接受录像房间。", 409);

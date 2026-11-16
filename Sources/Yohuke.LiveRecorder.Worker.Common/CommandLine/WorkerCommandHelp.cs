@@ -2,8 +2,15 @@ namespace Yohuke.LiveRecorder.Transcoding.Worker.CommandLine;
 
 internal static class WorkerCommandHelp
 {
-    internal static void Write(WorkerCommand? command, string executableName, string title)
+    internal static void Write(WorkerCommand? command, string executableName, string title, string kind = "Transcoding")
     {
+        var configuration = kind switch
+        {
+            "Transcoding" => "Edit transcoding tools, CPU/GPU encoding, storage and transfer settings.",
+            "Clipping" => "Edit clipping tools, job concurrency, Exact CPU threads, storage and transfer settings.",
+            "Recording" => "Edit concurrent recording rooms, persistent spool, disk reserve and upload settings.",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind))
+        };
         if (command is null)
         {
             Console.WriteLine($"""
@@ -16,7 +23,7 @@ internal static class WorkerCommandHelp
                   install     Install a stopped system service with manual startup.
                   uninstall   Stop and remove the system service. Keep the worker settings.
                   register    Bind this worker to a server and synchronize its settings.
-                  config      Edit local runtime settings, including tools and temporary storage.
+                  config      {configuration}
                   start       Start the installed system service.
                   stop        Stop the system service and its media processes.
                   status      Show installation, runtime, startup and process information.
@@ -38,7 +45,7 @@ internal static class WorkerCommandHelp
         var description = command switch
         {
             WorkerCommand.Register => "Bind to a server using its HTTP or HTTPS address, TCP control endpoint, worker ID and secret.\nThe TCP control host defaults to the host in the server URL. Configure control TLS in the registration prompt.\nConnection settings are saved before connecting. Runtime settings are synchronized with the server.",
-            WorkerCommand.Config => "Edit FFmpeg, ffprobe, temporary storage, concurrency, device and transfer settings.\nA registered worker reads the latest server settings and synchronizes the changes.\nAn unregistered worker saves its runtime settings locally for the next 'register'.\nStop the worker before editing its settings.",
+            WorkerCommand.Config => configuration + "\nA registered worker reads the latest server settings and synchronizes the changes.\nAn unregistered worker saves its runtime settings locally for the next 'register'.\nStop the worker before editing its settings.",
             WorkerCommand.Run => "Run using the saved binding and runtime settings. Network interruptions are retried.\nRun 'register' first. Use Ctrl+C or SIGTERM to stop the worker and its media processes.",
             WorkerCommand.Help => "Show general help or the help for one command.",
             WorkerCommand.Version => "Show the version embedded in this worker build.",

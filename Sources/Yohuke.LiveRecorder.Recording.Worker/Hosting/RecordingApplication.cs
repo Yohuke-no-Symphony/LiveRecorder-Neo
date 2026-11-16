@@ -9,7 +9,7 @@ internal static class RecordingApplication
 {
     internal static async Task RegisterAsync(string path, CancellationToken cancellationToken)
     {
-        using var settings = new WorkerSettingsStore(path);
+        using var settings = new WorkerSettingsStore(path, "Recording");
         await settings.LoadAsync(cancellationToken);
         var connection = WorkerConnectionSetup.Configure(settings.Current.Worker, "Recording worker registration");
         await settings.SaveAsync(settings.Current with { Worker = connection }, cancellationToken);
@@ -25,7 +25,7 @@ internal static class RecordingApplication
 
     internal static async Task ConfigureAsync(string path, CancellationToken cancellationToken)
     {
-        using var settings = new WorkerSettingsStore(path);
+        using var settings = new WorkerSettingsStore(path, "Recording");
         await settings.LoadAsync(cancellationToken);
         if (string.IsNullOrWhiteSpace(settings.Current.Worker.WorkerId) && string.IsNullOrWhiteSpace(settings.Current.Worker.Secret))
         {
@@ -41,7 +41,7 @@ internal static class RecordingApplication
 
     internal static async Task RunAsync(string path, CancellationToken cancellationToken, Action<string>? log = null)
     {
-        using var settings = new WorkerSettingsStore(path);
+        using var settings = new WorkerSettingsStore(path, "Recording");
         await settings.LoadAsync(cancellationToken);
         settings.Current.Worker.Validate();
         WorkerConfigurationValidation.Validate(settings.Current.Configuration, "Recording");
@@ -49,7 +49,7 @@ internal static class RecordingApplication
     }
 
     private static Task EditAsync(WorkerSettingsStore settings, WorkerWelcome welcome, CancellationToken cancellationToken) =>
-        settings.SaveAsync(WorkerSettingsSynchronization.Accept(settings.Current, welcome.Configuration, welcome.ConfigurationRevision)
+        settings.SaveAsync(WorkerSettingsSynchronization.Accept(settings.Current, welcome.Configuration, welcome.ConfigurationRevision, "Recording")
             with { Configuration = RecordingSetup.Configure(welcome.Configuration) }, cancellationToken);
 
     private static async Task<WorkerWelcome> ReadAsync(WorkerConnectionOptions options, CancellationToken cancellationToken)

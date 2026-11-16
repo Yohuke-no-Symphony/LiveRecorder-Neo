@@ -20,11 +20,12 @@ internal sealed class RecordingTestCaptureSource(Action? onCancellation = null) 
     public async Task SubscribeEventsAsync(RecordingAssignment assignment, Func<RecordedEventEnvelope, CancellationToken, Task> onEvent,
         CancellationToken cancellationToken)
     {
+        var stopped = Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
         await using var registration = onCancellation is null ? default : cancellationToken.Register(onCancellation);
         EventsStarted.TrySetResult();
         try
         {
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            await stopped;
         }
         finally
         {

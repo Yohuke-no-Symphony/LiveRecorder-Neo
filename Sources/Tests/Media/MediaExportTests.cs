@@ -6,6 +6,24 @@ namespace Yohuke.LiveRecorder.Media.Tests;
 /// <summary>Validates exported files with actual FFmpeg and ffprobe processes.</summary>
 public sealed class MediaExportTests
 {
+    /// <summary>Invalid Exact encoding thread settings are rejected before any source is read or output is written.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(129)]
+    public async Task ExactExportRejectsInvalidEncodingThreads(int encodingThreads)
+    {
+        using var fixture = new MediaFixture();
+        var output = Path.Combine(fixture.DirectoryPath, "invalid-threads.mp4");
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => fixture.Processor.ExportAsync(new()
+        {
+            OutputPath = output, DurationMs = 1000, EncodingThreads = encodingThreads,
+            Inputs = [new() { Path = "missing.flv", DurationMs = 1000 }]
+        }, new InlineProgress<double>(_ => { }), CancellationToken.None));
+
+        Assert.False(File.Exists(output));
+    }
+
     /// <summary>Exact merge normalizes different encoding epochs and handles quoted filesystem paths.</summary>
     [Fact]
     public async Task ExactMergeNormalizesDifferentResolutions()

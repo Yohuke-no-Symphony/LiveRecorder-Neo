@@ -3,8 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { defineComponent, h } from 'vue'
 import TranscodingWorkersPanel from '../src/components/common/TranscodingWorkersPanel.vue'
+import StatusChip from '../src/components/common/StatusChip.vue'
 import { TranscodingAPI } from '../src/apis/TranscodingAPI'
-import { defaultWorkerConfiguration, type TranscodingWorker, type WorkerKind } from '../src/models/transcoding'
+import { defaultWorkerConfiguration, type ClippingWorker, type RecordingWorker, type TranscodingWorker, type WorkerKind } from '../src/models/transcoding'
 import { i18n } from '../src/plugins/i18n'
 
 vi.mock('../src/apis/TranscodingAPI', () => ({ TranscodingAPI: { workers: vi.fn(), createWorker: vi.fn(), updateWorker: vi.fn(), rotateWorkerKey: vi.fn(), deleteWorker: vi.fn() } }))
@@ -16,7 +17,7 @@ const stubs = {
   VTextField: field, VTextarea: field, VSelect: field,
   VSwitch: { props: ['modelValue', 'label', 'disabled'], emits: ['update:modelValue'], template: '<input type="checkbox" :aria-label="label" :checked="modelValue" :disabled="disabled" @change="$emit(\'update:modelValue\', $event.target.checked)" />' },
   VDialog: { props: ['modelValue'], template: '<div v-if="modelValue" role="dialog"><slot /></div>' },
-  VAlert: { template: '<div role="alert"><slot /></div>' }, VSpacer: true, VIcon: true, StatusChip: true, VChip: { template: '<span><slot /></span>' },
+  VAlert: { template: '<div role="alert"><slot /></div>' }, VSpacer: true, VIcon: true, VChip: { template: '<span><slot /></span>' },
 }
 const mounted: VueWrapper[] = []
 let worker: TranscodingWorker
@@ -49,6 +50,40 @@ afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()); docum
 
 describe('Worker管理', () =>
 {
+  it('三类节点独立采用主站在线值，停止一个节点与客户端时钟不会改变其他节点状态', async () =>
+  {
+    const transcodingWorker = { ...worker, isOnline: true, lastSeenAtUtc: '2000-01-01T00:00:00Z' }
+    const clippingWorker: ClippingWorker = { ...worker, id: 'clip-1', kind: 'Clipping', configuration: defaultWorkerConfiguration('Clipping'), isOnline: false, lastSeenAtUtc: new Date().toISOString() }
+    const recordingWorker: RecordingWorker = { ...worker, id: 'recording-1', kind: 'Recording', configuration: defaultWorkerConfiguration('Recording'), isOnline: true, lastSeenAtUtc: null }
+    vi.mocked(TranscodingAPI.workers).mockResolvedValue([transcodingWorker, clippingWorker, recordingWorker])
+    vi.setSystemTime(new Date('2035-01-01T00:00:00Z'))
+    const transcoding = await open()
+    const clipping = await open('Clipping')
+    const recording = await open('Recording')
+    expect(transcoding.getComponent(StatusChip).props('status')).toBe('online')
+    expect(clipping.getComponent(StatusChip).props('status')).toBe('disconnected')
+    expect(recording.getComponent(StatusChip).props('status')).toBe('online')
+    expect(transcoding.text()).toContain('在线')
+    expect(clipping.text()).toContain('离线')
+    expect(transcoding.text()).not.toContain('有效')
+    vi.setSystemTime(new Date('1990-01-01T00:00:00Z'))
+    await clipping.get('button[aria-label="刷新"]').trigger('click')
+    await flushPromises()
+    expect(clipping.getComponent(StatusChip).props('status')).toBe('disconnected')
+    expect(transcoding.getComponent(StatusChip).props('status')).toBe('online')
+    expect(recording.getComponent(StatusChip).props('status')).toBe('online')
+  })
+
+  it('旧API缺少在线值时显示离线，停用节点保留禁用状态', async () =>
+  {
+    const wrapper = await open()
+    expect(wrapper.getComponent(StatusChip).props('status')).toBe('disconnected')
+    vi.mocked(TranscodingAPI.workers).mockResolvedValue([{ ...worker, enabled: false, isOnline: true }])
+    await wrapper.get('button[aria-label="刷新"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.getComponent(StatusChip).props('status')).toBe('disabled')
+  })
+
   it('显示实际能力与配置待应用状态，创建仅提交名称并一次展示密钥', async () =>
   {
     const wrapper = await open()
@@ -84,6 +119,7 @@ describe('Worker管理', () =>
 
   it('编辑独立草稿，带expectedRevision保存，失败保持输入供纠正', async () =>
   {
+    Object.assign(worker.configuration, { clipEncodingThreads: 99 })
     const wrapper = await open()
     await button(wrapper, '编辑 Worker').trigger('click')
     const dialog = wrapper.get('[role="dialog"]')
@@ -96,6 +132,8 @@ describe('Worker管理', () =>
     expect(dialog.text()).toContain('配置已更新，请刷新')
     expect(dialog.get('input[aria-label="总并发任务数"]').element).toHaveProperty('value', '3')
     expect(TranscodingAPI.updateWorker).toHaveBeenCalledWith('node-1', expect.objectContaining({ expectedRevision: 4, configuration: expect.objectContaining({ maxConcurrentEncodes: 3, cpuFallbackMode: 'Balanced' }) }))
+    expect(dialog.find('input[aria-label="精确切片 CPU 编码线程数"]').exists()).toBe(false)
+    expect(vi.mocked(TranscodingAPI.updateWorker).mock.calls[0]![1].configuration).not.toHaveProperty('clipEncodingThreads')
   })
 
   it('单位换算为字节并拒绝无效资源数，保存期间不能修改', async () =>
@@ -145,7 +183,7 @@ describe('Worker管理', () =>
 
   it('按节点类型显示列表，切片节点使用独立身份创建并复用一次性密钥交付', async () =>
   {
-    const clippingWorker: TranscodingWorker = { ...worker, id: 'clip-1', name: '切片节点', kind: 'Clipping' }
+    const clippingWorker: ClippingWorker = { ...worker, id: 'clip-1', name: '切片节点', kind: 'Clipping', configuration: defaultWorkerConfiguration('Clipping') }
     vi.mocked(TranscodingAPI.workers).mockResolvedValue([worker, clippingWorker])
     const transcoding = await open()
     expect(transcoding.text()).toContain('本地 Worker')
@@ -167,9 +205,11 @@ describe('Worker管理', () =>
 
   it('切片配置使用任务、空间和传输限额，隐藏的转码资源参数不阻止保存', async () =>
   {
-    worker.kind = 'Clipping'
-    worker.configuration.gpuConcurrency = 0
-    worker.configuration.cpuConcurrency = 0
+    const clippingWorker: ClippingWorker = {
+      ...worker, kind: 'Clipping',
+      configuration: { ...worker.configuration, clipEncodingThreads: 2 },
+    }
+    vi.mocked(TranscodingAPI.workers).mockResolvedValue([clippingWorker])
     const wrapper = await open('Clipping')
     await button(wrapper, '编辑 Worker').trigger('click')
     const dialog = wrapper.get('[role="dialog"]')
@@ -178,25 +218,57 @@ describe('Worker管理', () =>
     expect(dialog.find('input[aria-label="CPU 负载平均窗口（秒）"]').exists()).toBe(false)
     expect(dialog.find('input[aria-label="允许 CPU 回退"]').exists()).toBe(false)
     await dialog.get('input[aria-label="临时空间上限（GiB）"]').setValue('4.5')
-    await dialog.get('input[aria-label="总并发任务数"]').setValue('3')
+    await dialog.get('input[aria-label="并发切片任务数"]').setValue('3')
+    await dialog.get('input[aria-label="精确切片 CPU 编码线程数"]').setValue('6')
     await dialog.get('form').trigger('submit')
     await flushPromises()
     expect(TranscodingAPI.updateWorker).toHaveBeenCalledWith('node-1', expect.objectContaining({
       expectedRevision: 4,
-      configuration: expect.objectContaining({ maxConcurrentEncodes: 3, maxCacheBytes: 4831838208, gpuConcurrency: 0, cpuConcurrency: 0 }),
+      configuration: {
+        ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe', tempDirectory: '', maxConcurrentEncodes: 3,
+        clipEncodingThreads: 6, maxCacheBytes: 4831838208, minimumFreeBytes: 2 * 1024 ** 3,
+        downloadBytesPerSecond: 0, uploadBytesPerSecond: 0,
+      },
     }))
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 
-  it('切片配置在三语切换后更新标题和临时空间标签并保留草稿', async () =>
+  it('切片读取精简配置并补齐旧配置线程默认值，拒绝越界和小数线程数', async () =>
   {
-    worker.kind = 'Clipping'
+    const clippingWorker: ClippingWorker = {
+      ...worker, kind: 'Clipping', configuration: { ...defaultWorkerConfiguration('Clipping'), tempDirectory: '/srv/clips' },
+    }
+    Reflect.deleteProperty(clippingWorker.configuration, 'clipEncodingThreads')
+    vi.mocked(TranscodingAPI.workers).mockResolvedValue([clippingWorker])
     const wrapper = await open('Clipping')
     await button(wrapper, '编辑 Worker').trigger('click')
-    await wrapper.get('input[aria-label="总并发任务数"]').setValue('5')
-    for (const [language, title, spaceLabel, concurrencyLabel] of [
-      ['en-US', 'Clipping workers', 'Temporary space limit (GiB)', 'Total concurrent jobs'],
-      ['ja-JP', '切り抜き Worker', '一時領域の上限（GiB）', '合計同時実行数'],
+    const threads = wrapper.get('input[aria-label="精确切片 CPU 编码线程数"]')
+    expect(threads.element).toHaveProperty('value', '2')
+    for (const invalid of ['0', '129', '1.5'])
+    {
+      await threads.setValue(invalid)
+      await wrapper.get('form').trigger('submit')
+      expect(TranscodingAPI.updateWorker).not.toHaveBeenCalled()
+    }
+    await threads.setValue('128')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(TranscodingAPI.updateWorker).toHaveBeenCalledWith('node-1', expect.objectContaining({
+      configuration: { ...clippingWorker.configuration, clipEncodingThreads: 128 },
+    }))
+  })
+
+  it('切片配置在三语切换后更新标题和临时空间标签并保留草稿', async () =>
+  {
+    const clippingWorker: ClippingWorker = { ...worker, kind: 'Clipping', configuration: defaultWorkerConfiguration('Clipping') }
+    vi.mocked(TranscodingAPI.workers).mockResolvedValue([clippingWorker])
+    const wrapper = await open('Clipping')
+    await button(wrapper, '编辑 Worker').trigger('click')
+    await wrapper.get('input[aria-label="并发切片任务数"]').setValue('5')
+    await wrapper.get('input[aria-label="精确切片 CPU 编码线程数"]').setValue('4')
+    for (const [language, title, spaceLabel, concurrencyLabel, threadsLabel] of [
+      ['en-US', 'Clipping workers', 'Temporary space limit (GiB)', 'Concurrent clipping jobs', 'Exact clipping CPU encoding threads'],
+      ['ja-JP', '切り抜き Worker', '一時領域の上限（GiB）', '同時切り抜きタスク数', '精密切り抜きのCPUエンコードスレッド数'],
     ] as const)
     {
       i18n.global.locale.value = language
@@ -204,18 +276,20 @@ describe('Worker管理', () =>
       expect(wrapper.text()).toContain(title)
       expect(wrapper.find(`input[aria-label="${spaceLabel}"]`).exists()).toBe(true)
       expect(wrapper.get(`input[aria-label="${concurrencyLabel}"]`).element).toHaveProperty('value', '5')
+      expect(wrapper.get(`input[aria-label="${threadsLabel}"]`).element).toHaveProperty('value', '4')
     }
   })
 
   it('录像节点使用独立身份创建，并显示采集和待补传状态', async () =>
   {
     const transcodingWorker = { ...worker }
-    worker = {
+    const recordingWorker: RecordingWorker = {
       ...worker, id: 'recording-1', kind: 'Recording', name: '录像节点',
+      configuration: defaultWorkerConfiguration('Recording'),
       telemetry: { ...worker.telemetry!, activeRecordings: 3, pendingUploadBytes: 1536, spoolBytes: 2 * 1024 ** 3 },
     }
-    vi.mocked(TranscodingAPI.workers).mockResolvedValue([transcodingWorker, worker])
-    vi.mocked(TranscodingAPI.createWorker).mockResolvedValueOnce({ worker, secret: 'recording-key' })
+    vi.mocked(TranscodingAPI.workers).mockResolvedValue([transcodingWorker, recordingWorker])
+    vi.mocked(TranscodingAPI.createWorker).mockResolvedValueOnce({ worker: recordingWorker, secret: 'recording-key' })
     const wrapper = await open('Recording')
     expect(wrapper.text()).toContain('录像 Worker')
     expect(wrapper.text()).toContain('采集中 3 间')
@@ -231,12 +305,13 @@ describe('Worker管理', () =>
     expect(wrapper.get('input[aria-label="访问密钥"]').element).toHaveProperty('value', 'recording-key')
   })
 
-  it('录像配置仅编辑采集并发和持久缓存，不依赖媒体工具或转码能力', async () =>
+  it.each([false, true])('录像配置仅编辑采集并发和持久缓存，兼容旧完整配置为%s', async legacy =>
   {
-    worker.kind = 'Recording'
-    worker.configuration.ffmpegPath = worker.configuration.ffprobePath = ''
-    worker.configuration.gpuConcurrency = worker.configuration.cpuConcurrency = 0
-    worker.configuration.downloadBytesPerSecond = -1
+    const recordingWorker: RecordingWorker = {
+      ...worker, kind: 'Recording', configuration: { ...defaultWorkerConfiguration('Recording'), tempDirectory: '/srv/spool' },
+    }
+    if (legacy) { Object.assign(recordingWorker.configuration, worker.configuration, { tempDirectory: '/srv/spool', clipEncodingThreads: 4 }) }
+    vi.mocked(TranscodingAPI.workers).mockResolvedValue([recordingWorker])
     const wrapper = await open('Recording')
     await button(wrapper, '编辑 Worker').trigger('click')
     const dialog = wrapper.get('[role="dialog"]')
@@ -245,6 +320,8 @@ describe('Worker管理', () =>
     expect(dialog.find('input[aria-label="下载上限（MiB/s）"]').exists()).toBe(false)
     expect(dialog.find('input[aria-label="首选编码器"]').exists()).toBe(false)
     expect(dialog.find('input[aria-label="GPU 并发任务数"]').exists()).toBe(false)
+    expect(dialog.find('input[aria-label="CPU 并发任务数"]').exists()).toBe(false)
+    expect(dialog.find('input[aria-label="精确切片 CPU 编码线程数"]').exists()).toBe(false)
     await dialog.get('input[aria-label="录制缓存目录"]').setValue('/srv/recording-cache')
     await dialog.get('input[aria-label="录制缓存上限（GiB）"]').setValue('4.5')
     await dialog.get('input[aria-label="同时录制房间数"]').setValue('8')
@@ -253,14 +330,15 @@ describe('Worker管理', () =>
     await flushPromises()
     expect(TranscodingAPI.updateWorker).toHaveBeenCalledWith('node-1', expect.objectContaining({
       expectedRevision: 4,
-      configuration: expect.objectContaining({ tempDirectory: '/srv/recording-cache', maxConcurrentEncodes: 8, maxCacheBytes: 4831838208, uploadBytesPerSecond: 1572864, ffmpegPath: '', ffprobePath: '' }),
+      configuration: { tempDirectory: '/srv/recording-cache', maxConcurrentEncodes: 8, maxCacheBytes: 4831838208, minimumFreeBytes: 2 * 1024 ** 3, uploadBytesPerSecond: 1572864 },
     }))
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 
   it('录像节点尚有归属时保留删除错误与确认状态', async () =>
   {
-    worker.kind = 'Recording'
+    const recordingWorker: RecordingWorker = { ...worker, kind: 'Recording', configuration: defaultWorkerConfiguration('Recording') }
+    vi.mocked(TranscodingAPI.workers).mockResolvedValue([recordingWorker])
     const wrapper = await open('Recording')
     await wrapper.get('button[aria-label="删除 Worker"]').trigger('click')
     const dialog = wrapper.get('[role="dialog"]')
@@ -274,7 +352,8 @@ describe('Worker管理', () =>
 
   it('录像配置校验任务和空间，并在语言切换时保留失败草稿', async () =>
   {
-    worker.kind = 'Recording'
+    const recordingWorker: RecordingWorker = { ...worker, kind: 'Recording', configuration: defaultWorkerConfiguration('Recording') }
+    vi.mocked(TranscodingAPI.workers).mockResolvedValue([recordingWorker])
     const wrapper = await open('Recording')
     await button(wrapper, '编辑 Worker').trigger('click')
     await wrapper.get('input[aria-label="同时录制房间数"]').setValue('0')

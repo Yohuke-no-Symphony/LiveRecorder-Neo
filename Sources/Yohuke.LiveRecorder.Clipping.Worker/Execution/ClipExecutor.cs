@@ -72,6 +72,7 @@ internal sealed class ClipExecutor(ClipFileTransfer transfer)
             Inputs = inputs,
             OutputPath = workspace.OutputPath,
             Mode = assignment.Mode,
+            EncodingThreads = configuration.ClipEncodingThreads,
             KeyframeBoundsPrepared = assignment.Mode == "Fast",
             StartMs = assignment.ActualStartMs,
             DurationMs = assignment.ActualEndMs - assignment.ActualStartMs

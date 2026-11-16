@@ -38,8 +38,6 @@
 ./ylr-rec-worker run --config /absolute/path/settings.json
 ```
 
-配置字段沿用共用 Worker 模型，录像节点使用以下参数。
-
 | 配置字段 | 用途 |
 | --- | --- |
 | `Configuration.TempDirectory` | 持久录制缓存目录 |

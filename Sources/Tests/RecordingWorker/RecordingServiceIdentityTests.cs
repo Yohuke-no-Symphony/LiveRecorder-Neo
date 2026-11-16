@@ -1,5 +1,6 @@
 using Yohuke.LiveRecorder.Transcoding.Worker.Configuration;
 using Yohuke.LiveRecorder.Transcoding.Worker.Services;
+using Yohuke.LiveRecorder.Transcoding.Contracts;
 using Xunit;
 
 namespace Yohuke.LiveRecorder.Recording.Worker.Tests;
@@ -49,6 +50,7 @@ public sealed class RecordingServiceIdentityTests
         Assert.NotNull(update);
         Assert.Equal("Recording", update.Kind);
         Assert.Equal(3, update.ExpectedConfigurationRevision);
-        Assert.Equal(settings.Configuration, update.InitialConfiguration);
+        Assert.Equal(WorkerConfigurationProjection.ToRecording(settings.Configuration),
+            WorkerConfigurationProjection.ToRecording(update.InitialConfiguration!));
     }
 }

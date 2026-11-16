@@ -17,7 +17,7 @@ internal static class Program
             var commandLine = WorkerCommandLine.Parse(args);
             if (commandLine.Command == WorkerCommand.Help)
             {
-                WorkerCommandHelp.Write(commandLine.HelpCommand, "ylr-rec-worker", "Recording worker");
+                WorkerCommandHelp.Write(commandLine.HelpCommand, "ylr-rec-worker", "Recording worker", "Recording");
                 return 0;
             }
             if (commandLine.Command == WorkerCommand.Version)
