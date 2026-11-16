@@ -1,9 +1,10 @@
 import { query, request } from './APIBase'
-import type { TranscodeJob, Worker, WorkerConfiguration, WorkerKind, WorkerLogPage } from '@/models/transcoding'
+import type { RecordingWorkerAssignment, TranscodeJob, Worker, WorkerConfiguration, WorkerKind, WorkerLogPage } from '@/models/transcoding'
 
 const send = <T>(path: string, method: string, body?: unknown) => request<T>(`transcoding/${path}`, { method, body: body === undefined ? undefined : JSON.stringify(body) })
 
 export const TranscodingAPI = {
+  workerAssignments: (id: string, signal?: AbortSignal) => request<RecordingWorkerAssignment[]>(`transcoding/workers/${encodeURIComponent(id)}/assignments`, { signal }),
   workers: (signal?: AbortSignal) => request<Worker[]>('transcoding/workers', { signal }),
   workerLogs: (id: string, after?: number, signal?: AbortSignal) => request<WorkerLogPage>(`transcoding/workers/${encodeURIComponent(id)}/logs${query({ after, take: 200 })}`, { signal }),
   createWorker: (name: string, kind: WorkerKind = 'Transcoding') => send<{ worker: Worker; secret: string }>('workers', 'POST', kind === 'Transcoding' ? { name } : { name, kind }),

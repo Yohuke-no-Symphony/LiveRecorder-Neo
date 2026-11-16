@@ -8,7 +8,7 @@
     <p v-if="!workers.length && !loading" class="muted">{{ t('transcoding.noWorkers') }}</p>
     <div class="worker-list">
       <article v-for="worker in workers" :key="worker.id" class="worker-row">
-        <div class="d-flex align-center flex-wrap ga-3"><strong>{{ worker.name }}</strong><StatusChip :status="worker.enabled ? (worker.isOnline === true ? 'online' : 'disconnected') : 'disabled'" /><span class="text-caption muted">{{ worker.capabilities?.operatingSystem }} {{ worker.capabilities?.architecture }}</span><v-spacer /><v-btn size="small" variant="text" @click="logWorker = worker">{{ t('transcoding.viewLogs') }}</v-btn><v-btn size="small" variant="text" :disabled="busy" @click="edit(worker)">{{ t('transcoding.editWorker') }}</v-btn><v-btn size="small" variant="text" :disabled="busy" @click="rotateTarget = worker">{{ t('transcoding.rotateKey') }}</v-btn><v-btn icon="mdi-delete-outline" size="small" variant="text" color="error" :disabled="busy" :aria-label="t('transcoding.deleteWorker')" @click="deleteTarget = worker" /></div>
+        <div class="d-flex align-center flex-wrap ga-3"><strong>{{ worker.name }}</strong><StatusChip :status="worker.enabled ? (worker.isOnline === true ? 'online' : 'disconnected') : 'disabled'" /><span class="text-caption muted">{{ worker.capabilities?.operatingSystem }} {{ worker.capabilities?.architecture }}</span><v-spacer /><v-btn v-if="isRecording" size="small" variant="text" @click="assignmentWorker = worker">{{ t('transcoding.viewAssignments') }}</v-btn><v-btn size="small" variant="text" @click="logWorker = worker">{{ t('transcoding.viewLogs') }}</v-btn><v-btn size="small" variant="text" :disabled="busy" @click="edit(worker)">{{ t('transcoding.editWorker') }}</v-btn><v-btn size="small" variant="text" :disabled="busy" @click="rotateTarget = worker">{{ t('transcoding.rotateKey') }}</v-btn><v-btn icon="mdi-delete-outline" size="small" variant="text" color="error" :disabled="busy" :aria-label="t('transcoding.deleteWorker')" @click="deleteTarget = worker" /></div>
         <div class="text-caption muted mt-2">{{ t('transcoding.workerId') }}: {{ worker.id }} · {{ t('transcoding.lastSeen') }}: {{ worker.lastSeenAtUtc ? formatDate(worker.lastSeenAtUtc) : '—' }}</div>
         <div v-if="worker.telemetry" class="text-caption mt-2">
           <template v-if="isRecording">{{ t('transcoding.activeRecordings', { count: worker.telemetry.activeRecordings ?? worker.telemetry.runningJobs ?? worker.telemetry.runningCpu }) }} · {{ t('transcoding.pendingUpload', { bytes: formatBytes(worker.telemetry.pendingUploadBytes ?? -1) }) }}</template>
@@ -52,6 +52,7 @@
     <ConfirmDialog :model-value="!!deleteTarget" :title="t('transcoding.deleteWorker')" :message="t(isRecording ? 'transcoding.deleteRecordingWorkerConfirm' : 'transcoding.deleteWorkerConfirm')" :action-label="t('transcoding.delete')" danger :busy="busy" :error="error" @update:model-value="!$event && !busy && (deleteTarget = undefined)" @confirm="remove" />
     <ConfirmDialog :model-value="!!rotateTarget" :title="t('transcoding.rotateKey')" :message="t('transcoding.rotateKeyConfirm')" :action-label="t('transcoding.rotateKey')" :busy="busy" :error="error" @update:model-value="!$event && !busy && (rotateTarget = undefined)" @confirm="rotate" />
     <TranscodingLogDialog v-if="logWorker" :worker="logWorker" @close="logWorker = undefined" />
+    <RecordingWorkerAssignmentsDialog v-if="assignmentWorker" :worker="assignmentWorker" @close="assignmentWorker = undefined" />
   </ContentCard>
 </template>
 
@@ -67,6 +68,7 @@ import ContentCard from './ContentCard.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import StatusChip from './StatusChip.vue'
 import TranscodingLogDialog from './TranscodingLogDialog.vue'
+import RecordingWorkerAssignmentsDialog from './RecordingWorkerAssignmentsDialog.vue'
 
 type NumericConfigurationKey<T> = { [K in keyof T]: T[K] extends number ? K : never }[keyof T]
 type NumericKey = NumericConfigurationKey<TranscodingWorkerConfiguration> | NumericConfigurationKey<ClippingWorkerConfiguration> | NumericConfigurationKey<RecordingWorkerConfiguration>
@@ -117,6 +119,7 @@ const secret = ref<{ workerId: string; value: string }>()
 const deleteTarget = ref<Worker>()
 const rotateTarget = ref<Worker>()
 const logWorker = ref<Worker>()
+const assignmentWorker = ref<{ id: string; name: string }>()
 let disposed = false
 let requestRevision = 0
 let controller: AbortController | undefined

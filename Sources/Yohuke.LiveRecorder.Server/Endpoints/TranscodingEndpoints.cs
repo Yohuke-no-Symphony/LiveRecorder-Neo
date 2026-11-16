@@ -3,6 +3,7 @@ using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Infrastructure.Transcoding;
+using Yohuke.LiveRecorder.Infrastructure.Recording;
 using Yohuke.LiveRecorder.Server.Contracts;
 using Yohuke.LiveRecorder.Server.Transcoding;
 using Yohuke.LiveRecorder.Transcoding.Contracts;
@@ -20,6 +21,11 @@ public static class TranscodingEndpoints
             Results.Ok((await coordinator.ListWorkersAsync(ct)).Select(worker => WorkerView(worker, connections))));
         admin.MapGet("/workers/{id}/logs", async (string id, long? after, int? take, TranscodingCoordinator coordinator, CancellationToken ct) =>
             Results.Ok(await coordinator.ReadWorkerLogsAsync(id, after, take ?? 200, ct)));
+        admin.MapGet("/workers/{id}/assignments", async (string id, HttpContext http, RecordingWorkerAssignmentService assignments, CancellationToken ct) =>
+        {
+            http.Response.Headers.CacheControl = "private, no-store";
+            return Results.Ok(await assignments.ListAsync(id, ct));
+        });
         admin.MapPost("/workers", async (CreateTranscodeWorkerRequest request, TranscodingCoordinator coordinator, WorkerConnectionStatusTracker connections, CancellationToken ct) =>
         {
             RequireName(request.Name);

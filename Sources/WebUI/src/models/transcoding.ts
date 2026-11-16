@@ -112,6 +112,13 @@ export interface RecordingWorker extends WorkerState
 
 export type Worker = TranscodingWorker | ClippingWorker | RecordingWorker
 
+export interface RecordingWorkerAssignment
+{
+  targetId: string
+  roomId: number
+  name: string
+}
+
 export interface TranscodeJob extends Entity
 {
   sessionId: string
