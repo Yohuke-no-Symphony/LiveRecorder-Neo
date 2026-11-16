@@ -1,0 +1,4 @@
+interface:
+  display_name: "Live Recorder UI 设计规范"
+  short_description: "统一 Live Recorder 卡片、弹窗和页面布局，并保留表单与滚动行为"
+  default_prompt: "使用 $live-recorder-ui-design 检查并统一当前项目的卡片、弹窗和页面布局。"
