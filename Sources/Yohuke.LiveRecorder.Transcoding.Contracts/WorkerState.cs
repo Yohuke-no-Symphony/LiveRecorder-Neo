@@ -1,4 +1,5 @@
 using Yohuke.LiveRecorder.Clipping.Contracts;
+using Yohuke.LiveRecorder.Recording.Contracts;
 
 namespace Yohuke.LiveRecorder.Transcoding.Contracts;
 
@@ -9,6 +10,7 @@ public sealed record WorkerState
     public int ConfigurationRevision { get; set; }
     public List<TranscodeAssignment> Assignments { get; set; } = [];
     public List<ClipAssignment> ClipAssignments { get; set; } = [];
+    public List<RecordingLease> RecordingAssignments { get; set; } = [];
     public List<WorkerLeaseStatus> Leases { get; set; } = [];
     public WorkerLogAcknowledgement? LogAcknowledgement { get; set; }
 }

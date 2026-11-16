@@ -1,12 +1,14 @@
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Clipping;
+using Yohuke.LiveRecorder.Infrastructure.Recording;
 using Yohuke.LiveRecorder.Transcoding.Contracts;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Transcoding;
 
 /// <summary>向主站管理、控制连接和媒体传输端点提供一致的转码边界。</summary>
 public sealed class TranscodingCoordinator(TranscodeWorkerService workers, TranscodeJobScheduler scheduler,
-    TranscodeTransferService transfers, TranscodeRenditionCatalog catalog, TranscodeWorkerLogStore logs, ClippingJobScheduler clipping)
+    TranscodeTransferService transfers, TranscodeRenditionCatalog catalog, TranscodeWorkerLogStore logs, ClippingJobScheduler clipping,
+    RecordingJobScheduler recording)
 {
     /// <summary>读取已登记节点。</summary>
     public Task<IReadOnlyList<TranscodeWorker>> ListWorkersAsync(CancellationToken cancellationToken = default) => workers.ListAsync(cancellationToken);
@@ -28,7 +30,11 @@ public sealed class TranscodingCoordinator(TranscodeWorkerService workers, Trans
     /// <summary>同步运行状态、续租和任务派发。</summary>
     public async Task<WorkerState> HeartbeatAsync(string workerId, WorkerHeartbeat heartbeat, CancellationToken cancellationToken = default)
     {
-        var worker = await workers.RequireAsync(workerId, cancellationToken);
+        var worker = await workers.RequireAsync(workerId, cancellationToken, true);
+        if (worker.Kind == "Recording")
+        {
+            return await recording.HeartbeatAsync(workerId, heartbeat, cancellationToken);
+        }
         return worker.Kind == "Clipping"
             ? await clipping.HeartbeatAsync(workerId, heartbeat, cancellationToken)
             : await scheduler.HeartbeatAsync(workerId, heartbeat, cancellationToken);
@@ -37,8 +43,12 @@ public sealed class TranscodingCoordinator(TranscodeWorkerService workers, Trans
     public async Task<WorkerState> HeartbeatAsync(string workerId, string secret, WorkerHeartbeat heartbeat,
         CancellationToken cancellationToken = default)
     {
-        var worker = await workers.RequireAsync(workerId, cancellationToken);
+        var worker = await workers.RequireAsync(workerId, cancellationToken, true);
         var expectedHash = TranscodeWorkerService.SecretHash(secret);
+        if (worker.Kind == "Recording")
+        {
+            return await recording.HeartbeatAsync(workerId, heartbeat, cancellationToken, expectedHash);
+        }
         return worker.Kind == "Clipping"
             ? await clipping.HeartbeatAsync(workerId, heartbeat, cancellationToken, expectedHash)
             : await scheduler.HeartbeatAsync(workerId, heartbeat, cancellationToken, expectedHash);

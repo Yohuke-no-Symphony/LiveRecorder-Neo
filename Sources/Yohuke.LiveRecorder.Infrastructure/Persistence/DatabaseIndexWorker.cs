@@ -22,6 +22,14 @@ public sealed class DatabaseIndexWorker(IMongoContext context, IBootstrapStore b
                     await context.Collection<Streamer>("streamers").Indexes.CreateOneAsync(new CreateIndexModel<Streamer>(Builders<Streamer>.IndexKeys.Ascending(x => x.RoomId), new CreateIndexOptions { Unique = true, Name = "room_unique" }), cancellationToken: stoppingToken);
                     await context.Collection<BroadcastSession>("sessions").Indexes.CreateOneAsync(new CreateIndexModel<BroadcastSession>(Builders<BroadcastSession>.IndexKeys.Ascending(x => x.StreamerId).Descending(x => x.CreatedAtUtc)), cancellationToken: stoppingToken);
                     await context.Collection<RecordingSegment>("segments").Indexes.CreateOneAsync(new CreateIndexModel<RecordingSegment>(Builders<RecordingSegment>.IndexKeys.Ascending(x => x.SessionId).Ascending(x => x.Revision).Ascending(x => x.StartOffsetMs)), cancellationToken: stoppingToken);
+                    await context.Collection<RecordingOwnership>("recordingOwnerships").Indexes.CreateOneAsync(new CreateIndexModel<RecordingOwnership>(
+                        Builders<RecordingOwnership>.IndexKeys.Ascending(value => value.OwnerKind).Ascending(value => value.OwnerId).Ascending(value => value.State)), cancellationToken: stoppingToken);
+                    await context.Collection<RecordingAssignmentRecord>("recordingAssignments").Indexes.CreateOneAsync(new CreateIndexModel<RecordingAssignmentRecord>(
+                        Builders<RecordingAssignmentRecord>.IndexKeys.Ascending(value => value.OwnerId).Ascending(value => value.State)), cancellationToken: stoppingToken);
+                    await context.Collection<RecordingSessionReceipt>("recordingSessions").Indexes.CreateOneAsync(new CreateIndexModel<RecordingSessionReceipt>(
+                        Builders<RecordingSessionReceipt>.IndexKeys.Ascending(value => value.AssignmentId)), cancellationToken: stoppingToken);
+                    await context.Collection<RecordingSegmentReceipt>("recordingSegments").Indexes.CreateOneAsync(new CreateIndexModel<RecordingSegmentReceipt>(
+                        Builders<RecordingSegmentReceipt>.IndexKeys.Ascending(value => value.SessionId).Ascending(value => value.AssignmentId)), cancellationToken: stoppingToken);
                     await context.Collection<SessionBookmark>("sessionBookmarks").Indexes.CreateOneAsync(new CreateIndexModel<SessionBookmark>(
                         Builders<SessionBookmark>.IndexKeys.Ascending(x => x.SessionId).Ascending(x => x.OwnerId).Ascending(x => x.OffsetMs).Ascending(x => x.Id),
                         new CreateIndexOptions { Name = "session_bookmarks_session_owner_offset" }), cancellationToken: stoppingToken);

@@ -7,6 +7,15 @@ public static class WorkerConfigurationPolicy
     public static void Validate(WorkerConfiguration value, string kind)
     {
         ArgumentNullException.ThrowIfNull(value);
+        if (kind == "Recording")
+        {
+            if (value.TempDirectory is null or { Length: > 4096 } || value.MaxConcurrentEncodes is < 1 or > 64
+                || value.MaxCacheBytes < 1024 * 1024 || value.MinimumFreeBytes < 0 || value.UploadBytesPerSecond < 0)
+            {
+                throw new ArgumentException("Invalid recording Worker resource configuration.", nameof(value));
+            }
+            return;
+        }
         if (kind == "Transcoding")
         {
             TranscodeConfigurationPolicy.Validate(value);

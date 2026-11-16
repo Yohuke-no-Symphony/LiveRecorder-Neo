@@ -37,6 +37,8 @@ pwsh ./release.ps1 --all --version 1.2.3
 
 产物目录为 `Artifacts/server/<version>/<runtime>/`，压缩包为 `Artifacts/server/<version>/server-<version>-<runtime>.zip`，解压后直接得到运行文件。程序自带 .NET 运行时；保留同目录的 `webui/` 和 `appsettings*.json`，FFmpeg 与 ffprobe 另行安装。
 
+独立 Worker 使用 `pwsh ./release-worker.ps1 -Runtime win-x64 --version 1.2.3` 发布，支持同样的平台和 `--all` 参数。每个平台生成一个 `Artifacts/workers/<version>/workers-<version>-<runtime>.zip`，包内 `transcoding/`、`clip/` 和 `recording/` 分别提供转码、切片和录像程序及其部署说明。
+
 ## 部署与配置
 
 在发布目录运行，确保运行账户可以写入设置文件、数据目录和录像目录：

@@ -290,7 +290,7 @@ public sealed class EventArchiveReader : IDisposable
             EventIndexBlock? block;
             try
             {
-                block = JsonSerializer.Deserialize<EventIndexBlock>(line.Bytes, JsonFiles.Options);
+                block = JsonSerializer.Deserialize<EventIndexBlock>(line.Bytes, EventArchiveJson.Options);
             }
             catch (JsonException)
             {
@@ -414,7 +414,7 @@ public sealed class EventArchiveReader : IDisposable
             {
                 foreach (var block in blocks)
                 {
-                    output.Write(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(block, JsonFiles.Options) + "\n"));
+                    output.Write(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(block, EventArchiveJson.Options) + "\n"));
                 }
                 output.Flush(true);
             }
@@ -449,7 +449,7 @@ public sealed class EventArchiveReader : IDisposable
     {
         try
         {
-            var item = JsonSerializer.Deserialize<RecordedEventEnvelope>(bytes, JsonFiles.Options);
+            var item = JsonSerializer.Deserialize<RecordedEventEnvelope>(bytes, EventArchiveJson.Options);
             return item is { Sequence: > 0 } && double.IsFinite(item.OffsetMs) ? item : null;
         }
         catch (JsonException)

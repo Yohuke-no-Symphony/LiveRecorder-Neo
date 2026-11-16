@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Yohuke.LiveRecorder.Application.Media;
 
 namespace Yohuke.LiveRecorder.Media;
 
@@ -16,6 +17,9 @@ internal sealed class FlvOutputState
     public double LastVideoTimestampMs { get; set; } = -1;
     public double FrameDurationMs { get; set; } = 33.333333;
     public long CommittedBytes { get; set; }
+    public long IndexCommittedBytes { get; set; }
+    public long CommitSequence { get; set; }
+    public MediaRecordingCommitSnapshot? CommitSnapshot { get; set; }
     public string Codec { get; set; } = "avc";
 
     internal Task WriteIndexAsync(FlvIndexEntry entry)

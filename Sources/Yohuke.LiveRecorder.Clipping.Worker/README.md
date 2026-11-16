@@ -78,6 +78,6 @@ pwsh ./release-worker.ps1 --all --version 0.2.0
 
 `release-clipping-worker.ps1` 保留为统一脚本的转调入口，也会打包所有 Worker。
 
-默认发布 `linux-x64`，支持 `linux-arm64`、`win-x64`、`osx-x64` 和 `osx-arm64`。版本号可省略，省略时读取转码项目的版本，并用于包内所有 Worker。每个平台生成一个 `Artifacts/workers/<version>/workers-<version>-<runtime>.zip`，包内顶层目录为 `transcoding/` 和 `clip/`；切片程序及其说明、配置示例和许可证位于 `clip/`。
+默认发布 `linux-x64`，支持 `linux-arm64`、`win-x64`、`osx-x64` 和 `osx-arm64`。版本号可省略，省略时读取转码项目的版本，并用于包内所有 Worker。每个平台生成一个 `Artifacts/workers/<version>/workers-<version>-<runtime>.zip`，包内顶层目录为 `transcoding/`、`clip/` 和 `recording/`；切片程序及其说明、配置示例和许可证位于 `clip/`。
 
-发布出的散文件保留在 `Artifacts/workers/<version>/<runtime>/`，其下同样包含 `transcoding/` 和 `clip/`。ZIP 使用本次的干净发布内容生成。
+发布出的散文件保留在 `Artifacts/workers/<version>/<runtime>/`，其下同样包含 `transcoding/`、`clip/` 和 `recording/`。ZIP 使用本次的干净发布内容生成。

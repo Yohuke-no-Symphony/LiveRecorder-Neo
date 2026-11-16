@@ -206,4 +206,91 @@ describe('Worker管理', () =>
       expect(wrapper.get(`input[aria-label="${concurrencyLabel}"]`).element).toHaveProperty('value', '5')
     }
   })
+
+  it('录像节点使用独立身份创建，并显示采集和待补传状态', async () =>
+  {
+    const transcodingWorker = { ...worker }
+    worker = {
+      ...worker, id: 'recording-1', kind: 'Recording', name: '录像节点',
+      telemetry: { ...worker.telemetry!, activeRecordings: 3, pendingUploadBytes: 1536, spoolBytes: 2 * 1024 ** 3 },
+    }
+    vi.mocked(TranscodingAPI.workers).mockResolvedValue([transcodingWorker, worker])
+    vi.mocked(TranscodingAPI.createWorker).mockResolvedValueOnce({ worker, secret: 'recording-key' })
+    const wrapper = await open('Recording')
+    expect(wrapper.text()).toContain('录像 Worker')
+    expect(wrapper.text()).toContain('采集中 3 间')
+    expect(wrapper.text()).toContain('待上传 1.5 KB')
+    expect(wrapper.text()).toContain('录制缓存 2 GB / 20 GB')
+    expect(wrapper.text()).not.toContain('本地 Worker')
+    expect(wrapper.text()).not.toContain('h264_videotoolbox')
+    await wrapper.get('button[aria-label="添加 Worker"]').trigger('click')
+    await wrapper.get('input[aria-label="名称"]').setValue(' 录像节点 ')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(TranscodingAPI.createWorker).toHaveBeenCalledWith('录像节点', 'Recording')
+    expect(wrapper.get('input[aria-label="访问密钥"]').element).toHaveProperty('value', 'recording-key')
+  })
+
+  it('录像配置仅编辑采集并发和持久缓存，不依赖媒体工具或转码能力', async () =>
+  {
+    worker.kind = 'Recording'
+    worker.configuration.ffmpegPath = worker.configuration.ffprobePath = ''
+    worker.configuration.gpuConcurrency = worker.configuration.cpuConcurrency = 0
+    worker.configuration.downloadBytesPerSecond = -1
+    const wrapper = await open('Recording')
+    await button(wrapper, '编辑 Worker').trigger('click')
+    const dialog = wrapper.get('[role="dialog"]')
+    expect(dialog.find(`input[aria-label="${i18n.global.t('shell.settings.ffmpeg')}"]`).exists()).toBe(false)
+    expect(dialog.find(`input[aria-label="${i18n.global.t('shell.settings.ffprobe')}"]`).exists()).toBe(false)
+    expect(dialog.find('input[aria-label="下载上限（MiB/s）"]').exists()).toBe(false)
+    expect(dialog.find('input[aria-label="首选编码器"]').exists()).toBe(false)
+    expect(dialog.find('input[aria-label="GPU 并发任务数"]').exists()).toBe(false)
+    await dialog.get('input[aria-label="录制缓存目录"]').setValue('/srv/recording-cache')
+    await dialog.get('input[aria-label="录制缓存上限（GiB）"]').setValue('4.5')
+    await dialog.get('input[aria-label="同时录制房间数"]').setValue('8')
+    await dialog.get('input[aria-label="上传上限（MiB/s）"]').setValue('1.5')
+    await dialog.get('form').trigger('submit')
+    await flushPromises()
+    expect(TranscodingAPI.updateWorker).toHaveBeenCalledWith('node-1', expect.objectContaining({
+      expectedRevision: 4,
+      configuration: expect.objectContaining({ tempDirectory: '/srv/recording-cache', maxConcurrentEncodes: 8, maxCacheBytes: 4831838208, uploadBytesPerSecond: 1572864, ffmpegPath: '', ffprobePath: '' }),
+    }))
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('录像节点尚有归属时保留删除错误与确认状态', async () =>
+  {
+    worker.kind = 'Recording'
+    const wrapper = await open('Recording')
+    await wrapper.get('button[aria-label="删除 Worker"]').trigger('click')
+    const dialog = wrapper.get('[role="dialog"]')
+    expect(dialog.text()).toContain('仍有录制归属时，请先停用节点并等待补传完成')
+    vi.mocked(TranscodingAPI.deleteWorker).mockRejectedValueOnce(new Error('节点仍有关联录制'))
+    await button(dialog, '删除').trigger('click')
+    await flushPromises()
+    expect(dialog.text()).toContain('节点仍有关联录制')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
+  })
+
+  it('录像配置校验任务和空间，并在语言切换时保留失败草稿', async () =>
+  {
+    worker.kind = 'Recording'
+    const wrapper = await open('Recording')
+    await button(wrapper, '编辑 Worker').trigger('click')
+    await wrapper.get('input[aria-label="同时录制房间数"]').setValue('0')
+    await wrapper.get('form').trigger('submit')
+    expect(TranscodingAPI.updateWorker).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('请填写名称，并检查录制并发、缓存空间和上传上限')
+    for (const [language, title, spoolLabel, concurrencyLabel] of [
+      ['en-US', 'Recording workers', 'Recording cache directory', 'Concurrent recording rooms'],
+      ['ja-JP', '録画 Worker', '録画キャッシュディレクトリ', '同時録画ルーム数'],
+    ] as const)
+    {
+      i18n.global.locale.value = language
+      await flushPromises()
+      expect(wrapper.text()).toContain(title)
+      expect(wrapper.find(`input[aria-label="${spoolLabel}"]`).exists()).toBe(true)
+      expect(wrapper.get(`input[aria-label="${concurrencyLabel}"]`).element).toHaveProperty('value', '0')
+    }
+  })
 })

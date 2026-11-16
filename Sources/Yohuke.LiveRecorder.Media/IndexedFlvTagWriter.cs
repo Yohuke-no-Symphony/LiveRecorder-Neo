@@ -26,10 +26,20 @@ internal sealed class IndexedFlvTagWriter : IFlvTagWriter
 
     public bool CloseCurrentFile()
     {
-        var closed = inner.CloseCurrentFile();
-        if (closed)
+        var closed = false;
+        var prepared = false;
+        try
         {
-            target.Complete();
+            target.PrepareClose();
+            prepared = true;
+        }
+        finally
+        {
+            closed = inner.CloseCurrentFile();
+            if (closed)
+            {
+                target.Complete(prepared);
+            }
         }
         return closed;
     }

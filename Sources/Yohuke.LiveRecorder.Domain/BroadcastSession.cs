@@ -33,4 +33,6 @@ public sealed class BroadcastSession : Entity
     public bool ProjectionReady { get; set; } = true;
     public bool AutoTranscodeEligible { get; set; }
     public bool AutoTranscodeScheduled { get; set; }
+    public string? RecordingAssignmentId { get; set; }
+    public int RecordingGeneration { get; set; }
 }

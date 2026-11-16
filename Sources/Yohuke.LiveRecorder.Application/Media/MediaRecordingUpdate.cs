@@ -10,5 +10,7 @@ public sealed class MediaRecordingUpdate
     public double StartOffsetMs { get; set; }
     public double DurationMs { get; set; }
     public long CommittedBytes { get; set; }
+    public long IndexCommittedBytes { get; set; }
     public string Codec { get; set; } = "avc";
+    public MediaRecordingCommitSnapshot? CommitSnapshot { get; set; }
 }

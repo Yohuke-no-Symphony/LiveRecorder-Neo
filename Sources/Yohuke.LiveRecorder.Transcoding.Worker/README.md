@@ -86,9 +86,9 @@ pwsh ./release-worker.ps1 -Runtime win-x64 --version 0.2.0
 pwsh ./release-worker.ps1 --all --version 0.2.0
 ```
 
-默认 `linux-x64`，支持 `linux-arm64`、`win-x64`、`osx-x64`、`osx-arm64`；`--version` 可省略，省略时读取转码项目的版本，并用于包内所有 Worker。每个平台生成一个 `Artifacts/workers/<version>/workers-<version>-<runtime>.zip`，同时包含转码和切片程序。
+默认 `linux-x64`，支持 `linux-arm64`、`win-x64`、`osx-x64`、`osx-arm64`；`--version` 可省略，省略时读取转码项目的版本，并用于包内所有 Worker。每个平台生成一个 `Artifacts/workers/<version>/workers-<version>-<runtime>.zip`，同时包含转码、切片和录像程序。
 
-发布出的散文件保留在 `Artifacts/workers/<version>/<runtime>/`，其下同样包含 `transcoding/` 和 `clip/`。ZIP 使用本次的干净发布内容生成，包内结构如下：
+发布出的散文件保留在 `Artifacts/workers/<version>/<runtime>/`，其下同样包含 `transcoding/`、`clip/` 和 `recording/`。ZIP 使用本次的干净发布内容生成，包内结构如下：
 
 ```text
 workers-0.2.0-win-x64.zip
@@ -97,8 +97,13 @@ workers-0.2.0-win-x64.zip
 │   ├── settings.example.json
 │   ├── README.md
 │   └── LICENSE
-└── clip/
-    ├── ylr-clip-worker.exe
+├── clip/
+│   ├── ylr-clip-worker.exe
+│   ├── settings.example.json
+│   ├── README.md
+│   └── LICENSE
+└── recording/
+    ├── ylr-rec-worker.exe
     ├── settings.example.json
     ├── README.md
     └── LICENSE

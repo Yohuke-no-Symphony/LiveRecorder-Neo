@@ -4,7 +4,7 @@ export const ORIGINAL_QUALITY_ID = 'original'
 export const MIN_TRANSCODE_PRIORITY = -2147483648
 export const MAX_TRANSCODE_PRIORITY = 2147483647
 
-export type WorkerKind = 'Transcoding' | 'Clipping'
+export type WorkerKind = 'Transcoding' | 'Clipping' | 'Recording'
 
 export interface TranscodingProfile
 {
@@ -69,8 +69,8 @@ export interface TranscodingWorker
   configuration: WorkerConfiguration
   configurationRevision: number
   appliedConfigurationRevision: number
-  capabilities?: { operatingSystem: string; architecture: string; toolVersion: string; clippingVersion?: number; encoders: { encoder: string; deviceId: string | null; available: boolean; error?: string | null }[] } | null
-  telemetry?: { cpuPercent: number | null; cpuThreadBudget: number; runningGpu: number; runningCpu: number; runningJobs?: number; freeBytes: number; cpuUnavailableReason?: string | null } | null
+  capabilities?: { operatingSystem: string; architecture: string; toolVersion: string; clippingVersion?: number; recordingVersion?: number; encoders: { encoder: string; deviceId: string | null; available: boolean; error?: string | null }[] } | null
+  telemetry?: { cpuPercent: number | null; cpuThreadBudget: number; runningGpu: number; runningCpu: number; runningJobs?: number; activeRecordings?: number; pendingUploadBytes?: number; spoolBytes?: number; freeBytes: number; cpuUnavailableReason?: string | null } | null
   lastSeenAtUtc: string | null
   configurationError: string | null
 }
@@ -207,9 +207,12 @@ export function defaultWorkerConfiguration(): WorkerConfiguration
 export function isValidWorkerConfiguration(value: WorkerConfiguration, kind: WorkerKind = 'Transcoding'): boolean
 {
   const integer = (number: number, min: number, max = Number.MAX_SAFE_INTEGER) => Number.isSafeInteger(number) && number >= min && number <= max
-  const commonValid = !!value.ffmpegPath.trim() && !!value.ffprobePath.trim() && value.ffmpegPath.length <= 4096 && value.ffprobePath.length <= 4096 && value.tempDirectory.length <= 4096
+  const resourcesValid = value.tempDirectory.length <= 4096
     && integer(value.maxConcurrentEncodes, 1, 64)
-    && integer(value.maxCacheBytes, 1024 ** 2) && integer(value.minimumFreeBytes, 0) && integer(value.downloadBytesPerSecond, 0) && integer(value.uploadBytesPerSecond, 0)
+    && integer(value.maxCacheBytes, 1024 ** 2) && integer(value.minimumFreeBytes, 0) && integer(value.uploadBytesPerSecond, 0)
+  if (kind === 'Recording') { return resourcesValid }
+  const commonValid = resourcesValid && !!value.ffmpegPath.trim() && !!value.ffprobePath.trim()
+    && value.ffmpegPath.length <= 4096 && value.ffprobePath.length <= 4096 && integer(value.downloadBytesPerSecond, 0)
   if (kind === 'Clipping') { return commonValid }
   return commonValid && integer(value.gpuConcurrency, 0, 64) && integer(value.cpuConcurrency, 0, 64) && value.gpuConcurrency + value.cpuConcurrency > 0
     && ['Balanced', 'Disabled'].includes(value.cpuFallbackMode) && integer(value.gpuWaitSeconds, 0, 86400) && integer(value.cpuSampleWindowSeconds, 5, 300)

@@ -85,8 +85,17 @@ internal sealed class WorkerTransferClient : IDisposable
     internal Task WaitForDownloadAsync(int bytes, long bytesPerSecond, CancellationToken cancellationToken) =>
         downloadThrottle.WaitAsync(bytes, bytesPerSecond, cancellationToken);
 
-    internal async Task UploadFileAsync(WorkerTransferLease lease, string path, string endpoint, long length,
-        long bytesPerSecond, CancellationToken cancellationToken, Action<long>? progress = null, Action<string>? log = null)
+    internal Task UploadFileAsync(WorkerTransferLease lease, string path, string endpoint, long length,
+        long bytesPerSecond, CancellationToken cancellationToken, Action<long>? progress = null, Action<string>? log = null) =>
+        UploadFileCoreAsync(lease, path, endpoint, length, bytesPerSecond, cancellationToken, true, progress, log);
+
+    internal Task AppendFileAsync(WorkerTransferLease lease, string path, string endpoint, long committedLength,
+        long bytesPerSecond, CancellationToken cancellationToken, Action<long>? progress = null, Action<string>? log = null) =>
+        UploadFileCoreAsync(lease, path, endpoint, committedLength, bytesPerSecond, cancellationToken, false, progress, log);
+
+    private async Task UploadFileCoreAsync(WorkerTransferLease lease, string path, string endpoint, long length,
+        long bytesPerSecond, CancellationToken cancellationToken, bool sealedFile,
+        Action<long>? progress, Action<string>? log)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(length);
         var offset = await UploadOffsetAsync(lease, endpoint, length, cancellationToken);
@@ -96,9 +105,10 @@ internal sealed class WorkerTransferClient : IDisposable
             log?.Invoke(FormattableString.Invariant($"Resuming upload of {Path.GetFileName(path)} at {offset} of {length} bytes."));
         }
         var retries = 0;
-        await using var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+        await using var source = new FileStream(path, FileMode.Open, FileAccess.Read,
+            sealedFile ? FileShare.Read : FileShare.ReadWrite | FileShare.Delete,
             65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
-        if (source.Length != length)
+        if (sealedFile ? source.Length != length : source.Length < length)
         {
             throw new InvalidDataException("The output artifact length changed before upload.");
         }
@@ -147,6 +157,30 @@ internal sealed class WorkerTransferClient : IDisposable
                 progress?.Invoke(offset);
             }
         }
+    }
+
+    internal async Task<T> GetJsonAsync<T>(WorkerTransferLease lease, string endpoint, CancellationToken cancellationToken)
+    {
+        using var request = CreateRequest(HttpMethod.Get, lease, endpoint);
+        using var response = await SendHeadersAsync(request, cancellationToken);
+        await RequireSuccessAsync(request, response, cancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(networkTimeout);
+        return await response.Content.ReadFromJsonAsync<T>(WorkerProtocol.JsonOptions, timeout.Token)
+            ?? throw new InvalidDataException("The server returned an empty Worker response.");
+    }
+
+    internal async Task<TResponse> PostJsonResponseAsync<TRequest, TResponse>(WorkerTransferLease lease, string endpoint,
+        TRequest payload, CancellationToken cancellationToken)
+    {
+        using var request = CreateRequest(HttpMethod.Post, lease, endpoint);
+        request.Content = JsonContent.Create(payload, options: WorkerProtocol.JsonOptions);
+        using var response = await SendHeadersAsync(request, cancellationToken);
+        await RequireSuccessAsync(request, response, cancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(networkTimeout);
+        return await response.Content.ReadFromJsonAsync<TResponse>(WorkerProtocol.JsonOptions, timeout.Token)
+            ?? throw new InvalidDataException("The server returned an empty Worker acknowledgement.");
     }
 
     internal async Task PostJsonAsync<T>(WorkerTransferLease lease, string endpoint, T payload, CancellationToken cancellationToken,

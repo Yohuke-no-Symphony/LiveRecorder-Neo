@@ -19,10 +19,12 @@ using Yohuke.LiveRecorder.Infrastructure.Transcoding;
 namespace Yohuke.LiveRecorder.Infrastructure.Recording;
 
 /// <summary>并行维护启用的直播间，数据库和派生任务不进入采集热路径。</summary>
-public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore bootstrap, ISettingsStore settingsStore, IBilibiliService bilibili, IMediaRecorder recorder, IStatusPublisher publisher, ILogger<RecordingSupervisor> logger, SessionGroupingService grouping, SessionSegmentTrashService segmentTrash, IAppPaths paths, TimeProvider? timeProvider = null) : BackgroundService
+public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore bootstrap, ISettingsStore settingsStore, IBilibiliService bilibili, IMediaRecorder recorder, IStatusPublisher publisher, ILogger<RecordingSupervisor> logger, SessionGroupingService grouping, SessionSegmentTrashService segmentTrash, IAppPaths paths, TimeProvider? timeProvider = null, RecordingOwnershipService? ownership = null, RecordingHandoffService? handoff = null) : BackgroundService
 {
     private readonly Dictionary<string, RecordingWorkerHandle> workers = new();
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
+    private readonly string localOwnerId = "local-" + TranscodeAssetRegistry.Hash(bootstrap.InstallationToken + ":" + Environment.MachineName);
+    private readonly RecordingHandoffService handoffs = handoff ?? new(context, paths, publisher);
 
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -41,13 +43,24 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                     }
                     var targets = await context.Collection<Streamer>("streamers").Find(x => x.Enabled && x.IsMonitored).ToListAsync(stoppingToken);
                     var ids = targets.Select(x => x.Id).ToHashSet();
-                    foreach (var item in workers.Where(x => !ids.Contains(x.Key) || x.Value.Task.IsCompleted).ToList())
+                    var yielding = new HashSet<string>();
+                    if (ownership is not null)
+                    {
+                        foreach (var target in targets.Where(value => workers.ContainsKey(value.Id)))
+                        {
+                            if (await ownership.TryRequestHandoffAsync(target.RoomId, localOwnerId, stoppingToken))
+                            {
+                                yielding.Add(target.Id);
+                            }
+                        }
+                    }
+                    foreach (var item in workers.Where(x => !ids.Contains(x.Key) || x.Value.Task.IsCompleted || yielding.Contains(x.Key)).ToList())
                     {
                         await item.Value.Cancellation.CancelAsync();
                         await ObserveAsync(item.Value.Task);
                         if (!ids.Contains(item.Key))
                         {
-                            var open = await context.Collection<BroadcastSession>("sessions").Find(x => x.StreamerId == item.Key && x.EndedAtUtc == null && !x.IsHidden).FirstOrDefaultAsync(stoppingToken);
+                            var open = await context.Collection<BroadcastSession>("sessions").Find(x => x.StreamerId == item.Key && x.EndedAtUtc == null && !x.IsHidden && x.RecordingAssignmentId == null).FirstOrDefaultAsync(stoppingToken);
                             if (open is not null)
                             {
                                 await CloseSessionAsync(open, DateTime.UtcNow, stoppingToken);
@@ -59,8 +72,16 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                     }
                     foreach (var target in targets.Where(x => !workers.ContainsKey(x.Id)))
                     {
+                        if (ownership is not null && await ownership.FindReadyWorkerAsync(stoppingToken) is not null)
+                        {
+                            var reserved = await ownership.GetAsync(target.RoomId, stoppingToken);
+                            if (reserved is null || reserved.State == "Released" || reserved.OwnerKind != "Local" || reserved.OwnerId != localOwnerId)
+                            {
+                                continue;
+                            }
+                        }
                         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-                        workers[target.Id] = new RecordingWorkerHandle(cancellation, TrackAsync(target.Id, cancellation.Token));
+                        workers[target.Id] = new RecordingWorkerHandle(cancellation, TrackOwnedAsync(target, cancellation.Token));
                     }
                 }
             }
@@ -92,6 +113,47 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         }
     }
 
+    private async Task TrackOwnedAsync(Streamer target, CancellationToken cancellationToken)
+    {
+        if (ownership is null)
+        {
+            await TrackAsync(target.Id, cancellationToken);
+            return;
+        }
+        var lockPath = MediaPaths.Resolve(paths.RecordsDirectory, Path.Combine(".work", "recording-capture", target.RoomId + ".lock"));
+        Directory.CreateDirectory(Path.GetDirectoryName(lockPath)!);
+        FileStream captureLock;
+        try
+        {
+            captureLock = new(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        }
+        catch (IOException)
+        {
+            return;
+        }
+        await using (captureLock)
+        {
+            var assignment = await ownership.TryAcquireLocalAsync(target, localOwnerId, cancellationToken);
+            if (assignment is null)
+            {
+                return;
+            }
+            try
+            {
+                await TrackAsync(target.Id, cancellationToken);
+            }
+            finally
+            {
+                var room = await ownership.GetAsync(target.RoomId, CancellationToken.None);
+                if (room?.HandoffWorkerId is not null)
+                {
+                    await handoffs.CloseLocalSessionsAsync(target.Id, CancellationToken.None);
+                }
+                await ownership.ReleaseLocalAsync(assignment, CancellationToken.None);
+            }
+        }
+    }
+
     private async Task TrackAsync(string id, CancellationToken cancellationToken)
     {
         BroadcastSession? session = null;
@@ -109,7 +171,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         var timeoutMinutes = defaults.StreamDisconnectTimeoutMinutes;
         try
         {
-            session = await context.Collection<BroadcastSession>("sessions").Find(x => x.StreamerId == id && x.EndedAtUtc == null && !x.IsTrashed).SortByDescending(x => x.CreatedAtUtc).FirstOrDefaultAsync(cancellationToken);
+            session = await context.Collection<BroadcastSession>("sessions").Find(x => x.StreamerId == id && x.EndedAtUtc == null && !x.IsTrashed && x.RecordingAssignmentId == null).SortByDescending(x => x.CreatedAtUtc).FirstOrDefaultAsync(cancellationToken);
             sessionPublished = session is not null;
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -641,7 +703,10 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                 foreach (var segment in manifest.Segments)
                 {
                     segment.AssetId = TranscodeAssetRegistry.AssetId(manifest.Session, segment);
-                    segment.IsClosed = true;
+                    if (manifest.Session.RecordingAssignmentId is null)
+                    {
+                        segment.IsClosed = true;
+                    }
                     await context.Collection<RecordingSegment>("segments").ReplaceOneAsync(x => x.Id == segment.Id, segment, new ReplaceOptions { IsUpsert = true }, cancellationToken);
                 }
             }
@@ -652,7 +717,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         }
         await segmentTrash.ReconcileUnderLibraryLockAsync(cancellationToken);
         await grouping.ReconcileUnderLibraryLockAsync(cancellationToken);
-        var unfinished = await context.Collection<BroadcastSession>("sessions").Find(x => x.EndedAtUtc == null && !x.IsHidden).ToListAsync(cancellationToken);
+        var unfinished = await context.Collection<BroadcastSession>("sessions").Find(x => x.EndedAtUtc == null && !x.IsHidden && x.RecordingAssignmentId == null).ToListAsync(cancellationToken);
         foreach (var session in unfinished)
         {
             var target = await context.Collection<Streamer>("streamers").Find(x => x.Id == session.StreamerId).FirstOrDefaultAsync(cancellationToken);

@@ -1,0 +1,21 @@
+{
+  "Worker": {
+    "ApiBaseUrl": "http://localhost:5113",
+    "ControlHost": "localhost",
+    "ControlPort": 4790,
+    "ControlUseTls": false,
+    "WorkerId": "",
+    "Secret": "",
+    "TlsServerName": null,
+    "ServerCertificateSha256": null,
+    "ControlCertificateSha256": null,
+    "ApiCertificateSha256": null
+  },
+  "Configuration": {
+    "TempDirectory": "",
+    "MaxConcurrentEncodes": 2,
+    "MaxCacheBytes": 21474836480,
+    "MinimumFreeBytes": 2147483648,
+    "UploadBytesPerSecond": 0
+  }
+}

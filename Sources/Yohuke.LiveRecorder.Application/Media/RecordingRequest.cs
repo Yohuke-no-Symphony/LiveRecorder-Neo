@@ -13,5 +13,6 @@ public sealed class RecordingRequest
     public DateTime StartedAtUtc { get; set; }
     public DateTime SessionStartedAtUtc { get; set; }
     public string FileTimeZoneId { get; set; } = "UTC";
+    public bool CaptureCommitSnapshots { get; set; }
     public Dictionary<string, string> Headers { get; set; } = new();
 }

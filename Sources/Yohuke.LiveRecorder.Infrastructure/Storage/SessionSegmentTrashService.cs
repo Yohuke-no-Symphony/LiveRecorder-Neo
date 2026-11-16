@@ -310,6 +310,8 @@ public sealed class SessionSegmentTrashService(IMongoContext context, ISettingsS
         {
             segments.Add(segment);
         }
+        await context.Collection<RecordingSegmentReceipt>("recordingSegments").UpdateOneAsync(value => value.Id == segment.Id && value.SessionId == session.Id,
+            Builders<RecordingSegmentReceipt>.Update.Set(value => value.Retired, !restoring), cancellationToken: cancellationToken);
         session.TotalBytes = segments.Where(x => x.Revision == session.MediaRevision).Sum(x => x.CommittedBytes);
         await SessionManifestFiles.WriteAsync(path, new()
         {

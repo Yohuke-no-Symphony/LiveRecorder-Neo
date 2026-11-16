@@ -366,6 +366,8 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
         }
 
         journal.Manifest.Session.IsTrashed = true;
+        await context.Collection<RecordingSessionReceipt>("recordingSessions").UpdateOneAsync(value => value.Id == journal.Manifest.Session.Id,
+            Builders<RecordingSessionReceipt>.Update.Set(value => value.Retired, true), cancellationToken: cancellationToken);
         var actual = entry.RetainedInPlace || Directory.Exists(source) ? source : destination;
         await SaveManifestAsync(journal.Manifest, actual, true, cancellationToken);
         if (!entry.RetainedInPlace && Directory.Exists(source))
@@ -420,6 +422,8 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
         }
 
         journal.Manifest.Session.IsTrashed = false;
+        await context.Collection<RecordingSessionReceipt>("recordingSessions").UpdateOneAsync(value => value.Id == journal.Manifest.Session.Id,
+            Builders<RecordingSessionReceipt>.Update.Set(value => value.Retired, false), cancellationToken: cancellationToken);
         await SaveManifestAsync(journal.Manifest, destination, false, cancellationToken);
         entry.State = "Restored";
         await PersistAsync(journal, cancellationToken);

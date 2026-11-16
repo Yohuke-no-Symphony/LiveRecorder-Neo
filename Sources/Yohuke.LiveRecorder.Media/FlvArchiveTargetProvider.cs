@@ -12,6 +12,7 @@ internal sealed class FlvArchiveTargetProvider : IFlvWriterTargetProvider
     private int part;
     private double nextOffsetMs;
     private readonly bool collectOutputs;
+    private readonly RecordingCommitSnapshotStore? snapshots;
     private string? lastOutputPath;
 
     internal FlvArchiveTargetProvider(RecordingRequest request, IProgress<MediaRecordingUpdate> progress, bool collectOutputs = true)
@@ -19,6 +20,7 @@ internal sealed class FlvArchiveTargetProvider : IFlvWriterTargetProvider
         this.request = request;
         this.progress = progress;
         this.collectOutputs = collectOutputs;
+        snapshots = request.CaptureCommitSnapshots ? new(request.OutputDirectory) : null;
         var started = request.StartedAtUtc == default ? DateTime.UtcNow : request.StartedAtUtc;
         var sessionStarted = request.SessionStartedAtUtc == default ? started : request.SessionStartedAtUtc;
         nextOffsetMs = Math.Max(0, (started - sessionStarted).TotalMilliseconds);
@@ -98,10 +100,31 @@ internal sealed class FlvArchiveTargetProvider : IFlvWriterTargetProvider
             ReceivedAtUtc = DateTime.UtcNow
         });
         await current.IndexWriter.FlushAsync();
+        PublishBoundary(current, isClosed: false);
         Report("Committed", current);
     }
 
-    internal void Complete()
+    internal void PrepareClose()
+    {
+        if (Current is not { } current)
+        {
+            return;
+        }
+        current.Stream.Flush();
+        current.CommittedBytes = current.Stream.Length;
+        current.IndexWriter.WriteLine(System.Text.Json.JsonSerializer.Serialize(new FlvIndexEntry
+        {
+            Kind = "Committed",
+            Offset = current.CommittedBytes,
+            TimestampMs = current.DurationMs,
+            SessionOffsetMs = current.StartOffsetMs + current.DurationMs,
+            ReceivedAtUtc = DateTime.UtcNow
+        }, MediaJson.Options));
+        current.IndexWriter.Flush();
+        PublishBoundary(current, isClosed: true);
+    }
+
+    internal void Complete(bool prepared = true)
     {
         if (Current is not { } current)
         {
@@ -113,8 +136,23 @@ internal sealed class FlvArchiveTargetProvider : IFlvWriterTargetProvider
             Outputs.Add(new FlvArchivedOutput { Path = current.Path, IndexPath = current.IndexPath, StartOffsetMs = current.StartOffsetMs, DurationMs = current.DurationMs });
         }
         nextOffsetMs = current.StartOffsetMs + current.DurationMs;
-        Report("Closed", current);
+        if (prepared)
+        {
+            Report("Closed", current);
+        }
         Current = null;
+    }
+
+    private void PublishBoundary(FlvOutputState current, bool isClosed)
+    {
+        current.IndexCommittedBytes = current.IndexWriter.BaseStream.Position;
+        if (snapshots is null)
+        {
+            return;
+        }
+        current.Stream.Flush(flushToDisk: true);
+        ((FileStream)current.IndexWriter.BaseStream).Flush(flushToDisk: true);
+        current.CommitSnapshot = snapshots.Write(current, isClosed);
     }
 
     private void Report(string kind, FlvOutputState state)
@@ -128,7 +166,9 @@ internal sealed class FlvArchiveTargetProvider : IFlvWriterTargetProvider
             StartOffsetMs = state.StartOffsetMs,
             DurationMs = state.DurationMs,
             CommittedBytes = state.CommittedBytes,
-            Codec = state.Codec
+            IndexCommittedBytes = state.IndexCommittedBytes,
+            Codec = state.Codec,
+            CommitSnapshot = state.CommitSnapshot
         });
     }
 }

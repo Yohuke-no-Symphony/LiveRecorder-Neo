@@ -12,11 +12,12 @@ internal sealed class BilibiliEventAccountRunner(
     Func<BilibiliAccount, BilibiliLoginCredentials> readCredentials,
     Func<BilibiliAccount, CancellationToken, Task<bool>> expireCredentials,
     Func<Task> accountChanges,
-    ILogger logger)
+    ILogger logger,
+    BilibiliDanmuReconciliation? reconciliation = null)
 {
     private const int INITIAL_RETRY_SECONDS = 2;
     private const int MAX_RETRY_SECONDS = 30;
-    private readonly BilibiliDanmuReconciliation reconciliation = new();
+    private readonly BilibiliDanmuReconciliation reconciliation = reconciliation ?? new();
     private readonly Dictionary<string, BilibiliAccountFailure> failures = new(StringComparer.Ordinal);
     private bool anonymousFailed;
     private int gapReported;

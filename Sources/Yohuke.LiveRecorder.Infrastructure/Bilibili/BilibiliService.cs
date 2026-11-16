@@ -46,28 +46,8 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
         return await ExecuteRecordingRequestAsync(accountId, (api, credentials, token) => GetRoomCoreAsync(api, credentials, roomId, token), cancellationToken);
     }
 
-    private static async Task<LiveRoomSnapshot> GetRoomCoreAsync(BilibiliApi api, BilibiliLoginCredentials credentials, long roomId, CancellationToken cancellationToken)
-    {
-        var response = await api.GetRoomInfoWithCredentialsAsync(roomId, credentials.Cookie, cancellationToken: cancellationToken);
-        RequireAuthenticatedResponse(response.Code);
-        if (response.Code != 0 || response.Data?.RoomInfo is not { } room)
-        {
-            throw new InfrastructureException(MessageCode.BILIBILI_ROOM_UNAVAILABLE, 502, response.Code);
-        }
-        var anchor = response.Data.AnchorInfo?.BaseInfo;
-        var started = room.LiveStartTime;
-        if (room.LiveStatus == 1 && started <= 0)
-        {
-            var play = await api.GetRoomPlayInfoAsync(room.RoomId, cookie: credentials.Cookie, cancellationToken: cancellationToken);
-            RequireAuthenticatedResponse(play.Code);
-            if (play.Code != 0 || play.Data is null)
-            {
-                throw new InfrastructureException(MessageCode.BILIBILI_ROOM_UNAVAILABLE, 502, play.Code);
-            }
-            started = play.Data.LiveTime;
-        }
-        return new(room.RoomId, room.Uid, anchor?.Name ?? room.Uid.ToString(), NormalizeImage(anchor?.Face), room.Title ?? "直播录像", NormalizeImage(room.CoverUrl ?? room.UserCoverUrl), room.LiveStatus == 1, started is > 0 and <= 253402300799 ? DateTimeOffset.FromUnixTimeSeconds(started).UtcDateTime : null);
-    }
+    private static Task<LiveRoomSnapshot> GetRoomCoreAsync(BilibiliApi api, BilibiliLoginCredentials credentials, long roomId,
+        CancellationToken cancellationToken) => BilibiliRecordingSource.GetRoomAsync(api, credentials, roomId, cancellationToken);
 
     /// <inheritdoc />
     public async Task<LiveStreamDescriptor> ResolveStreamAsync(long roomId, int quality, string? accountId = null, CancellationToken cancellationToken = default)
@@ -79,36 +59,9 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
         return await ExecuteRecordingRequestAsync(accountId, (api, credentials, token) => ResolveStreamCoreAsync(api, credentials, roomId, quality, token), cancellationToken);
     }
 
-    private static async Task<LiveStreamDescriptor> ResolveStreamCoreAsync(BilibiliApi api, BilibiliLoginCredentials credentials, long roomId, int quality, CancellationToken cancellationToken)
-    {
-        var response = await api.GetRoomPlayInfoAsync(roomId, quality, credentials.Cookie, cancellationToken: cancellationToken);
-        RequireAuthenticatedResponse(response.Code);
-        if (response.Code != 0 || response.Data?.LiveStatus != 1)
-        {
-            throw new InfrastructureException(MessageCode.BILIBILI_STREAM_UNAVAILABLE, 503, response.Code);
-        }
-        var streams = NonNullItems(response.Data.PlayUrlInfo?.PlayUrl?.Streams);
-        foreach (var stream in streams.Where(x => x.ProtocolName == "http_stream"))
-        {
-            foreach (var format in NonNullItems(stream.Formats).Where(x => x.FormatName == "flv"))
-            {
-                foreach (var codec in NonNullItems(format.Codecs).OrderByDescending(x => x.CodecName == "avc"))
-                {
-                    foreach (var host in NonNullItems(codec.UrlInfos))
-                    {
-                        var value = host.Host + codec.BaseUrl + host.Extra;
-                        if (Uri.TryCreate(value, UriKind.Absolute, out var url) && url.Scheme is "http" or "https" && string.IsNullOrEmpty(url.UserInfo))
-                        {
-                            return new(value, new Dictionary<string, string> { ["User-Agent"] = BaseApi.DEFAULT_USER_AGENT, ["Referer"] = $"https://live.bilibili.com/{roomId}" }, codec.CurrentQuality, codec.CodecName, format.FormatName);
-                        }
-                    }
-                }
-            }
-        }
-        throw new InfrastructureException(MessageCode.BILIBILI_FLV_STREAM_MISSING, 503);
-    }
-
-    private static IEnumerable<T> NonNullItems<T>(IEnumerable<T?>? items) where T : class => items?.OfType<T>() ?? [];
+    private static Task<LiveStreamDescriptor> ResolveStreamCoreAsync(BilibiliApi api, BilibiliLoginCredentials credentials,
+        long roomId, int quality, CancellationToken cancellationToken) =>
+        BilibiliRecordingSource.ResolveStreamAsync(api, credentials, roomId, quality, cancellationToken);
 
     /// <inheritdoc />
     public Task SubscribeEventsAsync(long roomId, string? accountId, Func<RecordedEventEnvelope, CancellationToken, Task> onEvent, CancellationToken cancellationToken = default) =>
@@ -540,14 +493,6 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
         }
     }
 
-    private static void RequireAuthenticatedResponse(int code)
-    {
-        if (code == -101)
-        {
-            throw new InfrastructureException(MessageCode.BILIBILI_ACCOUNT_EXPIRED, 409);
-        }
-    }
-
     private static bool IsAuthenticationFailure(Exception error) => error is BilibiliAuthenticationException
         or InfrastructureException { Code: nameof(MessageCode.BILIBILI_ACCOUNT_EXPIRED) };
 
@@ -831,5 +776,4 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
 
     private static BilibiliAccountSummary Profile(BilibiliAccount account, string? selected, string? effective) => new(account.Id, account.Uid, account.UserName, account.AvatarUrl, account.Status, account.LastValidatedAtUtc, account.Id == selected, account.Id == effective);
     private static BilibiliChallenge Challenge(BilibiliLoginChallenge challenge) => new(challenge.Type, challenge.Token, challenge.Gt, challenge.Challenge, challenge.ImageUrl);
-    private static string NormalizeImage(string? value) => string.IsNullOrWhiteSpace(value) ? "" : value.StartsWith("//", StringComparison.Ordinal) ? "https:" + value : value.Replace("http://", "https://", StringComparison.OrdinalIgnoreCase);
 }

@@ -48,7 +48,7 @@ internal sealed class MediaFixture : IDisposable
         return path;
     }
 
-    internal async Task<List<MediaRecordingUpdate>> RecordAsync(string sourcePath, long segmentBytes = 0, string? title = null)
+    internal async Task<List<MediaRecordingUpdate>> RecordAsync(string sourcePath, long segmentBytes = 0, string? title = null, bool captureCommitSnapshots = false)
     {
         using var client = new HttpClient(new RecordingHttpHandler(await File.ReadAllBytesAsync(sourcePath)));
         var recorder = new FlvMediaRecorder(client, Options.Create(new MediaToolOptions()), Settings);
@@ -61,7 +61,8 @@ internal sealed class MediaFixture : IDisposable
             Title = title ?? "直播/测试:sample",
             StartedAtUtc = started,
             SessionStartedAtUtc = started,
-            MaxSegmentBytes = segmentBytes
+            MaxSegmentBytes = segmentBytes,
+            CaptureCommitSnapshots = captureCommitSnapshots
         }, new InlineProgress<MediaRecordingUpdate>(updates.Add), CancellationToken.None);
         return updates;
     }

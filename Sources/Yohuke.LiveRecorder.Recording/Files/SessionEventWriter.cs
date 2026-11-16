@@ -14,11 +14,13 @@ public sealed class SessionEventWriter : IAsyncDisposable
         FullMode = BoundedChannelFullMode.Wait
     });
     private readonly Task writerTask;
+    private readonly Func<EventArchiveCommit, Task>? onCommit;
     private long sequence;
 
     /// <summary>持有场次写租约，修复未提交尾行和索引后开始追加。</summary>
-    public SessionEventWriter(string directory)
+    public SessionEventWriter(string directory, Func<EventArchiveCommit, Task>? onCommit = null)
     {
+        this.onCommit = onCommit;
         Directory.CreateDirectory(directory);
         var lease = EventArchiveReader.AcquireLease(directory);
         FileStream? output = null;
@@ -70,7 +72,7 @@ public sealed class SessionEventWriter : IAsyncDisposable
             await foreach (var message in queue.Reader.ReadAllAsync())
             {
                 message.Sequence = checked(++sequence);
-                var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message, JsonFiles.Options) + "\n");
+                var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message, EventArchiveJson.Options) + "\n");
                 await output.WriteAsync(bytes);
                 EventArchiveReader.Include(block, message, output.Position);
                 if (block.Count == EventIndexBlock.MAX_EVENTS)
@@ -78,17 +80,21 @@ public sealed class SessionEventWriter : IAsyncDisposable
                     await output.FlushAsync();
                     await WriteIndexAsync(index, block);
                     block = EventArchiveReader.CreateBlock(output.Position, sequence);
+                    await ReportCommitAsync(output, index, block, false);
                 }
                 else if (queue.Reader.Count == 0)
                 {
                     await output.FlushAsync();
+                    await ReportCommitAsync(output, index, block, false);
                 }
             }
             await output.FlushAsync();
             if (block.Count > 0)
             {
                 await WriteIndexAsync(index, block);
+                block = EventArchiveReader.CreateBlock(output.Position, sequence);
             }
+            await ReportCommitAsync(output, index, block, true);
         }
         catch (Exception exception)
         {
@@ -97,9 +103,40 @@ public sealed class SessionEventWriter : IAsyncDisposable
         }
     }
 
+    private async Task ReportCommitAsync(FileStream output, FileStream index, EventIndexBlock block, bool closed)
+    {
+        if (onCommit is null)
+        {
+            return;
+        }
+        await output.FlushAsync();
+        await index.FlushAsync();
+        output.Flush(true);
+        index.Flush(true);
+        await onCommit(new()
+        {
+            CommittedBytes = output.Position,
+            IndexCommittedBytes = index.Position,
+            ThroughSequence = sequence,
+            IsClosed = closed,
+            PendingBlock = block.Count == 0 ? null : new()
+            {
+                MetadataVersion = block.MetadataVersion,
+                StartByte = block.StartByte,
+                EndByte = block.EndByte,
+                MinMs = block.MinMs,
+                MaxMs = block.MaxMs,
+                Count = block.Count,
+                LastSequence = block.LastSequence,
+                Kinds = [.. block.Kinds],
+                RedPocketKeys = [.. block.RedPocketKeys]
+            }
+        });
+    }
+
     private static async Task WriteIndexAsync(FileStream index, EventIndexBlock block)
     {
-        await index.WriteAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(block, JsonFiles.Options) + "\n"));
+        await index.WriteAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(block, EventArchiveJson.Options) + "\n"));
         await index.FlushAsync();
     }
 }

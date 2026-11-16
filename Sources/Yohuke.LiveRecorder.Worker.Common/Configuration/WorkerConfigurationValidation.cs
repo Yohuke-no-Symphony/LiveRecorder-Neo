@@ -9,7 +9,9 @@ internal static class WorkerConfigurationValidation
         WorkerConfigurationPolicy.Validate(configuration, kind);
         if (string.IsNullOrWhiteSpace(configuration.TempDirectory) || !Path.IsPathFullyQualified(configuration.TempDirectory))
         {
-            throw new InvalidDataException("Configure FFmpeg, ffprobe and an absolute temporary directory using 'config'.");
+            throw new InvalidDataException(kind == "Recording"
+                ? "Configure an absolute persistent recording spool directory using 'config'."
+                : "Configure FFmpeg, ffprobe and an absolute temporary directory using 'config'.");
         }
     }
 }

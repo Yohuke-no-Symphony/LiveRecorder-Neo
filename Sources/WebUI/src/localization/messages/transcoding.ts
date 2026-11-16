@@ -1,4 +1,7 @@
 export const transcodingZh = {
+  recordingTitle: '录像', recordingWorkers: '录像 Worker', recordingSpoolDirectory: '录制缓存目录', recordingSpoolGiB: '录制缓存上限（GiB）', recordingConcurrency: '同时录制房间数',
+  activeRecordings: '采集中 {count} 间', pendingUpload: '待上传 {bytes}', spoolUsage: '录制缓存 {used} / {limit}',
+  recordingEnabledHint: '停用后停止当前采集，并继续补传已录内容。', invalidRecordingWorker: '请填写名称，并检查录制并发、缓存空间和上传上限。', deleteRecordingWorkerConfirm: '删除节点身份和配置。仍有录制归属时，请先停用节点并等待补传完成。',
   clippingTitle: '切片', clippingWorkers: '切片 Worker', workspaceGiB: '临时空间上限（GiB）', runningJobs: '运行任务 {count}', invalidClippingWorker: '请填写名称、有效工具路径，并检查任务并发、空间和传输上限。',
   autoTranscode: '自动转码',
   priority: '转码优先级',
@@ -20,6 +23,9 @@ export const transcodingZh = {
 }
 
 export const transcodingEn: Record<keyof typeof transcodingZh, string> = {
+  recordingTitle: 'Recording', recordingWorkers: 'Recording workers', recordingSpoolDirectory: 'Recording cache directory', recordingSpoolGiB: 'Recording cache limit (GiB)', recordingConcurrency: 'Concurrent recording rooms',
+  activeRecordings: 'Recording {count} rooms', pendingUpload: 'Pending upload {bytes}', spoolUsage: 'Recording cache {used} / {limit}',
+  recordingEnabledHint: 'Disabling stops active capture and continues uploading recorded content.', invalidRecordingWorker: 'Enter a name and check recording concurrency, cache space and the upload limit.', deleteRecordingWorkerConfirm: 'Delete this worker identity and configuration. Disable it and wait for uploads to finish while it still owns recordings.',
   clippingTitle: 'Clipping', clippingWorkers: 'Clipping workers', workspaceGiB: 'Temporary space limit (GiB)', runningJobs: 'Running jobs {count}', invalidClippingWorker: 'Enter a name and valid tool paths, and check concurrency, space and transfer limits.',
   autoTranscode: 'Auto transcode',
   priority: 'Transcoding priority',
@@ -41,6 +47,9 @@ export const transcodingEn: Record<keyof typeof transcodingZh, string> = {
 }
 
 export const transcodingJa: Record<keyof typeof transcodingZh, string> = {
+  recordingTitle: '録画', recordingWorkers: '録画 Worker', recordingSpoolDirectory: '録画キャッシュディレクトリ', recordingSpoolGiB: '録画キャッシュ上限（GiB）', recordingConcurrency: '同時録画ルーム数',
+  activeRecordings: '{count} ルームを録画中', pendingUpload: '未アップロード {bytes}', spoolUsage: '録画キャッシュ {used} / {limit}',
+  recordingEnabledHint: '無効にすると録画を停止し、録画済みデータのアップロードを続けます。', invalidRecordingWorker: '名前を入力し、同時録画数、キャッシュ容量、アップロード上限を確認してください。', deleteRecordingWorkerConfirm: 'Worker の認証情報と設定を削除します。録画の所有権が残っている場合は無効にし、アップロードの完了を待ってください。',
   clippingTitle: '切り抜き', clippingWorkers: '切り抜き Worker', workspaceGiB: '一時領域の上限（GiB）', runningJobs: '実行中のタスク {count}', invalidClippingWorker: '名前と有効なツールのパスを入力し、同時実行数、空き容量、転送上限を確認してください。',
   autoTranscode: '自動変換',
   priority: '変換の優先度',

@@ -141,7 +141,7 @@ public sealed class WorkerControlServer(TranscodingCoordinator coordinator, IOpt
                     }
                     var heartbeat = message.Payload.Deserialize<WorkerHeartbeat>(WorkerProtocol.JsonOptions)
                         ?? throw new InvalidDataException("Missing worker heartbeat.");
-                    if (heartbeat.Jobs is null or { Count: > 65 } || heartbeat.Telemetry is null)
+                    if (heartbeat.Jobs is null or { Count: > 65 } || heartbeat.Recordings is null or { Count: > 64 } || heartbeat.Telemetry is null)
                     {
                         throw new InvalidDataException("Worker reports too many active tasks.");
                     }

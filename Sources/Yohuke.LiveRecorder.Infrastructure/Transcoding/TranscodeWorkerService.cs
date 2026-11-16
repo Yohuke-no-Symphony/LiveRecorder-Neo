@@ -27,7 +27,7 @@ public sealed class TranscodeWorkerService(IMongoContext context, IAppPaths path
     public async Task<(TranscodeWorker Worker, string Secret)> CreateAsync(string name, string kind, CancellationToken cancellationToken)
     {
         ValidateName(name);
-        if (kind is not ("Transcoding" or "Clipping"))
+        if (kind is not ("Transcoding" or "Clipping" or "Recording"))
         {
             throw new InfrastructureException("Worker 类型无效。");
         }
@@ -77,6 +77,11 @@ public sealed class TranscodeWorkerService(IMongoContext context, IAppPaths path
     public async Task DeleteAsync(string id, CancellationToken cancellationToken)
     {
         await using var identityLock = await WorkerIdentityLock.AcquireAsync(paths, id, cancellationToken);
+        if (await context.Collection<RecordingOwnership>("recordingOwnerships")
+                .Find(value => value.OwnerKind == "Worker" && value.OwnerId == id && value.State != "Released").AnyAsync(cancellationToken))
+        {
+            throw new InfrastructureException("录像节点仍持有房间归属，请先停用并等待录制与补传结束。", 409);
+        }
         await Workers.DeleteOneAsync(x => x.Id == id, cancellationToken);
         await ReleaseJobsAsync(id, cancellationToken);
     }
@@ -88,7 +93,7 @@ public sealed class TranscodeWorkerService(IMongoContext context, IAppPaths path
         {
             return false;
         }
-        var worker = await Workers.Find(x => x.Id == id && x.Enabled).FirstOrDefaultAsync(cancellationToken);
+        var worker = await Workers.Find(x => x.Id == id && (x.Enabled || x.Kind == "Recording")).FirstOrDefaultAsync(cancellationToken);
         return worker is not null && CryptographicOperations.FixedTimeEquals(
             Encoding.ASCII.GetBytes(worker.SecretHash), Encoding.ASCII.GetBytes(SecretHash(secret)));
     }
@@ -101,12 +106,12 @@ public sealed class TranscodeWorkerService(IMongoContext context, IAppPaths path
         {
             throw new InfrastructureException("Worker 凭据无效或节点已停用。", 401);
         }
-        var registered = await RequireAsync(hello.WorkerId, cancellationToken);
+        var registered = await RequireAsync(hello.WorkerId, cancellationToken, true);
         if (hello.Kind != registered.Kind)
         {
             throw new InfrastructureException("Worker 类型与登记类型不符。", 409);
         }
-        var filter = Builders<TranscodeWorker>.Filter.Where(x => x.Id == hello.WorkerId && x.Enabled);
+        var filter = Builders<TranscodeWorker>.Filter.Where(x => x.Id == hello.WorkerId && (x.Enabled || x.Kind == "Recording"));
         var update = Builders<TranscodeWorker>.Update.Set(x => x.LastSeenAtUtc, DateTime.UtcNow)
             .Set(x => x.Capabilities, hello.Capabilities);
         if (hello.InitialConfiguration is not null)
@@ -126,14 +131,21 @@ public sealed class TranscodeWorkerService(IMongoContext context, IAppPaths path
     }
 
     /// <summary>读取仍被允许执行的节点。</summary>
-    public async Task<TranscodeWorker> RequireAsync(string id, CancellationToken cancellationToken) =>
-        await Workers.Find(x => x.Id == id && x.Enabled).FirstOrDefaultAsync(cancellationToken)
+    public async Task<TranscodeWorker> RequireAsync(string id, CancellationToken cancellationToken, bool allowDisabledRecording = false) =>
+        await Workers.Find(x => x.Id == id && (x.Enabled || allowDisabledRecording && x.Kind == "Recording")).FirstOrDefaultAsync(cancellationToken)
         ?? throw new InfrastructureException("Worker 已停用或不存在。", 401);
 
     private IMongoCollection<TranscodeWorker> Workers => context.Collection<TranscodeWorker>("transcodeWorkers");
 
     private async Task ReleaseJobsAsync(string id, CancellationToken cancellationToken)
     {
+        var recording = await Workers.Find(value => value.Id == id && value.Kind == "Recording").FirstOrDefaultAsync(cancellationToken);
+        if (recording is { Enabled: false })
+        {
+            await context.Collection<RecordingAssignmentRecord>("recordingAssignments").UpdateManyAsync(value => value.OwnerId == id
+                && value.OwnerKind == "Worker" && value.State == "Owned",
+                Builders<RecordingAssignmentRecord>.Update.Set(value => value.State, "StopRequested"), cancellationToken: cancellationToken);
+        }
         await context.Collection<TranscodeJob>("transcodeJobs").UpdateManyAsync(
             x => x.WorkerId == id && (x.State == "Running" || x.State == "Publishing"),
             Builders<TranscodeJob>.Update.Set(x => x.State, "Queued").Set(x => x.Stage, "WaitingForWorker")

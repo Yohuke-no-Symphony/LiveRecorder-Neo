@@ -9,4 +9,7 @@ public sealed record WorkerTelemetry
     public int RunningCpu { get; set; }
     public long FreeBytes { get; set; }
     public string? CpuUnavailableReason { get; set; }
+    public int ActiveRecordings { get; set; }
+    public long PendingUploadBytes { get; set; }
+    public long SpoolBytes { get; set; }
 }
