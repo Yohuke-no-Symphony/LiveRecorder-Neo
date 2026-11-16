@@ -7,6 +7,7 @@ namespace Yohuke.LiveRecorder.Transcoding.Worker.Encoding;
 
 internal sealed class MediaInspector(WorkerProcessRunner processes)
 {
+    private const int SOURCE_MEDIA_CACHE_VERSION = 1;
     private readonly SemaphoreSlim[] sourceGates = Enumerable.Range(0, 32).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
 
     internal async Task ValidatePlaylistTimelineAsync(string tool, string path, IReadOnlyList<double> boundaries,
@@ -35,11 +36,13 @@ internal sealed class MediaInspector(WorkerProcessRunner processes)
             {
                 try
                 {
-                    var cached = JsonSerializer.Deserialize<TranscodeMediaInfo>(await File.ReadAllTextAsync(metadata, cancellationToken), WorkerProtocol.JsonOptions);
-                    if (cached is { Width: > 0, Height: > 0, DurationMs: > 0, FrameRate: > 0 })
+                    var cached = JsonSerializer.Deserialize<SourceMediaCache>(await File.ReadAllTextAsync(metadata, cancellationToken), WorkerProtocol.JsonOptions);
+                    if (cached is { Version: SOURCE_MEDIA_CACHE_VERSION, Media: { Width: > 0, Height: > 0, DurationMs: > 0, FrameRate: > 0, VideoBitrate: > 0 } cachedMedia }
+                        && double.IsFinite(cachedMedia.DurationMs) && double.IsFinite(cachedMedia.FrameRate)
+                        && (!cachedMedia.HasAudio || cachedMedia.AudioBitrate > 0))
                     {
                         log?.Invoke("Reusing cached source media information.");
-                        return cached;
+                        return cachedMedia;
                     }
                 }
                 catch (JsonException)
@@ -50,7 +53,8 @@ internal sealed class MediaInspector(WorkerProcessRunner processes)
             var temporary = metadata + ".tmp";
             try
             {
-                await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(media, WorkerProtocol.JsonOptions), cancellationToken);
+                var cache = new SourceMediaCache { Version = SOURCE_MEDIA_CACHE_VERSION, Media = media };
+                await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(cache, WorkerProtocol.JsonOptions), cancellationToken);
                 File.Move(temporary, metadata, overwrite: true);
             }
             finally
@@ -111,37 +115,30 @@ internal sealed class MediaInspector(WorkerProcessRunner processes)
             HasAudio = audio.ValueKind != JsonValueKind.Undefined,
             VideoCodec = Text(video, "codec_name"),
             AudioCodec = Text(audio, "codec_name"),
-            VideoBitrate = (long)Number(video, "bit_rate"),
-            AudioBitrate = (long)Number(audio, "bit_rate"),
             IsHdr = Text(video, "color_transfer") is "smpte2084" or "arib-std-b67"
         };
         if (resultInfo.DurationMs <= 0 || width < 2 || height < 2 || !double.IsFinite(rate) || rate <= 0)
         {
             throw new InvalidDataException("The media has invalid video dimensions, duration, or frame rate");
         }
-        if (resultInfo.VideoBitrate <= 0 || (resultInfo.HasAudio && resultInfo.AudioBitrate <= 0))
+        log?.Invoke("Measuring video and audio bitrates from media packets.");
+        var videoStatistics = new TranscodePacketStatistics();
+        var audioStatistics = new TranscodePacketStatistics();
+        var statistics = new Dictionary<int, TranscodePacketStatistics> { [(int)Number(video, "index")] = videoStatistics };
+        if (resultInfo.HasAudio)
         {
-            log?.Invoke("Scanning source packets to determine missing bitrate information.");
-            var bitrates = new Dictionary<int, PacketBitrate> { [(int)Number(video, "index")] = new() };
-            if (resultInfo.HasAudio)
-            {
-                bitrates[(int)Number(audio, "index")] = new();
-            }
-            var packetResult = await processes.RunAsync(tool,
-                ["-v", "error", "-show_packets", "-show_entries", "packet=stream_index,size,pts_time,duration_time", "-of", "compact=p=0:nk=0", path],
-                cancellationToken, outputLine: line => PacketBitrate.Parse(line, bitrates));
-            if (packetResult.ExitCode == 0)
-            {
-                if (resultInfo.VideoBitrate <= 0)
-                {
-                    resultInfo.VideoBitrate = bitrates[(int)Number(video, "index")].Calculate(resultInfo.DurationMs);
-                }
-                if (resultInfo.HasAudio && resultInfo.AudioBitrate <= 0)
-                {
-                    resultInfo.AudioBitrate = bitrates[(int)Number(audio, "index")].Calculate(resultInfo.DurationMs);
-                }
-            }
+            statistics[(int)Number(audio, "index")] = audioStatistics;
         }
+        var packetResult = await processes.RunAsync(tool,
+            ["-v", "error", "-show_packets", "-show_entries", "packet=stream_index,size,pts_time,duration_time", "-of", "compact=p=0:nk=0", path],
+            cancellationToken, outputLine: line => TranscodePacketStatistics.Parse(line, statistics),
+            errorLine: message => log?.Invoke("ffprobe: " + message));
+        if (packetResult.ExitCode != 0)
+        {
+            throw new InvalidDataException("Media packet probing failed: " + packetResult.Diagnostic);
+        }
+        resultInfo.VideoBitrate = videoStatistics.Bitrate;
+        resultInfo.AudioBitrate = audioStatistics.Bitrate;
         return resultInfo;
     }
 

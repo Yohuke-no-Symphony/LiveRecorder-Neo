@@ -6,7 +6,8 @@ namespace Yohuke.LiveRecorder.Transcoding.Worker.Encoding;
 internal static class TranscodePlanner
 {
     internal static TranscodePlan Create(string sourcePath, string outputDirectory, TranscodeMediaInfo source,
-        TranscodeProfile profile, EncoderCapability encoder, int threads)
+        TranscodeProfile profile, EncoderCapability encoder, int threads,
+        long? videoBitrateLimit = null, long? audioBitrateLimit = null)
     {
         TranscodeConfigurationPolicy.ValidateProfile(profile);
         if (source.IsHdr)
@@ -30,8 +31,12 @@ internal static class TranscodePlanner
         var scale = (double)profile.Height / shortEdge;
         var height = Math.Max(2, (int)Math.Floor(source.Height * scale / 2) * 2);
         var width = Math.Max(2, (int)Math.Floor(source.Width * scale / 2) * 2);
-        var videoBitrate = Math.Min(profile.VideoBitrateKbps * 1000L, source.VideoBitrate);
-        var audioBitrate = Math.Min(profile.AudioBitrateKbps * 1000L, source.AudioBitrate);
+        var videoBitrate = Math.Min(TranscodeBitratePolicy.GetTargetBitrate(source.VideoBitrate, profile.VideoBitrateKbps), videoBitrateLimit ?? long.MaxValue);
+        var audioBitrate = Math.Min(TranscodeBitratePolicy.GetTargetBitrate(source.AudioBitrate, profile.AudioBitrateKbps), audioBitrateLimit ?? long.MaxValue);
+        if (videoBitrate <= 0 || source.HasAudio && audioBitrate <= 0)
+        {
+            throw new InvalidDataException("The encoding bitrate limits must be positive.");
+        }
         var frameRate = Math.Min(source.FrameRate, profile.MaxFrameRate ?? source.FrameRate);
         if (!double.IsFinite(frameRate) || frameRate <= 0)
         {

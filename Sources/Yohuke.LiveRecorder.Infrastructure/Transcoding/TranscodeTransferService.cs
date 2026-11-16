@@ -374,15 +374,15 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
         {
             throw new InfrastructureException("转码成品必须保留音轨并使用 H.264 SDR / AAC。", 422);
         }
-        if (source.VideoBitrate <= 0 || media.VideoBitrate <= 0
-            || media.VideoBitrate > Math.Min(source.VideoBitrate, profile.VideoBitrateKbps * 1000L) * 1.15 + 1000)
+        var videoLimit = TranscodeBitratePolicy.GetTargetBitrate(source.VideoBitrate, profile.VideoBitrateKbps);
+        if (!TranscodeBitratePolicy.IsWithinLimit(media.VideoBitrate, videoLimit))
         {
-            throw new InfrastructureException("转码成品视频平均码率超过源媒体或目标档位上限及 VBR 容差。", 422);
+            throw new InfrastructureException(FormattableString.Invariant($"转码成品视频平均码率超过源媒体或目标档位上限及 VBR 容差。实测 {media.VideoBitrate} bps，源媒体 {source.VideoBitrate} bps，档位上限 {profile.VideoBitrateKbps * 1000L} bps，允许上限 {TranscodeBitratePolicy.GetMaximumBitrate(videoLimit):0.##} bps。"), 422);
         }
-        if (media.HasAudio && (source.AudioBitrate <= 0 || media.AudioBitrate <= 0
-            || media.AudioBitrate > Math.Min(source.AudioBitrate, profile.AudioBitrateKbps * 1000L) * 1.15 + 1000))
+        var audioLimit = TranscodeBitratePolicy.GetTargetBitrate(source.AudioBitrate, profile.AudioBitrateKbps);
+        if (media.HasAudio && !TranscodeBitratePolicy.IsWithinLimit(media.AudioBitrate, audioLimit))
         {
-            throw new InfrastructureException("转码成品音频平均码率超过源媒体或目标档位上限及 VBR 容差。", 422);
+            throw new InfrastructureException(FormattableString.Invariant($"转码成品音频平均码率超过源媒体或目标档位上限及 VBR 容差。实测 {media.AudioBitrate} bps，源媒体 {source.AudioBitrate} bps，档位上限 {profile.AudioBitrateKbps * 1000L} bps，允许上限 {TranscodeBitratePolicy.GetMaximumBitrate(audioLimit):0.##} bps。"), 422);
         }
     }
 

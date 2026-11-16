@@ -172,7 +172,7 @@ internal sealed class WorkerRuntime
             reporter.Start("Inspecting", 10, "Inspecting source media.");
             var source = await inspector.InspectInputAsync(initial.Configuration.FfprobePath, files.SourcePath, token,
                 message => reporter.Message(message));
-            reporter.Message(FormattableString.Invariant($"Source media inspected: {source.Width}x{source.Height}, {source.FrameRate:0.##} fps, {source.DurationMs / 1000:0.0}s."));
+            reporter.Message(FormattableString.Invariant($"Source media inspected: {source.Width}x{source.Height}, {source.FrameRate:0.##} fps, {source.DurationMs / 1000:0.0}s, video {source.VideoBitrate} bps, audio {source.AudioBitrate} bps."));
             _ = TranscodePlanner.Create(files.SourcePath, files.OutputDirectory, source, job.Assignment.Profile,
                 new() { Encoder = "libx264", Available = true }, 1);
             var waiting = Stopwatch.StartNew();
@@ -220,20 +220,8 @@ internal sealed class WorkerRuntime
             TranscodeOutputManifest manifest;
             using (reservation)
             {
-                var plan = TranscodePlanner.Create(files.SourcePath, files.OutputDirectory, source,
-                    job.Assignment.Profile, reservation.Encoder, reservation.Threads);
-                reporter.Start("Encoding", 15, FormattableString.Invariant($"Starting encode with {reservation.Encoder.Encoder}, thread budget {reservation.Threads}."), reservation.Encoder.Encoder);
-                var result = await processes.RunAsync(selected.Configuration.FfmpegPath, plan.Arguments, token,
-                    errorLine: message => reporter.Message("FFmpeg: " + message, "Error"),
-                    encodingProgress: value => reporter.Encoding(value, source.DurationMs));
-                if (result.ExitCode != 0)
-                {
-                    configurations.InvalidateEncoder(reservation.Encoder);
-                    throw new InvalidDataException("FFmpeg encoding failed: " + result.Diagnostic);
-                }
-                reporter.Start("Validating", 80, "Encoding completed. Validating output media, fragment timelines and checksums.");
-                manifest = await new TranscodeOutputValidator(inspector).ValidateAsync(selected.Configuration.FfprobePath,
-                    files.OutputDirectory, source, plan.ExpectedMedia, reservation.Encoder.Encoder, token, job.Assignment.Profile);
+                manifest = await new TranscodeEncoder(processes, inspector, configurations.InvalidateEncoder)
+                    .EncodeAsync(selected.Configuration, files, source, job.Assignment.Profile, reservation, reporter, token);
             }
             reporter.Start("Uploading", 85, "Output validation completed. Uploading the result.");
             await transfers.UploadAsync(job.Assignment, files.OutputDirectory, manifest, selected.Configuration.UploadBytesPerSecond,

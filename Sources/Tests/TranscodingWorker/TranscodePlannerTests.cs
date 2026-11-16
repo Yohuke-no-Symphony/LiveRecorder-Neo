@@ -69,16 +69,16 @@ public sealed class TranscodePlannerTests
 
     /// <summary>包统计以流式方式独立累计音频和视频码率。</summary>
     [Fact]
-    public void PacketBitrateFallbackIsStreamingAndSeparatesTracks()
+    public void PacketStatisticsAreStreamingAndSeparateTracks()
     {
-        var video = new PacketBitrate();
-        var audio = new PacketBitrate();
-        var streams = new Dictionary<int, PacketBitrate> { [0] = video, [1] = audio };
-        PacketBitrate.Parse("stream_index=0|pts_time=0.000|duration_time=1.0|size=1000", streams);
-        PacketBitrate.Parse("stream_index=1|pts_time=0.000|duration_time=1.0|size=100", streams);
-        PacketBitrate.Parse("stream_index=0|pts_time=1.000|duration_time=1.0|size=1000", streams);
-        Assert.Equal(8000, video.Calculate(2000));
-        Assert.Equal(800, audio.Calculate(2000));
+        var video = new TranscodePacketStatistics();
+        var audio = new TranscodePacketStatistics();
+        var streams = new Dictionary<int, TranscodePacketStatistics> { [0] = video, [1] = audio };
+        TranscodePacketStatistics.Parse("stream_index=0|pts_time=0.000|duration_time=1.0|size=1000", streams);
+        TranscodePacketStatistics.Parse("stream_index=1|pts_time=0.000|duration_time=1.0|size=100", streams);
+        TranscodePacketStatistics.Parse("stream_index=0|pts_time=1.000|duration_time=1.0|size=1000", streams);
+        Assert.Equal(8000, video.Bitrate);
+        Assert.Equal(800, audio.Bitrate);
     }
 
     private static TranscodePlan Plan(TranscodeMediaInfo source) => TranscodePlanner.Create("/in", "/out", source, new(), new() { Encoder = "libx264" }, 4);

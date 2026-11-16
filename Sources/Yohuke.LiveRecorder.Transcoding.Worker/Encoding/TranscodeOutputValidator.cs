@@ -32,6 +32,18 @@ internal sealed class TranscodeOutputValidator(MediaInspector inspector)
         {
             throw new InvalidDataException("Transcoded output failed dimension, codec, or duration validation");
         }
+        var videoLimit = TranscodeBitratePolicy.GetTargetBitrate(source.VideoBitrate, profile.VideoBitrateKbps);
+        var audioLimit = TranscodeBitratePolicy.GetTargetBitrate(source.AudioBitrate, profile.AudioBitrateKbps);
+        if (!TranscodeBitratePolicy.IsWithinLimit(media.VideoBitrate, videoLimit)
+            || media.HasAudio && !TranscodeBitratePolicy.IsWithinLimit(media.AudioBitrate, audioLimit))
+        {
+            var message = FormattableString.Invariant($"Transcoded output exceeds the bitrate limit. Video {media.VideoBitrate} bps (source {source.VideoBitrate} bps, profile {profile.VideoBitrateKbps * 1000L} bps, allowed {TranscodeBitratePolicy.GetMaximumBitrate(videoLimit):0.##} bps).");
+            if (media.HasAudio)
+            {
+                message += FormattableString.Invariant($" Audio {media.AudioBitrate} bps (source {source.AudioBitrate} bps, profile {profile.AudioBitrateKbps * 1000L} bps, allowed {TranscodeBitratePolicy.GetMaximumBitrate(audioLimit):0.##} bps).");
+            }
+            throw new TranscodeBitrateException(message, media);
+        }
         var boundaries = new List<double>();
         var elapsed = 0d;
         foreach (var duration in parsed.SegmentDurations)

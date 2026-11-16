@@ -25,53 +25,14 @@ public sealed class TranscodeMediaInspector(MediaProcessRunner processes) : ITra
         var audioIndex = audio.ValueKind == JsonValueKind.Undefined ? -1 : (int)Number(audio, "index");
         var videoStatistics = new TranscodePacketStatistics();
         var audioStatistics = new TranscodePacketStatistics();
-        void ReadPacket(string line)
+        var statistics = new Dictionary<int, TranscodePacketStatistics> { [videoIndex] = videoStatistics };
+        if (audioIndex >= 0)
         {
-            var index = -1;
-            long size = 0;
-            var pts = double.NaN;
-            var duration = 0d;
-            foreach (var field in line.Split('|'))
-            {
-                var separator = field.IndexOf('=');
-                if (separator <= 0)
-                {
-                    continue;
-                }
-                var name = field.AsSpan(0, separator);
-                var value = field.AsSpan(separator + 1);
-                if (name.SequenceEqual("stream_index"))
-                {
-                    int.TryParse(value, CultureInfo.InvariantCulture, out index);
-                }
-                else if (name.SequenceEqual("size"))
-                {
-                    long.TryParse(value, CultureInfo.InvariantCulture, out size);
-                }
-                else if (name.SequenceEqual("pts_time"))
-                {
-                    if (!double.TryParse(value, CultureInfo.InvariantCulture, out pts))
-                    {
-                        pts = double.NaN;
-                    }
-                }
-                else if (name.SequenceEqual("duration_time"))
-                {
-                    double.TryParse(value, CultureInfo.InvariantCulture, out duration);
-                }
-            }
-            var statistics = index == videoIndex ? videoStatistics : index == audioIndex ? audioStatistics : null;
-            if (statistics is null || size <= 0 || !double.IsFinite(pts) || !double.IsFinite(duration))
-            {
-                return;
-            }
-            statistics.Bytes += size;
-            statistics.FirstPts = Math.Min(statistics.FirstPts, pts);
-            statistics.LastPts = Math.Max(statistics.LastPts, pts + Math.Max(0, duration));
+            statistics.Add(audioIndex, audioStatistics);
         }
         await processes.RunAsync(MediaProcessKind.Probe,
             ["-v", "error", "-show_packets", "-show_entries", "packet=stream_index,size,pts_time,duration_time", "-of", "compact=p=0:nk=0", Path.GetFullPath(path)],
-            cancellationToken, outputLine: ReadPacket);
+            cancellationToken, outputLine: line => TranscodePacketStatistics.Parse(line, statistics));
         if (videoStatistics.Duration <= 0 || videoStatistics.Bytes == 0)
         {
             throw new InvalidDataException("Media packet timing is unavailable.");
