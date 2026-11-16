@@ -21,7 +21,8 @@ public sealed class TranscodePackagingTests
         Assert.Equal("68", plan.Arguments[plan.Arguments.IndexOf("-g") + 1]);
         Assert.Contains("expr:gte(t,n_forced*2.25)", plan.Arguments);
         Assert.Equal("independent_segments+single_file", plan.Arguments[plan.Arguments.IndexOf("-hls_flags") + 1]);
-        Assert.Equal(Path.Combine("/output", "media.mp4"), plan.Arguments[plan.Arguments.IndexOf("-hls_segment_filename") + 1]);
+        Assert.Equal(Path.Combine("/output", "media.mp4").Replace(Path.DirectorySeparatorChar, '/'),
+            plan.Arguments[plan.Arguments.IndexOf("-hls_segment_filename") + 1]);
         Assert.DoesNotContain(plan.Arguments, argument => argument.Contains("temp_file", StringComparison.Ordinal));
     }
 

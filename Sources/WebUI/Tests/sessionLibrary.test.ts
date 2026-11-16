@@ -8,6 +8,7 @@ import SessionCard from '../src/components/library/SessionCard.vue'
 import ConfirmDialog from '../src/components/common/ConfirmDialog.vue'
 import type { BroadcastSession } from '../src/models/media'
 import { i18n } from '../src/plugins/i18n'
+import { defaultTranscodingSettings } from '../src/models/transcoding'
 
 const { createTranscodeJobs, settings, authState, deleteSession, trashSessions, setSessionPermanent } = vi.hoisted(() => ({ createTranscodeJobs: vi.fn(), settings: vi.fn(), authState: { isAdmin: true, manageRecordings: false, viewAnalytics: false }, deleteSession: vi.fn(), trashSessions: vi.fn(), setSessionPermanent: vi.fn() }))
 vi.mock('../src/stores/auth', async () =>
@@ -357,13 +358,17 @@ describe('录播库操作', () =>
 
 describe('录播补转', () =>
 {
-  it('批量补转仅提交已结束的选中录播，不触发删除接口', async () =>
+  it.each([false, true])('自动转码为 %s 的档位可手动补转，仅提交已结束的选中录播', async automatic =>
   {
+    const transcoding = defaultTranscodingSettings()
+    Object.assign(transcoding.profiles[0]!, { autoTranscode: automatic })
+    settings.mockResolvedValueOnce({ transcoding })
     const { wrapper } = await start()
     await selectAll(wrapper)
     await button(wrapper, '批量补转').trigger('click')
     await flushPromises()
     expect(wrapper.get('[role="dialog"]').text()).toContain('2 场录播')
+    expect(wrapper.findAll('v-checkbox-stub').map(checkbox => checkbox.attributes('label'))).toContain('720p · 720p')
     await button(wrapper, '创建任务').trigger('click')
     await flushPromises()
     expect(createTranscodeJobs).toHaveBeenCalledWith(['a', 'b'], ['720p'], false)

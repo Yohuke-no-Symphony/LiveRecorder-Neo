@@ -67,7 +67,7 @@ export const componentsZh = {
   },
   events: {
     title: '直播消息', follow: '跟随', all: '全部', danmu: '弹幕', superChat: 'SC', gift: '礼物', guard: '舰长',
-    settings: '回放弹幕设置', retentionCount: '回放弹幕留存数量', retentionHint: '随账号同步，超出数量后移除最早的消息。', retentionInvalid: '请输入有效的正整数。',
+    settings: '回放弹幕设置', retentionCount: '回放弹幕留存数量', retentionInvalid: '请输入有效的正整数。',
     redPocket: '红包', gap: '录制中断', guest: '访客', empty: '当前时段暂无消息', notRecorded: '此场录播未保存弹幕',
     count: '{count} 条', messageCount: '{count} 条消息', loadFailed: '消息加载失败', roomAdmin: '房管',
     reply: '回复 {name}：', governor: '总督', admiral: '提督', captain: '舰长', membership: '大航海', quote: '参考金额',
@@ -186,7 +186,7 @@ export const componentsEn: MessageSchema<typeof componentsZh> = {
   },
   events: {
     title: 'Live messages', follow: 'Follow', all: 'All', danmu: 'Chat', superChat: 'SC', gift: 'Gifts', guard: 'Memberships',
-    settings: 'Replay chat settings', retentionCount: 'Replay messages to retain', retentionHint: 'Synced to your account. The oldest messages are removed when the limit is reached.', retentionInvalid: 'Enter a valid positive integer.',
+    settings: 'Replay chat settings', retentionCount: 'Replay messages to retain', retentionInvalid: 'Enter a valid positive integer.',
     redPocket: 'Red packets', gap: 'Recording interrupted', guest: 'Guest', empty: 'No messages in this period',
     notRecorded: 'Chat was not recorded for this session', count: '{count} messages', messageCount: '{count} messages',
     loadFailed: 'Failed to load messages', roomAdmin: 'Moderator', reply: 'Reply to {name}: ', governor: 'Governor',
@@ -307,7 +307,7 @@ export const componentsJa: MessageSchema<typeof componentsZh> = {
   },
   events: {
     title: '配信メッセージ', follow: '追従', all: 'すべて', danmu: 'コメント', superChat: 'SC', gift: 'ギフト', guard: 'メンバーシップ',
-    settings: 'リプレイコメント設定', retentionCount: 'リプレイコメント保持件数', retentionHint: 'アカウントに同期されます。上限に達すると古いメッセージから削除されます。', retentionInvalid: '有効な正の整数を入力してください。',
+    settings: 'リプレイコメント設定', retentionCount: 'リプレイコメント保持件数', retentionInvalid: '有効な正の整数を入力してください。',
     redPocket: '紅包', gap: '録画が中断されました', guest: 'ゲスト', empty: 'この時間帯にメッセージはありません',
     notRecorded: 'この配信ではコメントを記録していません', count: '{count} 件', messageCount: 'メッセージ {count} 件',
     loadFailed: 'メッセージを読み込めませんでした', roomAdmin: 'モデレーター', reply: '{name} への返信：', governor: '総督',

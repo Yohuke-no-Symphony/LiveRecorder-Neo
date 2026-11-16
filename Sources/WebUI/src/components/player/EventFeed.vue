@@ -82,7 +82,7 @@ async function load(force = false, refreshReading = false): Promise<void>
   }
   const requestKey = JSON.stringify([props.sessionId, offsetMs, selectedKind, retentionCount, reading])
   const requestLoading = reading ? readingLoading : windowLoading
-  if (requestLoading.value && (reading ? pendingReadingRequestKey : pendingRequestKey) === requestKey)
+  if (requestLoading.value && (!force || (reading ? pendingReadingRequestKey : pendingRequestKey) === requestKey))
   {
     return
   }
@@ -134,6 +134,7 @@ async function load(force = false, refreshReading = false): Promise<void>
     {
       error.value = value instanceof Error ? value.message : t('components.events.loadFailed')
     }
+    return
   }
   finally
   {
@@ -149,6 +150,10 @@ async function load(force = false, refreshReading = false): Promise<void>
         pendingRequestKey = undefined
       }
     }
+  }
+  if (!reading && !signal.aborted && operation === generation && props.offsetMs !== offsetMs)
+  {
+    void load()
   }
 }
 watch([() => props.offsetMs, () => props.navigationRevision ?? 0], ([offset, revision], [previousOffset, previousRevision]) =>
@@ -342,7 +347,7 @@ watch(() => props.active, active =>
     }
   }
 })
-usePolling(async () => { await load(props.isLive) }, 10000)
+usePolling(async () => { await load(props.isLive && !windowLoading.value) }, 10000)
 onBeforeUnmount(() =>
 {
   cancelRequests()

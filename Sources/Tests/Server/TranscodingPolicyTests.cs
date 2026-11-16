@@ -1,8 +1,10 @@
+using System.Text.Json;
 using Xunit;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Transcoding;
 using Yohuke.LiveRecorder.Infrastructure.Jobs;
 using Yohuke.LiveRecorder.Transcoding.Contracts;
@@ -23,9 +25,33 @@ public sealed class TranscodingPolicyTests
         Assert.Equal(6, profile.SegmentDurationSeconds);
         Assert.Equal(2, profile.KeyframeIntervalSeconds);
         Assert.False(profile.SingleFile);
+        Assert.True(profile.AutoTranscode);
         Assert.True(TranscodeConfigurationPolicy.IsDefaultPackaging(profile));
         Assert.Equal("a383bfeb05b61645feeb36f87119d2b8b50a14df6c1f258b57f338688ae694f5", TranscodeRecipe.Hash(profile));
         Assert.Equal(0, new WorkerCapabilities().HlsPackagingVersion);
+    }
+
+    /// <summary>旧 JSON 配置缺少自动转码字段时延续已有行为。</summary>
+    [Fact]
+    public void LegacyJsonProfilesKeepAutomaticTranscodingEnabled()
+    {
+        var settings = JsonSerializer.Deserialize<TranscodingSettings>("""{"profiles":[{"id":"720p"}]}""", JsonFiles.Options)!;
+
+        Assert.True(Assert.Single(settings.Profiles).AutoTranscode);
+    }
+
+    /// <summary>档位自动转码开关经 JSON 和 BSON 往返后保留显式值。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AutomaticTranscodingPreferenceSurvivesSerialization(bool automatic)
+    {
+        var profile = new TranscodeProfile { AutoTranscode = automatic };
+        var json = JsonSerializer.Deserialize<TranscodeProfile>(JsonSerializer.Serialize(profile, JsonFiles.Options), JsonFiles.Options)!;
+        var bson = BsonSerializer.Deserialize<TranscodeProfile>(profile.ToBson());
+
+        Assert.Equal(automatic, json.AutoTranscode);
+        Assert.Equal(automatic, bson.AutoTranscode);
     }
 
     /// <summary>自定义包装参数改变产物身份，显示信息仍不改变配方。</summary>
@@ -39,6 +65,7 @@ public sealed class TranscodingPolicyTests
         Assert.NotEqual(hash, TranscodeRecipe.Hash(original with { SingleFile = true }));
         var custom = original with { SegmentDurationSeconds = 12, KeyframeIntervalSeconds = 3, SingleFile = true };
         Assert.Equal(TranscodeRecipe.Hash(custom), TranscodeRecipe.Hash(custom with { Name = "新名称", Enabled = false }));
+        Assert.Equal(TranscodeRecipe.Hash(custom), TranscodeRecipe.Hash(custom with { AutoTranscode = false }));
         Assert.False(TranscodeConfigurationPolicy.IsDefaultPackaging(custom));
     }
 
@@ -91,6 +118,7 @@ public sealed class TranscodingPolicyTests
         var profile = new TranscodeProfile();
         var expected = TranscodeRecipe.Hash(profile);
         Assert.Equal(expected, TranscodeRecipe.Hash(profile with { Id = "renamed", Name = "清晰", Enabled = false }));
+        Assert.Equal(expected, TranscodeRecipe.Hash(profile with { AutoTranscode = false }));
         Assert.NotEqual(expected, TranscodeRecipe.Hash(profile with { Height = 1080 }));
         Assert.NotEqual(expected, TranscodeRecipe.Hash(profile with { VideoBitrateKbps = 1500 }));
         Assert.NotEqual(expected, TranscodeRecipe.Hash(profile with { MaxFrameRate = 30 }));

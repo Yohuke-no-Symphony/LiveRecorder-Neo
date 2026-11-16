@@ -27,6 +27,51 @@ namespace Yohuke.LiveRecorder.Http.Tests;
 /// <summary>验证独立 Worker 的真实 TLS、HTTP 传输、成品播放及回收边界。</summary>
 public sealed class TranscodingHttpTests
 {
+    /// <summary>每档位自动转码偏好经设置接口独立保存，兼容旧请求并在重启后保留。</summary>
+    [MongoHttpFact]
+    public async Task ProfileAutomaticTranscodingPreferencesPersistThroughSettingsApiAndRestart()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+        var settings = await fixture.Admin.Client.GetFromJsonAsync<JsonObject>("/api/settings");
+        var profiles = settings!["transcoding"]!["profiles"]!.AsArray();
+        Assert.True(profiles[0]!["autoTranscode"]!.GetValue<bool>());
+        profiles[0]!.AsObject().Remove("autoTranscode");
+        profiles.Add(new JsonObject
+        {
+            ["id"] = "1080p",
+            ["name"] = "1080p",
+            ["height"] = 1080,
+            ["enabled"] = true,
+            ["autoTranscode"] = false
+        });
+        settings["transcoding"]!["qualityOrder"]!.AsArray().Add("1080p");
+
+        using var created = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/settings", settings);
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var saved = await created.Content.ReadFromJsonAsync<JsonObject>();
+        var savedProfiles = saved!["transcoding"]!["profiles"]!.AsArray();
+        Assert.True(savedProfiles[0]!["autoTranscode"]!.GetValue<bool>());
+        Assert.False(savedProfiles[1]!["autoTranscode"]!.GetValue<bool>());
+        savedProfiles[0]!["autoTranscode"] = false;
+        savedProfiles[1]!["autoTranscode"] = true;
+
+        using var updated = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/settings", saved);
+        Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
+        await fixture.RestartAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+
+        var restored = await fixture.Admin.Client.GetFromJsonAsync<JsonObject>("/api/settings");
+        var restoredProfiles = restored!["transcoding"]!["profiles"]!.AsArray();
+        Assert.False(restoredProfiles[0]!["autoTranscode"]!.GetValue<bool>());
+        Assert.True(restoredProfiles[1]!["autoTranscode"]!.GetValue<bool>());
+        Assert.Equal("720p", restored["transcoding"]!["defaultPlaybackQualityId"]!.GetValue<string>());
+        var persisted = JsonNode.Parse(await File.ReadAllTextAsync(fixture.ConfigFile));
+        Assert.False(persisted!["transcoding"]!["profiles"]![0]!["autoTranscode"]!.GetValue<bool>());
+        Assert.True(persisted["transcoding"]!["profiles"]![1]!["autoTranscode"]!.GetValue<bool>());
+    }
+
     /// <summary>本地完整设置按版本提交，运行中的节点将后台变更同步到同一文件。</summary>
     [MongoHttpFact]
     public async Task WorkerSettingsRoundTripThroughTlsAndPersistLiveAdminChanges()

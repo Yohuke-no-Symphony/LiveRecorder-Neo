@@ -14,6 +14,7 @@ export interface TranscodingProfile
   keyframeIntervalSeconds: number
   singleFile: boolean
   enabled: boolean
+  autoTranscode: boolean
 }
 
 export interface TranscodingSettings
@@ -127,7 +128,24 @@ export interface WorkerLogPage
 
 export function defaultTranscodingSettings(): TranscodingSettings
 {
-  return { enabled: true, profiles: [{ id: '720p', name: '720p', height: 720, videoBitrateKbps: 2500, maxFrameRate: null, audioBitrateKbps: 128, segmentDurationSeconds: 6, keyframeIntervalSeconds: 2, singleFile: false, enabled: true }], qualityOrder: [ORIGINAL_QUALITY_ID, '720p'], defaultPlaybackQualityId: '720p' }
+  return {
+    enabled: true,
+    profiles: [{
+      id: '720p',
+      name: '720p',
+      height: 720,
+      videoBitrateKbps: 2500,
+      maxFrameRate: null,
+      audioBitrateKbps: 128,
+      segmentDurationSeconds: 6,
+      keyframeIntervalSeconds: 2,
+      singleFile: false,
+      enabled: true,
+      autoTranscode: true,
+    }],
+    qualityOrder: [ORIGINAL_QUALITY_ID, '720p'],
+    defaultPlaybackQualityId: '720p',
+  }
 }
 
 export function normalizeTranscodingSettings(value?: Partial<TranscodingSettings> | null): TranscodingSettings
@@ -140,6 +158,7 @@ export function normalizeTranscodingSettings(value?: Partial<TranscodingSettings
     segmentDurationSeconds: profile.segmentDurationSeconds ?? 6,
     keyframeIntervalSeconds: profile.keyframeIntervalSeconds ?? 2,
     singleFile: profile.singleFile ?? false,
+    autoTranscode: profile.autoTranscode ?? true,
   }))
   const ids = new Set([ORIGINAL_QUALITY_ID, ...profiles.map(profile => profile.id)])
   const qualityOrder = [...new Set(value.qualityOrder ?? defaults.qualityOrder)].filter(id => ids.has(id))
@@ -160,7 +179,7 @@ export function isValidTranscodingSettings(settings: TranscodingSettings): boole
       && integer(profile.audioBitrateKbps, 16, 512)
       && Number.isFinite(profile.segmentDurationSeconds) && profile.segmentDurationSeconds >= .1 && profile.segmentDurationSeconds <= 300
       && Number.isFinite(profile.keyframeIntervalSeconds) && profile.keyframeIntervalSeconds >= .1 && profile.keyframeIntervalSeconds <= 300
-      && typeof profile.singleFile === 'boolean')
+      && typeof profile.singleFile === 'boolean' && typeof profile.autoTranscode === 'boolean')
     && settings.qualityOrder.length === ids.length + 1 && new Set(settings.qualityOrder).size === ids.length + 1
     && [ORIGINAL_QUALITY_ID, ...ids].every(id => settings.qualityOrder.includes(id))
     && (settings.defaultPlaybackQualityId === ORIGINAL_QUALITY_ID || settings.profiles.some(profile => profile.id === settings.defaultPlaybackQualityId && profile.enabled))

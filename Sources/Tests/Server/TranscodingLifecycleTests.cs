@@ -12,6 +12,158 @@ namespace Yohuke.LiveRecorder.Tests;
 /// <summary>验证媒体替换保留请求意图，并撤销旧物理版本的远端执行权。</summary>
 public sealed class TranscodingLifecycleTests
 {
+    /// <summary>新录播仅自动创建选中档位，全部关闭时也完成一次性调度且重复维护不会补建任务。</summary>
+    [Theory]
+    [InlineData(true, true, 2)]
+    [InlineData(true, false, 1)]
+    [InlineData(false, true, 1)]
+    [InlineData(false, false, 0)]
+    public async Task AutomaticTranscodingQueuesOnlySelectedProfiles(bool automatic720, bool automatic1080, int expected)
+    {
+        await using var fixture = await JobTestContext.CreateAsync();
+        var settings = fixture.Settings.Settings.Transcoding;
+        settings.Profiles =
+        [
+            new() { AutoTranscode = automatic720 },
+            new() { Id = "1080p", Name = "1080p", Height = 1080, AutoTranscode = automatic1080 }
+        ];
+        settings.QualityOrder.Add("1080p");
+        var (session, _) = await fixture.SeedSessionAsync();
+        session.AutoTranscodeEligible = true;
+        await fixture.Mongo.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == session.Id, session);
+        var assets = new TranscodeAssetRegistry(fixture.Mongo, fixture.Paths);
+        var workers = new TranscodeWorkerService(fixture.Mongo);
+        var leases = new TranscodeLeaseService(fixture.Mongo, workers, assets);
+        var scheduler = new TranscodeJobScheduler(fixture.Mongo, fixture.Settings, fixture.Paths,
+            new LibraryService(fixture.Mongo, TimeProvider.System), assets, workers, leases);
+        using var maintenance = new TranscodeMaintenanceService(fixture.Mongo, fixture.Bootstrap, fixture.Settings,
+            scheduler, new TranscodeLifecycle(fixture.Mongo, fixture.Paths), assets, fixture.Paths,
+            NullLogger<TranscodeMaintenanceService>.Instance);
+
+        await maintenance.MaintainAsync(CancellationToken.None);
+        await maintenance.MaintainAsync(CancellationToken.None);
+
+        var jobs = await scheduler.ListAsync(session.Id, CancellationToken.None);
+        Assert.Equal(expected, jobs.Count);
+        Assert.Equal(automatic720, jobs.Any(x => x.Profile.Id == "720p"));
+        Assert.Equal(automatic1080, jobs.Any(x => x.Profile.Id == "1080p"));
+        var current = await fixture.Mongo.Collection<BroadcastSession>("sessions").Find(x => x.Id == session.Id).SingleAsync();
+        Assert.True(current.AutoTranscodeScheduled);
+
+        settings.Profiles.ForEach(profile => profile.AutoTranscode = true);
+        await maintenance.MaintainAsync(CancellationToken.None);
+        Assert.Equal(expected, (await scheduler.ListAsync(session.Id, CancellationToken.None)).Count);
+    }
+
+    /// <summary>全局开关与档位启用状态共同约束自动转码。</summary>
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task AutomaticTranscodingRespectsGlobalAndProfileAvailability(bool globalEnabled, bool profileEnabled)
+    {
+        await using var fixture = await JobTestContext.CreateAsync();
+        var settings = fixture.Settings.Settings.Transcoding;
+        settings.Enabled = globalEnabled;
+        settings.Profiles[0].Enabled = profileEnabled;
+        settings.DefaultPlaybackQualityId = "original";
+        var (session, _) = await fixture.SeedSessionAsync();
+        session.AutoTranscodeEligible = true;
+        await fixture.Mongo.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == session.Id, session);
+        var assets = new TranscodeAssetRegistry(fixture.Mongo, fixture.Paths);
+        var workers = new TranscodeWorkerService(fixture.Mongo);
+        var leases = new TranscodeLeaseService(fixture.Mongo, workers, assets);
+        var scheduler = new TranscodeJobScheduler(fixture.Mongo, fixture.Settings, fixture.Paths,
+            new LibraryService(fixture.Mongo, TimeProvider.System), assets, workers, leases);
+        using var maintenance = new TranscodeMaintenanceService(fixture.Mongo, fixture.Bootstrap, fixture.Settings,
+            scheduler, new TranscodeLifecycle(fixture.Mongo, fixture.Paths), assets, fixture.Paths,
+            NullLogger<TranscodeMaintenanceService>.Instance);
+
+        await maintenance.MaintainAsync(CancellationToken.None);
+
+        Assert.Empty(await scheduler.ListAsync(session.Id, CancellationToken.None));
+        var current = await fixture.Mongo.Collection<BroadcastSession>("sessions").Find(x => x.Id == session.Id).SingleAsync();
+        Assert.Equal(globalEnabled, current.AutoTranscodeScheduled);
+    }
+
+    /// <summary>关闭自动转码的档位仍可通过显式选择或全部档位的手动入口创建任务。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ManualTranscodingCanQueueProfilesWithAutomaticTranscodingDisabled(bool explicitSelection)
+    {
+        await using var fixture = await JobTestContext.CreateAsync();
+        fixture.Settings.Settings.Transcoding.Profiles[0].AutoTranscode = false;
+        var (session, _) = await fixture.SeedSessionAsync();
+        var assets = new TranscodeAssetRegistry(fixture.Mongo, fixture.Paths);
+        var workers = new TranscodeWorkerService(fixture.Mongo);
+        var leases = new TranscodeLeaseService(fixture.Mongo, workers, assets);
+        var scheduler = new TranscodeJobScheduler(fixture.Mongo, fixture.Settings, fixture.Paths,
+            new LibraryService(fixture.Mongo, TimeProvider.System), assets, workers, leases);
+        IReadOnlyCollection<string>? qualities = explicitSelection ? ["720p"] : null;
+
+        Assert.Equal(1, await scheduler.QueueAsync([session.Id], qualities, false, CancellationToken.None));
+        Assert.Equal(0, await scheduler.QueueAsync([session.Id], qualities, false, CancellationToken.None));
+        Assert.Equal("720p", Assert.Single(await scheduler.ListAsync(session.Id, CancellationToken.None)).Profile.Id);
+    }
+
+    /// <summary>修复后合并自动档位与既有成品档位，关闭自动且无请求的档位不会补建。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RepairCombinesAutomaticProfilesWithExistingRenditionIntent(bool automatic)
+    {
+        await using var fixture = await JobTestContext.CreateAsync();
+        var settings = fixture.Settings.Settings.Transcoding;
+        settings.Profiles =
+        [
+            new(),
+            new() { Id = "1080p", Name = "1080p", Height = 1080, AutoTranscode = false },
+            new() { Id = "480p", Name = "480p", Height = 480, AutoTranscode = false }
+        ];
+        settings.QualityOrder.AddRange(["1080p", "480p"]);
+        var (session, segments) = await fixture.SeedSessionAsync();
+        session.AutoTranscodeEligible = automatic;
+        session.AutoTranscodeScheduled = true;
+        await fixture.Mongo.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == session.Id, session);
+        var assets = new TranscodeAssetRegistry(fixture.Mongo, fixture.Paths);
+        var oldAsset = await assets.EnsureAsync(session, segments[0]);
+        await fixture.Mongo.Collection<PlaybackRendition>("playbackRenditions").InsertOneAsync(new()
+        {
+            AssetId = oldAsset.Id,
+            SourceVersion = oldAsset.SourceVersion,
+            ProfileId = "1080p"
+        });
+        var repair = JobTestContext.CreateJob(session, segments, "Repair");
+
+        var (_, execution) = await fixture.ExecuteOwnedAsync(repair);
+        await execution;
+
+        var completed = await fixture.Mongo.Collection<MediaJob>("jobs").Find(x => x.Id == repair.Id).SingleAsync();
+        Assert.Equal("Completed", completed.State);
+        var replaced = await fixture.Mongo.Collection<RecordingSegment>("segments")
+            .Find(x => x.SessionId == session.Id && x.Revision == 2).ToListAsync();
+        Assert.Equal(2, replaced.Count);
+        var expectedProfiles = automatic ? new[] { "1080p", "720p" } : ["1080p"];
+        Assert.All(replaced, segment => Assert.Equal(expectedProfiles, segment.PendingTranscodeProfileIds.Order(StringComparer.Ordinal)));
+        var workers = new TranscodeWorkerService(fixture.Mongo);
+        var leases = new TranscodeLeaseService(fixture.Mongo, workers, assets);
+        var scheduler = new TranscodeJobScheduler(fixture.Mongo, fixture.Settings, fixture.Paths,
+            new LibraryService(fixture.Mongo, TimeProvider.System), assets, workers, leases);
+        using var maintenance = new TranscodeMaintenanceService(fixture.Mongo, fixture.Bootstrap, fixture.Settings,
+            scheduler, new TranscodeLifecycle(fixture.Mongo, fixture.Paths), assets, fixture.Paths,
+            NullLogger<TranscodeMaintenanceService>.Instance);
+
+        await maintenance.MaintainAsync(CancellationToken.None);
+        await maintenance.MaintainAsync(CancellationToken.None);
+
+        var replacementAssets = replaced.Select(x => x.AssetId).ToArray();
+        var queued = await fixture.Mongo.Collection<TranscodeJob>("transcodeJobs")
+            .Find(x => replacementAssets.Contains(x.AssetId)).ToListAsync();
+        Assert.Equal(2 * expectedProfiles.Length, queued.Count);
+        Assert.All(replacementAssets, assetId => Assert.Equal(expectedProfiles,
+            queued.Where(job => job.AssetId == assetId).Select(job => job.Profile.Id).Order(StringComparer.Ordinal)));
+    }
+
     /// <summary>长清单恢复分批保存文件元数据，单个播放文件查询不读取整份产物数组。</summary>
     [Fact]
     public async Task CompletedPublicationRecoversBoundedCatalogAndIndividualFileMetadata()
@@ -129,12 +281,18 @@ public sealed class TranscodingLifecycleTests
 
     /// <summary>新录播和有既有手动请求的历史源在修复后补转，未请求的历史源不会被自动扫描。</summary>
     [Theory]
-    [InlineData(true, false, 2)]
-    [InlineData(false, true, 2)]
-    [InlineData(false, false, 0)]
-    public async Task RepairCarriesOnlyApplicableTranscodeIntent(bool automatic, bool manual, int expected)
+    [InlineData(true, false, true, 2)]
+    [InlineData(false, true, true, 2)]
+    [InlineData(false, false, true, 0)]
+    [InlineData(true, false, false, 0)]
+    [InlineData(true, true, false, 2)]
+    [InlineData(false, true, false, 2)]
+    [InlineData(false, false, false, 0)]
+    [InlineData(true, true, true, 2)]
+    public async Task RepairCarriesOnlyApplicableTranscodeIntent(bool automatic, bool manual, bool profileAutomatic, int expected)
     {
         await using var fixture = await JobTestContext.CreateAsync();
+        fixture.Settings.Settings.Transcoding.Profiles[0].AutoTranscode = profileAutomatic;
         var (session, segments) = await fixture.SeedSessionAsync();
         session.AutoTranscodeEligible = automatic;
         session.AutoTranscodeScheduled = true;

@@ -376,14 +376,12 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
         ServerSettings settings, CancellationToken cancellationToken)
     {
         var enabled = settings.Transcoding.Profiles.Where(x => x.Enabled).Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
+        var automatic = settings.Transcoding.Profiles.Where(x => session.AutoTranscodeEligible && x.Enabled && x.AutoTranscode)
+            .Select(x => x.Id).ToArray();
         foreach (var segment in manifest.RepairedSegments)
         {
             segment.AssetId = TranscodeAssetRegistry.AssetId(session, segment);
-            if (session.AutoTranscodeEligible)
-            {
-                segment.PendingTranscodeProfileIds = enabled.ToList();
-                continue;
-            }
+            segment.PendingTranscodeProfileIds = automatic.ToList();
             if (!manifest.RepairedAssetSources.TryGetValue(segment.Id, out var assetId))
             {
                 var source = job.SourceSegments.Where(x => x.StartOffsetMs <= segment.StartOffsetMs + 1
@@ -398,7 +396,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
                 .Find(x => x.AssetId == assetId && !x.CancelRequested).ToListAsync(cancellationToken);
             var renditions = await context.Collection<PlaybackRendition>("playbackRenditions")
                 .Find(x => x.AssetId == assetId && x.State == "Ready").ToListAsync(cancellationToken);
-            segment.PendingTranscodeProfileIds = jobs.Select(x => x.Profile.Id).Concat(renditions.Select(x => x.ProfileId))
+            segment.PendingTranscodeProfileIds = automatic.Concat(jobs.Select(x => x.Profile.Id)).Concat(renditions.Select(x => x.ProfileId))
                 .Where(enabled.Contains).Distinct(StringComparer.Ordinal).ToList();
         }
     }

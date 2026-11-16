@@ -20,7 +20,8 @@ const button = defineComponent({ props: ['disabled', 'loading', 'href'], emits: 
 const group = defineComponent({ props: ['modelValue'], emits: ['update:modelValue'], setup: (props, { emit }) => () => h('select', { 'aria-label': '任务筛选', value: props.modelValue, onChange: (event: Event) => emit('update:modelValue', (event.target as HTMLSelectElement).value) }, ['all', 'active', 'failed'].map(value => h('option', { value }, value))) })
 const dialog = defineComponent({ props: ['modelValue'], setup: (props, { slots }) => () => props.modelValue ? h('div', { role: 'dialog' }, slots.default?.()) : null })
 const table = defineComponent({ setup: (_, { slots }) => () => h('table', slots.default?.()) })
-const stubs = { VBtn: button, VCard: card, ContentCard: card, VTable: table, VChip: card, VChipGroup: group, VDialog: dialog, VProgressLinear: true, VAlert: card, VIcon: true }
+const tooltip = defineComponent({ props: ['text'], setup: (props, { slots }) => () => h('span', { 'data-tooltip': props.text }, slots.activator?.({ props: {} })) })
+const stubs = { VBtn: button, VCard: card, ContentCard: card, VTable: table, VChip: card, VChipGroup: group, VDialog: dialog, VProgressLinear: true, VAlert: card, VIcon: true, VTooltip: tooltip }
 const mounted: VueWrapper[] = []
 let pinia: Pinia
 
@@ -54,7 +55,7 @@ async function mountView()
 }
 function findButton(wrapper: Pick<DOMWrapper<Element>, 'findAll'>, label: string)
 {
-  const result = wrapper.findAll('button').find(item => item.text() === label)
+  const result = wrapper.findAll('button').find(item => item.attributes('aria-label') === label || item.text() === label)
   if (!result)
   {
     throw new Error(`Missing button: ${label}`)
@@ -87,6 +88,40 @@ afterEach(() =>
   vi.unstubAllGlobals()
 })
 
+describe('后台任务操作按钮', () =>
+{
+  it('刷新与各类任务操作使用统一图标按钮，并由 Tooltip 提供操作说明', async () =>
+  {
+    useAuthStore().user = { ...viewer(), role: 'Admin' }
+    mediaJobs.mockResolvedValue([
+      media('running'), media('failed', 'Failed'),
+      { ...media('repair', 'Completed'), kind: 'Repair', outputRelativePaths: ['first.mp4', 'second.mp4'] },
+      { ...media('merge', 'Completed'), kind: 'Merge', outputRelativePaths: ['first.mp4', 'second.mp4'] },
+    ])
+    aiJobs.mockResolvedValue([ai('analysis'), { ...ai('markers'), purpose: 'LiveMarkers' }])
+    transcodeJobs.mockResolvedValue([
+      { id: 'encoding', sessionId: 'session', title: '转码中', profileName: '720p', state: 'Running', stage: 'Encoding', progress: 50, createdAtUtc: '2026-11-14T00:03:00Z' },
+      { id: 'failed-transcode', sessionId: 'session', title: '转码失败', profileName: '720p', state: 'Failed', stage: 'Failed', progress: 0, createdAtUtc: '2026-11-14T00:03:00Z' },
+    ])
+    const wrapper = await mountView()
+    const actions = wrapper.findAll('.job-action-button')
+    expect(actions).toHaveLength(13)
+    for (const action of actions)
+    {
+      expect(action.attributes('icon')).toMatch(/^mdi-/)
+      expect(action.attributes('variant')).toBe('text')
+      expect(action.attributes('size')).toBe('small')
+      expect(action.text()).toBe('')
+      expect(action.element.parentElement?.getAttribute('data-tooltip')).toBe(action.attributes('aria-label'))
+    }
+    expect(wrapper.get('[data-job-id="analysis"] a[aria-label="查看分析"]').attributes('icon')).toBe('mdi-chart-box-outline')
+    expect(wrapper.get('[data-job-id="markers"] a[aria-label="查看直播记录"]').attributes('icon')).toBe('mdi-format-list-bulleted')
+    expect(wrapper.get('[data-job-id="repair"] .job-actions').find('a').exists()).toBe(false)
+    expect(wrapper.get('a[aria-label="下载文件 1"]').attributes('href')).toBe('/api/jobs/merge/outputs/0')
+    expect(wrapper.get('a[aria-label="下载文件 2"]').attributes('href')).toBe('/api/jobs/merge/outputs/1')
+  })
+})
+
 describe('后台任务中的 AI 分析', () =>
 {
   it('只有录像观看权限也读取全局直播记录任务，并过滤无权查看的话题任务', async () =>
@@ -98,8 +133,8 @@ describe('后台任务中的 AI 分析', () =>
     expect(wrapper.find('[data-job-id="analysis"]').exists()).toBe(false)
     const row = wrapper.get('[data-job-id="markers"]')
     expect(row.text()).toContain('生成直播记录')
-    expect(row.text()).not.toContain('取消')
-    const link = row.findAll('a').find(value => value.text() === '查看直播记录')!
+    expect(row.find('button[aria-label="取消"]').exists()).toBe(false)
+    const link = row.get('a[aria-label="查看直播记录"]')
     const url = new URL(link.attributes('href')!, 'https://recorder.test')
     expect(url.pathname).toBe('/sessions/shared%2Fsession')
     expect(url.searchParams.get('panel')).toBe('markers')
@@ -117,7 +152,7 @@ describe('后台任务中的 AI 分析', () =>
     useAuthStore().user = viewer(['recordings.view', 'analytics.view', permission])
     aiJobs.mockResolvedValue([ai('analysis'), { ...ai('markers'), purpose: 'LiveMarkers' }])
     const wrapper = await mountView()
-    expect(wrapper.get(`[data-job-id="${denied}"]`).text()).not.toContain('取消')
+    expect(wrapper.get(`[data-job-id="${denied}"]`).find('button[aria-label="取消"]').exists()).toBe(false)
     await findButton(wrapper.get(`[data-job-id="${allowed}"]`), '取消').trigger('click')
     await flushPromises()
     expect(cancelAi).toHaveBeenCalledWith(allowed)
@@ -151,7 +186,7 @@ describe('后台任务中的 AI 分析', () =>
     expect(rows[0]!.text()).toContain('45%')
     expect(rows[1]!.text()).toContain('我的切片任务')
     expect(wrapper.text()).not.toContain('Token')
-    const resultLink = rows[0]!.findAll('a').find(link => link.text() === '查看分析')!
+    const resultLink = rows[0]!.get('a[aria-label="查看分析"]')
     expect(resultLink.attributes('href')).toBe('/analytics?sessionId=shared/session')
     expect(resultLink.attributes('target')).toBe('_blank')
     expect(resultLink.attributes('rel')).toContain('noopener')
@@ -192,8 +227,8 @@ describe('后台任务中的 AI 分析', () =>
     const wrapper = await mountView()
     for (const row of wrapper.findAll('[data-job-kind="ai"]'))
     {
-      expect(row.text()).not.toContain('取消')
-      expect(row.text()).not.toContain('重试')
+      expect(row.find('button[aria-label="取消"]').exists()).toBe(false)
+      expect(row.find('button[aria-label="重试"]').exists()).toBe(false)
     }
     await findButton(wrapper.get('[data-job-id="ai"]'), '分析详情').trigger('click')
     expect(wrapper.get('[role="dialog"]').text()).not.toContain('取消分析')
@@ -211,6 +246,7 @@ describe('后台任务中的 AI 分析', () =>
     expect(cancelMedia).not.toHaveBeenCalled()
     const cancelling = findButton(wrapper.get('[data-job-kind="ai"]'), '取消中')
     expect(cancelling.attributes('disabled')).toBeDefined()
+    expect(cancelling.element.parentElement?.getAttribute('data-tooltip')).toBe('取消中')
     await findButton(wrapper.get('[data-job-kind="ai"]'), '分析详情').trigger('click')
     expect(findButton(wrapper.get('[role="dialog"]'), '取消中').attributes('disabled')).toBeDefined()
   })
@@ -300,10 +336,15 @@ describe('后台任务中的 AI 分析', () =>
   it('保留媒体作业的重试和下载行为，AI 历史详情对应选中作业', async () =>
   {
     useAuthStore().user = { ...viewer(), role: 'Admin' }
-    mediaJobs.mockResolvedValue([{ ...media('repair', 'Completed'), kind: 'Repair', outputRelativePaths: ['file.mp4'] }, media('clip', 'Failed')])
+    mediaJobs.mockResolvedValue([
+      { ...media('repair', 'Completed'), kind: 'Repair', outputRelativePaths: ['file.mp4'] },
+      { ...media('merge', 'Completed'), kind: 'Merge', outputRelativePaths: ['file.mp4'] },
+      media('clip', 'Failed'),
+    ])
     aiJobs.mockResolvedValue([ai('new', 'Completed'), { ...ai('old', 'Failed'), createdAtUtc: '2026-11-14T00:00:00Z', promptTokens: 900, completionTokens: 0, estimatedTokens: 0, error: '历史任务错误' }])
     const wrapper = await mountView()
-    expect(wrapper.get('[data-job-id="repair"] a[href="/api/jobs/repair/outputs/0"]').text()).toBe('下载文件')
+    expect(wrapper.get('[data-job-id="repair"] .job-actions').find('a').exists()).toBe(false)
+    expect(wrapper.get('[data-job-id="merge"] a[href="/api/jobs/merge/outputs/0"]').attributes('aria-label')).toBe('下载文件')
     await findButton(wrapper.get('[data-job-id="clip"]'), '重试').trigger('click')
     await flushPromises()
     expect(retryMedia).toHaveBeenCalledWith('clip')

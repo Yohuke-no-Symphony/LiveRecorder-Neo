@@ -7,6 +7,38 @@ namespace Yohuke.LiveRecorder.Transcoding.Worker.Tests;
 /// <summary>验证转码参数、源码率上限和可跳转时间轴约束。</summary>
 public sealed class TranscodePlannerTests
 {
+    /// <summary>HLS 输出使用 FFmpeg 可识别的正斜杠目录，并保持相对初始化文件名。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void HlsOutputPathsUseForwardSlashes(bool singleFile)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "worker jobs", "转码输出");
+        var plan = TranscodePlanner.Create(Path.Combine(directory, "input.mp4"), directory, Source(),
+            new() { SingleFile = singleFile }, new() { Encoder = "libx264" }, 2);
+        var segment = singleFile ? "media.mp4" : "chunk_%05d.m4s";
+
+        Assert.Equal(Path.Combine(directory, "index.m3u8").Replace(Path.DirectorySeparatorChar, '/'), plan.Arguments[^1]);
+        Assert.Equal(Path.Combine(directory, segment).Replace(Path.DirectorySeparatorChar, '/'),
+            plan.Arguments[plan.Arguments.IndexOf("-hls_segment_filename") + 1]);
+        Assert.Equal("init.mp4", plan.Arguments[plan.Arguments.IndexOf("-hls_fmp4_init_filename") + 1]);
+    }
+
+    /// <summary>Unix 路径中的合法反斜杠字符保持原样。</summary>
+    [Fact]
+    public void UnixDirectoryNamesPreserveLiteralBackslashes()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+        var directory = Path.Combine(Path.GetTempPath(), "worker\\cache", "output");
+        var plan = TranscodePlanner.Create("/input.mp4", directory, Source(), new(), new() { Encoder = "libx264" }, 2);
+
+        Assert.Equal(Path.Combine(directory, "index.m3u8"), plan.Arguments[^1]);
+        Assert.Equal(Path.Combine(directory, "chunk_%05d.m4s"), plan.Arguments[plan.Arguments.IndexOf("-hls_segment_filename") + 1]);
+    }
+
     /// <summary>横竖屏以显示短边缩放，并保持帧率、音视频码率上限。</summary>
     [Theory]
     [InlineData(1920, 1080, 1280, 720)]

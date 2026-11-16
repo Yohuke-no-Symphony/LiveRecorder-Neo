@@ -1,5 +1,11 @@
 <template>
-  <PageHeader :title="t('views.common.jobs')"><v-btn variant="outlined" prepend-icon="mdi-refresh" :loading="busy" :disabled="busy" @click="refresh">{{ t('views.common.refresh') }}</v-btn></PageHeader>
+  <PageHeader :title="t('views.common.jobs')">
+    <v-tooltip :text="t('views.common.refresh')" location="bottom">
+      <template #activator="{ props: tooltipProps }">
+        <v-btn v-bind="tooltipProps" class="job-action-button" icon="mdi-refresh" variant="text" size="small" :aria-label="t('views.common.refresh')" :loading="busy" :disabled="busy" @click="refresh" />
+      </template>
+    </v-tooltip>
+  </PageHeader>
   <v-alert v-if="error" type="error" class="mb-6">{{ error }}</v-alert>
   <v-card v-if="jobs.length" class="jobs-card">
     <div class="table-toolbar"><v-chip-group v-model="filter" mandatory color="primary"><v-chip value="all">{{ t('views.common.all') }}</v-chip><v-chip value="active">{{ t('views.jobs.active') }}</v-chip><v-chip value="failed">{{ t('views.jobs.failed') }}</v-chip></v-chip-group><span class="text-caption muted">{{ t('views.jobs.count', { count: formatNumber(visibleJobs.length) }) }}</span></div>
@@ -35,18 +41,52 @@
           <td class="job-actions">
             <div class="action-buttons">
               <template v-if="entry.kind === 'ai'">
-                <v-btn variant="text" size="small" @click="selectedAiId = entry.job.id">{{ t(entry.job.purpose === 'LiveMarkers' ? 'liveMarkers.generationDetails' : 'replay.details') }}</v-btn>
-                <v-btn :href="router.resolve(aiJobResultLocation(entry.job)).href" target="_blank" rel="noopener noreferrer" variant="text" size="small" color="primary">{{ t(entry.job.purpose === 'LiveMarkers' ? 'liveMarkers.viewGenerated' : 'views.jobs.analysisResults') }}</v-btn>
-                <v-btn v-if="canGenerateAiJob(entry.job) && isActive(entry.job.state)" variant="text" size="small" :disabled="entry.job.cancelRequested || entry.job.phase === 'Publishing' || Boolean(actionKey)" :loading="actionKey === jobKey(entry)" @click="act(entry, 'cancel')">{{ entry.job.cancelRequested ? t('views.jobs.cancelling') : t('views.common.cancel') }}</v-btn>
+                <v-tooltip :text="t(entry.job.purpose === 'LiveMarkers' ? 'liveMarkers.generationDetails' : 'replay.details')" location="bottom">
+                  <template #activator="{ props: tooltipProps }">
+                    <v-btn v-bind="tooltipProps" class="job-action-button" icon="mdi-information-outline" variant="text" size="small" :aria-label="t(entry.job.purpose === 'LiveMarkers' ? 'liveMarkers.generationDetails' : 'replay.details')" @click="selectedAiId = entry.job.id" />
+                  </template>
+                </v-tooltip>
+                <v-tooltip :text="t(entry.job.purpose === 'LiveMarkers' ? 'liveMarkers.viewGenerated' : 'views.jobs.analysisResults')" location="bottom">
+                  <template #activator="{ props: tooltipProps }">
+                    <v-btn v-bind="tooltipProps" class="job-action-button" :icon="entry.job.purpose === 'LiveMarkers' ? 'mdi-format-list-bulleted' : 'mdi-chart-box-outline'" :href="router.resolve(aiJobResultLocation(entry.job)).href" target="_blank" rel="noopener noreferrer" variant="text" size="small" color="primary" :aria-label="t(entry.job.purpose === 'LiveMarkers' ? 'liveMarkers.viewGenerated' : 'views.jobs.analysisResults')" />
+                  </template>
+                </v-tooltip>
+                <v-tooltip v-if="canGenerateAiJob(entry.job) && isActive(entry.job.state)" :text="entry.job.cancelRequested ? t('views.jobs.cancelling') : t('views.common.cancel')" location="bottom">
+                  <template #activator="{ props: tooltipProps }">
+                    <v-btn v-bind="tooltipProps" class="job-action-button" icon="mdi-close" variant="text" size="small" :aria-label="entry.job.cancelRequested ? t('views.jobs.cancelling') : t('views.common.cancel')" :disabled="entry.job.cancelRequested || entry.job.phase === 'Publishing' || Boolean(actionKey)" :loading="actionKey === jobKey(entry)" @click="act(entry, 'cancel')" />
+                  </template>
+                </v-tooltip>
               </template>
               <template v-else-if="entry.kind === 'transcode'">
-                <v-btn v-if="auth.isAdmin && isActive(entry.job.state)" variant="text" size="small" :disabled="entry.job.cancelRequested || Boolean(actionKey)" :loading="actionKey === jobKey(entry)" @click="act(entry, 'cancel')">{{ entry.job.cancelRequested ? t('views.jobs.cancelling') : t('views.common.cancel') }}</v-btn>
-                <v-btn v-if="auth.isAdmin && ['Failed', 'Cancelled', 'Skipped'].includes(entry.job.state)" variant="text" size="small" color="primary" :disabled="Boolean(actionKey)" :loading="actionKey === jobKey(entry)" @click="act(entry, 'retry')">{{ t('views.common.retry') }}</v-btn>
+                <v-tooltip v-if="auth.isAdmin && isActive(entry.job.state)" :text="entry.job.cancelRequested ? t('views.jobs.cancelling') : t('views.common.cancel')" location="bottom">
+                  <template #activator="{ props: tooltipProps }">
+                    <v-btn v-bind="tooltipProps" class="job-action-button" icon="mdi-close" variant="text" size="small" :aria-label="entry.job.cancelRequested ? t('views.jobs.cancelling') : t('views.common.cancel')" :disabled="entry.job.cancelRequested || Boolean(actionKey)" :loading="actionKey === jobKey(entry)" @click="act(entry, 'cancel')" />
+                  </template>
+                </v-tooltip>
+                <v-tooltip v-if="auth.isAdmin && ['Failed', 'Cancelled', 'Skipped'].includes(entry.job.state)" :text="t('views.common.retry')" location="bottom">
+                  <template #activator="{ props: tooltipProps }">
+                    <v-btn v-bind="tooltipProps" class="job-action-button" icon="mdi-refresh" variant="text" size="small" color="primary" :aria-label="t('views.common.retry')" :disabled="Boolean(actionKey)" :loading="actionKey === jobKey(entry)" @click="act(entry, 'retry')" />
+                  </template>
+                </v-tooltip>
               </template>
               <template v-else>
-                <v-btn v-if="isActive(entry.job.state)" variant="text" size="small" :disabled="entry.job.cancelRequested || Boolean(actionKey)" :loading="actionKey === jobKey(entry)" @click="act(entry, 'cancel')">{{ entry.job.cancelRequested ? t('views.jobs.cancelling') : t('views.common.cancel') }}</v-btn>
-                <v-btn v-if="['Failed', 'Canceled', 'Cancelled', 'Interrupted'].includes(entry.job.state) && (entry.job.kind === 'Clip' ? auth.canCreateClips : auth.isAdmin)" variant="text" size="small" color="primary" :disabled="Boolean(actionKey)" :loading="actionKey === jobKey(entry)" @click="act(entry, 'retry')">{{ t('views.common.retry') }}</v-btn>
-                <template v-if="auth.canDownloadRecordings && entry.job.state === 'Completed' && ['Repair', 'Merge'].includes(entry.job.kind)"><v-btn v-for="(_, index) in entry.job.outputRelativePaths" :key="index" :href="MediaAPI.downloadJobOutput(entry.job.id, index)" variant="text" size="small" color="primary" prepend-icon="mdi-download">{{ entry.job.outputRelativePaths.length > 1 ? t('views.jobs.downloadNumberedFile', { number: formatNumber(index + 1) }) : t('views.jobs.downloadFile') }}</v-btn></template>
+                <v-tooltip v-if="isActive(entry.job.state)" :text="entry.job.cancelRequested ? t('views.jobs.cancelling') : t('views.common.cancel')" location="bottom">
+                  <template #activator="{ props: tooltipProps }">
+                    <v-btn v-bind="tooltipProps" class="job-action-button" icon="mdi-close" variant="text" size="small" :aria-label="entry.job.cancelRequested ? t('views.jobs.cancelling') : t('views.common.cancel')" :disabled="entry.job.cancelRequested || Boolean(actionKey)" :loading="actionKey === jobKey(entry)" @click="act(entry, 'cancel')" />
+                  </template>
+                </v-tooltip>
+                <v-tooltip v-if="['Failed', 'Canceled', 'Cancelled', 'Interrupted'].includes(entry.job.state) && (entry.job.kind === 'Clip' ? auth.canCreateClips : auth.isAdmin)" :text="t('views.common.retry')" location="bottom">
+                  <template #activator="{ props: tooltipProps }">
+                    <v-btn v-bind="tooltipProps" class="job-action-button" icon="mdi-refresh" variant="text" size="small" color="primary" :aria-label="t('views.common.retry')" :disabled="Boolean(actionKey)" :loading="actionKey === jobKey(entry)" @click="act(entry, 'retry')" />
+                  </template>
+                </v-tooltip>
+                <template v-if="auth.canDownloadRecordings && entry.job.state === 'Completed' && entry.job.kind === 'Merge'">
+                  <v-tooltip v-for="(_, index) in entry.job.outputRelativePaths" :key="index" :text="entry.job.outputRelativePaths.length > 1 ? t('views.jobs.downloadNumberedFile', { number: formatNumber(index + 1) }) : t('views.jobs.downloadFile')" location="bottom">
+                    <template #activator="{ props: tooltipProps }">
+                      <v-btn v-bind="tooltipProps" class="job-action-button" icon="mdi-download" :href="MediaAPI.downloadJobOutput(entry.job.id, index)" variant="text" size="small" color="primary" :aria-label="entry.job.outputRelativePaths.length > 1 ? t('views.jobs.downloadNumberedFile', { number: formatNumber(index + 1) }) : t('views.jobs.downloadFile')" />
+                    </template>
+                  </v-tooltip>
+                </template>
               </template>
             </div>
           </td>
@@ -209,6 +249,8 @@ watch(selectedAiJob, value =>
 .job-status { min-width: 110px; }
 .job-progress { min-width: 150px; }
 .job-created { min-width: 180px; }
-.job-actions { min-width: 240px; }
-.job-actions .action-buttons { flex-wrap: wrap; }
+.job-actions { min-width: 104px; }
+.job-actions .action-buttons { flex-wrap: nowrap; }
+.job-action-button { flex: 0 0 32px; width: 32px; min-width: 32px; height: 32px; padding: 0; }
+.job-action-button:disabled { pointer-events: auto; }
 </style>

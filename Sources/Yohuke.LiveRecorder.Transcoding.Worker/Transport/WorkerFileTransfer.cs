@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Yohuke.LiveRecorder.Transcoding.Contracts;
 using Yohuke.LiveRecorder.Transcoding.Worker.Configuration;
 
@@ -10,6 +11,7 @@ namespace Yohuke.LiveRecorder.Transcoding.Worker.Transport;
 internal sealed class WorkerFileTransfer : IDisposable
 {
     private const int UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
+    private const int MAX_ERROR_RESPONSE_BYTES = 16 * 1024;
     private readonly WorkerConnectionOptions options;
     private readonly HttpClient client;
     private readonly TimeSpan networkTimeout;
@@ -52,7 +54,7 @@ internal sealed class WorkerFileTransfer : IDisposable
             using (var head = Request(HttpMethod.Head, assignment, "input"))
             using (var response = await SendHeadersAsync(head, cancellationToken))
             {
-                RequireSuccess(response);
+                await RequireSuccessAsync(head, response, cancellationToken);
                 ValidateInput(response, assignment, false);
             }
             if (File.Exists(path) && new FileInfo(path).Length == assignment.SourceLength)
@@ -72,7 +74,7 @@ internal sealed class WorkerFileTransfer : IDisposable
                     return;
                 }
                 catch (Exception exception) when (attempt < 4 && !cancellationToken.IsCancellationRequested
-                                                  && exception is HttpRequestException or IOException)
+                                                  && CanRetry(exception))
                 {
                     log?.Invoke($"Download attempt {attempt + 1} failed. Retrying: {exception.Message}");
                     await Task.Delay(TimeSpan.FromSeconds(attempt + 1), cancellationToken);
@@ -115,7 +117,7 @@ internal sealed class WorkerFileTransfer : IDisposable
             }
         }
         using var response = await SendHeadersAsync(request, cancellationToken);
-        RequireSuccess(response);
+        await RequireSuccessAsync(request, response, cancellationToken);
         ValidateInput(response, assignment, true);
         if (response.StatusCode == HttpStatusCode.PartialContent)
         {
@@ -213,7 +215,7 @@ internal sealed class WorkerFileTransfer : IDisposable
                         transferProgress?.Invoke(new(completed + offset, total, artifact.Name, completedFiles, manifest.Files.Count));
                         continue;
                     }
-                    RequireSuccess(response);
+                    await RequireSuccessAsync(request, response, cancellationToken);
                     var next = Offset(response, artifact.Length);
                     if (next != offset + count)
                     {
@@ -225,7 +227,7 @@ internal sealed class WorkerFileTransfer : IDisposable
                     transferProgress?.Invoke(new(completed + offset, total, artifact.Name, completedFiles, manifest.Files.Count));
                 }
                 catch (Exception exception) when (++retries <= 4 && !cancellationToken.IsCancellationRequested
-                                                  && exception is HttpRequestException or IOException)
+                                                  && CanRetry(exception))
                 {
                     log?.Invoke($"Upload attempt {retries} failed for {artifact.Name}. Retrying: {exception.Message}");
                     await Task.Delay(TimeSpan.FromSeconds(retries), cancellationToken);
@@ -247,11 +249,11 @@ internal sealed class WorkerFileTransfer : IDisposable
                 complete.Content = JsonContent.Create(manifest, options: WorkerProtocol.JsonOptions);
                 using var completion = await SendHeadersAsync(complete, cancellationToken,
                     TimeSpan.FromSeconds(Math.Max(60, assignment.SourceLength / (8d * 1024 * 1024))));
-                RequireSuccess(completion);
+                await RequireSuccessAsync(complete, completion, cancellationToken);
                 break;
             }
             catch (Exception exception) when (attempt < 3 && !cancellationToken.IsCancellationRequested
-                                              && exception is HttpRequestException or IOException)
+                                              && CanRetry(exception))
             {
                 log?.Invoke($"The server has not confirmed publication. Retrying: {exception.Message}");
                 await Task.Delay(TimeSpan.FromSeconds(attempt + 1), cancellationToken);
@@ -264,7 +266,7 @@ internal sealed class WorkerFileTransfer : IDisposable
         using var request = Request(HttpMethod.Post, assignment, "result");
         request.Content = JsonContent.Create(result, options: WorkerProtocol.JsonOptions);
         using var response = await SendHeadersAsync(request, cancellationToken);
-        RequireSuccess(response);
+        await RequireSuccessAsync(request, response, cancellationToken);
     }
 
     private async Task<long> UploadOffsetAsync(TranscodeAssignment assignment, string endpoint, long length, CancellationToken cancellationToken)
@@ -272,7 +274,7 @@ internal sealed class WorkerFileTransfer : IDisposable
         using var request = Request(HttpMethod.Head, assignment, endpoint);
         request.Headers.TryAddWithoutValidation("Upload-Length", length.ToString(CultureInfo.InvariantCulture));
         using var response = await SendHeadersAsync(request, cancellationToken);
-        RequireSuccess(response);
+        await RequireSuccessAsync(request, response, cancellationToken);
         return Offset(response, length);
     }
 
@@ -349,14 +351,51 @@ internal sealed class WorkerFileTransfer : IDisposable
         }
     }
 
-    private static void RequireSuccess(HttpResponseMessage response)
+    private async Task RequireSuccessAsync(HttpRequestMessage request, HttpResponseMessage response, CancellationToken cancellationToken)
     {
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.NotFound
             or HttpStatusCode.Gone or HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict)
         {
             throw new WorkerLeaseLostException("The server rejected the current job lease or worker credentials (status " + (int)response.StatusCode + ").");
         }
-        response.EnsureSuccessStatusCode();
+        string? detail = null;
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        limit.CancelAfter(networkTimeout);
+        try
+        {
+            await response.Content.LoadIntoBufferAsync(MAX_ERROR_RESPONSE_BYTES, limit.Token);
+            using var document = JsonDocument.Parse(await response.Content.ReadAsByteArrayAsync(limit.Token));
+            var root = document.RootElement;
+            if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("detail", out var value)
+                && value.ValueKind == JsonValueKind.String)
+            {
+                detail = value.GetString();
+            }
+        }
+        catch (Exception exception) when (exception is JsonException or HttpRequestException or IOException
+                                          || exception is OperationCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        var message = FormattableString.Invariant($"The server rejected {request.Method} {request.RequestUri!.AbsolutePath} (status {(int)response.StatusCode} {response.ReasonPhrase}).");
+        if (!string.IsNullOrWhiteSpace(detail))
+        {
+            message += " " + detail.Trim();
+        }
+        throw new HttpRequestException(message, null, response.StatusCode);
+    }
+
+    private static bool CanRetry(Exception exception)
+    {
+        if (exception is HttpRequestException { StatusCode: { } status })
+        {
+            return status is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests || (int)status >= 500;
+        }
+        return exception is HttpRequestException or IOException;
     }
 
     /// <inheritdoc />

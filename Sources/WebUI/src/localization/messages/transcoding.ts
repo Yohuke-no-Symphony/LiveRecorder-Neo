@@ -1,4 +1,5 @@
 export const transcodingZh = {
+  autoTranscode: '自动转码',
   logDropped: '此前有 {count} 条日志未能保留。',
   segmentDuration: '分片时长（秒）', keyframeInterval: '关键帧间隔（秒）', singleFile: '单文件存储（HLS 字节范围播放）',
   stageInspecting: '检查原片', stageFinalizing: '等待发布',
@@ -15,6 +16,7 @@ export const transcodingZh = {
 }
 
 export const transcodingEn: Record<keyof typeof transcodingZh, string> = {
+  autoTranscode: 'Auto transcode',
   logDropped: '{count} earlier log entries could not be retained.',
   segmentDuration: 'Segment duration (seconds)', keyframeInterval: 'Keyframe interval (seconds)', singleFile: 'Single-file storage (HLS byte-range playback)',
   stageInspecting: 'Inspecting input', stageFinalizing: 'Finalizing',
@@ -31,6 +33,7 @@ export const transcodingEn: Record<keyof typeof transcodingZh, string> = {
 }
 
 export const transcodingJa: Record<keyof typeof transcodingZh, string> = {
+  autoTranscode: '自動変換',
   logDropped: 'これ以前のログ {count} 件を保持できませんでした。',
   segmentDuration: 'セグメント長（秒）', keyframeInterval: 'キーフレーム間隔（秒）', singleFile: '単一ファイル保存（HLSバイト範囲再生）',
   stageInspecting: '入力を確認中', stageFinalizing: '公開待ち',

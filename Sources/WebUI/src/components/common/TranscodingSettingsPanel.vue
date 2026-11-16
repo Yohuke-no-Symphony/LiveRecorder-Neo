@@ -8,6 +8,7 @@
           <v-text-field v-if="item.profile" v-model="item.profile.name" :label="t('transcoding.name')" :disabled="disabled" hide-details density="compact" />
           <strong v-else class="original-label">{{ t('transcoding.original') }}</strong>
           <v-switch v-if="item.profile" :model-value="item.profile.enabled" :label="t('shell.settings.enabled')" :disabled="disabled" hide-details density="compact" color="primary" @update:model-value="setEnabled(item.id, !!$event)" />
+          <v-switch v-if="item.profile" v-model="item.profile.autoTranscode" :label="t('transcoding.autoTranscode')" :disabled="disabled || !item.profile.enabled" hide-details density="compact" color="primary" />
           <v-tooltip :text="t('transcoding.setDefault', { name: item.profile?.name || t('transcoding.original') })">
             <template #activator="{ props: tooltipProps }"><v-btn v-bind="tooltipProps" :icon="settings.defaultPlaybackQualityId === item.id ? 'mdi-star' : 'mdi-star-outline'" :color="settings.defaultPlaybackQualityId === item.id ? 'primary' : undefined" variant="text" :disabled="disabled || item.profile?.enabled === false" :aria-pressed="settings.defaultPlaybackQualityId === item.id" :aria-label="t('transcoding.setDefault', { name: item.profile?.name || t('transcoding.original') })" @click="settings.defaultPlaybackQualityId = item.id" /></template>
           </v-tooltip>
@@ -47,7 +48,19 @@ function addQuality(): void
 {
   if (props.disabled || settings.value.profiles.length >= 12) { return }
   const id = crypto.randomUUID()
-  settings.value.profiles.push({ id, name: '1080p', height: 1080, videoBitrateKbps: 5000, maxFrameRate: null, audioBitrateKbps: 128, segmentDurationSeconds: 6, keyframeIntervalSeconds: 2, singleFile: false, enabled: true })
+  settings.value.profiles.push({
+    id,
+    name: '1080p',
+    height: 1080,
+    videoBitrateKbps: 5000,
+    maxFrameRate: null,
+    audioBitrateKbps: 128,
+    segmentDurationSeconds: 6,
+    keyframeIntervalSeconds: 2,
+    singleFile: false,
+    enabled: true,
+    autoTranscode: false,
+  })
   settings.value.qualityOrder.push(id)
 }
 

@@ -13,4 +13,5 @@ public sealed record TranscodeProfile
     public double KeyframeIntervalSeconds { get; set; } = 2;
     public bool SingleFile { get; set; }
     public bool Enabled { get; set; } = true;
+    public bool AutoTranscode { get; set; } = true;
 }

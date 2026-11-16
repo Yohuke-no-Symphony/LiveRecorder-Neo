@@ -44,6 +44,9 @@ internal static class TranscodePlanner
         {
             filter += ",format=nv12,hwupload";
         }
+        var segmentPath = Path.Combine(outputDirectory, profile.SingleFile ? "media.mp4" : "chunk_%05d.m4s")
+            .Replace(Path.DirectorySeparatorChar, '/');
+        var playlistPath = Path.Combine(outputDirectory, "index.m3u8").Replace(Path.DirectorySeparatorChar, '/');
         var arguments = new List<string> { "-hide_banner", "-loglevel", "error", "-nostdin", "-progress", "pipe:1", "-threads", "1" };
         arguments.AddRange(EncoderArguments.Device(encoder));
         arguments.AddRange(["-i", sourcePath, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn", "-filter_threads", "1", "-filter_complex_threads", "1", "-vf", filter]);
@@ -63,8 +66,8 @@ internal static class TranscodePlanner
             "-avoid_negative_ts", "make_zero", "-f", "hls", "-hls_time", profile.SegmentDurationSeconds.ToString(CultureInfo.InvariantCulture), "-hls_segment_type", "fmp4",
             "-hls_playlist_type", "vod", "-hls_flags", profile.SingleFile ? "independent_segments+single_file" : "independent_segments+temp_file",
             "-hls_segment_options", "use_editlist=0",
-            "-hls_fmp4_init_filename", "init.mp4", "-hls_segment_filename", Path.Combine(outputDirectory, profile.SingleFile ? "media.mp4" : "chunk_%05d.m4s"),
-            Path.Combine(outputDirectory, "index.m3u8")
+            "-hls_fmp4_init_filename", "init.mp4", "-hls_segment_filename", segmentPath,
+            playlistPath
         ]);
         return new(arguments, new()
         {

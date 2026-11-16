@@ -236,10 +236,114 @@ describe('消息播放与阅读稳定性', () =>
 {
   function mountFeed(offsetMs = 2000, isLive = false): VueWrapper
   {
-    const wrapper = mount(EventFeed, { props: { sessionId: 's1', offsetMs, enabled: true, isLive }, global: { stubs: { VCard: card, VVirtualScroll: virtualScroll, VBtn: true, VIcon: true, VAvatar: true, VImg: true, VChipGroup: true, VChip: true, VAlert: true, VProgressLinear: true } } })
+    const wrapper = mount(EventFeed, { props: { sessionId: 's1', offsetMs, enabled: true, isLive }, global: { stubs: { VCard: card, VVirtualScroll: virtualScroll, VBtn: true, VIcon: true, VAvatar: true, VImg: true, VChipGroup: true, VChip: true, VAlert: card, VProgressLinear: true } } })
     mounted.push(wrapper)
     return wrapper
   }
+
+  it('慢请求跨过多个播放区间时继续读取，返回后结束加载', async () =>
+  {
+    let complete!: (value: { items: RecordedEvent[]; nextCursor: null }) => void
+    eventsRequest.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+    const wrapper = mountFeed()
+    await flushPromises()
+    const signal = eventsRequest.mock.calls[0]![2] as AbortSignal
+
+    for (const offsetMs of [7000, 12000, 17000])
+    {
+      await wrapper.setProps({ offsetMs })
+    }
+    expect(eventsRequest).toHaveBeenCalledTimes(1)
+    expect(signal.aborted).toBe(false)
+    expect(wrapper.find('v-progress-linear-stub').exists()).toBe(true)
+
+    complete({ items: [event({ text: '慢请求完成' })], nextCursor: null })
+    await flushPromises()
+    expect(wrapper.text()).toContain('慢请求完成')
+    expect(wrapper.find('v-progress-linear-stub').exists()).toBe(false)
+    expect(eventsRequest).toHaveBeenCalledTimes(1)
+  })
+
+  it('慢请求完成时已超出预取范围，只补拉最新播放位置', async () =>
+  {
+    let complete!: (value: { items: RecordedEvent[]; nextCursor: null }) => void
+    eventsRequest.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+    eventsRequest.mockResolvedValue({ items: [event({ sequence: 2, offsetMs: 44000, text: '最新位置消息' })], nextCursor: null })
+    const wrapper = mountFeed()
+    await flushPromises()
+
+    for (const offsetMs of [7000, 25000, 45000])
+    {
+      await wrapper.setProps({ offsetMs })
+    }
+    complete({ items: [event({ text: '先前位置消息' })], nextCursor: null })
+    await flushPromises()
+
+    expect(eventsRequest).toHaveBeenCalledTimes(2)
+    expect(eventsRequest.mock.calls[1]![1]).toMatchObject({ offsetMs: 45000 })
+    expect(wrapper.text()).toContain('最新位置消息')
+    expect(wrapper.find('v-progress-linear-stub').exists()).toBe(false)
+  })
+
+  it('直播轮询与播放推进共同复用在途预取请求', async () =>
+  {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    eventsRequest.mockResolvedValueOnce({ items: [event({ text: '已加载消息' })], nextCursor: null })
+    const wrapper = mountFeed(2000, true)
+    await flushPromises()
+    let complete!: (value: { items: RecordedEvent[]; nextCursor: null }) => void
+    eventsRequest.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+
+    await wrapper.setProps({ offsetMs: 25000 })
+    const signal = eventsRequest.mock.calls[1]![2] as AbortSignal
+    await wrapper.setProps({ offsetMs: 30000 })
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(eventsRequest).toHaveBeenCalledTimes(2)
+    expect(signal.aborted).toBe(false)
+
+    complete({ items: [event({ sequence: 2, offsetMs: 29000, text: '预取完成' })], nextCursor: null })
+    await flushPromises()
+    expect(wrapper.text()).toContain('预取完成')
+    expect(wrapper.find('v-progress-linear-stub').exists()).toBe(false)
+    expect(eventsRequest).toHaveBeenCalledTimes(2)
+  })
+
+  it('慢请求失败时显示错误，播放推进不会触发立即重试循环', async () =>
+  {
+    let fail!: (error: Error) => void
+    eventsRequest.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject }))
+    const wrapper = mountFeed()
+    await flushPromises()
+    await wrapper.setProps({ offsetMs: 45000 })
+
+    fail(new Error('弹幕读取失败'))
+    await flushPromises()
+    expect(eventsRequest).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('弹幕读取失败')
+    expect(wrapper.find('v-progress-linear-stub').exists()).toBe(false)
+  })
+
+  it('显式跳转立即替换慢请求，迟到响应不会覆盖目标位置', async () =>
+  {
+    let complete!: (value: { items: RecordedEvent[]; nextCursor: null }) => void
+    eventsRequest.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+    eventsRequest.mockResolvedValue({ items: [event({ sequence: 2, offsetMs: 44000, text: '跳转目标消息' })], nextCursor: null })
+    const wrapper = mountFeed()
+    await flushPromises()
+    const signal = eventsRequest.mock.calls[0]![2] as AbortSignal
+
+    await wrapper.setProps({ offsetMs: 45000, navigationRevision: 1 })
+    await flushPromises()
+    expect(signal.aborted).toBe(true)
+    expect(eventsRequest).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('跳转目标消息')
+
+    complete({ items: [event({ text: '过期消息' })], nextCursor: null })
+    await flushPromises()
+    expect(wrapper.text()).toContain('跳转目标消息')
+    expect(wrapper.text()).not.toContain('过期消息')
+    expect(eventsRequest).toHaveBeenCalledTimes(2)
+  })
 
   it('连续播放120帧且没有新消息时保留列表，不重复触发跟随', async () =>
   {

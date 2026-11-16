@@ -56,6 +56,7 @@ public sealed class TranscodeMaintenanceService(IMongoContext context, IBootstra
         var settings = (await settingsStore.GetAsync(cancellationToken)).Transcoding;
         if (settings.Enabled)
         {
+            var automaticProfiles = settings.Profiles.Where(x => x.Enabled && x.AutoTranscode).Select(x => x.Id).ToArray();
             await QueueReplacementIntentsAsync(settings, cancellationToken);
             var pending = await context.Collection<BroadcastSession>("sessions")
                 .Find(x => x.AutoTranscodeEligible && !x.AutoTranscodeScheduled && x.EndedAtUtc != null
@@ -64,7 +65,10 @@ public sealed class TranscodeMaintenanceService(IMongoContext context, IBootstra
             {
                 try
                 {
-                    await scheduler.QueueAsync([session.Id], null, false, cancellationToken, allowHidden: true);
+                    if (automaticProfiles.Length > 0)
+                    {
+                        await scheduler.QueueAsync([session.Id], automaticProfiles, false, cancellationToken, allowHidden: true);
+                    }
                     await MarkScheduledAsync(session.Id, cancellationToken);
                 }
                 catch (Exception exception) when (exception is InfrastructureException or FileNotFoundException or InvalidOperationException)

@@ -5,7 +5,7 @@
       <v-form @submit.prevent="save">
         <v-card-text>
           <v-alert v-if="error" type="error" density="compact" class="mb-4">{{ error }}</v-alert>
-          <v-text-field v-model.number="draft" type="number" min="1" :max="MAX_PLAYBACK_EVENT_RETENTION_COUNT" step="1" :label="t('components.events.retentionCount')" :hint="t('components.events.retentionHint')" persistent-hint :error-messages="valid ? [] : [t('components.events.retentionInvalid')]" :disabled="auth.playbackPreferenceSaving" autofocus />
+          <v-text-field v-model.number="draft" type="number" min="1" :max="MAX_PLAYBACK_EVENT_RETENTION_COUNT" step="1" :label="t('components.events.retentionCount')" :error-messages="valid ? [] : [t('components.events.retentionInvalid')]" :disabled="auth.playbackPreferenceSaving" autofocus />
         </v-card-text>
         <v-card-actions>
           <v-spacer />

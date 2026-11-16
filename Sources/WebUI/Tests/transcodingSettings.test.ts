@@ -53,7 +53,7 @@ const toggle = defineComponent({
   },
 })
 const stubs = {
-  VTabs: tabs, VTab: container, VTextField: field, VSwitch: toggle, VSelect: true, VProgressLinear: true,
+  VTabs: tabs, VTab: container, VTextField: field, VSwitch: toggle, VSelect: true, VProgressLinear: true, VIcon: true,
   VBtn: { props: ['disabled', 'loading'], template: '<button :disabled="disabled || loading"><slot /></button>' },
   VAlert: { template: '<div role="alert"><slot /></div>' },
   VSnackbar: { props: ['modelValue'], template: '<div v-if="modelValue" role="status"><slot /></div>' },
@@ -175,9 +175,69 @@ describe('清晰度设置', () =>
     expect(added.id).not.toBe('720p')
     expect(added.name).toBe('1080p')
     expect(added.maxFrameRate).toBeNull()
-    expect(added).toMatchObject({ segmentDurationSeconds: 6, keyframeIntervalSeconds: 2, singleFile: false })
+    expect(added).toMatchObject({ segmentDurationSeconds: 6, keyframeIntervalSeconds: 2, singleFile: false, autoTranscode: false })
     const reopened = await openTranscoding()
     expect(reopened.find(`[data-sortable-id="${added.id}"]`).exists()).toBe(true)
+  })
+
+  it('各档位独立保存自动转码偏好，排序后仍跟随稳定ID并保留默认播放档位', async () =>
+  {
+    const wrapper = await openTranscoding()
+    expect(wrapper.get('[data-sortable-id="original"]').find('input[aria-label="自动转码"]').exists()).toBe(false)
+    expect(wrapper.get('[data-sortable-id="720p"] input[aria-label="自动转码"]').element).toHaveProperty('checked', true)
+    await wrapper.findAll('button').find(button => button.text() === '添加清晰度')!.trigger('click')
+    const addedRow = wrapper.findAll('[data-sortable-id]')[2]!
+    const addedId = addedRow.attributes('data-sortable-id')!
+    expect(addedRow.get('input[aria-label="自动转码"]').element).toHaveProperty('checked', false)
+    await wrapper.get('[data-sortable-id="720p"] input[aria-label="自动转码"]').setValue(false)
+    await addedRow.get('input[aria-label="自动转码"]').setValue(true)
+    await addedRow.get('.reorder-handle').trigger('keydown', { key: 'Home' })
+    expect(MediaAPI.updateSettings).not.toHaveBeenCalled()
+
+    await save(wrapper)
+
+    expect(current.transcoding!.qualityOrder).toEqual([addedId, 'original', '720p'])
+    expect(current.transcoding!.defaultPlaybackQualityId).toBe('720p')
+    expect(current.transcoding!.profiles.find(profile => profile.id === '720p')).toMatchObject({ enabled: true, autoTranscode: false })
+    expect(current.transcoding!.profiles.find(profile => profile.id === addedId)).toMatchObject({ enabled: true, autoTranscode: true })
+    const reopened = await openTranscoding()
+    expect(reopened.get('[data-sortable-id="720p"] input[aria-label="自动转码"]').element).toHaveProperty('checked', false)
+    expect(reopened.get(`[data-sortable-id="${addedId}"] input[aria-label="自动转码"]`).element).toHaveProperty('checked', true)
+  })
+
+  it('全部关闭自动转码可保存，保存失败保留草稿，重新读取保留显式关闭', async () =>
+  {
+    const wrapper = await openTranscoding()
+    await wrapper.get('input[aria-label="自动转码"]').setValue(false)
+    vi.mocked(MediaAPI.updateSettings).mockRejectedValueOnce(new Error('保存失败'))
+
+    await save(wrapper)
+
+    expect(wrapper.get('[role="alert"]').text()).toBe('保存失败')
+    expect(wrapper.get('input[aria-label="自动转码"]').element).toHaveProperty('checked', false)
+    await save(wrapper)
+    expect(current.transcoding!.profiles[0]).toMatchObject({ enabled: true, autoTranscode: false })
+    expect(current.transcoding!.defaultPlaybackQualityId).toBe('720p')
+    const reopened = await openTranscoding()
+    expect(reopened.get('input[aria-label="自动转码"]').element).toHaveProperty('checked', false)
+  })
+
+  it('停用档位时禁用自动转码控件，保存和重新启用后保留自动偏好', async () =>
+  {
+    const wrapper = await openTranscoding()
+    await wrapper.get('[data-sortable-id="720p"] input[aria-label="启用"]').setValue(false)
+    const automatic = wrapper.get('input[aria-label="自动转码"]')
+    expect(automatic.attributes('disabled')).toBeDefined()
+    expect(automatic.element).toHaveProperty('checked', true)
+
+    await save(wrapper)
+
+    expect(current.transcoding!.profiles[0]).toMatchObject({ enabled: false, autoTranscode: true })
+    const reopened = await openTranscoding()
+    expect(reopened.get('input[aria-label="自动转码"]').attributes('disabled')).toBeDefined()
+    await reopened.get('[data-sortable-id="720p"] input[aria-label="启用"]').setValue(true)
+    expect(reopened.get('input[aria-label="自动转码"]').attributes('disabled')).toBeUndefined()
+    expect(reopened.get('input[aria-label="自动转码"]').element).toHaveProperty('checked', true)
   })
 
   it('保存失败保留排序与编辑，保存期间禁用输入和拖拽', async () =>
@@ -207,10 +267,10 @@ describe('清晰度设置', () =>
   })
 
   it.each([
-    ['zh-CN', '分辨率短边（px）', '分片时长（秒）', '关键帧间隔（秒）', '单文件存储（HLS 字节范围播放）'],
-    ['en-US', 'Resolution short edge (px)', 'Segment duration (seconds)', 'Keyframe interval (seconds)', 'Single-file storage (HLS byte-range playback)'],
-    ['ja-JP', '解像度の短辺（px）', 'セグメント長（秒）', 'キーフレーム間隔（秒）', '単一ファイル保存（HLSバイト範囲再生）'],
-  ] as const)('%s 包含清晰度和分片控件文案', async (locale, label, segment, keyframe, singleFile) =>
+    ['zh-CN', '分辨率短边（px）', '分片时长（秒）', '关键帧间隔（秒）', '单文件存储（HLS 字节范围播放）', '自动转码'],
+    ['en-US', 'Resolution short edge (px)', 'Segment duration (seconds)', 'Keyframe interval (seconds)', 'Single-file storage (HLS byte-range playback)', 'Auto transcode'],
+    ['ja-JP', '解像度の短辺（px）', 'セグメント長（秒）', 'キーフレーム間隔（秒）', '単一ファイル保存（HLSバイト範囲再生）', '自動変換'],
+  ] as const)('%s 包含清晰度、分片和自动转码控件文案', async (locale, label, segment, keyframe, singleFile, automatic) =>
   {
     const wrapper = await openTranscoding()
     i18n.global.locale.value = locale
@@ -219,10 +279,11 @@ describe('清晰度设置', () =>
     expect(wrapper.find(`input[aria-label="${segment}"]`).exists()).toBe(true)
     expect(wrapper.find(`input[aria-label="${keyframe}"]`).exists()).toBe(true)
     expect(wrapper.find(`input[aria-label="${singleFile}"]`).exists()).toBe(true)
+    expect(wrapper.find(`input[aria-label="${automatic}"]`).exists()).toBe(true)
     expect(wrapper.text()).not.toContain('transcoding.')
   })
 
-  it('旧档位缺少分片字段时补默认值，保存后写入完整配置且不提前修改原数据', async () =>
+  it('旧档位缺少分片和自动转码字段时补默认值，保存后写入完整配置且不提前修改原数据', async () =>
   {
     current.transcoding = JSON.parse(JSON.stringify({
       enabled: true,
@@ -231,15 +292,16 @@ describe('清晰度设置', () =>
     }))
     const original = structuredClone(current.transcoding!)
     const normalized = normalizeTranscodingSettings(current.transcoding)
-    expect(normalized.profiles[0]).toMatchObject({ segmentDurationSeconds: 6, keyframeIntervalSeconds: 2, singleFile: false })
+    expect(normalized.profiles[0]).toMatchObject({ segmentDurationSeconds: 6, keyframeIntervalSeconds: 2, singleFile: false, autoTranscode: true })
     expect(current.transcoding).toEqual(original)
     const wrapper = await openTranscoding()
     expect(wrapper.get('input[aria-label="分片时长（秒）"]').element).toHaveProperty('value', '6')
     expect(wrapper.get('input[aria-label="关键帧间隔（秒）"]').element).toHaveProperty('value', '2')
     expect(wrapper.get('input[aria-label="单文件存储（HLS 字节范围播放）"]').element).toHaveProperty('checked', false)
+    expect(wrapper.get('input[aria-label="自动转码"]').element).toHaveProperty('checked', true)
     expect(MediaAPI.updateSettings).not.toHaveBeenCalled()
     await save(wrapper)
-    expect(current.transcoding!.profiles[0]).toMatchObject({ id: 'legacy', segmentDurationSeconds: 6, keyframeIntervalSeconds: 2, singleFile: false })
+    expect(current.transcoding!.profiles[0]).toMatchObject({ id: 'legacy', segmentDurationSeconds: 6, keyframeIntervalSeconds: 2, singleFile: false, autoTranscode: true })
   })
 
   it('每档位独立保存小数分片参数和单文件模式，重新读取保留完整值', async () =>
@@ -299,6 +361,22 @@ describe('清晰度设置', () =>
     const settings = JSON.parse(JSON.stringify(defaultTranscodingSettings()))
     settings.profiles[0].singleFile = 'true'
     expect(isValidTranscodingSettings(settings)).toBe(false)
+  })
+
+  it.each(['false', 'true', 0, 1])('自动转码开关拒绝非布尔配置 %s', value =>
+  {
+    const settings = JSON.parse(JSON.stringify(defaultTranscodingSettings()))
+    settings.profiles[0].autoTranscode = value
+    expect(isValidTranscodingSettings(settings)).toBe(false)
+  })
+
+  it.each([false, true])('归一化与校验保留显式自动转码配置 %s', automatic =>
+  {
+    const settings = JSON.parse(JSON.stringify(defaultTranscodingSettings()))
+    settings.profiles[0].autoTranscode = automatic
+    const normalized = normalizeTranscodingSettings(settings)
+    expect(normalized.profiles[0]).toHaveProperty('autoTranscode', automatic)
+    expect(isValidTranscodingSettings(normalized)).toBe(true)
   })
 
   it('清晰度和Worker校验与主站边界一致，禁止多个默认身份和无资源配置', () =>
