@@ -26,6 +26,7 @@ public sealed class TranscodingPolicyTests
         Assert.Equal(2, profile.KeyframeIntervalSeconds);
         Assert.False(profile.SingleFile);
         Assert.True(profile.AutoTranscode);
+        Assert.Equal(0, profile.Priority);
         Assert.True(TranscodeConfigurationPolicy.IsDefaultPackaging(profile));
         Assert.Equal("a383bfeb05b61645feeb36f87119d2b8b50a14df6c1f258b57f338688ae694f5", TranscodeRecipe.Hash(profile));
         Assert.Equal(0, new WorkerCapabilities().HlsPackagingVersion);
@@ -38,6 +39,27 @@ public sealed class TranscodingPolicyTests
         var settings = JsonSerializer.Deserialize<TranscodingSettings>("""{"profiles":[{"id":"720p"}]}""", JsonFiles.Options)!;
 
         Assert.True(Assert.Single(settings.Profiles).AutoTranscode);
+        Assert.Equal(0, Assert.Single(settings.Profiles).Priority);
+    }
+
+    /// <summary>清晰度优先级经 JSON 和 BSON 往返后保留，且不影响编码产物身份。</summary>
+    [Theory]
+    [InlineData(int.MinValue)]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(100)]
+    [InlineData(int.MaxValue)]
+    public void ProfilePrioritySurvivesSerializationWithoutChangingRecipe(int priority)
+    {
+        var profile = new TranscodeProfile { Priority = priority };
+        var json = JsonSerializer.Deserialize<TranscodeProfile>(JsonSerializer.Serialize(profile, JsonFiles.Options), JsonFiles.Options)!;
+        var bson = BsonSerializer.Deserialize<TranscodeProfile>(profile.ToBson());
+
+        Assert.Equal(priority, json.Priority);
+        Assert.Equal(priority, bson.Priority);
+        Assert.Equal(TranscodeRecipe.Hash(profile with { Priority = 0 }), TranscodeRecipe.Hash(profile));
+        var custom = profile with { SingleFile = true };
+        Assert.Equal(TranscodeRecipe.Hash(custom with { Priority = 0 }), TranscodeRecipe.Hash(custom));
     }
 
     /// <summary>档位自动转码开关经 JSON 和 BSON 往返后保留显式值。</summary>

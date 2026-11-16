@@ -1,6 +1,8 @@
 import type { Entity } from './media'
 
 export const ORIGINAL_QUALITY_ID = 'original'
+export const MIN_TRANSCODE_PRIORITY = -2147483648
+export const MAX_TRANSCODE_PRIORITY = 2147483647
 
 export interface TranscodingProfile
 {
@@ -15,6 +17,7 @@ export interface TranscodingProfile
   singleFile: boolean
   enabled: boolean
   autoTranscode: boolean
+  priority: number
 }
 
 export interface TranscodingSettings
@@ -142,6 +145,7 @@ export function defaultTranscodingSettings(): TranscodingSettings
       singleFile: false,
       enabled: true,
       autoTranscode: true,
+      priority: 0,
     }],
     qualityOrder: [ORIGINAL_QUALITY_ID, '720p'],
     defaultPlaybackQualityId: '720p',
@@ -159,6 +163,7 @@ export function normalizeTranscodingSettings(value?: Partial<TranscodingSettings
     keyframeIntervalSeconds: profile.keyframeIntervalSeconds ?? 2,
     singleFile: profile.singleFile ?? false,
     autoTranscode: profile.autoTranscode ?? true,
+    priority: profile.priority === undefined ? 0 : profile.priority,
   }))
   const ids = new Set([ORIGINAL_QUALITY_ID, ...profiles.map(profile => profile.id)])
   const qualityOrder = [...new Set(value.qualityOrder ?? defaults.qualityOrder)].filter(id => ids.has(id))
@@ -166,6 +171,11 @@ export function normalizeTranscodingSettings(value?: Partial<TranscodingSettings
   const requested = value.defaultPlaybackQualityId ?? defaults.defaultPlaybackQualityId
   const defaultPlaybackQualityId = requested === ORIGINAL_QUALITY_ID || profiles.some(profile => profile.id === requested && profile.enabled) ? requested : ORIGINAL_QUALITY_ID
   return { enabled: value.enabled ?? defaults.enabled, profiles, qualityOrder, defaultPlaybackQualityId }
+}
+
+export function isValidTranscodePriority(value: unknown): value is number
+{
+  return typeof value === 'number' && Number.isInteger(value) && value >= MIN_TRANSCODE_PRIORITY && value <= MAX_TRANSCODE_PRIORITY
 }
 
 export function isValidTranscodingSettings(settings: TranscodingSettings): boolean
@@ -179,7 +189,8 @@ export function isValidTranscodingSettings(settings: TranscodingSettings): boole
       && integer(profile.audioBitrateKbps, 16, 512)
       && Number.isFinite(profile.segmentDurationSeconds) && profile.segmentDurationSeconds >= .1 && profile.segmentDurationSeconds <= 300
       && Number.isFinite(profile.keyframeIntervalSeconds) && profile.keyframeIntervalSeconds >= .1 && profile.keyframeIntervalSeconds <= 300
-      && typeof profile.singleFile === 'boolean' && typeof profile.autoTranscode === 'boolean')
+      && typeof profile.singleFile === 'boolean' && typeof profile.autoTranscode === 'boolean'
+      && isValidTranscodePriority(profile.priority))
     && settings.qualityOrder.length === ids.length + 1 && new Set(settings.qualityOrder).size === ids.length + 1
     && [ORIGINAL_QUALITY_ID, ...ids].every(id => settings.qualityOrder.includes(id))
     && (settings.defaultPlaybackQualityId === ORIGINAL_QUALITY_ID || settings.profiles.some(profile => profile.id === settings.defaultPlaybackQualityId && profile.enabled))

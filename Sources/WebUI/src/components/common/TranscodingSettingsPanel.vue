@@ -2,6 +2,7 @@
   <ContentCard :title="t('transcoding.qualities')">
     <template #header-actions><v-btn prepend-icon="mdi-plus" variant="tonal" :disabled="disabled || settings.profiles.length >= 12" @click="addQuality">{{ t('transcoding.addQuality') }}</v-btn></template>
     <v-switch v-model="settings.enabled" :label="t('transcoding.auto')" :disabled="disabled" color="primary" />
+    <p v-if="settings.profiles.length" class="text-body-2 muted mb-4">{{ t('transcoding.priorityHint') }}</p>
     <ReorderableList v-model="rows" :disabled="disabled" :label="row => t('transcoding.reorder', { name: row.profile?.name || t('transcoding.original') })">
       <template #default="{ item }">
         <div class="quality-heading">
@@ -21,6 +22,7 @@
           <v-text-field v-model.number="item.profile.audioBitrateKbps" :label="t('transcoding.audioBitrate')" type="number" min="16" max="512" :disabled="disabled" />
           <v-text-field v-model.number="item.profile.segmentDurationSeconds" :label="t('transcoding.segmentDuration')" type="number" min="0.1" max="300" step="any" :disabled="disabled" />
           <v-text-field v-model.number="item.profile.keyframeIntervalSeconds" :label="t('transcoding.keyframeInterval')" type="number" min="0.1" max="300" step="any" :disabled="disabled" />
+          <v-text-field v-model.number="item.profile.priority" :label="t('transcoding.priority')" type="number" :min="MIN_TRANSCODE_PRIORITY" :max="MAX_TRANSCODE_PRIORITY" step="1" :disabled="disabled" :error-messages="isValidTranscodePriority(item.profile.priority) ? undefined : t('transcoding.invalidPriority')" />
         </div>
         <v-switch v-if="item.profile" v-model="item.profile.singleFile" :label="t('transcoding.singleFile')" :disabled="disabled" hide-details color="primary" />
         <p v-else class="text-body-2 muted mt-2">{{ t('transcoding.originalHint') }}</p>
@@ -32,7 +34,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ORIGINAL_QUALITY_ID, type TranscodingSettings } from '@/models/transcoding'
+import { MAX_TRANSCODE_PRIORITY, MIN_TRANSCODE_PRIORITY, ORIGINAL_QUALITY_ID, isValidTranscodePriority, type TranscodingSettings } from '@/models/transcoding'
 import ContentCard from './ContentCard.vue'
 import ReorderableList from './ReorderableList.vue'
 
@@ -60,6 +62,7 @@ function addQuality(): void
     singleFile: false,
     enabled: true,
     autoTranscode: false,
+    priority: 0,
   })
   settings.value.qualityOrder.push(id)
 }

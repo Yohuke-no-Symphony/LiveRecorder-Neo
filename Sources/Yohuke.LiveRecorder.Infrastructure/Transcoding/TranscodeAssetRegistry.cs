@@ -20,6 +20,7 @@ public sealed class TranscodeAssetRegistry(IMongoContext context, IAppPaths path
         ], cancellationToken);
         await context.Collection<TranscodeJob>("transcodeJobs").Indexes.CreateManyAsync([
             new(Builders<TranscodeJob>.IndexKeys.Ascending(x => x.State).Ascending(x => x.LeaseUntilUtc).Ascending(x => x.CreatedAtUtc), new CreateIndexOptions { Name = "transcode_queue" }),
+            new(Builders<TranscodeJob>.IndexKeys.Ascending(x => x.Profile.Id).Ascending(x => x.State).Ascending(x => x.CreatedAtUtc).Ascending(x => x.Id), new CreateIndexOptions { Name = "transcode_profile_queue" }),
             new(Builders<TranscodeJob>.IndexKeys.Ascending(x => x.WorkerId).Ascending(x => x.State), new CreateIndexOptions { Name = "worker_jobs" }),
             new(Builders<TranscodeJob>.IndexKeys.Ascending(x => x.AssetId).Ascending(x => x.SourceVersion), new CreateIndexOptions { Name = "asset_jobs" }),
             new(Builders<TranscodeJob>.IndexKeys.Ascending(x => x.PublicationDirectory), new CreateIndexOptions { Name = "publication_directory" }),

@@ -219,13 +219,12 @@ public sealed class TranscodeJobScheduler(IMongoContext context, ISettingsStore 
         }
         var now = DateTime.UtcNow;
         var token = TranscodeWorkerService.NewSecret();
-        var job = await Jobs.FindOneAndUpdateAsync(pending,
-            Builders<TranscodeJob>.Update.Set(x => x.State, "Running").Set(x => x.Stage, "Downloading")
-                .Set(x => x.Progress, 0).Set(x => x.Activity, null).Set(x => x.LastProgressAtUtc, null)
-                .Set(x => x.Encoder, null)
-                .Set(x => x.WorkerId, workerId).Set(x => x.LeaseTokenHash, TranscodeWorkerService.SecretHash(token))
-                .Set(x => x.LeaseUntilUtc, now.AddSeconds(90)).Inc(x => x.Attempt, 1),
-            new FindOneAndUpdateOptions<TranscodeJob> { ReturnDocument = ReturnDocument.After, Sort = Builders<TranscodeJob>.Sort.Ascending(x => x.CreatedAtUtc) }, cancellationToken);
+        var updateLease = Builders<TranscodeJob>.Update.Set(x => x.State, "Running").Set(x => x.Stage, "Downloading")
+            .Set(x => x.Progress, 0).Set(x => x.Activity, null).Set(x => x.LastProgressAtUtc, null)
+            .Set(x => x.Encoder, null)
+            .Set(x => x.WorkerId, workerId).Set(x => x.LeaseTokenHash, TranscodeWorkerService.SecretHash(token))
+            .Set(x => x.LeaseUntilUtc, now.AddSeconds(90)).Inc(x => x.Attempt, 1);
+        var job = await ClaimByPriorityAsync(settings, pending, updateLease, cancellationToken);
         if (job is null)
         {
             return state;
@@ -251,6 +250,31 @@ public sealed class TranscodeJobScheduler(IMongoContext context, ISettingsStore 
     }
 
     private IMongoCollection<TranscodeJob> Jobs => context.Collection<TranscodeJob>("transcodeJobs");
+
+    private async Task<TranscodeJob?> ClaimByPriorityAsync(TranscodingSettings settings, FilterDefinition<TranscodeJob> pending,
+        UpdateDefinition<TranscodeJob> update, CancellationToken cancellationToken)
+    {
+        var groups = settings.Profiles.GroupBy(x => x.Priority)
+            .ToDictionary(group => group.Key, group => group.Select(x => x.Id).ToArray());
+        var prioritizedIds = groups.Where(group => group.Key != 0).SelectMany(group => group.Value).ToArray();
+        var options = new FindOneAndUpdateOptions<TranscodeJob>
+        {
+            ReturnDocument = ReturnDocument.After,
+            Sort = Builders<TranscodeJob>.Sort.Ascending(x => x.CreatedAtUtc).Ascending(x => x.Id)
+        };
+        foreach (var priority in groups.Keys.Append(0).Distinct().OrderDescending())
+        {
+            var profileFilter = priority == 0
+                ? Builders<TranscodeJob>.Filter.Nin(x => x.Profile.Id, prioritizedIds)
+                : Builders<TranscodeJob>.Filter.In(x => x.Profile.Id, groups[priority]);
+            var job = await Jobs.FindOneAndUpdateAsync(pending & profileFilter, update, options, cancellationToken);
+            if (job is not null)
+            {
+                return job;
+            }
+        }
+        return null;
+    }
 
     private static FilterDefinition<TranscodeJob> DefaultPackagingFilter()
     {

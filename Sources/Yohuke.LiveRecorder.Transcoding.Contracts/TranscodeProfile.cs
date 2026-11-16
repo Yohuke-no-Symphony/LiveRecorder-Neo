@@ -14,4 +14,5 @@ public sealed record TranscodeProfile
     public bool SingleFile { get; set; }
     public bool Enabled { get; set; } = true;
     public bool AutoTranscode { get; set; } = true;
+    public int Priority { get; set; }
 }

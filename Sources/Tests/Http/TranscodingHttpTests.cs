@@ -27,6 +27,47 @@ namespace Yohuke.LiveRecorder.Http.Tests;
 /// <summary>验证独立 Worker 的真实 TLS、HTTP 传输、成品播放及回收边界。</summary>
 public sealed class TranscodingHttpTests
 {
+    /// <summary>每档清晰度优先级兼容旧请求，独立保存并在重启后保留。</summary>
+    [MongoHttpFact]
+    public async Task ProfilePrioritiesPersistThroughSettingsApiAndRestart()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync("Production", "--TranscodingControl:Enabled", "false");
+        await fixture.InstallAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+        var settings = await fixture.Admin.Client.GetFromJsonAsync<JsonObject>("/api/settings");
+        var profiles = settings!["transcoding"]!["profiles"]!.AsArray();
+        Assert.Equal(0, profiles[0]!["priority"]!.GetValue<int>());
+        profiles[0]!.AsObject().Remove("priority");
+        profiles.Add(new JsonObject
+        {
+            ["id"] = "1080p", ["name"] = "1080p", ["height"] = 1080, ["priority"] = 100
+        });
+        settings["transcoding"]!["qualityOrder"]!.AsArray().Add("1080p");
+
+        using var created = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/settings", settings);
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var saved = await created.Content.ReadFromJsonAsync<JsonObject>();
+        var savedProfiles = saved!["transcoding"]!["profiles"]!.AsArray();
+        Assert.Equal(0, savedProfiles[0]!["priority"]!.GetValue<int>());
+        Assert.Equal(100, savedProfiles[1]!["priority"]!.GetValue<int>());
+        savedProfiles[0]!["priority"] = int.MinValue;
+        savedProfiles[1]!["priority"] = int.MaxValue;
+
+        using var updated = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/settings", saved);
+        Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
+        await fixture.RestartAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+
+        var restored = await fixture.Admin.Client.GetFromJsonAsync<JsonObject>("/api/settings");
+        var restoredProfiles = restored!["transcoding"]!["profiles"]!.AsArray();
+        Assert.Equal(int.MinValue, restoredProfiles[0]!["priority"]!.GetValue<int>());
+        Assert.Equal(int.MaxValue, restoredProfiles[1]!["priority"]!.GetValue<int>());
+        Assert.Equal("720p", restored["transcoding"]!["defaultPlaybackQualityId"]!.GetValue<string>());
+        var persisted = JsonNode.Parse(await File.ReadAllTextAsync(fixture.ConfigFile));
+        Assert.Equal(int.MinValue, persisted!["transcoding"]!["profiles"]![0]!["priority"]!.GetValue<int>());
+        Assert.Equal(int.MaxValue, persisted["transcoding"]!["profiles"]![1]!["priority"]!.GetValue<int>());
+    }
+
     /// <summary>每档位自动转码偏好经设置接口独立保存，兼容旧请求并在重启后保留。</summary>
     [MongoHttpFact]
     public async Task ProfileAutomaticTranscodingPreferencesPersistThroughSettingsApiAndRestart()
