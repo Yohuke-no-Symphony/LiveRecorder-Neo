@@ -1,6 +1,7 @@
 <template>
   <PageHeader :title="t('views.storage.title')">
-    <v-btn variant="outlined" prepend-icon="mdi-refresh" :loading="busy" @click="load(true)">{{ t('views.common.refresh') }}</v-btn>
+    <v-btn color="primary" prepend-icon="mdi-broom" :disabled="busy || cleaning" @click="cleanupOpen = true">{{ t('views.storage.cleanup.title') }}</v-btn>
+    <v-btn variant="outlined" prepend-icon="mdi-refresh" :loading="busy" :disabled="cleaning" @click="load(true)">{{ t('views.common.refresh') }}</v-btn>
   </PageHeader>
   <v-alert v-if="error" type="error" class="mb-6">{{ error }}</v-alert>
   <template v-if="report">
@@ -21,6 +22,7 @@
     <StorageUsageTable v-if="visibleRows.length" :rows="visibleRows" />
     <EmptyState v-else :title="t('views.storage.empty')" icon="mdi-harddisk" />
   </template>
+  <StorageCacheCleanupDialog v-model="cleanupOpen" @busy="cleaning = $event" @cleaned="load(true)" />
 </template>
 
 <script setup lang="ts">
@@ -35,12 +37,16 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import StorageBar from '@/components/common/StorageBar.vue'
 import StorageUsageTable from '@/components/storage/StorageUsageTable.vue'
+import StorageCacheCleanupDialog from '@/components/storage/StorageCacheCleanupDialog.vue'
 
 const { t } = useI18n()
 const report = ref<StorageUsageReport>()
 const tab = ref<'rooms' | 'users' | 'directories'>('rooms')
 const search = ref<string | null>('')
+const cleanupOpen = ref(false)
+const cleaning = ref(false)
 const { busy, error, run } = useAction()
+let pendingLoad: Promise<unknown> | undefined
 const visibleRows = computed<StorageUsageRow[]>(() =>
 {
   const current = report.value
@@ -56,8 +62,22 @@ const visibleRows = computed<StorageUsageRow[]>(() =>
 
 async function load(refresh = false): Promise<void>
 {
-  if (busy.value) { return }
-  await run(async () => { report.value = await MediaAPI.storageDetails(refresh) })
+  while (pendingLoad)
+  {
+    if (!refresh) { return }
+    await pendingLoad
+  }
+  if (cleaning.value) { return }
+  const operation = run(async () => { report.value = await MediaAPI.storageDetails(refresh) })
+  pendingLoad = operation
+  try
+  {
+    await operation
+  }
+  finally
+  {
+    pendingLoad = undefined
+  }
 }
 
 usePolling(() => load(), 30000)

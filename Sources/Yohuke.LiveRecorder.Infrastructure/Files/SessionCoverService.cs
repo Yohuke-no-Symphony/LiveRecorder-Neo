@@ -28,12 +28,11 @@ public sealed class SessionCoverService(IMongoContext context, LibraryService li
             {
                 return saved;
             }
-            var cached = await GetOriginalAsync(session.CoverUrl, cancellationToken);
+            using var cached = await GetOriginalAsync(session.CoverUrl, cancellationToken);
             if (cached is not null)
             {
-                var type = await File.ReadAllTextAsync(cached + ".type", cancellationToken);
-                var extension = type switch { "image/png" => ".png", "image/webp" => ".webp", "image/gif" => ".gif", _ => ".jpg" };
-                return await PublishAsync(session, cached, extension, cancellationToken);
+                var extension = cached.ContentType switch { "image/png" => ".png", "image/webp" => ".webp", "image/gif" => ".gif", _ => ".jpg" };
+                return await PublishAsync(session, cached.Path, extension, cancellationToken);
             }
             var temporary = Path.Combine(paths.CacheDirectory, "cover-frames", Guid.NewGuid().ToString("N"));
             try
@@ -82,14 +81,30 @@ public sealed class SessionCoverService(IMongoContext context, LibraryService li
         }
     }
 
-    private async Task<string?> GetOriginalAsync(string source, CancellationToken cancellationToken)
+    private async Task<ArtworkCacheLease?> GetOriginalAsync(string source, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(ORIGINAL_COVER_TIMEOUT_SECONDS));
         try
         {
             var cached = await artwork.GetAsync(source, timeout.Token);
-            return cached is not null && new FileInfo(cached).Length > 0 ? cached : null;
+            if (cached is null)
+            {
+                return null;
+            }
+            var accepted = false;
+            try
+            {
+                accepted = new FileInfo(cached.Path).Length > 0;
+                return accepted ? cached : null;
+            }
+            finally
+            {
+                if (!accepted)
+                {
+                    cached.Dispose();
+                }
+            }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {

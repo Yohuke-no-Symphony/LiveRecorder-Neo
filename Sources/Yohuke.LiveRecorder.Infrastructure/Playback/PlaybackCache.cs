@@ -18,7 +18,15 @@ public sealed class PlaybackCache(IAppPaths paths, ISettingsStore settingsStore)
     {
         lock (sync)
         {
-            active[key + "/" + generation] = DateTime.UtcNow;
+            var now = DateTime.UtcNow;
+            active[key + "/" + generation] = now;
+            try
+            {
+                Directory.SetLastWriteTimeUtc(Path.Combine(paths.CacheDirectory, "playback", key, generation), now);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+            }
         }
     }
 
@@ -68,66 +76,99 @@ public sealed class PlaybackCache(IAppPaths paths, ISettingsStore settingsStore)
     /// <summary>按保留期限和容量清理不活跃的缓存，保留仍在生成或使用的代次。</summary>
     public async Task MaintainAsync(CancellationToken cancellationToken = default)
     {
+        await CleanupCoreAsync(null, cancellationToken);
+    }
+
+    /// <summary>清理达到最短未使用时间的播放缓存，始终保留生成中与最近五分钟使用的代次。</summary>
+    public Task<CacheCleanupCategoryResult> CleanupAsync(int minimumUnusedMinutes, CancellationToken cancellationToken = default)
+    {
+        return CleanupCoreAsync(minimumUnusedMinutes, cancellationToken);
+    }
+
+    private async Task<CacheCleanupCategoryResult> CleanupCoreAsync(int? minimumUnusedMinutes, CancellationToken cancellationToken)
+    {
         await maintenance.WaitAsync(cancellationToken);
         try
         {
-            var settings = await settingsStore.GetAsync(cancellationToken);
-            var root = Path.Combine(paths.CacheDirectory, "playback");
-            if (!Directory.Exists(root))
-            {
-                return;
-            }
-            var keys = Directory.EnumerateDirectories(root).ToArray();
-            var directories = keys.SelectMany(Directory.EnumerateDirectories)
-                .Select(path => new DirectoryInfo(path)).OrderBy(directory => directory.LastWriteTimeUtc).ToList();
-            var sizes = directories.ToDictionary(directory => directory.FullName, directory => DirectoryBytes(directory.FullName));
-            var total = sizes.Values.Sum();
-            var deadline = DateTime.UtcNow.AddMinutes(-settings.CacheRetentionMinutes);
+            var result = new CacheCleanupCategoryResult { Category = CacheCleanupCategories.PLAYBACK };
+            var settings = minimumUnusedMinutes.HasValue ? null : await settingsStore.GetAsync(cancellationToken);
+            var cacheRoot = paths.CacheDirectory;
+            var root = Path.Combine(cacheRoot, "playback");
+            var files = new CacheCleanupFileSystem(cacheRoot);
+            var keys = files.ReadDirectories(root, result);
+            var directories = keys.SelectMany(key => files.ReadDirectories(key.FullName, result))
+                .OrderBy(directory => directory.LastWriteTimeUtc).ToArray();
+            var snapshots = directories.ToDictionary(directory => directory.FullName,
+                directory => files.ReadFiles(directory.FullName, result, cancellationToken, recursive: true));
+            var total = snapshots.Values.Sum(snapshot => snapshot.Sum(file => file.Length));
+            var deadline = CacheCleanupFileSystem.Cutoff(minimumUnusedMinutes ?? settings!.CacheRetentionMinutes);
             foreach (var directory in directories)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var relative = Path.GetRelativePath(root, directory.FullName).Replace(Path.DirectorySeparatorChar, '/');
+                var snapshot = snapshots[directory.FullName];
                 lock (sync)
                 {
                     if (building.ContainsKey(directory.Parent!.Name)
                         || active.TryGetValue(relative, out var access) && DateTime.UtcNow - access < TimeSpan.FromMinutes(5))
                     {
+                        result.SkippedEntries += Math.Max(1, snapshot.Count);
                         continue;
                     }
-                    if (directory.LastWriteTimeUtc >= deadline && total <= settings.CacheLimitBytes)
+                    var lastUsed = directory.LastWriteTimeUtc;
+                    if (snapshot.Count > 0)
                     {
+                        lastUsed = new[] { lastUsed, snapshot.Max(file => file.LastWriteTimeUtc), access }.Max();
+                    }
+                    else if (access > lastUsed)
+                    {
+                        lastUsed = access;
+                    }
+                    if (minimumUnusedMinutes.HasValue
+                        ? minimumUnusedMinutes.Value > 0 && lastUsed >= deadline
+                        : directory.LastWriteTimeUtc >= deadline && total <= settings!.CacheLimitBytes)
+                    {
+                        result.SkippedEntries += snapshot.Count;
                         continue;
                     }
-                    try
+                    var deletedBefore = result.DeletedBytes;
+                    foreach (var file in snapshot)
                     {
-                        Directory.Delete(directory.FullName, recursive: true);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        files.DeleteFile(file, result);
                     }
-                    catch (DirectoryNotFoundException)
+                    files.RemoveEmptyTree(directory.FullName, result, cancellationToken);
+                    total -= result.DeletedBytes - deletedBefore;
+                    if (!Directory.Exists(directory.FullName))
                     {
+                        active.Remove(relative);
                     }
-                    total -= sizes[directory.FullName];
-                    active.Remove(relative);
                 }
             }
-            foreach (var directory in keys)
+            foreach (var key in keys)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 lock (sync)
                 {
-                    if (building.ContainsKey(Path.GetFileName(directory)))
+                    if (building.ContainsKey(key.Name))
                     {
                         continue;
                     }
-                    try
+                    if (files.ReadDirectories(key.FullName, result).Count == 0)
                     {
-                        if (!Directory.EnumerateFileSystemEntries(directory).Any())
+                        foreach (var file in files.ReadFiles(key.FullName, result, cancellationToken))
                         {
-                            Directory.Delete(directory);
+                            if (file.Name == "latest.json")
+                            {
+                                files.DeleteFile(file, result);
+                            }
+                            else
+                            {
+                                result.SkippedEntries++;
+                            }
                         }
                     }
-                    catch (DirectoryNotFoundException)
-                    {
-                    }
+                    files.RemoveEmptyDirectory(key.FullName, result);
                 }
             }
             lock (sync)
@@ -137,22 +178,11 @@ public sealed class PlaybackCache(IAppPaths paths, ISettingsStore settingsStore)
                     active.Remove(key);
                 }
             }
+            return result;
         }
         finally
         {
             maintenance.Release();
-        }
-    }
-
-    private static long DirectoryBytes(string path)
-    {
-        try
-        {
-            return StorageService.DirectoryBytes(path);
-        }
-        catch (DirectoryNotFoundException)
-        {
-            return 0;
         }
     }
 

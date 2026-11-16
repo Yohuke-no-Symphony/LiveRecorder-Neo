@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
+using Yohuke.LiveRecorder.Infrastructure.Storage;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Analytics;
 
@@ -10,6 +11,48 @@ internal sealed class AnalyticsContributionSnapshotStore(IAppPaths paths)
     private static JsonSerializerOptions SnapshotJsonOptions { get; } = new(JsonFiles.Options) { RespectNullableAnnotations = true };
     private static TimeSpan Retention { get; } = TimeSpan.FromMinutes(10);
     private string DirectoryPath => Path.Combine(paths.CacheDirectory, "analytics-contributions");
+
+    internal CacheCleanupCategoryResult Cleanup(int minimumUnusedMinutes, CancellationToken cancellationToken)
+    {
+        var result = new CacheCleanupCategoryResult { Category = CacheCleanupCategories.ANALYTICS_CONTRIBUTIONS };
+        var files = new CacheCleanupFileSystem(paths.CacheDirectory);
+        var deadline = CacheCleanupFileSystem.Cutoff(minimumUnusedMinutes);
+        foreach (var file in files.ReadFiles(DirectoryPath, result, cancellationToken))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (file.Name.Length != 69 || !file.Name.EndsWith(".json", StringComparison.Ordinal)
+                || !file.Name[..64].All(char.IsAsciiHexDigit))
+            {
+                result.SkippedEntries++;
+                continue;
+            }
+            if (minimumUnusedMinutes > 0 && file.LastWriteTimeUtc >= deadline)
+            {
+                result.SkippedEntries++;
+                continue;
+            }
+            files.DeleteFile(file, result);
+        }
+        return result;
+    }
+
+    internal void Touch(string identity)
+    {
+        var path = Path.Combine(DirectoryPath, identity + ".json");
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.SetLastWriteTimeUtc(path, DateTime.UtcNow);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
 
     internal async Task<AnalyticsContributionSnapshot?> ReadAsync(string identity, CancellationToken cancellationToken)
     {

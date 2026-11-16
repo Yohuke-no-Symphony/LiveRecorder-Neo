@@ -12,10 +12,10 @@ public sealed class EventArtworkServiceTests
         await using var context = new EventArtworkTestContext();
         await context.WriteAsync(new() { Sequence = 1, UserId = "42", Text = "旧归档" });
 
-        var path = await context.Artwork.GetAvatarAsync(context.Session, 1);
+        using var image = await context.Artwork.GetAvatarAsync(context.Session, 1);
 
-        Assert.NotNull(path);
-        Assert.Equal("/users/42.png", await File.ReadAllTextAsync(path));
+        Assert.NotNull(image);
+        Assert.Equal("/users/42.png", await File.ReadAllTextAsync(image.Path));
         Assert.Equal(1, context.Source.Calls[42]);
         var archive = await File.ReadAllTextAsync(Path.Combine(context.Paths.RecordsDirectory, "session", "弹幕", "事件.jsonl"));
         Assert.DoesNotContain("users/42", archive);
@@ -27,10 +27,10 @@ public sealed class EventArtworkServiceTests
         await using var context = new EventArtworkTestContext();
         await context.WriteAsync(new() { Sequence = 1, UserId = "42", AvatarUrl = "https://i0.hdslb.com/archived.png" });
 
-        var path = await context.Artwork.GetAvatarAsync(context.Session, 1);
+        using var image = await context.Artwork.GetAvatarAsync(context.Session, 1);
 
-        Assert.NotNull(path);
-        Assert.Equal("/archived.png", await File.ReadAllTextAsync(path));
+        Assert.NotNull(image);
+        Assert.Equal("/archived.png", await File.ReadAllTextAsync(image.Path));
         Assert.Empty(context.Source.Calls);
     }
 
@@ -51,11 +51,11 @@ public sealed class EventArtworkServiceTests
             }
         });
 
-        var path = await context.Artwork.GetEmoticonAsync(context.Session, 1, 1);
+        using var image = await context.Artwork.GetEmoticonAsync(context.Session, 1, 1);
 
-        Assert.NotNull(path);
-        Assert.Equal("/second.png", await File.ReadAllTextAsync(path));
-        Assert.Equal("image/png", await File.ReadAllTextAsync(path + ".type"));
+        Assert.NotNull(image);
+        Assert.Equal("/second.png", await File.ReadAllTextAsync(image.Path));
+        Assert.Equal("image/png", image.ContentType);
         Assert.Equal("/second.png", Assert.Single(context.Http.Requests).Source.AbsolutePath);
         Assert.Null(await context.Artwork.GetEmoticonAsync(context.Session, 1, -1));
         Assert.Null(await context.Artwork.GetEmoticonAsync(context.Session, 1, 2));
@@ -68,10 +68,10 @@ public sealed class EventArtworkServiceTests
         context.Session.EventSources.Add(new() { DirectoryPath = "source", StartOffsetMs = 30000 });
         await context.WriteAsync(new() { Sequence = 1, UserId = "42", OffsetMs = 1000 });
 
-        var path = await context.Artwork.GetAvatarAsync(context.Session, 1_000_000_000_001);
+        using var image = await context.Artwork.GetAvatarAsync(context.Session, 1_000_000_000_001);
 
-        Assert.NotNull(path);
-        Assert.Equal("/users/42.png", await File.ReadAllTextAsync(path));
+        Assert.NotNull(image);
+        Assert.Equal("/users/42.png", await File.ReadAllTextAsync(image.Path));
         Assert.Null(await context.Artwork.GetAvatarAsync(context.Session, 1));
     }
 

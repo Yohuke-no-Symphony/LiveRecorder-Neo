@@ -7,7 +7,7 @@ import type { SessionGroupConfiguration } from '@/models/sessionConfiguration'
 import type { Analytics, BroadcastSession, Clip, CreateJob, EventKind, EventPage, MediaJob, PlaybackEventWindow, PlaybackWindow, SessionDetail, StorageVolume, Streamer, TrashEntry } from '@/models/media'
 import type { SessionEventSnapshot } from '@/models/sessionEventSnapshot'
 import type { ServerPaths, ServerSettings } from '@/models/settings'
-import type { StorageUsageReport } from '@/models/storage'
+import type { CacheCleanupOptions, CacheCleanupResult, StorageUsageReport } from '@/models/storage'
 import type { PlaybackLoadOptions } from '@/models/playbackLoadOptions'
 
 export const MediaAPI = {
@@ -48,6 +48,7 @@ export const MediaAPI = {
   purgeTrash: (id: string) => remove(`trash/${encodeURIComponent(id)}`),
   storage: (refresh = false) => request<StorageVolume[]>(`storage${query({ refresh })}`),
   storageDetails: (refresh = false) => request<StorageUsageReport>(`storage/details${query({ refresh })}`),
+  cleanupCache: (body: CacheCleanupOptions) => post<CacheCleanupResult>('storage/cache/cleanup', body),
   settings: () => request<ServerSettings>('settings'),
   settingsPaths: () => request<ServerPaths>('settings/paths'),
   updateSettingsPaths: (body: { dataDirectory: string; recordsDirectory: string }) => put<ServerPaths>('settings/paths', body),

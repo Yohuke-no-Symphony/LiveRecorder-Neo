@@ -24,8 +24,8 @@ public static class BilibiliEndpointExtensions
         group.MapGet("/accounts/{id}/avatar", async (string id, IMongoContext context, ArtworkCache artwork, CancellationToken ct) =>
         {
             var source = await context.Collection<BilibiliAccount>("bilibili_accounts").Find(x => x.Id == id).Project(x => x.AvatarUrl).FirstOrDefaultAsync(ct);
-            var path = string.IsNullOrWhiteSpace(source) ? null : await artwork.GetAsync(source, ct);
-            return path is null ? Results.NotFound() : Results.File(path, await File.ReadAllTextAsync(path + ".type", ct));
+            var image = string.IsNullOrWhiteSpace(source) ? null : await artwork.GetAsync(source, ct);
+            return image is null ? (IResult)Results.NotFound() : new ArtworkFileResult(image);
         });
         group.MapDelete("/accounts/{id}", async (string id, IBilibiliService service, CancellationToken ct) =>
         {

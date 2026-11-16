@@ -13,32 +13,31 @@ public static class EventArtworkEndpoints
         var api = endpoints.MapGroup("/api").RequireAuthorization();
         api.MapGet("/audience/{uid:long}/avatar", async (long uid, HttpContext http, EventArtworkService artwork, CancellationToken ct) =>
         {
-            return await ImageAsync(await artwork.GetAudienceAvatarAsync(uid, ct), http, ct);
+            return Image(await artwork.GetAudienceAvatarAsync(uid, ct), http);
         });
         var viewing = api.MapGroup("").RequireAuthorization(UserPermissionNames.VIEW_RECORDINGS);
         viewing.MapGet("/sessions/{id}/events/{sequence:long}/avatar", async (string id, long sequence, HttpContext http, LibraryService library, EventArtworkService artwork, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
-            return await ImageAsync(await artwork.GetAvatarAsync(detail.Session, sequence, ct), http, ct);
+            return Image(await artwork.GetAvatarAsync(detail.Session, sequence, ct), http);
         });
         viewing.MapGet("/sessions/{id}/events/{sequence:long}/emoticons/{index:int}", async (string id, long sequence, int index, HttpContext http, LibraryService library, EventArtworkService artwork, CancellationToken ct) =>
         {
             var detail = await library.GetAsync(id, ct);
-            return await ImageAsync(await artwork.GetEmoticonAsync(detail.Session, sequence, index, ct), http, ct);
+            return Image(await artwork.GetEmoticonAsync(detail.Session, sequence, index, ct), http);
         });
         return endpoints;
     }
 
-    private static async Task<IResult> ImageAsync(string? path, HttpContext http, CancellationToken cancellationToken)
+    private static IResult Image(ArtworkCacheLease? image, HttpContext http)
     {
-        if (path is null)
+        if (image is null)
         {
             http.Response.Headers.CacheControl = "no-store";
             return Results.NotFound();
         }
-        var type = await File.ReadAllTextAsync(path + ".type", cancellationToken);
         http.Response.Headers.CacheControl = "private, max-age=300";
         http.Response.Headers.XContentTypeOptions = "nosniff";
-        return Results.File(path, type, lastModified: File.GetLastWriteTimeUtc(path));
+        return new ArtworkFileResult(image, lastModified: true);
     }
 }

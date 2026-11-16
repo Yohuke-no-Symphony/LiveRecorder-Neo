@@ -118,6 +118,7 @@ public static class ServerStartup
         builder.Services.AddSingleton<StorageService>();
         builder.Services.AddSingleton<StorageUsageService>();
         builder.Services.AddSingleton<StorageUsageMetadataService>();
+        builder.Services.AddSingleton<CacheCleanupService>();
         builder.Services.AddSingleton<SessionTrashService>();
         builder.Services.AddSingleton<SessionSegmentTrashService>();
         builder.Services.AddOptions<ContinuousPlaybackOptions>()
@@ -357,6 +358,7 @@ public static class ServerStartup
         app.MapBilibiliEndpoints();
         app.MapLibraryEndpoints();
         app.MapPlaybackEventSnapshotEndpoints();
+        app.MapStorageCacheEndpoints();
         app.MapAnalyticsExportEndpoints();
         app.MapSessionSegmentEndpoints();
         app.MapSessionConfigurationEndpoints();

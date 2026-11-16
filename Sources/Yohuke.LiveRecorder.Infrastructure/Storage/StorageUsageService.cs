@@ -10,7 +10,9 @@ public sealed class StorageUsageService(IAppPaths paths, TimeProvider timeProvid
         ? StringComparison.OrdinalIgnoreCase
         : StringComparison.Ordinal;
     private readonly SemaphoreSlim scanGate = new(1, 1);
+    private readonly Lock snapshotSync = new();
     private StorageUsageReport? snapshot;
+    private long snapshotGeneration;
 
     /// <summary>返回录像和数据两个目录视图；同卷的总容量和空闲容量不能相加。</summary>
     public async Task<IReadOnlyList<StorageVolume>> GetVolumesAsync(bool refresh = false, CancellationToken cancellationToken = default)
@@ -22,27 +24,47 @@ public sealed class StorageUsageService(IAppPaths paths, TimeProvider timeProvid
     public async Task<StorageUsageReport> GetDetailsAsync(bool refresh = false, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var observed = Volatile.Read(ref snapshot);
-        if (!refresh && IsFresh(observed))
+        StorageUsageReport? observed;
+        lock (snapshotSync)
         {
-            return observed!;
+            observed = snapshot;
+            if (!refresh && IsFresh(observed))
+            {
+                return observed!;
+            }
         }
 
         await scanGate.WaitAsync(cancellationToken);
         try
         {
-            var current = Volatile.Read(ref snapshot);
-            if (IsFresh(current) && (!refresh || !ReferenceEquals(current, observed)))
+            while (true)
             {
-                return current!;
-            }
+                cancellationToken.ThrowIfCancellationRequested();
+                long generation;
+                lock (snapshotSync)
+                {
+                    var current = snapshot;
+                    if (IsFresh(current) && (!refresh || !ReferenceEquals(current, observed)))
+                    {
+                        return current!;
+                    }
+                    generation = snapshotGeneration;
+                }
 
-            var records = Path.GetFullPath(paths.RecordsDirectory);
-            var data = Path.GetFullPath(paths.DataDirectory);
-            var result = await Task.Run(() => Scan(records, data, cancellationToken), cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
-            Volatile.Write(ref snapshot, result);
-            return result;
+                var records = Path.GetFullPath(paths.RecordsDirectory);
+                var data = Path.GetFullPath(paths.DataDirectory);
+                var result = await Task.Run(() => Scan(records, data, cancellationToken), cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                lock (snapshotSync)
+                {
+                    if (generation != snapshotGeneration)
+                    {
+                        continue;
+                    }
+                    snapshot = result;
+                    return result;
+                }
+            }
         }
         finally
         {
@@ -50,10 +72,14 @@ public sealed class StorageUsageService(IAppPaths paths, TimeProvider timeProvid
         }
     }
 
-    /// <summary>清除当前缓存，不中断正在扫描的请求。</summary>
+    /// <summary>清除当前缓存，让失效前启动的扫描重新读取文件后再发布统计。</summary>
     public void Invalidate()
     {
-        Volatile.Write(ref snapshot, null);
+        lock (snapshotSync)
+        {
+            snapshotGeneration++;
+            snapshot = null;
+        }
     }
 
     private bool IsFresh(StorageUsageReport? value)

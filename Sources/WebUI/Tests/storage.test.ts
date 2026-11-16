@@ -6,7 +6,7 @@ import StorageBar from '../src/components/common/StorageBar.vue'
 import TrashView from '../src/views/TrashView.vue'
 import StorageView from '../src/views/StorageView.vue'
 import type { StorageVolume } from '../src/models/media'
-import type { StorageUsageReport } from '../src/models/storage'
+import type { CacheCleanupResult, StorageUsageReport } from '../src/models/storage'
 import { storageSegments } from '../src/utilities/storage'
 import { i18n } from '../src/plugins/i18n'
 
@@ -16,7 +16,12 @@ vi.mock('../src/stores/auth', () => ({ useAuthStore: () => ({ isAdmin: true, can
 
 const mounted: VueWrapper[] = []
 const container = { template: '<div><slot /></div>' }
+const cleanupDialog = {
+  name: 'StorageCacheCleanupDialog', props: ['modelValue'], emits: ['update:modelValue', 'cleaned', 'busy'],
+  template: '<div :data-cleanup-open="modelValue" />',
+}
 const stubs = {
+  StorageCacheCleanupDialog: cleanupDialog,
   VCard: container, VChip: container, VTable: { template: '<table><slot /></table>' }, VTabs: { name: 'VTabs', props: ['modelValue'], emits: ['update:modelValue'], template: '<div><slot /></div>' },
   VTab: { props: ['value'], template: '<button @click="$parent.$emit(\'update:modelValue\', value)"><slot /></button>' },
   VTooltip: {
@@ -42,6 +47,14 @@ function report(): StorageUsageReport
     rooms: [{ ...row, roomId: 42 }],
     users: [{ ...row, id: 'owner', ownerId: 'owner', name: '切片用户', path: '', recordingBytes: 0, totalBytes: 150 }],
     directories: [{ ...row, id: 'trash', kind: 'trash', name: '', path: '/records/.trash', recordingBytes: 0, clipBytes: 0, trashBytes: 100, totalBytes: 100 }],
+  }
+}
+
+function cleanupResult(): CacheCleanupResult
+{
+  return {
+    categories: [{ category: 'playback', deletedFiles: 1, deletedBytes: 2048, skippedEntries: 0, failedEntries: 0 }],
+    deletedFiles: 1, deletedBytes: 2048, skippedEntries: 0, failedEntries: 0,
   }
 }
 
@@ -142,6 +155,93 @@ describe('磁盘分类', () =>
 
 describe('管理员磁盘明细', () =>
 {
+  it('页头可以打开缓存清理对话框，成功后强制刷新磁盘明细且保留结果弹窗', async () =>
+  {
+    const wrapper = render(StorageView)
+    await flushPromises()
+    const dialog = wrapper.findComponent(cleanupDialog)
+    expect(dialog.props('modelValue')).toBe(false)
+    await wrapper.findAll('button').find(item => item.text() === i18n.global.t('views.storage.cleanup.title'))!.trigger('click')
+    expect(dialog.props('modelValue')).toBe(true)
+    const refreshed = report()
+    refreshed.rooms[0]!.name = '清理后的直播间'
+    storageDetails.mockResolvedValueOnce(refreshed)
+
+    dialog.vm.$emit('cleaned', cleanupResult())
+    await flushPromises()
+
+    expect(storageDetails).toHaveBeenCalledTimes(2)
+    expect(storageDetails).toHaveBeenLastCalledWith(true)
+    expect(wrapper.text()).toContain('清理后的直播间')
+    expect(dialog.props('modelValue')).toBe(true)
+  })
+
+  it('清理成功后的统计刷新失败只在父页显示错误，不关闭或重建成功弹窗', async () =>
+  {
+    const wrapper = render(StorageView)
+    await flushPromises()
+    await wrapper.findAll('button').find(item => item.text() === i18n.global.t('views.storage.cleanup.title'))!.trigger('click')
+    const dialog = wrapper.findComponent(cleanupDialog)
+    const instance = dialog.vm
+    storageDetails.mockRejectedValueOnce(new Error('清理后的统计刷新失败'))
+
+    dialog.vm.$emit('cleaned', cleanupResult())
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('清理后的统计刷新失败')
+    expect(wrapper.text()).toContain('测试直播间')
+    expect(wrapper.findComponent(cleanupDialog).vm).toBe(instance)
+    expect(dialog.props('modelValue')).toBe(true)
+    expect(storageDetails).toHaveBeenLastCalledWith(true)
+  })
+
+  it('清理期间跳过轮询并禁用页头操作，结束后使用强制刷新', async () =>
+  {
+    const wrapper = render(StorageView)
+    await flushPromises()
+    const dialog = wrapper.findComponent(cleanupDialog)
+    dialog.vm.$emit('busy', true)
+    await nextTick()
+    const actions = wrapper.findAll<HTMLButtonElement>('.page-actions button')
+    expect(actions).toHaveLength(2)
+    expect(actions.every(item => item.element.disabled)).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(30000)
+    await flushPromises()
+    expect(storageDetails).toHaveBeenCalledTimes(1)
+    dialog.vm.$emit('busy', false)
+    dialog.vm.$emit('cleaned', cleanupResult())
+    await flushPromises()
+    expect(storageDetails).toHaveBeenCalledTimes(2)
+    expect(storageDetails).toHaveBeenLastCalledWith(true)
+  })
+
+  it('清理完成时已有轮询未结束，等待旧请求完成后再发起强制刷新', async () =>
+  {
+    let finishPolling!: (value: StorageUsageReport) => void
+    const polling = new Promise<StorageUsageReport>(resolve => { finishPolling = resolve })
+    const wrapper = render(StorageView)
+    await flushPromises()
+    await wrapper.findAll('button').find(item => item.text() === i18n.global.t('views.storage.cleanup.title'))!.trigger('click')
+    storageDetails.mockReturnValueOnce(polling)
+    const refreshed = report()
+    refreshed.rooms[0]!.name = '排队刷新后的直播间'
+    storageDetails.mockResolvedValueOnce(refreshed)
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(storageDetails).toHaveBeenCalledTimes(2)
+    expect(storageDetails).toHaveBeenLastCalledWith(false)
+
+    wrapper.findComponent(cleanupDialog).vm.$emit('cleaned', cleanupResult())
+    await flushPromises()
+    expect(storageDetails).toHaveBeenCalledTimes(2)
+    finishPolling(report())
+    await flushPromises()
+
+    expect(storageDetails.mock.calls.map(call => call[0])).toEqual([false, false, true])
+    expect(wrapper.text()).toContain('排队刷新后的直播间')
+    expect(wrapper.findComponent(cleanupDialog).props('modelValue')).toBe(true)
+  })
+
   it('显示扫描时间、直播间占用，并支持主动重新扫描', async () =>
   {
     const wrapper = render(StorageView)

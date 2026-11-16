@@ -487,8 +487,8 @@ public static class LibraryEndpoints
 
     private static async Task<IResult> ImageAsync(string? source, ArtworkCache artwork, CancellationToken ct)
     {
-        var path = source is null ? null : await artwork.GetAsync(source, ct);
-        return path is null ? Results.NotFound() : Results.File(path, File.Exists(path + ".type") ? await File.ReadAllTextAsync(path + ".type", ct) : "image/jpeg");
+        var image = source is null ? null : await artwork.GetAsync(source, ct);
+        return image is null ? Results.NotFound() : new ArtworkFileResult(image);
     }
 
     private static string ImageType(string path) => Path.GetExtension(path).ToLowerInvariant() switch

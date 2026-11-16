@@ -9,14 +9,14 @@ namespace Yohuke.LiveRecorder.Infrastructure.Files;
 public sealed class EventArtworkService(SessionEventReader reader, IAppPaths paths, ArtworkCache artwork, AudienceAvatarService avatars)
 {
     /// <summary>取得观众 UID 对应的本地缓存头像。</summary>
-    public async Task<string?> GetAudienceAvatarAsync(long userId, CancellationToken cancellationToken = default)
+    public async Task<ArtworkCacheLease?> GetAudienceAvatarAsync(long userId, CancellationToken cancellationToken = default)
     {
         var source = await avatars.GetUrlAsync(userId, cancellationToken);
         return source is null ? null : await artwork.GetAsync(source, cancellationToken);
     }
 
     /// <summary>优先使用归档头像，旧归档缺少地址时按归档 UID 补齐。</summary>
-    public async Task<string?> GetAvatarAsync(BroadcastSession session, long sequence, CancellationToken cancellationToken = default)
+    public async Task<ArtworkCacheLease?> GetAvatarAsync(BroadcastSession session, long sequence, CancellationToken cancellationToken = default)
     {
         var item = await ReadAsync(session, sequence, cancellationToken);
         if (item is null)
@@ -37,7 +37,7 @@ public sealed class EventArtworkService(SessionEventReader reader, IAppPaths pat
     }
 
     /// <summary>按原始表情数组索引读取图片，分词和展示排序不会改变索引语义。</summary>
-    public async Task<string?> GetEmoticonAsync(BroadcastSession session, long sequence, int index, CancellationToken cancellationToken = default)
+    public async Task<ArtworkCacheLease?> GetEmoticonAsync(BroadcastSession session, long sequence, int index, CancellationToken cancellationToken = default)
     {
         if (index < 0)
         {

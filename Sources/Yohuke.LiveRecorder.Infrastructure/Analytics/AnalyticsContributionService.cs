@@ -8,6 +8,7 @@ using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Library;
+using Yohuke.LiveRecorder.Infrastructure.Storage;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Analytics;
 
@@ -121,6 +122,7 @@ public sealed class AnalyticsContributionService(EventArchiveReader reader, IApp
                 throw new InfrastructureException(MessageCode.REQUEST_INVALID, 409);
             }
             identity = requestedIdentity;
+            snapshots.Touch(identity);
             var bytes = EstimateSize(snapshot);
             if (bytes <= CACHE_LIMIT_BYTES)
             {
@@ -152,6 +154,23 @@ public sealed class AnalyticsContributionService(EventArchiveReader reader, IApp
             NextCursor = next < rows.Count ? next : null,
             Summary = snapshot.Summary
         };
+    }
+
+    /// <summary>在统计快照的读写锁内清理磁盘快照，正在读取或生成统计时跳过本类。</summary>
+    public async Task<CacheCleanupCategoryResult> CleanupAsync(int minimumUnusedMinutes, CancellationToken cancellationToken = default)
+    {
+        if (!await gate.WaitAsync(0, cancellationToken))
+        {
+            return new() { Category = CacheCleanupCategories.ANALYTICS_CONTRIBUTIONS, SkippedEntries = 1 };
+        }
+        try
+        {
+            return snapshots.Cleanup(minimumUnusedMinutes, cancellationToken);
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     /// <inheritdoc />

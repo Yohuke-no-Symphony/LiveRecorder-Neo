@@ -2,16 +2,19 @@ using System.Security.Cryptography;
 using System.Text;
 using Yohuke.DanmuCore.Apis;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
+using Yohuke.LiveRecorder.Infrastructure.Storage;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Files;
 
 /// <summary>在鉴权媒体端点之后缓存 B站公开头像和封面。</summary>
-public sealed class ArtworkCache(IHttpClientFactory clients, IAppPaths paths)
+public sealed class ArtworkCache(IHttpClientFactory clients, IAppPaths paths) : IDisposable
 {
     private readonly SemaphoreSlim[] gates = Enumerable.Range(0, 16).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
+    private readonly Lock sync = new();
+    private readonly Dictionary<string, int> readers = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>取得允许来源的图片，拒绝非图像与过大响应。</summary>
-    public async Task<string?> GetAsync(string sourceUrl, CancellationToken cancellationToken = default)
+    /// <summary>取得允许来源的图片与读取租约，拒绝非图像与过大响应。</summary>
+    public async Task<ArtworkCacheLease?> GetAsync(string sourceUrl, CancellationToken cancellationToken = default)
     {
         if (sourceUrl.StartsWith("//", StringComparison.Ordinal))
         {
@@ -28,13 +31,14 @@ public sealed class ArtworkCache(IHttpClientFactory clients, IAppPaths paths)
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sourceUrl))).ToLowerInvariant();
         var root = Path.Combine(paths.CacheDirectory, "artwork");
         var path = Path.Combine(root, key + ".image");
-        var gate = gates[(int)(Convert.ToUInt32(key[..8], 16) % gates.Length)];
+        var gate = Gate(key);
         await gate.WaitAsync(cancellationToken);
         try
         {
             if (File.Exists(path) && File.Exists(path + ".type"))
             {
-                return path;
+                var cachedType = await File.ReadAllTextAsync(path + ".type", cancellationToken);
+                return CreateLease(path, cachedType, key);
             }
             using var client = clients.CreateClient("artwork");
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
@@ -68,7 +72,7 @@ public sealed class ArtworkCache(IHttpClientFactory clients, IAppPaths paths)
             await File.WriteAllTextAsync(path + ".type.tmp", type, cancellationToken);
             File.Move(path + ".type.tmp", path + ".type", true);
             File.Move(temporary, path, true);
-            return path;
+            return CreateLease(path, type, key);
         }
         catch (HttpRequestException)
         {
@@ -81,6 +85,129 @@ public sealed class ArtworkCache(IHttpClientFactory clients, IAppPaths paths)
         finally
         {
             gate.Release();
+        }
+    }
+
+    /// <summary>清理满足未使用时间要求且没有下载或读取租约的已知图片缓存。</summary>
+    public async Task<CacheCleanupCategoryResult> CleanupAsync(int minimumUnusedMinutes, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(minimumUnusedMinutes);
+        var cutoff = CacheCleanupFileSystem.Cutoff(minimumUnusedMinutes);
+        var result = new CacheCleanupCategoryResult { Category = CacheCleanupCategories.ARTWORK };
+        var root = Path.Combine(paths.CacheDirectory, "artwork");
+        var fileSystem = new CacheCleanupFileSystem(paths.CacheDirectory);
+        var files = fileSystem.ReadFiles(root, result, cancellationToken);
+        var known = new List<FileInfo>();
+        foreach (var file in files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (IsKnownFile(file.Name))
+            {
+                known.Add(file);
+            }
+            else
+            {
+                result.SkippedEntries++;
+            }
+        }
+        foreach (var group in known.GroupBy(file => file.Name[..64], StringComparer.OrdinalIgnoreCase))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var entries = group.ToArray();
+            var gate = Gate(group.Key);
+            if (!await gate.WaitAsync(0, cancellationToken))
+            {
+                result.SkippedEntries += entries.Length;
+                continue;
+            }
+            try
+            {
+                lock (sync)
+                {
+                    if (readers.ContainsKey(group.Key))
+                    {
+                        result.SkippedEntries += entries.Length;
+                        continue;
+                    }
+                }
+                if (!fileSystem.IsSafeDirectory(root, result))
+                {
+                    continue;
+                }
+                try
+                {
+                    foreach (var file in entries)
+                    {
+                        file.Refresh();
+                    }
+                    var marker = entries.FirstOrDefault(file => file.Name.EndsWith(".image.type", StringComparison.Ordinal));
+                    var lastUsed = marker is { Exists: true }
+                        ? marker.LastWriteTimeUtc
+                        : entries.Where(file => file.Exists).Select(file => file.LastWriteTimeUtc).DefaultIfEmpty(DateTime.MinValue).Max();
+                    if (minimumUnusedMinutes > 0 && lastUsed >= cutoff)
+                    {
+                        result.SkippedEntries += entries.Length;
+                        continue;
+                    }
+                    foreach (var file in entries)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        fileSystem.DeleteFile(file, result);
+                    }
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                {
+                    result.FailedEntries++;
+                }
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+        return result;
+    }
+
+    private SemaphoreSlim Gate(string key) => gates[(int)(Convert.ToUInt32(key[..8], 16) % gates.Length)];
+
+    private ArtworkCacheLease CreateLease(string path, string contentType, string key)
+    {
+        File.SetLastWriteTimeUtc(path + ".type", DateTime.UtcNow);
+        lock (sync)
+        {
+            readers.TryGetValue(key, out var count);
+            readers[key] = count + 1;
+        }
+        return new(path, contentType, () => ReleaseReader(key));
+    }
+
+    private void ReleaseReader(string key)
+    {
+        lock (sync)
+        {
+            if (readers[key] == 1)
+            {
+                readers.Remove(key);
+            }
+            else
+            {
+                readers[key]--;
+            }
+        }
+    }
+
+    private static bool IsKnownFile(string name)
+    {
+        return name.Length > 64 && name.AsSpan(0, 64).IndexOfAnyExcept("0123456789abcdefABCDEF") < 0
+            && name[64..] is ".image" or ".image.type" or ".image.tmp" or ".image.type.tmp";
+    }
+
+    /// <summary>在宿主停止图片请求和清理后释放分片同步资源。</summary>
+    public void Dispose()
+    {
+        foreach (var gate in gates)
+        {
+            gate.Dispose();
         }
     }
 }

@@ -40,3 +40,29 @@ export interface StorageUsageReport
   users: StorageUserUsage[]
   directories: StorageDirectoryUsage[]
 }
+
+export type CacheCleanupCategory = 'playback' | 'artwork' | 'analyticsContributions'
+
+export interface CacheCleanupOptions
+{
+  categories: CacheCleanupCategory[]
+  minimumUnusedMinutes: number
+}
+
+export interface CacheCleanupCategoryResult
+{
+  category: CacheCleanupCategory
+  deletedFiles: number
+  deletedBytes: number
+  skippedEntries: number
+  failedEntries: number
+}
+
+export interface CacheCleanupResult
+{
+  categories: CacheCleanupCategoryResult[]
+  deletedFiles: number
+  deletedBytes: number
+  skippedEntries: number
+  failedEntries: number
+}

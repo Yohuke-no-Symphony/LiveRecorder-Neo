@@ -77,17 +77,16 @@ public sealed class ArtworkMaintenanceWorker(IMongoContext context, IBootstrapSt
 
     private async Task<string?> SaveAsync(string url, string destinationStem, CancellationToken cancellationToken)
     {
-        var cached = await artwork.GetAsync(url, cancellationToken);
+        using var cached = await artwork.GetAsync(url, cancellationToken);
         if (cached is null)
         {
             return null;
         }
-        var type = await File.ReadAllTextAsync(cached + ".type", cancellationToken);
-        var extension = type switch { "image/png" => ".png", "image/webp" => ".webp", "image/gif" => ".gif", _ => ".jpg" };
+        var extension = cached.ContentType switch { "image/png" => ".png", "image/webp" => ".webp", "image/gif" => ".gif", _ => ".jpg" };
         Directory.CreateDirectory(Path.GetDirectoryName(destinationStem)!);
         var destination = destinationStem + extension;
         var temporary = destination + ".tmp";
-        File.Copy(cached, temporary, true);
+        File.Copy(cached.Path, temporary, true);
         File.Move(temporary, destination, true);
         return destination;
     }

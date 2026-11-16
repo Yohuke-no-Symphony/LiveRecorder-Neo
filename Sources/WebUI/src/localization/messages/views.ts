@@ -7,6 +7,14 @@ export const viewsZh = {
     retainedInPlace: '原位保留', partial: '部分目录无法读取或位于其他磁盘，当前明细未包含这些文件。',
     columns: { recordingBytes: '录播文件', derivedBytes: '转码成品', clipBytes: '个人切片', trashBytes: '回收站', otherBytes: '其他文件' },
     kinds: { recordings: '录播文件', derived: '转码成品', clips: '个人切片', trash: '回收站', cache: '缓存', work: '工作目录', data: '数据文件', other: '其他文件' },
+    cleanup: {
+      title: '清理缓存', categories: '清理类别', minimumUnusedMinutes: '未使用时间', submit: '清理所选缓存',
+      categoryLabels: { playback: '播放缓存', artwork: '头像与图片缓存', analyticsContributions: '赠送统计明细缓存' },
+      timeOptions: { all: '全部不活跃缓存', hour: '超过 1 小时', day: '超过 1 天', week: '超过 7 天', month: '超过 30 天' },
+      scope: '仅清理可重建缓存，保留录播、转码成品、切片、回收站和 AI 分析结果。正在生成或读取的缓存会跳过；播放缓存保留最近 5 分钟使用的内容。清理后会按需重新生成。',
+      completed: '清理完成，已删除 {files} 个文件，释放 {bytes}。', categoryResult: '已删除 {files} 个文件 · {bytes}',
+      skipped: '已跳过 {count} 项正在使用或不符合清理条件的内容。', failed: '有 {count} 项清理失败，可稍后重试。',
+    },
   },
 
   common: {
@@ -102,6 +110,14 @@ export const viewsEn: MessageSchema<typeof viewsZh> = {
     retainedInPlace: 'Retained in place', partial: 'Some directories are inaccessible or on another disk. Their files are not included in these details.',
     columns: { recordingBytes: 'Recordings', derivedBytes: 'Transcoded media', clipBytes: 'Personal clips', trashBytes: 'Trash', otherBytes: 'Other files' },
     kinds: { recordings: 'Recordings', derived: 'Transcoded media', clips: 'Personal clips', trash: 'Trash', cache: 'Cache', work: 'Work directory', data: 'Data files', other: 'Other files' },
+    cleanup: {
+      title: 'Clear cache', categories: 'Cache categories', minimumUnusedMinutes: 'Unused for', submit: 'Clear selected caches',
+      categoryLabels: { playback: 'Playback cache', artwork: 'Avatar and image cache', analyticsContributions: 'Gift and paid-message statistics cache' },
+      timeOptions: { all: 'All inactive caches', hour: 'Over 1 hour', day: 'Over 1 day', week: 'Over 7 days', month: 'Over 30 days' },
+      scope: 'Only rebuildable caches are cleared. Recordings, transcoded media, clips, trash and AI analysis results are retained. Caches being generated or read are skipped; playback caches used in the last 5 minutes are kept. Cleared caches are rebuilt when needed.',
+      completed: 'Cleanup complete. Deleted {files} files and freed {bytes}.', categoryResult: 'Deleted {files} files · {bytes}',
+      skipped: 'Skipped {count} entries that are in use or do not meet the cleanup conditions.', failed: 'Could not clear {count} entries. You can try again later.',
+    },
   },
 
   common: {
@@ -197,6 +213,14 @@ export const viewsJa: MessageSchema<typeof viewsZh> = {
     retainedInPlace: '元の場所で保持', partial: 'アクセスできない、または別のディスクにあるディレクトリのファイルは集計に含まれていません。',
     columns: { recordingBytes: '録画ファイル', derivedBytes: '変換済み動画', clipBytes: '個人クリップ', trashBytes: 'ゴミ箱', otherBytes: 'その他のファイル' },
     kinds: { recordings: '録画ファイル', derived: '変換済み動画', clips: '個人クリップ', trash: 'ゴミ箱', cache: 'キャッシュ', work: '作業ディレクトリ', data: 'データファイル', other: 'その他のファイル' },
+    cleanup: {
+      title: 'キャッシュを削除', categories: 'キャッシュの種類', minimumUnusedMinutes: '未使用の期間', submit: '選択したキャッシュを削除',
+      categoryLabels: { playback: '再生キャッシュ', artwork: 'アバター・画像キャッシュ', analyticsContributions: 'ギフトなどの明細キャッシュ' },
+      timeOptions: { all: '使用中でないすべてのキャッシュ', hour: '1 時間以上', day: '1 日以上', week: '7 日以上', month: '30 日以上' },
+      scope: '再生成できるキャッシュのみ削除します。録画、変換済み動画、クリップ、ゴミ箱、AI 分析結果は保持されます。生成中・読み取り中のキャッシュと、直近 5 分以内に使用した再生キャッシュはスキップします。必要になったときに再生成されます。',
+      completed: '削除完了。{files} ファイルを削除し、{bytes} を解放しました。', categoryResult: '{files} ファイルを削除 · {bytes}',
+      skipped: '使用中、または削除条件に一致しない {count} 件をスキップしました。', failed: '{count} 件を削除できませんでした。後でもう一度お試しください。',
+    },
   },
 
   common: {
