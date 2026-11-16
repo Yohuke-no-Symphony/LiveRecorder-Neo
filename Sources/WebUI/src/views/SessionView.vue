@@ -1,11 +1,11 @@
 <template>
   <v-alert v-if="error || (retentionError && !cancelPermanentOpen)" type="error" class="mb-6">{{ error || retentionError }}<template v-if="error" #append><v-btn variant="text" size="small" :disabled="busy" @click="refreshSession">{{ t('views.common.retry') }}</v-btn></template></v-alert>
   <v-progress-linear v-if="!detail && busy" indeterminate color="primary" />
-  <template v-if="detail">
+  <v-defaults-provider v-if="detail" :defaults="playbackOverlayDefaults">
     <div class="session-heading mb-6"><router-link :to="`/streamers/${detail.session.streamerId}`" class="text-body-2 muted"><v-icon icon="mdi-chevron-left" size="18" />{{ streamer?.name || t('views.common.streamerRecordings') }}</router-link><StatusChip :status="detail.session.state" /></div>
-    <div class="playback-layout">
+    <div ref="playbackLayout" class="playback-layout">
       <div class="playback-main">
-        <MediaPlayer ref="player" v-model="offsetMs" :duration-ms="detail.durationMs" :gaps="detail.gaps" :is-live="isLive" :initial-offset-ms="initialOffset" :load-window="loadWindow" :timeline="timeline" :bookmarks="bookmarks" :selection="clipSelection" :timeline-loading="timelineLoading" :timeline-error="timelineError" @refresh-timeline="refreshTimeline" @navigate="feedNavigationRevision++">
+        <MediaPlayer ref="player" v-model="offsetMs" class="playback-player" :fullscreen-target="playbackLayout" :duration-ms="detail.durationMs" :gaps="detail.gaps" :is-live="isLive" :initial-offset-ms="initialOffset" :load-window="loadWindow" :timeline="timeline" :bookmarks="bookmarks" :selection="clipSelection" :timeline-loading="timelineLoading" :timeline-error="timelineError" @refresh-timeline="refreshTimeline" @navigate="feedNavigationRevision++">
           <template #actions><PlaybackBookmarkActions :current-ms="offsetMs" :duration-ms="detail.durationMs" :selection="clipSelection" :invalid="clipSelectionInvalid" :saving="bookmarkSaving" :editable="bookmarksEditable" @bookmark="openBookmark" @start="setClipStart" @end="setClipEnd" @clear="clipSelection = {}" /></template>
         </MediaPlayer>
         <div class="session-meta">
@@ -127,7 +127,7 @@
     <v-dialog v-model="maintenanceOpen" max-width="580" :aria-label="maintenanceKind === 'Repair' ? t('views.session.repair') : t('views.session.merge')"><ContentCard :title="maintenanceKind === 'Repair' ? t('views.session.repair') : t('views.session.merge')"><div class="maintenance-segments"><v-checkbox v-for="(segment, index) in detail.segments.filter(item => item.isClosed)" :key="segment.id" v-model="selectedSegments" :value="segment.id" :label="t('views.session.segmentDescription', { number: String(index + 1).padStart(2, '0'), start: formatDuration(segment.startOffsetMs, true), size: formatBytes(segment.committedBytes) })" /></div><v-alert v-if="maintenanceError" type="error" class="mt-4">{{ maintenanceError }}</v-alert><template #actions><v-btn variant="text" @click="maintenanceOpen = false">{{ t('views.common.cancel') }}</v-btn><v-btn color="primary" :loading="maintenanceBusy" :disabled="!selectedSegments.length" @click="createMaintenance">{{ t('views.session.createJob') }}</v-btn></template></ContentCard></v-dialog>
     <v-snackbar v-model="jobCreated" color="surface-variant">{{ t('views.session.jobCreated') }}<template #actions><v-btn color="primary" to="/jobs">{{ t('views.session.view') }}</v-btn></template></v-snackbar>
     <v-snackbar v-model="segmentTrashed" color="surface-variant">{{ t('views.session.segmentTrashed') }}<template #actions><v-btn color="primary" to="/trash">{{ t('views.trash.title') }}</v-btn></template></v-snackbar>
-  </template>
+  </v-defaults-provider>
 </template>
 
 <script setup lang="ts">
@@ -179,6 +179,16 @@ const feedNavigationRevision = ref(0)
 const initialOffset = Math.max(0, Number(route.query.at) || 0)
 const requestedMarkerFileId = computed(() => typeof route.query.liveMarkerFileId === 'string' && route.query.liveMarkerFileId ? route.query.liveMarkerFileId : undefined)
 const player = ref<InstanceType<typeof MediaPlayer>>()
+const playbackLayout = ref<HTMLElement>()
+const playbackOverlayDefaults = computed(() =>
+{
+  const attach = playbackLayout.value
+  return {
+    VDialog: { attach, VMenu: { attach }, VTooltip: { attach } },
+    VMenu: { attach },
+    VTooltip: { attach },
+  }
+})
 const clipOpen = ref(false)
 const downloadOpen = ref(false)
 const transcodeOpen = ref(false)
@@ -389,9 +399,13 @@ async function createMaintenance(): Promise<void>
 
 <style scoped>
 .session-heading { display: flex; justify-content: space-between; align-items: center; }
-.playback-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 24px; align-items: start; }
+.playback-layout { --playback-sidebar-width: 360px; display: grid; grid-template-columns: minmax(0, 1fr) var(--playback-sidebar-width); gap: 24px; align-items: start; }
 .playback-feed { position: sticky; top: calc(var(--v-layout-top, 0px) + 24px); height: calc(100dvh - var(--v-layout-top, 0px) - 120px); }
 .playback-main { min-width: 0; }
+.playback-layout:fullscreen { width: 100%; height: 100%; grid-template-columns: minmax(0, 1fr) min(var(--playback-sidebar-width), 40vw); grid-template-rows: minmax(0, 1fr); gap: 0; align-items: stretch; background: rgb(var(--v-theme-background)); overflow: hidden; }
+.playback-layout:fullscreen .playback-main { min-height: 0; }
+.playback-layout:fullscreen .playback-main > :not(.playback-player) { display: none; }
+.playback-layout:fullscreen .playback-feed { position: static; height: 100%; border-radius: 0; border-block: 0; border-right: 0; }
 .session-meta { display: flex; flex-direction: column; gap: 10px; padding-top: 16px; }
 .session-meta h1 { margin: 0; font-size: 1.55rem; font-weight: 600; line-height: 1.4; letter-spacing: -.025em; overflow-wrap: anywhere; }
 .session-details { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; }
@@ -404,6 +418,6 @@ async function createMaintenance(): Promise<void>
 .session-segments :deep(.v-table) { border-top: 1px solid rgba(var(--v-theme-on-surface), .07); }
 .segment-action { width: 1%; text-align: center; white-space: nowrap; }
 .maintenance-segments { max-height: 380px; overflow-y: auto; }
-@media (min-width: 1600px) { .playback-layout { grid-template-columns: minmax(0, 1fr) 390px; } }
+@media (min-width: 1600px) { .playback-layout { --playback-sidebar-width: 390px; } }
 @media (max-width: 1200px) { .playback-layout { grid-template-columns: minmax(0, 1fr); } .playback-feed { position: static; height: calc(100dvh - var(--v-layout-top, 0px) - 48px); } }
 </style>

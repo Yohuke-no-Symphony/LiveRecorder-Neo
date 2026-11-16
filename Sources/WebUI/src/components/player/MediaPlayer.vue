@@ -40,7 +40,7 @@ import type { PlaybackLoadOptions } from '@/models/playbackLoadOptions'
 import { formatDuration, formatNumber } from '@/utilities/format'
 
 const { t } = useI18n()
-const props = defineProps<{ durationMs: number; gaps: TimelineGap[]; isLive: boolean; initialOffsetMs?: number; loadWindow: (offsetMs: number, options?: PlaybackLoadOptions) => Promise<PlaybackWindow | undefined>; timeline?: SessionTimeline; bookmarks?: SessionBookmark[]; selection?: ClipSelection; timelineLoading?: boolean; timelineError?: string }>()
+const props = defineProps<{ durationMs: number; gaps: TimelineGap[]; isLive: boolean; initialOffsetMs?: number; loadWindow: (offsetMs: number, options?: PlaybackLoadOptions) => Promise<PlaybackWindow | undefined>; timeline?: SessionTimeline; bookmarks?: SessionBookmark[]; selection?: ClipSelection; timelineLoading?: boolean; timelineError?: string; fullscreenTarget?: HTMLElement }>()
 const emit = defineEmits<{ navigate: []; refreshTimeline: [] }>()
 const currentMs = defineModel<number>({ required: true })
 const player = ref<HTMLElement>()
@@ -109,7 +109,7 @@ function setVolume(value: number): void
 function fullscreen(): void
 {
   if (document.fullscreenElement) { void document.exitFullscreen() }
-  else { void player.value?.requestFullscreen() }
+  else { void (props.fullscreenTarget ?? player.value)?.requestFullscreen() }
 }
 function onKeydown(event: KeyboardEvent): void
 {
@@ -130,13 +130,13 @@ video { display: block; width: 100%; height: 100%; object-fit: contain; }
 .gap-overlay { background: #0b0d11; color: #7d8594; font-size: .9rem; }
 .error-overlay { font-size: .88rem; background: #101216; }
 .play-overlay { background: #0002; }
-.player-controls { padding: 5px 12px 9px; }
+.player-controls { flex: 0 0 auto; padding: 5px 12px 9px; }
 .player-toolbar { flex-wrap: wrap; }
 .player-time { font-size: .72rem; padding: 0 5px; white-space: nowrap; color: #c8ccd5; }
 .time-divider { color: #697181; padding: 0 3px; }
 .volume-slider { max-width: 70px; min-width: 45px; margin: 0 7px; }
 .live-indicator { display: inline-block; width: 5px; height: 5px; border-radius: 100%; background: currentColor; margin-right: 6px; }
-.media-player:fullscreen { display: flex; flex-direction: column; border-radius: 0; }
-.media-player:fullscreen .video-stage { flex: 1; aspect-ratio: auto; min-height: 0; }
+.media-player:fullscreen, :fullscreen .media-player { display: flex; flex-direction: column; height: 100%; min-height: 0; border-radius: 0; }
+.media-player:fullscreen .video-stage, :fullscreen .media-player .video-stage { flex: 1; aspect-ratio: auto; min-height: 0; }
 @media(max-width: 600px) { .volume-slider { display: none; }.player-controls { padding-inline: 4px; }.player-time { font-size: .62rem; } }
 </style>
