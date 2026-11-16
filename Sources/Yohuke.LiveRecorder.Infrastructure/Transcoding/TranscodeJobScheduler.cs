@@ -121,9 +121,16 @@ public sealed class TranscodeJobScheduler(IMongoContext context, ISettingsStore 
     }
 
     /// <summary>续租当前任务并为节点分配至多一个预备任务。</summary>
-    public async Task<WorkerState> HeartbeatAsync(string workerId, WorkerHeartbeat heartbeat, CancellationToken cancellationToken)
+    public async Task<WorkerState> HeartbeatAsync(string workerId, WorkerHeartbeat heartbeat, CancellationToken cancellationToken,
+        string? authenticatedSecretHash = null)
     {
+        await using var identityLock = await WorkerIdentityLock.AcquireAsync(paths, workerId, cancellationToken);
         var worker = await workers.RequireAsync(workerId, cancellationToken);
+        TranscodeWorkerService.RequireCredential(worker, authenticatedSecretHash);
+        if (worker.Kind != "Transcoding")
+        {
+            throw new InfrastructureException("此节点不接受转码任务。", 409);
+        }
         var update = Builders<TranscodeWorker>.Update.Set(x => x.LastSeenAtUtc, DateTime.UtcNow)
             .Set(x => x.Telemetry, heartbeat.Telemetry).Set(x => x.AppliedConfigurationRevision, heartbeat.AppliedConfigurationRevision)
             .Set(x => x.ConfigurationError, heartbeat.ConfigurationError);
@@ -201,7 +208,7 @@ public sealed class TranscodeJobScheduler(IMongoContext context, ISettingsStore 
             var recent = DateTime.UtcNow.AddSeconds(-10);
             var candidates = await context.Collection<TranscodeWorker>("transcodeWorkers")
                 .Find(x => x.Enabled && x.Id != workerId && x.LastSeenAtUtc > recent && x.ConfigurationError == null).ToListAsync(cancellationToken);
-            var availableGpuWorkers = candidates.Where(x => x.AppliedConfigurationRevision == x.ConfigurationRevision
+            var availableGpuWorkers = candidates.Where(x => x.Kind == "Transcoding" && x.AppliedConfigurationRevision == x.ConfigurationRevision
                 && x.Telemetry.FreeBytes >= x.Configuration.MinimumFreeBytes
                 && x.Telemetry.RunningGpu + x.Telemetry.RunningCpu < x.Configuration.MaxConcurrentEncodes
                 && x.Telemetry.RunningGpu < x.Configuration.GpuConcurrency

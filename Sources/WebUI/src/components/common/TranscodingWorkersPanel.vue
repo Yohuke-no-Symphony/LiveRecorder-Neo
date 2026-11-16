@@ -1,5 +1,5 @@
 <template>
-  <ContentCard :title="t('transcoding.workers')">
+  <ContentCard :title="t(isClipping ? 'transcoding.clippingWorkers' : 'transcoding.workers')">
     <template #header-actions>
       <v-tooltip :text="t('transcoding.addWorker')"><template #activator="{ props: tooltipProps }"><v-btn v-bind="tooltipProps" icon="mdi-plus" variant="text" :disabled="busy" :aria-label="t('transcoding.addWorker')" @click="openCreate" /></template></v-tooltip>
       <v-btn icon="mdi-refresh" variant="text" :loading="loading" :aria-label="t('transcoding.refresh')" @click="refresh" />
@@ -10,29 +10,32 @@
       <article v-for="worker in workers" :key="worker.id" class="worker-row">
         <div class="d-flex align-center flex-wrap ga-3"><strong>{{ worker.name }}</strong><StatusChip :status="worker.enabled ? (isOnline(worker) ? 'active' : 'offline') : 'disabled'" /><span class="text-caption muted">{{ worker.capabilities?.operatingSystem }} {{ worker.capabilities?.architecture }}</span><v-spacer /><v-btn size="small" variant="text" @click="logWorker = worker">{{ t('transcoding.viewLogs') }}</v-btn><v-btn size="small" variant="text" :disabled="busy" @click="edit(worker)">{{ t('transcoding.editWorker') }}</v-btn><v-btn size="small" variant="text" :disabled="busy" @click="rotateTarget = worker">{{ t('transcoding.rotateKey') }}</v-btn><v-btn icon="mdi-delete-outline" size="small" variant="text" color="error" :disabled="busy" :aria-label="t('transcoding.deleteWorker')" @click="deleteTarget = worker" /></div>
         <div class="text-caption muted mt-2">{{ t('transcoding.workerId') }}: {{ worker.id }} · {{ t('transcoding.lastSeen') }}: {{ worker.lastSeenAtUtc ? formatDate(worker.lastSeenAtUtc) : '—' }}</div>
-        <div v-if="worker.telemetry" class="text-caption mt-2">CPU {{ worker.telemetry.cpuPercent === null ? '—' : `${Math.round(worker.telemetry.cpuPercent)}%` }} · GPU {{ worker.telemetry.runningGpu }} · CPU {{ worker.telemetry.runningCpu }} · {{ formatBytes(worker.telemetry.freeBytes) }}</div>
-        <div v-if="worker.capabilities?.encoders.length" class="d-flex flex-wrap ga-1 mt-2"><v-chip v-for="encoder in worker.capabilities.encoders" :key="`${encoder.encoder}:${encoder.deviceId}`" size="x-small" :color="encoder.available ? 'success' : 'warning'" :title="encoder.error || undefined">{{ encoder.encoder }}<template v-if="encoder.deviceId"> · {{ encoder.deviceId }}</template></v-chip></div>
+        <div v-if="worker.telemetry" class="text-caption mt-2"><template v-if="isClipping">{{ t('transcoding.runningJobs', { count: worker.telemetry.runningJobs ?? worker.telemetry.runningCpu + worker.telemetry.runningGpu }) }}</template><template v-else>CPU {{ worker.telemetry.cpuPercent === null ? '—' : `${Math.round(worker.telemetry.cpuPercent)}%` }} · GPU {{ worker.telemetry.runningGpu }} · CPU {{ worker.telemetry.runningCpu }}</template> · {{ formatBytes(worker.telemetry.freeBytes) }}</div>
+        <div v-if="!isClipping && worker.capabilities?.encoders.length" class="d-flex flex-wrap ga-1 mt-2"><v-chip v-for="encoder in worker.capabilities.encoders" :key="`${encoder.encoder}:${encoder.deviceId}`" size="x-small" :color="encoder.available ? 'success' : 'warning'" :title="encoder.error || undefined">{{ encoder.encoder }}<template v-if="encoder.deviceId"> · {{ encoder.deviceId }}</template></v-chip></div>
         <v-alert v-if="worker.configurationError" type="error" density="compact" class="mt-3">{{ worker.configurationError }}</v-alert>
         <p v-else-if="worker.configurationRevision !== worker.appliedConfigurationRevision" class="text-caption text-warning mt-2">{{ t('transcoding.configurationPending') }}</p>
-        <p v-if="worker.telemetry?.cpuUnavailableReason" class="text-caption muted mt-2">{{ worker.telemetry.cpuUnavailableReason }}</p>
+        <p v-if="!isClipping && worker.telemetry?.cpuUnavailableReason" class="text-caption muted mt-2">{{ worker.telemetry.cpuUnavailableReason }}</p>
       </article>
     </div>
-    <v-dialog :model-value="createOpen" max-width="480" :persistent="busy" @update:model-value="!$event && !busy && (createOpen = false)">
+    <v-dialog :model-value="createOpen" max-width="480" :persistent="busy" :aria-label="t('transcoding.addWorker')" @update:model-value="!$event && !busy && (createOpen = false)">
       <ContentCard :title="t('transcoding.addWorker')">
-        <v-alert v-if="error" type="error" class="mb-4">{{ error }}</v-alert>
-        <v-text-field v-model="newName" maxlength="100" :label="t('transcoding.workerName')" :disabled="busy" autofocus @keydown.enter.prevent="create" />
-        <template #actions><v-btn variant="text" :disabled="busy" @click="createOpen = false">{{ t('transcoding.cancel') }}</v-btn><v-btn color="primary" :disabled="!newName.trim() || newName.length > 100" :loading="busy" @click="create">{{ t('transcoding.addWorker') }}</v-btn></template>
+        <form :id="createFormId" class="form-stack" @submit.prevent="create">
+          <v-alert v-if="error" type="error">{{ error }}</v-alert>
+          <v-text-field v-model="newName" maxlength="100" :label="t('transcoding.workerName')" :disabled="busy" autofocus required />
+        </form>
+        <template #actions><v-btn variant="text" :disabled="busy" @click="createOpen = false">{{ t('transcoding.cancel') }}</v-btn><v-btn type="submit" :form="createFormId" color="primary" :disabled="!newName.trim() || newName.length > 100" :loading="busy">{{ t('transcoding.addWorker') }}</v-btn></template>
       </ContentCard>
     </v-dialog>
-    <v-dialog :model-value="!!draft" max-width="900" :persistent="busy" @update:model-value="!$event && !busy && (draft = undefined)">
+    <v-dialog :model-value="!!draft" :max-width="isClipping ? 650 : 900" :persistent="busy" scrollable :aria-label="t('transcoding.workerSettings')" @update:model-value="!$event && !busy && (draft = undefined)">
       <ContentCard v-if="draft" :title="t('transcoding.workerSettings')">
-        <v-alert v-if="editError" type="error" class="mb-4">{{ editError }}</v-alert>
-        <div class="worker-fields"><v-text-field v-model="draft.name" maxlength="100" :label="t('transcoding.workerName')" :disabled="busy" /><v-switch v-model="draft.enabled" :label="t('transcoding.workerEnabled')" :disabled="busy" /></div>
-        <div class="worker-fields"><v-text-field v-model="draft.configuration.ffmpegPath" :label="t('shell.settings.ffmpeg')" :disabled="busy" /><v-text-field v-model="draft.configuration.ffprobePath" :label="t('shell.settings.ffprobe')" :disabled="busy" /><v-text-field v-model="draft.configuration.tempDirectory" :label="t('transcoding.tempDirectory')" :disabled="busy" /><v-select :items="['auto', 'h264_qsv', 'h264_nvenc', 'h264_amf', 'h264_vaapi', 'h264_videotoolbox']" v-model="draft.configuration.preferredEncoder" :label="t('transcoding.preferredEncoder')" :disabled="busy" /><v-text-field v-model="draft.configuration.deviceId" :label="t('transcoding.deviceId')" clearable :disabled="busy" /></div>
-        <h3 class="text-subtitle-1 mb-4">{{ t('transcoding.scheduling') }}</h3>
-        <v-switch :model-value="draft.configuration.cpuFallbackMode === 'Balanced'" :label="t('transcoding.cpuFallback')" :hint="t('transcoding.cpuFallbackHint')" persistent-hint :disabled="busy" @update:model-value="draft.configuration.cpuFallbackMode = $event ? 'Balanced' : 'Disabled'" />
-        <div class="worker-fields mt-4"><v-text-field v-for="field in numericFields" :key="field.key" :model-value="draft.configuration[field.key] / (field.unit ?? 1)" :label="t(`transcoding.${field.label}`)" type="number" :min="field.min" :max="field.max" :step="field.step ?? 1" :disabled="busy" @update:model-value="setNumber(field.key, $event, field.unit ?? 1)" /></div>
-        <template #actions><v-btn variant="text" :disabled="busy" @click="draft = undefined">{{ t('transcoding.cancel') }}</v-btn><v-btn color="primary" :loading="busy" @click="save">{{ t('transcoding.saveWorker') }}</v-btn></template>
+        <form :id="editFormId" class="form-stack" @submit.prevent="save">
+          <v-alert v-if="editError" type="error">{{ editError }}</v-alert>
+          <div class="worker-fields"><v-text-field v-model="draft.name" maxlength="100" :label="t('transcoding.workerName')" :disabled="busy" required /><v-switch v-model="draft.enabled" :label="t('transcoding.workerEnabled')" :disabled="busy" /></div>
+          <div class="worker-fields"><v-text-field v-model="draft.configuration.ffmpegPath" :label="t('shell.settings.ffmpeg')" :disabled="busy" required /><v-text-field v-model="draft.configuration.ffprobePath" :label="t('shell.settings.ffprobe')" :disabled="busy" required /><v-text-field v-model="draft.configuration.tempDirectory" :label="t('transcoding.tempDirectory')" :disabled="busy" /><template v-if="!isClipping"><v-select :items="['auto', 'h264_qsv', 'h264_nvenc', 'h264_amf', 'h264_vaapi', 'h264_videotoolbox']" v-model="draft.configuration.preferredEncoder" :label="t('transcoding.preferredEncoder')" :disabled="busy" /><v-text-field v-model="draft.configuration.deviceId" :label="t('transcoding.deviceId')" clearable :disabled="busy" /></template></div>
+          <template v-if="!isClipping"><h3 class="section-heading">{{ t('transcoding.scheduling') }}</h3><v-switch :model-value="draft.configuration.cpuFallbackMode === 'Balanced'" :label="t('transcoding.cpuFallback')" :hint="t('transcoding.cpuFallbackHint')" persistent-hint :disabled="busy" @update:model-value="draft.configuration.cpuFallbackMode = $event ? 'Balanced' : 'Disabled'" /></template>
+          <div class="worker-fields"><v-text-field v-for="field in numericFields" :key="field.key" :model-value="draft.configuration[field.key] / (field.unit ?? 1)" :label="t(`transcoding.${field.label}`)" type="number" :min="field.min" :max="field.max" :step="field.step ?? 1" :disabled="busy" @update:model-value="setNumber(field.key, $event, field.unit ?? 1)" /></div>
+        </form>
+        <template #actions><v-btn variant="text" :disabled="busy" @click="draft = undefined">{{ t('transcoding.cancel') }}</v-btn><v-btn type="submit" :form="editFormId" color="primary" :loading="busy">{{ t('transcoding.saveWorker') }}</v-btn></template>
       </ContentCard>
     </v-dialog>
     <v-dialog :model-value="!!secret" max-width="650" @update:model-value="!$event && (secret = undefined)"><ContentCard v-if="secret" :title="t('transcoding.token')"><v-alert type="info" class="mb-4">{{ t('transcoding.keyCreated') }}</v-alert><v-text-field :model-value="secret.workerId" :label="t('transcoding.workerId')" readonly /><v-textarea :model-value="secret.value" :label="t('transcoding.token')" readonly rows="3" /><template #actions><v-btn color="primary" @click="secret = undefined">{{ t('transcoding.close') }}</v-btn></template></ContentCard></v-dialog>
@@ -43,12 +46,12 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { bandwidthInputBytes } from '@/models/bandwidth'
 import { TranscodingAPI } from '@/apis/TranscodingAPI'
 import { usePolling } from '@/composables/usePolling'
-import { isValidWorkerConfiguration, type TranscodingWorker, type WorkerConfiguration } from '@/models/transcoding'
+import { isValidWorkerConfiguration, type TranscodingWorker, type WorkerConfiguration, type WorkerKind } from '@/models/transcoding'
 import { formatBytes, formatDate } from '@/utilities/format'
 import ContentCard from './ContentCard.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -56,13 +59,20 @@ import StatusChip from './StatusChip.vue'
 import TranscodingLogDialog from './TranscodingLogDialog.vue'
 
 type NumericKey = { [K in keyof WorkerConfiguration]: WorkerConfiguration[K] extends number ? K : never }[keyof WorkerConfiguration]
-const numericFields: { key: NumericKey; label: string; min: number; max?: number; step?: number; unit?: number }[] = [
-  { key: 'maxConcurrentEncodes', label: 'totalConcurrency', min: 1, max: 64 }, { key: 'gpuConcurrency', label: 'gpuConcurrency', min: 0, max: 64 }, { key: 'cpuConcurrency', label: 'cpuConcurrency', min: 0, max: 64 },
-  { key: 'gpuWaitSeconds', label: 'cpuIdleSeconds', min: 0, max: 86400 }, { key: 'cpuSampleWindowSeconds', label: 'cpuAverageSeconds', min: 5, max: 300 }, { key: 'cpuLoadThreshold', label: 'cpuThreshold', min: 1, max: 100 }, { key: 'cpuThreadFraction', label: 'cpuThreadFraction', min: .01, max: 1, step: .05 },
-  { key: 'maxCacheBytes', label: 'cacheGiB', min: 1 / 1024, step: .5, unit: 1024 ** 3 }, { key: 'minimumFreeBytes', label: 'freeGiB', min: 0, step: .5, unit: 1024 ** 3 }, { key: 'downloadBytesPerSecond', label: 'downloadMiB', min: 0, step: .5, unit: 1024 ** 2 }, { key: 'uploadBytesPerSecond', label: 'uploadMiB', min: 0, step: .5, unit: 1024 ** 2 },
+const configurationFields: { key: NumericKey; label: string; min: number; max?: number; step?: number | 'any'; unit?: number; transcodingOnly?: boolean }[] = [
+  { key: 'maxConcurrentEncodes', label: 'totalConcurrency', min: 1, max: 64 }, { key: 'gpuConcurrency', label: 'gpuConcurrency', min: 0, max: 64, transcodingOnly: true }, { key: 'cpuConcurrency', label: 'cpuConcurrency', min: 0, max: 64, transcodingOnly: true },
+  { key: 'gpuWaitSeconds', label: 'cpuIdleSeconds', min: 0, max: 86400, transcodingOnly: true }, { key: 'cpuSampleWindowSeconds', label: 'cpuAverageSeconds', min: 5, max: 300, transcodingOnly: true }, { key: 'cpuLoadThreshold', label: 'cpuThreshold', min: 1, max: 100, step: 'any', transcodingOnly: true }, { key: 'cpuThreadFraction', label: 'cpuThreadFraction', min: .01, max: 1, step: 'any', transcodingOnly: true },
+  { key: 'maxCacheBytes', label: 'cacheGiB', min: 1 / 1024, step: 'any', unit: 1024 ** 3 }, { key: 'minimumFreeBytes', label: 'freeGiB', min: 0, step: 'any', unit: 1024 ** 3 }, { key: 'downloadBytesPerSecond', label: 'downloadMiB', min: 0, step: 'any', unit: 1024 ** 2 }, { key: 'uploadBytesPerSecond', label: 'uploadMiB', min: 0, step: 'any', unit: 1024 ** 2 },
 ]
 const { t } = useI18n()
-const workers = ref<TranscodingWorker[]>([])
+const props = withDefaults(defineProps<{ kind?: WorkerKind }>(), { kind: 'Transcoding' })
+const isClipping = computed(() => props.kind === 'Clipping')
+const numericFields = computed(() => configurationFields.filter(field => !isClipping.value || !field.transcodingOnly)
+  .map(field => isClipping.value && field.key === 'maxCacheBytes' ? { ...field, label: 'workspaceGiB' } : field))
+const allWorkers = ref<TranscodingWorker[]>([])
+const workers = computed(() => allWorkers.value.filter(worker => (worker.kind ?? 'Transcoding') === props.kind))
+const createFormId = useId()
+const editFormId = useId()
 const loading = ref(false)
 const busy = ref(false)
 const error = ref('')
@@ -87,7 +97,7 @@ async function refresh(): Promise<void>
   controller?.abort()
   controller = new AbortController()
   loading.value = true
-  try { const result = await TranscodingAPI.workers(controller.signal); if (!disposed && revision === requestRevision) { workers.value = result; loadError.value = '' } }
+  try { const result = await TranscodingAPI.workers(controller.signal); if (!disposed && revision === requestRevision) { allWorkers.value = result; loadError.value = '' } }
   catch (value) { if (!disposed && revision === requestRevision) { loadError.value = message(value) } }
   finally { if (!disposed && revision === requestRevision) { loading.value = false } }
 }
@@ -103,7 +113,7 @@ async function act(action: () => Promise<void>, editing = false): Promise<void>
 async function create(): Promise<void>
 {
   if (!createOpen.value || !newName.value.trim() || newName.value.length > 100) { return }
-  await act(async () => { const result = await TranscodingAPI.createWorker(newName.value.trim()); if (!disposed) { createOpen.value = false; secret.value = { workerId: result.worker.id, value: result.secret }; newName.value = '' } })
+  await act(async () => { const result = isClipping.value ? await TranscodingAPI.createWorker(newName.value.trim(), props.kind) : await TranscodingAPI.createWorker(newName.value.trim()); if (!disposed) { createOpen.value = false; secret.value = { workerId: result.worker.id, value: result.secret }; newName.value = '' } })
 }
 function openCreate(): void { if (!busy.value) { newName.value = ''; error.value = ''; createOpen.value = true } }
 function edit(worker: TranscodingWorker): void { draft.value = JSON.parse(JSON.stringify(worker)) as TranscodingWorker; editError.value = '' }
@@ -115,7 +125,7 @@ async function save(): Promise<void>
 {
   const value = draft.value
   if (!value) { return }
-  if (!value.name.trim() || value.name.length > 100 || !isValidWorkerConfiguration(value.configuration)) { editError.value = t('transcoding.invalidWorker'); return }
+  if (!value.name.trim() || value.name.length > 100 || !isValidWorkerConfiguration(value.configuration, props.kind)) { editError.value = t(isClipping.value ? 'transcoding.invalidClippingWorker' : 'transcoding.invalidWorker'); return }
   await act(async () => { await TranscodingAPI.updateWorker(value.id, { name: value.name.trim(), enabled: value.enabled, configuration: value.configuration, expectedRevision: value.configurationRevision }); if (!disposed) { draft.value = undefined } }, true)
 }
 async function remove(): Promise<void>
@@ -135,6 +145,6 @@ onBeforeUnmount(() => { disposed = true; requestRevision++; controller?.abort();
 <style scoped>
 .worker-list { display: flex; flex-direction: column; gap: 16px; }
 .worker-row { border: 1px solid rgba(var(--v-theme-on-surface), .12); border-radius: 12px; padding: 16px; overflow-wrap: anywhere; }
-.worker-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.worker-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ui-form-gap); }
 @media (max-width: 600px) { .worker-fields { grid-template-columns: minmax(0, 1fr); } }
 </style>

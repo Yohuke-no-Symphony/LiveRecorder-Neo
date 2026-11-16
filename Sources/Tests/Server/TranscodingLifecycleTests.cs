@@ -32,7 +32,7 @@ public sealed class TranscodingLifecycleTests
         session.AutoTranscodeEligible = true;
         await fixture.Mongo.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == session.Id, session);
         var assets = new TranscodeAssetRegistry(fixture.Mongo, fixture.Paths);
-        var workers = new TranscodeWorkerService(fixture.Mongo);
+        var workers = new TranscodeWorkerService(fixture.Mongo, fixture.Paths);
         var leases = new TranscodeLeaseService(fixture.Mongo, workers, assets);
         var scheduler = new TranscodeJobScheduler(fixture.Mongo, fixture.Settings, fixture.Paths,
             new LibraryService(fixture.Mongo, TimeProvider.System), assets, workers, leases);
@@ -70,7 +70,7 @@ public sealed class TranscodingLifecycleTests
         session.AutoTranscodeEligible = true;
         await fixture.Mongo.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == session.Id, session);
         var assets = new TranscodeAssetRegistry(fixture.Mongo, fixture.Paths);
-        var workers = new TranscodeWorkerService(fixture.Mongo);
+        var workers = new TranscodeWorkerService(fixture.Mongo, fixture.Paths);
         var leases = new TranscodeLeaseService(fixture.Mongo, workers, assets);
         var scheduler = new TranscodeJobScheduler(fixture.Mongo, fixture.Settings, fixture.Paths,
             new LibraryService(fixture.Mongo, TimeProvider.System), assets, workers, leases);
@@ -95,7 +95,7 @@ public sealed class TranscodingLifecycleTests
         fixture.Settings.Settings.Transcoding.Profiles[0].AutoTranscode = false;
         var (session, _) = await fixture.SeedSessionAsync();
         var assets = new TranscodeAssetRegistry(fixture.Mongo, fixture.Paths);
-        var workers = new TranscodeWorkerService(fixture.Mongo);
+        var workers = new TranscodeWorkerService(fixture.Mongo, fixture.Paths);
         var leases = new TranscodeLeaseService(fixture.Mongo, workers, assets);
         var scheduler = new TranscodeJobScheduler(fixture.Mongo, fixture.Settings, fixture.Paths,
             new LibraryService(fixture.Mongo, TimeProvider.System), assets, workers, leases);
@@ -145,7 +145,7 @@ public sealed class TranscodingLifecycleTests
         Assert.Equal(2, replaced.Count);
         var expectedProfiles = automatic ? new[] { "1080p", "720p" } : ["1080p"];
         Assert.All(replaced, segment => Assert.Equal(expectedProfiles, segment.PendingTranscodeProfileIds.Order(StringComparer.Ordinal)));
-        var workers = new TranscodeWorkerService(fixture.Mongo);
+        var workers = new TranscodeWorkerService(fixture.Mongo, fixture.Paths);
         var leases = new TranscodeLeaseService(fixture.Mongo, workers, assets);
         var scheduler = new TranscodeJobScheduler(fixture.Mongo, fixture.Settings, fixture.Paths,
             new LibraryService(fixture.Mongo, TimeProvider.System), assets, workers, leases);
@@ -194,7 +194,7 @@ public sealed class TranscodingLifecycleTests
         }
         await JsonFiles.WriteAsync(Path.Combine(directory, "completed.json"), rendition);
         await fixture.Mongo.Collection<TranscodeJob>("transcodeJobs").InsertOneAsync(job);
-        var workers = new TranscodeWorkerService(fixture.Mongo);
+        var workers = new TranscodeWorkerService(fixture.Mongo, fixture.Paths);
         var leases = new TranscodeLeaseService(fixture.Mongo, workers, assets);
         var library = new LibraryService(fixture.Mongo, TimeProvider.System);
         var scheduler = new TranscodeJobScheduler(fixture.Mongo, fixture.Settings, fixture.Paths, library, assets, workers, leases);
@@ -265,7 +265,7 @@ public sealed class TranscodingLifecycleTests
         Directory.CreateDirectory(directory);
         await File.WriteAllTextAsync(Path.Combine(directory, "completed.json"), "{}");
         await fixture.Mongo.Collection<TranscodeJob>("transcodeJobs").InsertOneAsync(job);
-        var workers = new TranscodeWorkerService(fixture.Mongo);
+        var workers = new TranscodeWorkerService(fixture.Mongo, fixture.Paths);
         var leases = new TranscodeLeaseService(fixture.Mongo, workers, assets);
         var scheduler = new TranscodeJobScheduler(fixture.Mongo, fixture.Settings, fixture.Paths,
             new LibraryService(fixture.Mongo, TimeProvider.System), assets, workers, leases);
@@ -329,7 +329,7 @@ public sealed class TranscodingLifecycleTests
             Assert.Null(cancelled.LeaseTokenHash);
             Assert.Null(cancelled.LeaseUntilUtc);
         }
-        var workers = new TranscodeWorkerService(fixture.Mongo);
+        var workers = new TranscodeWorkerService(fixture.Mongo, fixture.Paths);
         var leases = new TranscodeLeaseService(fixture.Mongo, workers, assets);
         var scheduler = new TranscodeJobScheduler(fixture.Mongo, fixture.Settings, fixture.Paths,
             new LibraryService(fixture.Mongo, TimeProvider.System), assets, workers, leases);

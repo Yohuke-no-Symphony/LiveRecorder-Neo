@@ -4,6 +4,8 @@ export const ORIGINAL_QUALITY_ID = 'original'
 export const MIN_TRANSCODE_PRIORITY = -2147483648
 export const MAX_TRANSCODE_PRIORITY = 2147483647
 
+export type WorkerKind = 'Transcoding' | 'Clipping'
+
 export interface TranscodingProfile
 {
   id: string
@@ -61,13 +63,14 @@ export interface PlaybackQuality
 export interface TranscodingWorker
 {
   id: string
+  kind?: WorkerKind
   name: string
   enabled: boolean
   configuration: WorkerConfiguration
   configurationRevision: number
   appliedConfigurationRevision: number
-  capabilities?: { operatingSystem: string; architecture: string; toolVersion: string; encoders: { encoder: string; deviceId: string | null; available: boolean; error?: string | null }[] } | null
-  telemetry?: { cpuPercent: number | null; cpuThreadBudget: number; runningGpu: number; runningCpu: number; freeBytes: number; cpuUnavailableReason?: string | null } | null
+  capabilities?: { operatingSystem: string; architecture: string; toolVersion: string; clippingVersion?: number; encoders: { encoder: string; deviceId: string | null; available: boolean; error?: string | null }[] } | null
+  telemetry?: { cpuPercent: number | null; cpuThreadBudget: number; runningGpu: number; runningCpu: number; runningJobs?: number; freeBytes: number; cpuUnavailableReason?: string | null } | null
   lastSeenAtUtc: string | null
   configurationError: string | null
 }
@@ -201,14 +204,16 @@ export function defaultWorkerConfiguration(): WorkerConfiguration
   return { ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe', tempDirectory: '', maxConcurrentEncodes: 2, gpuConcurrency: 1, cpuConcurrency: 1, cpuFallbackMode: 'Balanced', gpuWaitSeconds: 60, cpuLoadThreshold: 60, cpuSampleWindowSeconds: 30, cpuThreadFraction: .5, preferredEncoder: 'auto', deviceId: null, maxCacheBytes: 20 * 1024 ** 3, minimumFreeBytes: 2 * 1024 ** 3, downloadBytesPerSecond: 0, uploadBytesPerSecond: 0 }
 }
 
-export function isValidWorkerConfiguration(value: WorkerConfiguration): boolean
+export function isValidWorkerConfiguration(value: WorkerConfiguration, kind: WorkerKind = 'Transcoding'): boolean
 {
   const integer = (number: number, min: number, max = Number.MAX_SAFE_INTEGER) => Number.isSafeInteger(number) && number >= min && number <= max
-  return !!value.ffmpegPath.trim() && !!value.ffprobePath.trim() && value.ffmpegPath.length <= 4096 && value.ffprobePath.length <= 4096 && value.tempDirectory.length <= 4096
-    && integer(value.maxConcurrentEncodes, 1, 64) && integer(value.gpuConcurrency, 0, 64) && integer(value.cpuConcurrency, 0, 64) && value.gpuConcurrency + value.cpuConcurrency > 0
+  const commonValid = !!value.ffmpegPath.trim() && !!value.ffprobePath.trim() && value.ffmpegPath.length <= 4096 && value.ffprobePath.length <= 4096 && value.tempDirectory.length <= 4096
+    && integer(value.maxConcurrentEncodes, 1, 64)
+    && integer(value.maxCacheBytes, 1024 ** 2) && integer(value.minimumFreeBytes, 0) && integer(value.downloadBytesPerSecond, 0) && integer(value.uploadBytesPerSecond, 0)
+  if (kind === 'Clipping') { return commonValid }
+  return commonValid && integer(value.gpuConcurrency, 0, 64) && integer(value.cpuConcurrency, 0, 64) && value.gpuConcurrency + value.cpuConcurrency > 0
     && ['Balanced', 'Disabled'].includes(value.cpuFallbackMode) && integer(value.gpuWaitSeconds, 0, 86400) && integer(value.cpuSampleWindowSeconds, 5, 300)
     && Number.isFinite(value.cpuLoadThreshold) && value.cpuLoadThreshold > 0 && value.cpuLoadThreshold <= 100
     && Number.isFinite(value.cpuThreadFraction) && value.cpuThreadFraction > 0 && value.cpuThreadFraction <= 1
-    && integer(value.maxCacheBytes, 1024 ** 2) && integer(value.minimumFreeBytes, 0) && integer(value.downloadBytesPerSecond, 0) && integer(value.uploadBytesPerSecond, 0)
     && ['auto', 'h264_qsv', 'h264_nvenc', 'h264_amf', 'h264_vaapi', 'h264_videotoolbox'].includes(value.preferredEncoder) && (value.deviceId?.length ?? 0) <= 1024
 }

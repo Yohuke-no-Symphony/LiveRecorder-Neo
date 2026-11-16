@@ -93,7 +93,7 @@ internal sealed class MediaFileReferenceService(IMongoContext context, IAppPaths
                 AddSegment(result, sessions.FirstOrDefault(x => x.Id == job.SessionId)?.DirectoryPath, segment);
             }
         }
-        foreach (var clip in await context.Collection<Clip>("clips").Find(x => !x.IsTrashed)
+        foreach (var clip in await context.Collection<Clip>("clips").Find(x => !x.IsTrashed || x.PublicationPending)
                      .ToListAsync(cancellationToken))
         {
             AddPath(result, clip.RelativePath);

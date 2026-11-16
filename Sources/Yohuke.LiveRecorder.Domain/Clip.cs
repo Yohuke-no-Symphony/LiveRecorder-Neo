@@ -14,4 +14,5 @@ public sealed class Clip : Entity
     public DateTime ExpiresAtUtc { get; set; }
     public bool IsTrashed { get; set; }
     public int PublicationAttempt { get; set; }
+    public bool PublicationPending { get; set; }
 }

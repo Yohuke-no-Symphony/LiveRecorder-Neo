@@ -220,7 +220,7 @@ public sealed class TranscodingPriorityTests
     {
         var assets = new TranscodeAssetRegistry(fixture.Mongo, fixture.Paths);
         await assets.EnsureIndexesAsync();
-        var workers = new TranscodeWorkerService(fixture.Mongo);
+        var workers = new TranscodeWorkerService(fixture.Mongo, fixture.Paths);
         return new(fixture.Mongo, fixture.Settings, fixture.Paths, new LibraryService(fixture.Mongo, TimeProvider.System),
             assets, workers, new(fixture.Mongo, workers, assets));
     }

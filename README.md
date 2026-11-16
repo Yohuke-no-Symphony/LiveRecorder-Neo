@@ -10,7 +10,8 @@
   <a href="#快速部署">快速部署</a> ·
   <a href="#功能">功能介绍</a> ·
   <a href="Sources/README.md">开发文档</a> ·
-  <a href="Sources/Yohuke.LiveRecorder.Transcoding.Worker/README.md">转码节点</a>
+  <a href="Sources/Yohuke.LiveRecorder.Transcoding.Worker/README.md">转码节点</a> ·
+  <a href="Sources/Yohuke.LiveRecorder.Clipping.Worker/README.md">切片节点</a>
 </p>
 
 ## 功能
@@ -19,6 +20,7 @@
 - **录播整理**：按主播和场次浏览，支持归组、拆分、修复、合并、回收站和自动清理。
 - **在线回放**：边录边看、弹幕回放、清晰度切换、原片下载与切片导出。
 - **分布式转码**：独立 Worker 支持 GPU 编码和多清晰度 HLS，保留原画。
+- **分布式切片**：独立 Worker 按需下载关键帧范围，回传 MP4 成品后清理任务临时文件。
 - **直播记录**：导入 Danmu Neo 的 YAML 记录，校准时间，点击记录跳转播放。
 - **统计分析**：查看弹幕、SC、礼物、大航海和在线人数，按时间筛选并导出 Excel。
 - **AI 复盘**：接入支持工具调用的模型，根据弹幕和 SC 生成话题总结与直播记录。

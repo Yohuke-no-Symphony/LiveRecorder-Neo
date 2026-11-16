@@ -4,17 +4,17 @@
 
 ## 快速部署
 
-1. 安装 FFmpeg、ffprobe 和所需 GPU 驱动，从 [Releases](https://github.com/Yohuke-no-Symphony/LiveRecorder-Neo/releases/latest) 下载并解压 `worker-*.zip`。发布包自带 .NET 运行时，未提供的平台可[从源码发布](#从源码发布)。
+1. 安装 FFmpeg、ffprobe 和所需 GPU 驱动，从 [Releases](https://github.com/Yohuke-no-Symphony/LiveRecorder-Neo/releases/latest) 下载对应平台的 `workers-<版本>-<平台>.zip`，解压后进入 `transcoding/` 目录。发布包自带 .NET 运行时，未提供的平台可[从源码发布](#从源码发布)。
 2. 在主站「设置 → 转码」创建 Worker，保存节点 ID 与一次性 Secret；确认网站地址和 TCP 控制端口可达，默认控制端口为 `4790`。
 3. 在解压目录运行：
 
    ```sh
-   chmod +x ./ylr-worker
-   ./ylr-worker register
-   ./ylr-worker run
+   chmod +x ./ylr-tc-worker
+   ./ylr-tc-worker register
+   ./ylr-tc-worker run
    ```
 
-   Windows 跳过 `chmod`，使用 `.\ylr-worker.exe`。注册向导填写主站地址、控制地址、TLS 选项、ID 和 Secret，并配置临时目录及媒体工具；Ctrl+C 停止前台运行。
+   Windows 跳过 `chmod`，使用 `.\ylr-tc-worker.exe`。注册向导填写主站地址、控制地址、TLS 选项、ID 和 Secret，并配置临时目录及媒体工具；Ctrl+C 停止前台运行。
 
 网站 HTTP/HTTPS 与 TCP 控制通道分别配置。主站 `TranscodingControl:UseTls` 与节点 `ControlUseTls` 必须一致；内网不使用证书时均设为 `false`。HTTP 反向代理不能直接转发 TCP 控制端口。
 
@@ -23,9 +23,9 @@
 注册后将连接信息和运行参数保存到可执行文件旁的 `settings.json`，也可指定固定路径：
 
 ```sh
-./ylr-worker register --config /absolute/path/settings.json
-./ylr-worker config --config /absolute/path/settings.json
-./ylr-worker run --config /absolute/path/settings.json
+./ylr-tc-worker register --config /absolute/path/settings.json
+./ylr-tc-worker config --config /absolute/path/settings.json
+./ylr-tc-worker run --config /absolute/path/settings.json
 ```
 
 `config` 修改 FFmpeg、ffprobe、临时目录、并发、设备、缓存和传输限额。路径属于节点机器；运行账户须可读写设置文件与临时目录。临时空间应能容纳完整原片和转码输出。
@@ -41,9 +41,9 @@
 将程序放在固定目录，在管理员终端执行；macOS/Linux 使用 `sudo`，Windows 使用管理员 PowerShell：
 
 ```sh
-sudo ./ylr-worker install --config /absolute/path/settings.json
-sudo ./ylr-worker enable
-sudo ./ylr-worker start
+sudo ./ylr-tc-worker install --config /absolute/path/settings.json
+sudo ./ylr-tc-worker enable
+sudo ./ylr-tc-worker start
 ```
 
 安装后默认停止且不开机启动，`start` 和 `enable` 分别控制运行与开机启动。
@@ -82,8 +82,24 @@ FFmpeg 需包含对应编码器，驱动与设备权限需可用；Linux QSV/VAA
 在仓库根目录执行，需要 .NET 10 SDK 和 PowerShell：
 
 ```powershell
-pwsh ./release-worker.ps1 -Runtime win-x64 --version 1.2.3
-pwsh ./release-worker.ps1 --all --version 1.2.3
+pwsh ./release-worker.ps1 -Runtime win-x64 --version 0.2.0
+pwsh ./release-worker.ps1 --all --version 0.2.0
 ```
 
-默认 `linux-x64`，支持 `linux-arm64`、`win-x64`、`osx-x64`、`osx-arm64`；`--version` 可省略。产物在 `Artifacts/worker/<version>/<runtime>/`，压缩包为 `Artifacts/worker/<version>/worker-<version>-<runtime>.zip`，解压后直接得到运行文件。
+默认 `linux-x64`，支持 `linux-arm64`、`win-x64`、`osx-x64`、`osx-arm64`；`--version` 可省略，省略时读取转码项目的版本，并用于包内所有 Worker。每个平台生成一个 `Artifacts/workers/<version>/workers-<version>-<runtime>.zip`，同时包含转码和切片程序。
+
+发布出的散文件保留在 `Artifacts/workers/<version>/<runtime>/`，其下同样包含 `transcoding/` 和 `clip/`。ZIP 使用本次的干净发布内容生成，包内结构如下：
+
+```text
+workers-0.2.0-win-x64.zip
+├── transcoding/
+│   ├── ylr-tc-worker.exe
+│   ├── settings.example.json
+│   ├── README.md
+│   └── LICENSE
+└── clip/
+    ├── ylr-clip-worker.exe
+    ├── settings.example.json
+    ├── README.md
+    └── LICENSE
+```

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <AssemblyName>ylr-worker</AssemblyName>
+    <AssemblyName>ylr-tc-worker</AssemblyName>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
@@ -9,9 +9,8 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Spectre.Console" Version="0.57.2" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.13" />
     <ProjectReference Include="../Yohuke.LiveRecorder.Transcoding.Contracts/Yohuke.LiveRecorder.Transcoding.Contracts.csproj" />
+    <ProjectReference Include="../Yohuke.LiveRecorder.Worker.Common/Yohuke.LiveRecorder.Worker.Common.csproj" />
     <InternalsVisibleTo Include="Yohuke.LiveRecorder.Transcoding.Worker.Tests" />
     <InternalsVisibleTo Include="Yohuke.LiveRecorder.Http.Tests" />
   </ItemGroup>

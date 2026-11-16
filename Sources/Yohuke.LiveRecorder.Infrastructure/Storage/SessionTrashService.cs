@@ -545,7 +545,7 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
             .ToListAsync(cancellationToken);
         if (includeDerivedOutputs)
         {
-            var clips = await context.Collection<Clip>("clips").Find(x => !x.IsTrashed).ToListAsync(cancellationToken);
+            var clips = await context.Collection<Clip>("clips").Find(x => !x.IsTrashed || x.PublicationPending).ToListAsync(cancellationToken);
             var clipIntents = await context.Collection<TrashEntry>("trash").Find(x => x.Kind == "Clip" &&
                 (x.State == "Pending" || x.State == "Moving" || x.State == "Restoring")).ToListAsync(cancellationToken);
             if (clips.Any(x => IsInside(x.RelativePath, directory)) ||
@@ -641,7 +641,7 @@ public sealed class SessionTrashService(IMongoContext context, ISettingsStore se
         }
         var jobs = await context.Collection<MediaJob>("jobs").Find(x => x.State == "Completed" && x.Kind != "Clip")
             .ToListAsync(cancellationToken);
-        var clips = await context.Collection<Clip>("clips").Find(x => !x.IsTrashed).ToListAsync(cancellationToken);
+        var clips = await context.Collection<Clip>("clips").Find(x => !x.IsTrashed || x.PublicationPending).ToListAsync(cancellationToken);
         var intents = await context.Collection<TrashEntry>("trash").Find(x => x.Kind == "Clip" &&
                                                                               (x.State == "Pending" ||
                                                                                x.State == "Moving" ||

@@ -125,6 +125,15 @@ afterEach(() =>
 
 describe('清晰度设置', () =>
 {
+  it('切片设置入口将正确的节点类型传给共享管理面板', async () =>
+  {
+    const wrapper = await openTranscoding()
+    wrapper.findComponent(tabs).vm.$emit('update:modelValue', 'clipping')
+    await nextTick()
+    expect(wrapper.find('transcoding-workers-panel-stub').attributes('kind')).toBe('Clipping')
+    expect(MediaAPI.updateSettings).not.toHaveBeenCalled()
+  })
+
   it('旧配置默认720p，原画可设默认，编辑与排序在保存前不写后台', async () =>
   {
     const wrapper = await openTranscoding()
@@ -479,5 +488,18 @@ describe('清晰度设置', () =>
     worker.gpuConcurrency = 1
     worker.cpuSampleWindowSeconds = 4
     expect(isValidWorkerConfiguration(worker)).toBe(false)
+  })
+
+  it('切片节点校验共用参数并独立于转码设备能力', () =>
+  {
+    const worker = defaultWorkerConfiguration()
+    worker.gpuConcurrency = worker.cpuConcurrency = 0
+    worker.cpuSampleWindowSeconds = 0
+    expect(isValidWorkerConfiguration(worker, 'Clipping')).toBe(true)
+    worker.maxConcurrentEncodes = 0
+    expect(isValidWorkerConfiguration(worker, 'Clipping')).toBe(false)
+    worker.maxConcurrentEncodes = 2
+    worker.downloadBytesPerSecond = Number.NaN
+    expect(isValidWorkerConfiguration(worker, 'Clipping')).toBe(false)
   })
 })

@@ -9,6 +9,7 @@ using Yohuke.LiveRecorder.Application.Library;
 using Yohuke.LiveRecorder.Application.Media;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
+using Yohuke.LiveRecorder.Infrastructure.Clipping;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Library;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
@@ -19,7 +20,7 @@ using Yohuke.LiveRecorder.Infrastructure.Transcoding;
 namespace Yohuke.LiveRecorder.Infrastructure.Jobs;
 
 /// <summary>以有效租约、不可变完成清单和有身份的媒体版本执行后台作业。</summary>
-public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootstrap, ISettingsStore settingsStore, IMediaProcessor processor, IStatusPublisher publisher, StorageService storage, ILogger<MediaJobWorker> logger, IAppPaths paths) : BackgroundService
+public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootstrap, ISettingsStore settingsStore, IMediaProcessor processor, IStatusPublisher publisher, StorageService storage, ILogger<MediaJobWorker> logger, IAppPaths paths, ClippingJobScheduler? clipping = null) : BackgroundService
 {
     private readonly string workerId = Guid.NewGuid().ToString("N");
     private readonly List<Task> running = [];
@@ -45,10 +46,11 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
                     if (running.Count < settings.MediaConcurrency && await storage.GetFreeBytesAsync(stoppingToken) > StorageService.MediaThreshold(settings))
                     {
                         var now = DateTime.UtcNow;
-                        var job = await context.Collection<MediaJob>("jobs").FindOneAndUpdateAsync(x => !x.CancelRequested &&
-                            (x.State == "Queued" || ((x.State == "Running" || x.State == "Publishing") && (x.LeaseUntilUtc == null || x.LeaseUntilUtc < now))),
-                            Builders<MediaJob>.Update.Set(x => x.State, "Running").Set(x => x.LeaseOwner, workerId).Set(x => x.LeaseUntilUtc, now.AddSeconds(90)).Inc(x => x.Attempt, 1),
-                            new FindOneAndUpdateOptions<MediaJob> { ReturnDocument = ReturnDocument.After, Sort = Builders<MediaJob>.Sort.Ascending(x => x.CreatedAtUtc) }, stoppingToken);
+                        var deferred = clipping is null ? Array.Empty<string>() : (await clipping.GetRemoteEligibleJobIdsAsync(stoppingToken)).ToArray();
+                        var pending = Builders<MediaJob>.Filter.Where(x => !x.CancelRequested &&
+                            (x.State == "Queued" || ((x.State == "Running" || x.State == "Publishing") && (x.LeaseUntilUtc == null || x.LeaseUntilUtc < now))))
+                            & Builders<MediaJob>.Filter.Nin(x => x.Id, deferred);
+                        var job = await ClaimAsync(pending, now, stoppingToken);
                         if (job is not null)
                         {
                             running.Add(ExecuteJobAsync(job, stoppingToken));
@@ -76,6 +78,23 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
         await Task.WhenAll(running);
     }
 
+    private async Task<MediaJob?> ClaimAsync(FilterDefinition<MediaJob> pending, DateTime now, CancellationToken cancellationToken)
+    {
+        var jobs = context.Collection<MediaJob>("jobs");
+        var candidate = await jobs.Find(pending).SortBy(value => value.CreatedAtUtc).FirstOrDefaultAsync(cancellationToken);
+        if (candidate is null)
+        {
+            return null;
+        }
+        await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, candidate.Id, cancellationToken);
+        return await jobs.FindOneAndUpdateAsync(pending & Builders<MediaJob>.Filter.Eq(value => value.Id, candidate.Id),
+            Builders<MediaJob>.Update.Set(value => value.State, "Running").Set(value => value.LeaseOwner, workerId)
+                .Set(value => value.LeaseUntilUtc, now.AddSeconds(90)).Set(value => value.RemoteWorkerId, null)
+                .Set(value => value.RemoteLeaseTokenHash, null).Set(value => value.RemoteAssignment, null).Set(value => value.RemoteSources, [])
+                .Set(value => value.RemoteOutputSha256, null).Inc(value => value.Attempt, 1),
+            new FindOneAndUpdateOptions<MediaJob> { ReturnDocument = ReturnDocument.After }, cancellationToken);
+    }
+
     private async Task ExecuteJobAsync(MediaJob job, CancellationToken stoppingToken)
     {
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
@@ -101,6 +120,9 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
             Directory.CreateDirectory(jobRoot);
             var manifest = await RecoverOutputAsync(job, session, jobRoot, paths.RecordsDirectory, cancellation.Token)
                            ?? await ProcessAsync(job, session, jobRoot, cancellation.Token);
+            await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, job.Id, cancellation.Token);
+            await using var libraryLock = job.Kind is "Clip" or "Repair"
+                ? await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellation.Token) : null;
             var publishing = await context.Collection<MediaJob>("jobs").UpdateOneAsync(Fence(job), Builders<MediaJob>.Update.Set(x => x.State, "Publishing"), cancellationToken: cancellation.Token);
             if (publishing.MatchedCount == 0)
             {
@@ -114,6 +136,10 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
             completed = changed.MatchedCount > 0;
             if (completed)
             {
+                if (job.Kind == "Clip")
+                {
+                    await new ClipPublicationService(context, paths).ActivateAsync(job, cancellation.Token);
+                }
                 await publisher.PublishAsync("job", job.Id, job.OwnerId, cancellation.Token);
             }
         }
@@ -121,6 +147,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
         {
             try
             {
+                await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, job.Id);
                 var current = await context.Collection<MediaJob>("jobs").Find(x => x.Id == job.Id).FirstOrDefaultAsync(CancellationToken.None);
                 var state = current?.CancelRequested == true ? "Cancelled" : stoppingToken.IsCancellationRequested ? "Queued" : "Failed";
                 var errorCode = job.ErrorCode ?? (error as InfrastructureException)?.Code ?? MessageCode.JOB_PROCESSING_FAILED.ToString();
@@ -170,7 +197,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
         Directory.CreateDirectory(attemptDirectory);
         var manifest = JobOutputManifest.Create(job);
         var sessionDirectory = MediaPaths.Resolve(paths.RecordsDirectory, session.DirectoryPath);
-        var outputDirectory = OutputDirectory(job, session, paths.RecordsDirectory, job.Attempt);
+        var outputDirectory = MediaJobFiles.OutputDirectory(job, session, paths.RecordsDirectory, job.Attempt);
         Directory.CreateDirectory(outputDirectory);
         var progress = new JobProgressReporter(context, publisher, job, workerId);
         if (job.Kind == "Repair")
@@ -252,43 +279,17 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
 
     private async Task PublishAsync(MediaJob job, BroadcastSession session, JobOutputManifest manifest, ServerSettings settings, CancellationToken cancellationToken)
     {
-        var sessionDirectory = MediaPaths.Resolve(paths.RecordsDirectory, session.DirectoryPath);
-        await using var publicationLock = await AcquirePublicationLockAsync(sessionDirectory, cancellationToken);
-        var lease = await RequireLeaseAsync(job, cancellationToken);
         if (job.Kind == "Clip")
         {
-            var clips = context.Collection<Clip>("clips");
-            try
-            {
-                await clips.InsertOneAsync(new() { Id = job.Id, IsTrashed = true }, cancellationToken: cancellationToken);
-            }
-            catch (MongoWriteException error) when (error.WriteError.Category == ServerErrorCategory.DuplicateKey)
-            {
-            }
-            lease = await RequireLeaseAsync(job, cancellationToken);
-            var clip = new Clip
-            {
-                Id = job.Id,
-                OwnerId = job.OwnerId,
-                SessionId = job.SessionId,
-                JobId = job.Id,
-                Title = job.Title,
-                RelativePath = manifest.Paths.Single(),
-                Bytes = new FileInfo(MediaPaths.Resolve(paths.RecordsDirectory, manifest.Paths.Single())).Length,
-                StartMs = manifest.ActualStartMs,
-                EndMs = manifest.ActualEndMs,
-                ExpiresAtUtc = DateTime.UtcNow.AddDays(settings.ClipRetentionDays),
-                PublicationAttempt = job.Attempt
-            };
-            var changed = await clips.ReplaceOneAsync(LiveWrite(Builders<Clip>.Filter.Where(x => x.Id == job.Id && x.PublicationAttempt <= job.Attempt), lease), clip, cancellationToken: cancellationToken);
-            if (changed.MatchedCount == 0)
-            {
-                throw new OperationCanceledException("切片发布执行权已失效。", cancellationToken);
-            }
+            await new ClipPublicationService(context, paths).PublishAsync(job, session, manifest, settings,
+                token => RequireLeaseAsync(job, token), cancellationToken);
+            return;
         }
-        else if (job.Kind == "Repair")
+        var sessionDirectory = MediaPaths.Resolve(paths.RecordsDirectory, session.DirectoryPath);
+        await using var publicationLock = await MediaJobFiles.AcquirePublicationLockAsync(sessionDirectory, cancellationToken);
+        var lease = await RequireLeaseAsync(job, cancellationToken);
+        if (job.Kind == "Repair")
         {
-            await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
             var affectedAssets = job.SourceSegments.Select(segment => TranscodeAssetRegistry.AssetId(session, segment)).ToArray();
             await new TranscodeLifecycle(context, paths).MarkDirtyAsync(affectedAssets, cancellationToken);
             session = await context.Collection<BroadcastSession>("sessions").Find(x => x.Id == job.SessionId).FirstAsync(cancellationToken);
@@ -417,7 +418,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
                 {
                     continue;
                 }
-                var outputDirectory = OutputDirectory(job, session, root, manifest.Attempt);
+                var outputDirectory = MediaJobFiles.OutputDirectory(job, session, root, manifest.Attempt);
                 foreach (var artifact in manifest.ArtifactLengths)
                 {
                     var path = MediaPaths.Resolve(root, artifact.Key);
@@ -533,9 +534,16 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
     private async Task FinalizeExpiredCancellationsAsync(CancellationToken cancellationToken)
     {
         var now = DateTime.UtcNow;
-        await context.Collection<MediaJob>("jobs").UpdateManyAsync(x => x.CancelRequested && (x.State == "Running" || x.State == "Publishing") && (x.LeaseUntilUtc == null || x.LeaseUntilUtc < now),
-            Builders<MediaJob>.Update.Set(x => x.State, "Cancelled").Set(x => x.Error, null).Set(x => x.ErrorCode, null).Set(x => x.ErrorArguments, [])
-                .Set(x => x.MutationKey, null).Set(x => x.LeaseOwner, null).Set(x => x.LeaseUntilUtc, null).Set(x => x.FinishedAtUtc, now), cancellationToken: cancellationToken);
+        var jobs = context.Collection<MediaJob>("jobs");
+        var expired = Builders<MediaJob>.Filter.Where(x => x.CancelRequested && (x.State == "Running" || x.State == "Publishing")
+            && (x.LeaseUntilUtc == null || x.LeaseUntilUtc < now));
+        foreach (var job in await jobs.Find(expired).ToListAsync(cancellationToken))
+        {
+            await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, job.Id, cancellationToken);
+            await jobs.UpdateOneAsync(expired & Builders<MediaJob>.Filter.Eq(x => x.Id, job.Id),
+                Builders<MediaJob>.Update.Set(x => x.State, "Cancelled").Set(x => x.Error, null).Set(x => x.ErrorCode, null).Set(x => x.ErrorArguments, [])
+                    .Set(x => x.MutationKey, null).Set(x => x.LeaseOwner, null).Set(x => x.LeaseUntilUtc, null).Set(x => x.FinishedAtUtc, now), cancellationToken: cancellationToken);
+        }
     }
 
     private FilterDefinition<MediaJob> Fence(MediaJob job, bool allowCancellation = false)
@@ -550,13 +558,6 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
         return filter & new BsonDocument("$expr", new BsonDocument("$gt", new BsonArray { new BsonDateTime(lease.LeaseUntilUtc!.Value), "$$NOW" }));
     }
 
-    private static string OutputDirectory(MediaJob job, BroadcastSession session, string root, int attempt)
-    {
-        var sessionDirectory = MediaPaths.Resolve(root, session.DirectoryPath);
-        var kind = job.Kind == "Clip" ? Path.Combine("切片", job.OwnerId, job.Id) : Path.Combine(job.Kind == "Repair" ? "修复" : "合并", job.Id);
-        return MediaPaths.Resolve(sessionDirectory, Path.Combine(kind, "v" + attempt));
-    }
-
     private static void RequireOutputPath(string path, string directory)
     {
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
@@ -565,24 +566,6 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
             throw new InvalidDataException("产物路径不在当前作业版本目录中。");
         }
         MediaPaths.Resolve(directory, Path.GetRelativePath(directory, path));
-    }
-
-    private static async Task<FileStream> AcquirePublicationLockAsync(string directory, CancellationToken cancellationToken)
-    {
-        Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, ".media-publication.lock");
-        while (true)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                return new(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-            }
-            catch (IOException)
-            {
-                await Task.Delay(100, cancellationToken);
-            }
-        }
     }
 
     private async Task CleanupTerminalWorkAsync(CancellationToken cancellationToken)
@@ -611,10 +594,21 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
 
     private async Task CleanupWorkAsync(MediaJob job, BroadcastSession? session, string directory, bool completed)
     {
+        await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, job.Id);
         var current = await context.Collection<MediaJob>("jobs").Find(x => x.Id == job.Id).FirstOrDefaultAsync();
         if (current is null || current.Attempt != job.Attempt || current.LeaseOwner is not null || current.State is "Running" or "Publishing" or "Queued")
         {
             return;
+        }
+        if (current.State == "Completed" && current.Kind == "Clip")
+        {
+            await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, CancellationToken.None);
+            await new ClipPublicationService(context, paths).ActivateAsync(current, CancellationToken.None);
+        }
+        else if (current.Kind == "Clip")
+        {
+            await context.Collection<Clip>("clips").DeleteOneAsync(value => value.JobId == current.Id
+                && value.PublicationAttempt <= current.Attempt && value.PublicationPending, CancellationToken.None);
         }
         if (!Directory.Exists(directory))
         {
@@ -657,7 +651,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
         }
         if (session is not null && !File.Exists(Path.Combine(directory, job.Attempt.ToString(), "completed.json")))
         {
-            var output = OutputDirectory(job, session, paths.RecordsDirectory, job.Attempt);
+            var output = MediaJobFiles.OutputDirectory(job, session, paths.RecordsDirectory, job.Attempt);
             var sourcePaths = job.SourceSegments.Select(segment => MediaPaths.ResolveSegment(paths.RecordsDirectory, session.DirectoryPath, segment));
             var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
             if (Directory.Exists(output) && !sourcePaths.Any(path => path.StartsWith(Path.TrimEndingDirectorySeparator(output) + Path.DirectorySeparatorChar, comparison)))

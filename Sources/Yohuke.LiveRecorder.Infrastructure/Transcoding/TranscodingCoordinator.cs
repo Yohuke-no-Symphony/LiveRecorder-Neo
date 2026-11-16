@@ -1,16 +1,19 @@
 using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Infrastructure.Clipping;
 using Yohuke.LiveRecorder.Transcoding.Contracts;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Transcoding;
 
 /// <summary>向主站管理、控制连接和媒体传输端点提供一致的转码边界。</summary>
 public sealed class TranscodingCoordinator(TranscodeWorkerService workers, TranscodeJobScheduler scheduler,
-    TranscodeTransferService transfers, TranscodeRenditionCatalog catalog, TranscodeWorkerLogStore logs)
+    TranscodeTransferService transfers, TranscodeRenditionCatalog catalog, TranscodeWorkerLogStore logs, ClippingJobScheduler clipping)
 {
     /// <summary>读取已登记节点。</summary>
     public Task<IReadOnlyList<TranscodeWorker>> ListWorkersAsync(CancellationToken cancellationToken = default) => workers.ListAsync(cancellationToken);
     /// <summary>创建节点并交付一次性可见的凭据。</summary>
     public Task<(TranscodeWorker Worker, string Secret)> CreateWorkerAsync(string name, CancellationToken cancellationToken = default) => workers.CreateAsync(name, cancellationToken);
+    /// <summary>Creates a Worker registered for the requested task kind.</summary>
+    public Task<(TranscodeWorker Worker, string Secret)> CreateWorkerAsync(string name, string kind, CancellationToken cancellationToken = default) => workers.CreateAsync(name, kind, cancellationToken);
     /// <summary>保存节点配置的指定版本。</summary>
     public Task<TranscodeWorker> UpdateWorkerAsync(string id, string name, bool enabled, WorkerConfiguration configuration, int expectedRevision, CancellationToken cancellationToken = default) => workers.UpdateAsync(id, name, enabled, configuration, expectedRevision, cancellationToken);
     /// <summary>轮换节点凭据。</summary>
@@ -23,7 +26,23 @@ public sealed class TranscodingCoordinator(TranscodeWorkerService workers, Trans
     public async Task<WorkerWelcome> ConnectAsync(WorkerHello hello, CancellationToken cancellationToken = default) =>
         (await workers.ConnectAsync(hello, cancellationToken)) with { LogProtocolVersion = 1 };
     /// <summary>同步运行状态、续租和任务派发。</summary>
-    public Task<WorkerState> HeartbeatAsync(string workerId, WorkerHeartbeat heartbeat, CancellationToken cancellationToken = default) => scheduler.HeartbeatAsync(workerId, heartbeat, cancellationToken);
+    public async Task<WorkerState> HeartbeatAsync(string workerId, WorkerHeartbeat heartbeat, CancellationToken cancellationToken = default)
+    {
+        var worker = await workers.RequireAsync(workerId, cancellationToken);
+        return worker.Kind == "Clipping"
+            ? await clipping.HeartbeatAsync(workerId, heartbeat, cancellationToken)
+            : await scheduler.HeartbeatAsync(workerId, heartbeat, cancellationToken);
+    }
+    /// <summary>Processes a control heartbeat while binding dispatch to the connection's authenticated credential generation.</summary>
+    public async Task<WorkerState> HeartbeatAsync(string workerId, string secret, WorkerHeartbeat heartbeat,
+        CancellationToken cancellationToken = default)
+    {
+        var worker = await workers.RequireAsync(workerId, cancellationToken);
+        var expectedHash = TranscodeWorkerService.SecretHash(secret);
+        return worker.Kind == "Clipping"
+            ? await clipping.HeartbeatAsync(workerId, heartbeat, cancellationToken, expectedHash)
+            : await scheduler.HeartbeatAsync(workerId, heartbeat, cancellationToken, expectedHash);
+    }
     /// <summary>持久化独立日志批次，完成发布后返回精确确认。</summary>
     public Task<WorkerLogAcknowledgement> AppendWorkerLogsAsync(string workerId, WorkerLogBatch batch, CancellationToken cancellationToken = default) =>
         logs.AppendAsync(workerId, batch, cancellationToken);

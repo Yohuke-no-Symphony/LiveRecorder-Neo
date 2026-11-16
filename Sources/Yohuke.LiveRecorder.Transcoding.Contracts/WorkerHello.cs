@@ -4,6 +4,7 @@ namespace Yohuke.LiveRecorder.Transcoding.Contracts;
 public sealed record WorkerHello
 {
     public string WorkerId { get; set; } = "";
+    public string Kind { get; set; } = "Transcoding";
     public string Secret { get; set; } = "";
     public WorkerCapabilities Capabilities { get; set; } = new();
     public WorkerConfiguration? InitialConfiguration { get; set; }

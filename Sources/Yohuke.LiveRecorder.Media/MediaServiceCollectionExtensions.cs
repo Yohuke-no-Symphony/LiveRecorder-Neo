@@ -26,6 +26,7 @@ public static class MediaServiceCollectionExtensions
         }
         services.AddSingleton<MediaProcessRunner>();
         services.AddSingleton<IMediaProcessor, FfmpegMediaProcessor>();
+        services.AddSingleton<IIndexedFlvRangePlanner, IndexedFlvRangePlanner>();
         services.AddSingleton<IndexedPlaybackWindowBuilder>();
         services.AddSingleton<IPlaybackWindowBuilder>(provider => provider.GetRequiredService<IndexedPlaybackWindowBuilder>());
         services.AddSingleton<IPlaybackFragmentSourceFactory, IndexedPlaybackFragmentSourceFactory>();

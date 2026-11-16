@@ -368,6 +368,7 @@ public static class ServerStartup
         app.MapSessionTimelineEndpoints();
         app.MapManagementEndpoints();
         app.MapTranscodingEndpoints();
+        app.MapClippingEndpoints();
         app.MapAiEndpoints();
         app.MapHub<StatusHub>("/hubs/status", options => options.CloseOnAuthenticationExpiration = true).RequireAuthorization();
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));

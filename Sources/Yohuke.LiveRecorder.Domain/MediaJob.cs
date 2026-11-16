@@ -1,3 +1,6 @@
+using System.Text.Json.Serialization;
+using Yohuke.LiveRecorder.Clipping.Contracts;
+
 namespace Yohuke.LiveRecorder.Domain;
 
 /// <summary>可重试并持有执行租约的持久后台作业。</summary>
@@ -26,4 +29,13 @@ public sealed class MediaJob : Entity
     public string? LeaseOwner { get; set; }
     public int Attempt { get; set; }
     public bool CancelRequested { get; set; }
+    public string? RemoteWorkerId { get; set; }
+    [JsonIgnore]
+    public string? RemoteLeaseTokenHash { get; set; }
+    [JsonIgnore]
+    public ClipAssignment? RemoteAssignment { get; set; }
+    [JsonIgnore]
+    public List<ClipSourceSnapshot> RemoteSources { get; set; } = [];
+    [JsonIgnore]
+    public string? RemoteOutputSha256 { get; set; }
 }

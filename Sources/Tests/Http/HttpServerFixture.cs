@@ -167,7 +167,8 @@ internal sealed class HttpServerFixture : IAsyncDisposable
         var transport = CertificatePath is null
             ? new[] { "--urls", "http://127.0.0.1:0" }
             : new[] { "--urls", "https://127.0.0.1:0", "--Kestrel:Certificates:Default:Path", CertificatePath };
-        App = ServerStartup.CreateApplication([.. transport, "--config", ConfigFile, "--environment", HostEnvironment, "--Logging:LogLevel:Default", "Critical", .. AdditionalArguments]);
+        App = ServerStartup.CreateApplication([.. transport, "--config", ConfigFile, "--environment", HostEnvironment,
+            "--Logging:LogLevel:Default", "Critical", "--TranscodingControl:Enabled", "false", .. AdditionalArguments]);
         activePaths = App.Services.GetRequiredService<IAppPaths>();
         await App.StartAsync();
         var addresses = App.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses;

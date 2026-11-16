@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Spectre.Console" Version="0.57.2" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.13" />
+    <ProjectReference Include="../Yohuke.LiveRecorder.Transcoding.Contracts/Yohuke.LiveRecorder.Transcoding.Contracts.csproj" />
+    <InternalsVisibleTo Include="ylr-tc-worker" />
+    <InternalsVisibleTo Include="ylr-clip-worker" />
+    <InternalsVisibleTo Include="Yohuke.LiveRecorder.Transcoding.Worker.Tests" />
+    <InternalsVisibleTo Include="Yohuke.LiveRecorder.Http.Tests" />
+    <InternalsVisibleTo Include="Yohuke.LiveRecorder.Clipping.Worker.Tests" />
+  </ItemGroup>
+</Project>

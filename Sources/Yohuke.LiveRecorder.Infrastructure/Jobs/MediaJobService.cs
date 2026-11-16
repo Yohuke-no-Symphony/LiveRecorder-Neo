@@ -96,6 +96,7 @@ public sealed class MediaJobService(IMongoContext context, LibraryService librar
     /// <summary>原子取消当前排队状态或通知仍在运行的执行者，不修改已完成作业。</summary>
     public async Task CancelAsync(MediaJob job, CancellationToken cancellationToken = default)
     {
+        await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, job.Id, cancellationToken);
         var jobs = context.Collection<MediaJob>("jobs");
         var queued = await jobs.UpdateOneAsync(x => x.Id == job.Id && x.State == "Queued", Builders<MediaJob>.Update
             .Set(x => x.CancelRequested, true).Set(x => x.State, "Cancelled").Set(x => x.MutationKey, null)
@@ -112,6 +113,7 @@ public sealed class MediaJobService(IMongoContext context, LibraryService librar
     /// <summary>基于当前终态重新入队，并重新取得场次修复互斥键。</summary>
     public async Task RetryAsync(MediaJob job, CancellationToken cancellationToken = default)
     {
+        await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, job.Id, cancellationToken);
         await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
         await EnsureMutationIndexAsync(cancellationToken);
         var current = await context.Collection<MediaJob>("jobs").Find(x => x.Id == job.Id).FirstOrDefaultAsync(cancellationToken)

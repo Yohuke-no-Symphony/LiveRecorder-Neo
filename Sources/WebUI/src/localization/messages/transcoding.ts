@@ -1,4 +1,5 @@
 export const transcodingZh = {
+  clippingTitle: '切片', clippingWorkers: '切片 Worker', workspaceGiB: '临时空间上限（GiB）', runningJobs: '运行任务 {count}', invalidClippingWorker: '请填写名称、有效工具路径，并检查任务并发、空间和传输上限。',
   autoTranscode: '自动转码',
   priority: '转码优先级',
   priorityHint: '数值越大越先转码，相同时按任务创建时间排序。保存后对所有场次尚未分配的任务生效，已分配的任务继续运行。',
@@ -19,6 +20,7 @@ export const transcodingZh = {
 }
 
 export const transcodingEn: Record<keyof typeof transcodingZh, string> = {
+  clippingTitle: 'Clipping', clippingWorkers: 'Clipping workers', workspaceGiB: 'Temporary space limit (GiB)', runningJobs: 'Running jobs {count}', invalidClippingWorker: 'Enter a name and valid tool paths, and check concurrency, space and transfer limits.',
   autoTranscode: 'Auto transcode',
   priority: 'Transcoding priority',
   priorityHint: 'Higher values are transcoded first. Jobs with equal priority follow creation order. After saving, priorities apply to unassigned jobs across all recordings; assigned jobs continue running.',
@@ -39,6 +41,7 @@ export const transcodingEn: Record<keyof typeof transcodingZh, string> = {
 }
 
 export const transcodingJa: Record<keyof typeof transcodingZh, string> = {
+  clippingTitle: '切り抜き', clippingWorkers: '切り抜き Worker', workspaceGiB: '一時領域の上限（GiB）', runningJobs: '実行中のタスク {count}', invalidClippingWorker: '名前と有効なツールのパスを入力し、同時実行数、空き容量、転送上限を確認してください。',
   autoTranscode: '自動変換',
   priority: '変換の優先度',
   priorityHint: '数値が大きい画質から変換し、同じ優先度ではタスクの作成順に処理します。保存後はすべての録画の未割り当てタスクに適用され、割り当て済みのタスクはそのまま実行されます。',

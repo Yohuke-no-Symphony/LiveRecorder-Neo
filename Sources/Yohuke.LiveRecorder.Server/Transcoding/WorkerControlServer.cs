@@ -145,7 +145,7 @@ public sealed class WorkerControlServer(TranscodingCoordinator coordinator, IOpt
                     {
                         throw new InvalidDataException("Worker reports too many active tasks.");
                     }
-                    var state = await coordinator.HeartbeatAsync(workerId, heartbeat, timeout.Token);
+                    var state = await coordinator.HeartbeatAsync(workerId, hello.Secret, heartbeat, timeout.Token);
                     if (heartbeat.LogBatch is { } batch)
                     {
                         using var logTimeout = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);

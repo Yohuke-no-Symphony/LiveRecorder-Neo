@@ -9,5 +9,6 @@
         <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" PrivateAssets="all" />
         <ProjectReference Include="../../Yohuke.LiveRecorder.Server/Yohuke.LiveRecorder.Server.csproj" />
         <ProjectReference Include="../../Yohuke.LiveRecorder.Transcoding.Worker/Yohuke.LiveRecorder.Transcoding.Worker.csproj" />
+        <ProjectReference Include="../../Yohuke.LiveRecorder.Clipping.Worker/Yohuke.LiveRecorder.Clipping.Worker.csproj" />
     </ItemGroup>
 </Project>

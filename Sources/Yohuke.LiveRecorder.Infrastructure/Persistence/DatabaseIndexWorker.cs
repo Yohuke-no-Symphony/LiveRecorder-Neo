@@ -26,6 +26,12 @@ public sealed class DatabaseIndexWorker(IMongoContext context, IBootstrapStore b
                         Builders<SessionBookmark>.IndexKeys.Ascending(x => x.SessionId).Ascending(x => x.OwnerId).Ascending(x => x.OffsetMs).Ascending(x => x.Id),
                         new CreateIndexOptions { Name = "session_bookmarks_session_owner_offset" }), cancellationToken: stoppingToken);
                     await context.Collection<MediaJob>("jobs").Indexes.CreateOneAsync(new CreateIndexModel<MediaJob>(Builders<MediaJob>.IndexKeys.Ascending(x => x.State).Ascending(x => x.CreatedAtUtc)), cancellationToken: stoppingToken);
+                    await context.Collection<MediaJob>("jobs").Indexes.CreateOneAsync(new CreateIndexModel<MediaJob>(
+                        Builders<MediaJob>.IndexKeys.Ascending(x => x.Kind).Ascending(x => x.State).Ascending(x => x.LeaseUntilUtc).Ascending(x => x.CreatedAtUtc),
+                        new CreateIndexOptions { Name = "clipping_queue" }), cancellationToken: stoppingToken);
+                    await context.Collection<MediaJob>("jobs").Indexes.CreateOneAsync(new CreateIndexModel<MediaJob>(
+                        Builders<MediaJob>.IndexKeys.Ascending(x => x.RemoteWorkerId).Ascending(x => x.State).Ascending(x => x.LeaseUntilUtc),
+                        new CreateIndexOptions { Name = "clipping_worker_jobs" }), cancellationToken: stoppingToken);
                     await context.Collection<MediaJob>("jobs").Indexes.CreateOneAsync(new CreateIndexModel<MediaJob>(Builders<MediaJob>.IndexKeys.Ascending(x => x.MutationKey), new CreateIndexOptions<MediaJob> { Unique = true, Name = "active_mutation", PartialFilterExpression = new BsonDocument("MutationKey", new BsonDocument("$type", "string")) }), cancellationToken: stoppingToken);
                     await context.Collection<Clip>("clips").Indexes.CreateOneAsync(new CreateIndexModel<Clip>(Builders<Clip>.IndexKeys.Ascending(x => x.OwnerId).Ascending(x => x.IsTrashed).Ascending(x => x.ExpiresAtUtc)), cancellationToken: stoppingToken);
                     await context.Collection<TrashEntry>("trash").Indexes.CreateOneAsync(new CreateIndexModel<TrashEntry>(Builders<TrashEntry>.IndexKeys.Ascending(x => x.EntityId), new CreateIndexOptions { Unique = true, Name = "trash_entity_unique" }), cancellationToken: stoppingToken);

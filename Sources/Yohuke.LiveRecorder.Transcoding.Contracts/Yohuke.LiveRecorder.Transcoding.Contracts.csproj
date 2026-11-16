@@ -1,1 +1,5 @@
-<Project Sdk="Microsoft.NET.Sdk" />
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Yohuke.LiveRecorder.Clipping.Contracts/Yohuke.LiveRecorder.Clipping.Contracts.csproj" />
+  </ItemGroup>
+</Project>

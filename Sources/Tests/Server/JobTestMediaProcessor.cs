@@ -10,13 +10,21 @@ internal sealed class JobTestMediaProcessor : IMediaProcessor
     internal int RepairOutputCount { get; set; } = 2;
     internal bool InvalidSecondRepairOutput { get; set; }
     internal bool BlockExport { get; set; }
+    internal bool BlockProbe { get; set; }
+    internal TaskCompletionSource ProbeEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    internal TaskCompletionSource ContinueProbe { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     internal TaskCompletionSource ExportEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     internal TaskCompletionSource ContinueExport { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public Task<MediaProbe> ProbeAsync(string path, CancellationToken cancellationToken = default)
+    public async Task<MediaProbe> ProbeAsync(string path, CancellationToken cancellationToken = default)
     {
         ProbeCalls++;
-        return Task.FromResult(new MediaProbe
+        ProbeEntered.TrySetResult();
+        if (BlockProbe)
+        {
+            await ContinueProbe.Task.WaitAsync(cancellationToken);
+        }
+        return new MediaProbe
         {
             DurationMs = InvalidSecondRepairOutput && path.EndsWith("_p1.flv", StringComparison.Ordinal) ? 0 : Path.GetFileName(path).Contains("_p", StringComparison.Ordinal) ? 500 : 1000,
             VideoCodec = "h264",
@@ -25,7 +33,7 @@ internal sealed class JobTestMediaProcessor : IMediaProcessor
             Height = 90,
             FrameRate = 10,
             HasAudio = true
-        });
+        };
     }
 
     public async Task<MediaRepairResult> RepairAsync(string inputPath, string outputPath, IProgress<double> progress, CancellationToken cancellationToken)

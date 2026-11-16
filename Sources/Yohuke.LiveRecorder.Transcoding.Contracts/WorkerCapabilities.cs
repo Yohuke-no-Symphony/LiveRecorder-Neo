@@ -7,5 +7,6 @@ public sealed record WorkerCapabilities
     public string Architecture { get; set; } = "";
     public string ToolVersion { get; set; } = "";
     public int HlsPackagingVersion { get; set; }
+    public int ClippingVersion { get; set; }
     public List<EncoderCapability> Encoders { get; set; } = [];
 }

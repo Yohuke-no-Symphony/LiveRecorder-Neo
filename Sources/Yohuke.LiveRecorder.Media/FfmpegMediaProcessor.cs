@@ -131,7 +131,10 @@ public sealed class FfmpegMediaProcessor : IMediaProcessor
             {
                 throw new InvalidOperationException("Fast export cannot preserve gaps or join incompatible media. Select Exact mode.");
             }
-            await AlignFastBoundsAsync(spans, cancellationToken);
+            if (!request.KeyframeBoundsPrepared)
+            {
+                await AlignFastBoundsAsync(spans, cancellationToken);
+            }
         }
         foreach (var span in spans.Where(span => span.Path is not null))
         {
@@ -171,8 +174,8 @@ public sealed class FfmpegMediaProcessor : IMediaProcessor
                 var arguments = request.Mode == "Fast"
                     ? BuildFastArguments(span, part)
                     : BuildExactArguments(span, part, slate, width, height, frameRate);
-                Func<Stream, CancellationToken, Task>? input = span.Index is not null && span.FirstFrame is not null
-                    ? (stream, token) => IndexedFlvRange.CopyAsync(span.Path!, span.Index, span.FirstFrame, span.EndOffset, stream, token)
+                Func<Stream, CancellationToken, Task>? input = span.Range is { } range
+                    ? (stream, token) => IndexedFlvRange.CopyAsync(span.Path!, range, stream, token)
                     : null;
                 await processes.RunAsync(MediaProcessKind.Export, arguments, cancellationToken, input, partProgress, TimeSpan.FromMilliseconds(span.DurationMs));
                 concat.Append("file '").Append(EscapeConcatPath(part)).Append("'\n");
@@ -331,26 +334,20 @@ public sealed class FfmpegMediaProcessor : IMediaProcessor
         {
             return;
         }
-        var index = await FlvIndexSnapshot.ReadAsync(path, new FileInfo(span.Path!).Length, cancellationToken);
-        var first = index.Keyframes.LastOrDefault(frame => frame.TimestampMs <= span.SourceStartMs) ?? index.Keyframes.FirstOrDefault();
-        var committed = index.Entries.LastOrDefault(entry => entry.Kind == "Committed");
-        if (first is null || committed is null || span.SourceStartMs + span.DurationMs > index.DurationMs + 150)
-        {
-            throw new InvalidOperationException("The selected export range has not been committed yet.");
-        }
-        var after = index.Keyframes.FirstOrDefault(frame => frame.TimestampMs >= span.SourceStartMs + span.DurationMs && frame.Offset > first.Offset);
-        span.Index = index;
-        span.FirstFrame = first;
-        span.EndOffset = after?.Offset ?? committed.Offset;
+        span.Range = await IndexedFlvRange.PlanAsync(path, new FileInfo(span.Path!).Length, span.SourceStartMs, span.DurationMs, cancellationToken);
     }
 
     private static List<string> BuildFastArguments(ExportSpan span, string output)
     {
-        return
+        var arguments = new List<string> { "-hide_banner", "-loglevel", "error", "-nostdin", "-progress", "pipe:1" };
+        arguments.AddRange(span.Range is not null
+            ? ["-f", "flv", "-i", "pipe:0"]
+            : ["-ss", Seconds(span.SourceStartMs), "-i", span.Path!]);
+        arguments.AddRange(
         [
-            "-hide_banner", "-loglevel", "error", "-nostdin", "-progress", "pipe:1", "-f", "flv", "-i", "pipe:0",
             "-map", "0:v:0", "-map", "0:a:0?", "-t", Seconds(span.DurationMs), "-c", "copy", "-avoid_negative_ts", "make_zero", "-f", "mpegts", "-y", output
-        ];
+        ]);
+        return arguments;
     }
 
     private static List<string> BuildExactArguments(ExportSpan span, string output, string slate, int width, int height, double frameRate)
@@ -362,7 +359,7 @@ public sealed class FfmpegMediaProcessor : IMediaProcessor
         }
         else
         {
-            if (span.FirstFrame is not null)
+            if (span.Range is not null)
             {
                 arguments.AddRange(["-f", "flv", "-i", "pipe:0"]);
             }
@@ -376,9 +373,9 @@ public sealed class FfmpegMediaProcessor : IMediaProcessor
             arguments.AddRange(["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]);
         }
         var audioInput = span.Details?.Probe.HasAudio == true ? "0:a:0" : "1:a:0";
-        if (span.FirstFrame is { } firstFrame)
+        if (span.Range is { } range)
         {
-            arguments.AddRange(["-ss", Seconds(Math.Max(0, span.SourceStartMs - firstFrame.TimestampMs))]);
+            arguments.AddRange(["-ss", Seconds(Math.Max(0, span.SourceStartMs - range.StartMs))]);
         }
         arguments.AddRange(
         [

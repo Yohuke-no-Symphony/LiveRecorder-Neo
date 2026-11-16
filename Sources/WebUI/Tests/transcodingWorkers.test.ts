@@ -4,13 +4,13 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { defineComponent, h } from 'vue'
 import TranscodingWorkersPanel from '../src/components/common/TranscodingWorkersPanel.vue'
 import { TranscodingAPI } from '../src/apis/TranscodingAPI'
-import { defaultWorkerConfiguration, type TranscodingWorker } from '../src/models/transcoding'
+import { defaultWorkerConfiguration, type TranscodingWorker, type WorkerKind } from '../src/models/transcoding'
 import { i18n } from '../src/plugins/i18n'
 
 vi.mock('../src/apis/TranscodingAPI', () => ({ TranscodingAPI: { workers: vi.fn(), createWorker: vi.fn(), updateWorker: vi.fn(), rotateWorkerKey: vi.fn(), deleteWorker: vi.fn() } }))
 const field = defineComponent({ props: ['modelValue', 'label', 'disabled', 'readonly'], emits: ['update:modelValue'], setup: (props, { emit }) => () => h('input', { value: props.modelValue, 'aria-label': props.label, disabled: props.disabled, readonly: props.readonly, onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value) }) })
 const stubs = {
-  ContentCard: { template: '<section><slot name="header-actions" /><slot /><slot name="actions" /></section>' },
+  ContentCard: { props: ['title'], template: '<section><h2>{{ title }}</h2><slot name="header-actions" /><slot /><slot name="actions" /></section>' },
   VBtn: { props: ['disabled', 'loading'], template: '<button :disabled="disabled || loading"><slot /></button>' },
   VTooltip: { template: '<slot name="activator" :props="{}" />' },
   VTextField: field, VTextarea: field, VSelect: field,
@@ -21,9 +21,9 @@ const stubs = {
 const mounted: VueWrapper[] = []
 let worker: TranscodingWorker
 
-async function open(): Promise<VueWrapper>
+async function open(kind?: WorkerKind): Promise<VueWrapper>
 {
-  const wrapper = mount(TranscodingWorkersPanel, { global: { plugins: [i18n], stubs } })
+  const wrapper = mount(TranscodingWorkersPanel, { props: { kind }, attachTo: document.body, global: { plugins: [i18n], stubs } })
   mounted.push(wrapper)
   await flushPromises()
   return wrapper
@@ -45,7 +45,7 @@ beforeEach(() =>
   vi.mocked(TranscodingAPI.updateWorker).mockResolvedValue(worker)
   vi.mocked(TranscodingAPI.rotateWorkerKey).mockResolvedValue({ secret: 'rotated-key' })
 })
-afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()); vi.useRealTimers() })
+afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()); document.body.innerHTML = ''; vi.useRealTimers() })
 
 describe('Worker管理', () =>
 {
@@ -141,5 +141,69 @@ describe('Worker管理', () =>
     expect(signal.aborted).toBe(true)
     await vi.advanceTimersByTimeAsync(10000)
     expect(TranscodingAPI.workers).toHaveBeenCalledTimes(1)
+  })
+
+  it('按节点类型显示列表，切片节点使用独立身份创建并复用一次性密钥交付', async () =>
+  {
+    const clippingWorker: TranscodingWorker = { ...worker, id: 'clip-1', name: '切片节点', kind: 'Clipping' }
+    vi.mocked(TranscodingAPI.workers).mockResolvedValue([worker, clippingWorker])
+    const transcoding = await open()
+    expect(transcoding.text()).toContain('本地 Worker')
+    expect(transcoding.text()).not.toContain('切片节点')
+    const clipping = await open('Clipping')
+    expect(clipping.text()).toContain('切片 Worker')
+    expect(clipping.text()).toContain('切片节点')
+    expect(clipping.text()).not.toContain('本地 Worker')
+    expect(clipping.text()).not.toContain('h264_videotoolbox')
+    expect(clipping.text()).toContain('运行任务 1')
+    vi.mocked(TranscodingAPI.createWorker).mockResolvedValueOnce({ worker: clippingWorker, secret: 'clip-access-key' })
+    await clipping.get('button[aria-label="添加 Worker"]').trigger('click')
+    await clipping.get('input[aria-label="名称"]').setValue(' 切片节点 ')
+    await clipping.get('form').trigger('submit')
+    await flushPromises()
+    expect(TranscodingAPI.createWorker).toHaveBeenCalledWith('切片节点', 'Clipping')
+    expect(clipping.get('input[aria-label="访问密钥"]').element).toHaveProperty('value', 'clip-access-key')
+  })
+
+  it('切片配置使用任务、空间和传输限额，隐藏的转码资源参数不阻止保存', async () =>
+  {
+    worker.kind = 'Clipping'
+    worker.configuration.gpuConcurrency = 0
+    worker.configuration.cpuConcurrency = 0
+    const wrapper = await open('Clipping')
+    await button(wrapper, '编辑 Worker').trigger('click')
+    const dialog = wrapper.get('[role="dialog"]')
+    expect(dialog.find('input[aria-label="首选编码器"]').exists()).toBe(false)
+    expect(dialog.find('input[aria-label="GPU 并发任务数"]').exists()).toBe(false)
+    expect(dialog.find('input[aria-label="CPU 负载平均窗口（秒）"]').exists()).toBe(false)
+    expect(dialog.find('input[aria-label="允许 CPU 回退"]').exists()).toBe(false)
+    await dialog.get('input[aria-label="临时空间上限（GiB）"]').setValue('4.5')
+    await dialog.get('input[aria-label="总并发任务数"]').setValue('3')
+    await dialog.get('form').trigger('submit')
+    await flushPromises()
+    expect(TranscodingAPI.updateWorker).toHaveBeenCalledWith('node-1', expect.objectContaining({
+      expectedRevision: 4,
+      configuration: expect.objectContaining({ maxConcurrentEncodes: 3, maxCacheBytes: 4831838208, gpuConcurrency: 0, cpuConcurrency: 0 }),
+    }))
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('切片配置在三语切换后更新标题和临时空间标签并保留草稿', async () =>
+  {
+    worker.kind = 'Clipping'
+    const wrapper = await open('Clipping')
+    await button(wrapper, '编辑 Worker').trigger('click')
+    await wrapper.get('input[aria-label="总并发任务数"]').setValue('5')
+    for (const [language, title, spaceLabel, concurrencyLabel] of [
+      ['en-US', 'Clipping workers', 'Temporary space limit (GiB)', 'Total concurrent jobs'],
+      ['ja-JP', '切り抜き Worker', '一時領域の上限（GiB）', '合計同時実行数'],
+    ] as const)
+    {
+      i18n.global.locale.value = language
+      await flushPromises()
+      expect(wrapper.text()).toContain(title)
+      expect(wrapper.find(`input[aria-label="${spaceLabel}"]`).exists()).toBe(true)
+      expect(wrapper.get(`input[aria-label="${concurrencyLabel}"]`).element).toHaveProperty('value', '5')
+    }
   })
 })

@@ -3,7 +3,7 @@
   <v-alert v-if="error || saveError" type="error" class="mb-6">{{ error || saveError }}</v-alert>
   <v-progress-linear v-if="loading" indeterminate color="primary" />
   <template v-if="settings">
-    <v-tabs v-model="tab" color="primary" show-arrows class="mb-6"><v-tab value="general">{{ t('shell.settings.general') }}</v-tab><v-tab value="recording">{{ t('shell.settings.recording') }}</v-tab><v-tab value="media">{{ t('shell.settings.media') }}</v-tab><v-tab value="transcoding">{{ t('transcoding.title') }}</v-tab><v-tab value="bandwidth">{{ t('bandwidthSettings.title') }}</v-tab><v-tab value="registration">{{ t('shell.settings.registration') }}</v-tab><v-tab value="smtp">{{ t('shell.settings.mail') }}</v-tab><v-tab value="oauth">{{ t('shell.settings.oauth') }}</v-tab><v-tab value="ai">{{ t('aiSettings.title') }}</v-tab></v-tabs>
+    <v-tabs v-model="tab" color="primary" show-arrows class="mb-6"><v-tab value="general">{{ t('shell.settings.general') }}</v-tab><v-tab value="recording">{{ t('shell.settings.recording') }}</v-tab><v-tab value="media">{{ t('shell.settings.media') }}</v-tab><v-tab value="transcoding">{{ t('transcoding.title') }}</v-tab><v-tab value="clipping">{{ t('transcoding.clippingTitle') }}</v-tab><v-tab value="bandwidth">{{ t('bandwidthSettings.title') }}</v-tab><v-tab value="registration">{{ t('shell.settings.registration') }}</v-tab><v-tab value="smtp">{{ t('shell.settings.mail') }}</v-tab><v-tab value="oauth">{{ t('shell.settings.oauth') }}</v-tab><v-tab value="ai">{{ t('aiSettings.title') }}</v-tab></v-tabs>
     <div v-if="tab === 'general'" class="settings-grid">
       <ContentCard :title="t('shell.settings.interface')">
         <div class="form-stack">
@@ -38,6 +38,7 @@
       <ContentCard :title="t('shell.settings.resourceLimits')"><div class="form-stack"><v-text-field v-model.number="cacheGiB" :label="t('shell.settings.cacheLimit')" type="number" min="1" /><v-text-field v-model.number="minimumFreeGiB" :label="t('shell.settings.minimumFree')" type="number" min="1" /><v-text-field v-model.number="settings.mediaConcurrency" :label="t('shell.settings.mediaConcurrency')" type="number" min="1" max="32" /><v-text-field v-model.number="settings.playbackConcurrency" :label="t('shell.settings.playbackConcurrency')" type="number" min="1" max="32" /></div></ContentCard>
     </div>
     <div v-else-if="tab === 'transcoding' && settings.transcoding" class="form-stack"><TranscodingSettingsPanel v-model="settings.transcoding" :disabled="saving" /><TranscodingWorkersPanel /></div>
+    <TranscodingWorkersPanel v-else-if="tab === 'clipping'" kind="Clipping" />
     <BandwidthSettingsPanel v-else-if="tab === 'bandwidth' && settings.bandwidth" v-model="settings.bandwidth" :disabled="saving" />
     <RegistrationSettings v-else-if="tab === 'registration'" v-model="settings" :disabled="saving" />
     <AiSettingsPanel v-else-if="tab === 'ai' && settings.ai" v-model="settings.ai" :disabled="saving" />

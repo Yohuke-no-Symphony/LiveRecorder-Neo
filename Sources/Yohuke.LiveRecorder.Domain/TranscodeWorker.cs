@@ -7,6 +7,7 @@ namespace Yohuke.LiveRecorder.Domain;
 public sealed class TranscodeWorker : Entity
 {
     public string Name { get; set; } = "";
+    public string Kind { get; set; } = "Transcoding";
     public bool Enabled { get; set; } = true;
     [JsonIgnore]
     public string SecretHash { get; set; } = "";

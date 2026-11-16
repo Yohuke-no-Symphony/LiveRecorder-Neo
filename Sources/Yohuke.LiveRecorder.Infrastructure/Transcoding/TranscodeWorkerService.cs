@@ -4,12 +4,14 @@ using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
+using Yohuke.LiveRecorder.Infrastructure.Configuration;
+using Yohuke.LiveRecorder.Infrastructure.Jobs;
 using Yohuke.LiveRecorder.Transcoding.Contracts;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Transcoding;
 
 /// <summary>管理远端节点凭据和带版本的运行配置。</summary>
-public sealed class TranscodeWorkerService(IMongoContext context)
+public sealed class TranscodeWorkerService(IMongoContext context, IAppPaths paths)
 {
     /// <summary>读取节点管理视图。</summary>
     public async Task<IReadOnlyList<TranscodeWorker>> ListAsync(CancellationToken cancellationToken) =>
@@ -18,9 +20,19 @@ public sealed class TranscodeWorkerService(IMongoContext context)
     /// <summary>创建节点并仅在创建响应中返回随机凭据。</summary>
     public async Task<(TranscodeWorker Worker, string Secret)> CreateAsync(string name, CancellationToken cancellationToken)
     {
+        return await CreateAsync(name, "Transcoding", cancellationToken);
+    }
+
+    /// <summary>Creates an independently authenticated Worker for the requested task kind.</summary>
+    public async Task<(TranscodeWorker Worker, string Secret)> CreateAsync(string name, string kind, CancellationToken cancellationToken)
+    {
         ValidateName(name);
+        if (kind is not ("Transcoding" or "Clipping"))
+        {
+            throw new InfrastructureException("Worker 类型无效。");
+        }
         var secret = NewSecret();
-        var worker = new TranscodeWorker { Name = name.Trim(), SecretHash = SecretHash(secret) };
+        var worker = new TranscodeWorker { Name = name.Trim(), Kind = kind, SecretHash = SecretHash(secret) };
         await Workers.InsertOneAsync(worker, cancellationToken: cancellationToken);
         return (worker, secret);
     }
@@ -29,8 +41,11 @@ public sealed class TranscodeWorkerService(IMongoContext context)
     public async Task<TranscodeWorker> UpdateAsync(string id, string name, bool enabled, WorkerConfiguration configuration,
         int expectedRevision, CancellationToken cancellationToken)
     {
+        await using var identityLock = await WorkerIdentityLock.AcquireAsync(paths, id, cancellationToken);
         ValidateName(name);
-        TranscodeConfigurationPolicy.Validate(configuration);
+        var current = await Workers.Find(x => x.Id == id).FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InfrastructureException("Worker 不存在。", 404);
+        WorkerConfigurationPolicy.Validate(configuration, current.Kind);
         var worker = await Workers.FindOneAndUpdateAsync(x => x.Id == id && x.ConfigurationRevision == expectedRevision,
             Builders<TranscodeWorker>.Update.Set(x => x.Name, name.Trim()).Set(x => x.Enabled, enabled)
                 .Set(x => x.Configuration, configuration).Inc(x => x.ConfigurationRevision, 1),
@@ -46,6 +61,7 @@ public sealed class TranscodeWorkerService(IMongoContext context)
     /// <summary>轮换凭据，同时撤销旧连接取得的执行权。</summary>
     public async Task<string> RotateAsync(string id, CancellationToken cancellationToken)
     {
+        await using var identityLock = await WorkerIdentityLock.AcquireAsync(paths, id, cancellationToken);
         var secret = NewSecret();
         var changed = await Workers.UpdateOneAsync(x => x.Id == id,
             Builders<TranscodeWorker>.Update.Set(x => x.SecretHash, SecretHash(secret)), cancellationToken: cancellationToken);
@@ -60,6 +76,7 @@ public sealed class TranscodeWorkerService(IMongoContext context)
     /// <summary>删除节点登记，将其未完成任务交还队列。</summary>
     public async Task DeleteAsync(string id, CancellationToken cancellationToken)
     {
+        await using var identityLock = await WorkerIdentityLock.AcquireAsync(paths, id, cancellationToken);
         await Workers.DeleteOneAsync(x => x.Id == id, cancellationToken);
         await ReleaseJobsAsync(id, cancellationToken);
     }
@@ -79,16 +96,22 @@ public sealed class TranscodeWorkerService(IMongoContext context)
     /// <summary>连接时刷新能力，并按版本接收终端提交的配置。</summary>
     public async Task<WorkerWelcome> ConnectAsync(WorkerHello hello, CancellationToken cancellationToken)
     {
+        await using var identityLock = await WorkerIdentityLock.AcquireAsync(paths, hello.WorkerId, cancellationToken);
         if (!await AuthenticateAsync(hello.WorkerId, hello.Secret, cancellationToken))
         {
             throw new InfrastructureException("Worker 凭据无效或节点已停用。", 401);
+        }
+        var registered = await RequireAsync(hello.WorkerId, cancellationToken);
+        if (hello.Kind != registered.Kind)
+        {
+            throw new InfrastructureException("Worker 类型与登记类型不符。", 409);
         }
         var filter = Builders<TranscodeWorker>.Filter.Where(x => x.Id == hello.WorkerId && x.Enabled);
         var update = Builders<TranscodeWorker>.Update.Set(x => x.LastSeenAtUtc, DateTime.UtcNow)
             .Set(x => x.Capabilities, hello.Capabilities);
         if (hello.InitialConfiguration is not null)
         {
-            TranscodeConfigurationPolicy.Validate(hello.InitialConfiguration);
+            WorkerConfigurationPolicy.Validate(hello.InitialConfiguration, registered.Kind);
             if (hello.ExpectedConfigurationRevision is null)
             {
                 throw new InfrastructureException("提交 Worker 配置时必须携带当前版本。", 409);
@@ -109,12 +132,25 @@ public sealed class TranscodeWorkerService(IMongoContext context)
 
     private IMongoCollection<TranscodeWorker> Workers => context.Collection<TranscodeWorker>("transcodeWorkers");
 
-    private Task ReleaseJobsAsync(string id, CancellationToken cancellationToken) =>
-        context.Collection<TranscodeJob>("transcodeJobs").UpdateManyAsync(
+    private async Task ReleaseJobsAsync(string id, CancellationToken cancellationToken)
+    {
+        await context.Collection<TranscodeJob>("transcodeJobs").UpdateManyAsync(
             x => x.WorkerId == id && (x.State == "Running" || x.State == "Publishing"),
             Builders<TranscodeJob>.Update.Set(x => x.State, "Queued").Set(x => x.Stage, "WaitingForWorker")
                 .Set(x => x.WorkerId, null).Set(x => x.LeaseTokenHash, null).Set(x => x.LeaseUntilUtc, null),
             cancellationToken: cancellationToken);
+        var jobs = context.Collection<MediaJob>("jobs");
+        var active = await jobs.Find(x => x.RemoteWorkerId == id && (x.State == "Running" || x.State == "Publishing"))
+            .ToListAsync(cancellationToken);
+        foreach (var job in active)
+        {
+            await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, job.Id, cancellationToken);
+            await jobs.UpdateOneAsync(x => x.Id == job.Id && x.RemoteWorkerId == id && (x.State == "Running" || x.State == "Publishing"),
+                Builders<MediaJob>.Update.Set(x => x.State, "Queued").Set(x => x.RemoteWorkerId, null)
+                    .Set(x => x.RemoteLeaseTokenHash, null).Set(x => x.LeaseOwner, null).Set(x => x.LeaseUntilUtc, null),
+                cancellationToken: cancellationToken);
+        }
+    }
 
     private static void ValidateName(string name)
     {
@@ -126,4 +162,13 @@ public sealed class TranscodeWorkerService(IMongoContext context)
 
     internal static string NewSecret() => Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
     internal static string SecretHash(string value) => TranscodeAssetRegistry.Hash(value);
+
+    internal static void RequireCredential(TranscodeWorker worker, string? expectedHash)
+    {
+        if (expectedHash is not null && !CryptographicOperations.FixedTimeEquals(
+            Encoding.ASCII.GetBytes(worker.SecretHash), Encoding.ASCII.GetBytes(expectedHash)))
+        {
+            throw new InfrastructureException("Worker 连接凭据已被撤销。", 401);
+        }
+    }
 }

@@ -16,7 +16,9 @@ internal static class Program
             var commandLine = WorkerCommandLine.Parse(args);
             if (commandLine.Command == WorkerCommand.Help)
             {
-                WorkerCommandHelp.Write(commandLine.HelpCommand);
+                WorkerCommandHelp.Write(commandLine.HelpCommand,
+                    typeof(Program).Assembly.GetName().Name + (OperatingSystem.IsWindows() ? ".exe" : ""),
+                    "Yohuke LiveRecorder Transcoding Worker");
                 return 0;
             }
             if (commandLine.Command == WorkerCommand.Version)

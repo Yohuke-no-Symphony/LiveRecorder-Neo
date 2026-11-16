@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Yohuke.LiveRecorder.Infrastructure.Clipping;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Transcoding;
 
@@ -8,6 +9,7 @@ public static class TranscodingServiceCollectionExtensions
     /// <summary>复用主站存储、库权限和媒体探测边界，注册转码基础设施。</summary>
     public static IServiceCollection AddLiveRecorderTranscoding(this IServiceCollection services)
     {
+        services.AddLiveRecorderClipping();
         services.AddSingleton<TranscodeAssetRegistry>();
         services.AddSingleton<TranscodeWorkerService>();
         services.AddSingleton<TranscodeLeaseService>();

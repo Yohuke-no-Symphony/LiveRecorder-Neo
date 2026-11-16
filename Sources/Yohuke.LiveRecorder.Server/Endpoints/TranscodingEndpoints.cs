@@ -23,7 +23,7 @@ public static class TranscodingEndpoints
         admin.MapPost("/workers", async (CreateTranscodeWorkerRequest request, TranscodingCoordinator coordinator, CancellationToken ct) =>
         {
             RequireName(request.Name);
-            var created = await coordinator.CreateWorkerAsync(request.Name.Trim(), ct);
+            var created = await coordinator.CreateWorkerAsync(request.Name.Trim(), request.Kind, ct);
             return Results.Ok(new { worker = WorkerView(created.Worker), secret = created.Secret });
         });
         admin.MapPut("/workers/{id}", async (string id, UpdateTranscodeWorkerRequest request, TranscodingCoordinator coordinator, CancellationToken ct) =>
@@ -31,7 +31,9 @@ public static class TranscodingEndpoints
             RequireName(request.Name);
             try
             {
-                TranscodeConfigurationPolicy.Validate(request.Configuration);
+                var worker = (await coordinator.ListWorkersAsync(ct)).FirstOrDefault(value => value.Id == id)
+                    ?? throw new InfrastructureException("Worker 不存在。", 404);
+                WorkerConfigurationPolicy.Validate(request.Configuration, worker.Kind);
             }
             catch (ArgumentException)
             {
@@ -131,7 +133,7 @@ public static class TranscodingEndpoints
 
     private static object WorkerView(TranscodeWorker worker) => new
     {
-        worker.Id, worker.Name, worker.Enabled, worker.Configuration, worker.ConfigurationRevision,
+        worker.Id, worker.Name, worker.Kind, worker.Enabled, worker.Configuration, worker.ConfigurationRevision,
         worker.AppliedConfigurationRevision, worker.Capabilities, worker.Telemetry, worker.LastSeenAtUtc, worker.ConfigurationError
     };
 
