@@ -67,6 +67,7 @@ export const componentsZh = {
   },
   events: {
     title: '弹幕', follow: '跟随', all: '全部', danmu: '弹幕', superChat: 'SC', gift: '礼物', guard: '舰长',
+    search: '搜索弹幕',
     settings: '回放弹幕设置', retentionCount: '回放弹幕留存数量', retentionInvalid: '请输入有效的正整数。',
     redPocket: '红包', gap: '录制中断', guest: '访客', empty: '当前时段暂无消息', notRecorded: '此场录播未保存弹幕',
     count: '{count} 条', messageCount: '{count} 条消息', loadFailed: '消息加载失败', roomAdmin: '房管',
@@ -75,6 +76,7 @@ export const componentsZh = {
     awardCount: '{count} 份', drawAt: '开奖 {date}', mystery: '神秘人', battery: '{count} 电池', totalBattery: '共 {count} 电池', intimacy: '{count} 亲密度',
   },
   player: {
+    closeSearch: '关闭搜索', noSearchResults: '没有匹配结果',
     danmuHeat: '弹幕热度', eventCount: '{count} 条记录', itemQuantity: '数量 {count}', observedAmount: '金额 {amount}',
     timelineLoading: '正在加载互动记录', timelineLoadFailed: '互动记录加载失败',
     markerSummary: '{kind} · {time} · {count} 条记录', heatSummary: '{time} · 弹幕 {count} 条',
@@ -186,6 +188,7 @@ export const componentsEn: MessageSchema<typeof componentsZh> = {
   },
   events: {
     title: 'Chat', follow: 'Follow', all: 'All', danmu: 'Chat', superChat: 'SC', gift: 'Gifts', guard: 'Memberships',
+    search: 'Search chat',
     settings: 'Replay chat settings', retentionCount: 'Replay messages to retain', retentionInvalid: 'Enter a valid positive integer.',
     redPocket: 'Red packets', gap: 'Recording interrupted', guest: 'Guest', empty: 'No messages in this period',
     notRecorded: 'Chat was not recorded for this session', count: '{count} messages', messageCount: '{count} messages',
@@ -195,6 +198,7 @@ export const componentsEn: MessageSchema<typeof componentsZh> = {
     drawAt: 'Draw at {date}', mystery: 'Anonymous', battery: '{count} batteries', totalBattery: '{count} batteries total', intimacy: '{count} affinity',
   },
   player: {
+    closeSearch: 'Close search', noSearchResults: 'No matching results',
     danmuHeat: 'Chat activity', eventCount: '{count} events', itemQuantity: 'Quantity {count}', observedAmount: 'Amount {amount}',
     timelineLoading: 'Loading interactions', timelineLoadFailed: 'Failed to load interactions',
     markerSummary: '{kind} · {time} · {count} events', heatSummary: '{time} · {count} chat messages',
@@ -307,6 +311,7 @@ export const componentsJa: MessageSchema<typeof componentsZh> = {
   },
   events: {
     title: 'コメント', follow: '追従', all: 'すべて', danmu: 'コメント', superChat: 'SC', gift: 'ギフト', guard: 'メンバーシップ',
+    search: 'コメントを検索',
     settings: 'リプレイコメント設定', retentionCount: 'リプレイコメント保持件数', retentionInvalid: '有効な正の整数を入力してください。',
     redPocket: '紅包', gap: '録画が中断されました', guest: 'ゲスト', empty: 'この時間帯にメッセージはありません',
     notRecorded: 'この配信ではコメントを記録していません', count: '{count} 件', messageCount: 'メッセージ {count} 件',
@@ -316,6 +321,7 @@ export const componentsJa: MessageSchema<typeof componentsZh> = {
     drawAt: '抽選日時 {date}', mystery: '匿名ユーザー', battery: '電池 {count} 個', totalBattery: '電池 合計 {count} 個', intimacy: '親密度 {count}',
   },
   player: {
+    closeSearch: '検索を閉じる', noSearchResults: '一致する結果はありません',
     danmuHeat: 'コメント密度', eventCount: '{count} 件', itemQuantity: '数量 {count}', observedAmount: '金額 {amount}',
     timelineLoading: 'リアクションを読み込み中', timelineLoadFailed: 'リアクションを読み込めませんでした',
     markerSummary: '{kind} · {time} · {count} 件', heatSummary: '{time} · コメント {count} 件',

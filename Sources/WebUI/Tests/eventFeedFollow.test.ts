@@ -141,7 +141,7 @@ describe('直播消息侧栏激活状态', () =>
     expect(eventsRequest).toHaveBeenCalledTimes(count)
     await state.wrapper.setProps({ active: true })
     await flushPromises()
-    expect(state.wrapper.get('.feed-heading v-btn-stub').attributes('color')).toBe('secondary')
+    expect(state.wrapper.get('.feed-follow').attributes('color')).toBe('secondary')
   })
 })
 
@@ -203,7 +203,7 @@ describe('直播消息按实际滚动范围贴底', () =>
     await nextFrame()
     expect(state.viewport.scrollTop).toBe(top)
     expect(frames.size).toBe(0)
-    expect(state.wrapper.get('.feed-heading v-btn-stub').attributes('color')).toBe('secondary')
+    expect(state.wrapper.get('.feed-follow').attributes('color')).toBe('secondary')
   })
   it('卸载断开尺寸观察并取消已排队的贴底帧', async () =>
   {

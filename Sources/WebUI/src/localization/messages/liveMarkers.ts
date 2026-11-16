@@ -2,6 +2,7 @@ import type { MessageSchema } from '@/localization/types'
 
 export const liveMarkersZh = {
   title: '直播记录', eventsTab: '弹幕', recordsTab: '直播记录', selectFile: '记录文件',
+  search: '搜索直播记录',
   generate: '生成直播记录', aiActions: 'AI直播记录', generationDetails: '直播记录生成详情',
   generating: '生成中', cancelGeneration: '取消生成', viewGenerated: '查看直播记录',
   aiEmpty: '尚无生成任务。', aiEndedOnly: '录像结束后可生成直播记录。', aiFailed: '生成未完成，可重新发起。',
@@ -22,6 +23,7 @@ export const liveMarkersZh = {
 
 export const liveMarkersEn: MessageSchema<typeof liveMarkersZh> = {
   title: 'Live notes', eventsTab: 'Chat', recordsTab: 'Live notes', selectFile: 'Notes file',
+  search: 'Search live notes',
   generate: 'Generate live notes', aiActions: 'AI live notes', generationDetails: 'Live notes generation details',
   generating: 'Generating', cancelGeneration: 'Cancel generation', viewGenerated: 'View live notes',
   aiEmpty: 'No generation task yet.', aiEndedOnly: 'Live notes can be generated after recording ends.', aiFailed: 'Generation did not finish. You can try again.',
@@ -42,6 +44,7 @@ export const liveMarkersEn: MessageSchema<typeof liveMarkersZh> = {
 
 export const liveMarkersJa: MessageSchema<typeof liveMarkersZh> = {
   title: '配信記録', eventsTab: 'コメント', recordsTab: '配信記録', selectFile: '記録ファイル',
+  search: '配信記録を検索',
   generate: '配信記録を生成', aiActions: 'AI配信記録', generationDetails: '配信記録生成の詳細',
   generating: '生成中', cancelGeneration: '生成を中止', viewGenerated: '配信記録を見る',
   aiEmpty: '生成タスクはまだありません。', aiEndedOnly: '録画終了後に配信記録を生成できます。', aiFailed: '生成が完了しませんでした。再実行できます。',

@@ -1,16 +1,18 @@
 <template>
   <section class="translation-panel" :aria-label="t('translations.title')">
     <CardHeader :title="t('translations.title')">
-      <template #suffix><span v-if="hasSnapshot" class="text-caption muted mono">{{ formatNumber(entries.length) }}</span></template>
+      <template #suffix><span v-if="hasSnapshot" class="text-caption muted mono">{{ formatNumber(visibleEntries.length) }}</span></template>
       <template #actions>
+        <v-btn v-if="!searchOpen" icon="mdi-magnify" variant="text" size="small" :aria-label="t('translations.search')" :title="t('translations.search')" @click="searchOpen = true" />
         <v-btn icon="mdi-crosshairs-gps" variant="text" size="small" :disabled="!hasSeekableEntries" :aria-label="t('translations.locate')" :title="t('translations.locate')" @click="locate" />
         <v-btn icon="mdi-refresh" variant="text" size="small" :loading="loading" :disabled="!enabled" :aria-label="t('translations.refresh')" @click="refresh()" />
         <v-btn v-if="auth.canConfigureRecordings" icon="mdi-cog-outline" variant="text" size="small" :aria-label="t('shell.recordingConfiguration.title')" @click="emit('configure')" />
       </template>
     </CardHeader>
+    <PlaybackListSearch v-model="searchText" :open="searchOpen" :label="t('translations.search')" @close="closeSearch" />
     <v-progress-linear v-if="loading" indeterminate color="primary" :aria-label="t('translations.loading')" />
     <v-alert v-if="error" type="error" density="compact" class="mx-4 my-3">{{ error }}</v-alert>
-    <v-virtual-scroll v-if="entries.length" ref="entryScroll" class="translation-scroll" :items="entries" :item-height="88" item-key="sequence">
+    <v-virtual-scroll v-if="visibleEntries.length" ref="entryScroll" class="translation-scroll" :items="visibleEntries" :item-height="88" item-key="sequence">
       <template #default="{ item }">
         <button type="button" class="translation-entry" :class="{ 'translation-entry-located': locatedSequence === item.sequence }" :aria-current="locatedSequence === item.sequence ? 'true' : undefined" :disabled="!canSeek(item.offsetMs)" :aria-label="t('translations.jump', { time: formatDuration(item.offsetMs, true), message: item.text })" @click="seek(item.offsetMs)">
           <span class="translation-meta"><span class="translation-author">{{ item.userName }}</span><span class="translation-time mono">{{ formatDuration(item.offsetMs, true) }}</span></span>
@@ -18,7 +20,12 @@
         </button>
       </template>
     </v-virtual-scroll>
-    <div v-else-if="!loading && !error" class="translation-empty"><v-icon icon="mdi-translate" size="28" /><span>{{ enabled ? t('translations.empty') : t('components.events.notRecorded') }}</span></div>
+    <div v-else-if="!loading && !error" class="translation-empty">
+      <v-icon icon="mdi-translate" size="28" />
+      <span v-if="!enabled">{{ t('components.events.notRecorded') }}</span>
+      <span v-else-if="isSearching">{{ t('components.player.noSearchResults') }}</span>
+      <span v-else>{{ t('translations.empty') }}</span>
+    </div>
   </section>
 </template>
 
@@ -28,30 +35,41 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import CardHeader from '@/components/common/CardHeader.vue'
 import { useSessionTranslations } from '@/composables/useSessionTranslations'
+import { usePlaybackListSearch } from '@/composables/usePlaybackListSearch'
 import { formatDuration, formatNumber } from '@/utilities/format'
 import { findNearestPlaybackEntryIndex } from '@/utilities/nearestPlaybackEntry'
+import PlaybackListSearch from './PlaybackListSearch.vue'
 
 const props = withDefaults(defineProps<{ sessionId: string; durationMs: number; offsetMs?: number; enabled: boolean; isLive: boolean; active?: boolean; configurationRevision?: number }>(), { active: true, offsetMs: 0 })
 const emit = defineEmits<{ seek: [offsetMs: number]; configure: [] }>()
 const { t } = useI18n()
 const auth = useAuthStore()
 const { entries, loading, hasSnapshot, error, refresh } = useSessionTranslations(() => props.sessionId, () => props.active, () => props.enabled, () => props.isLive, () => props.configurationRevision)
-const entryScroll = ref<{ scrollToIndex: (index: number, position: 'center') => void }>()
+const { searchOpen, searchText, isSearching, matchesSearch, closeSearch } = usePlaybackListSearch(() => props.sessionId)
+const visibleEntries = computed(() => isSearching.value ? entries.value.filter(item => matchesSearch(item.text, item.userName)) : entries.value)
+const entryScroll = ref<{ scrollToIndex: (index: number, position: 'start' | 'center') => void }>()
 const locatedSequence = ref<number>()
-const hasSeekableEntries = computed(() => entries.value.some(item => canSeek(item.offsetMs)))
-watch(entries, () => { locatedSequence.value = undefined })
+const hasSeekableEntries = computed(() => visibleEntries.value.some(item => canSeek(item.offsetMs)))
+watch([entries, searchText], () => { locatedSequence.value = undefined })
+watch(searchText, () =>
+{
+  if (props.active && searchOpen.value && visibleEntries.value.length)
+  {
+    entryScroll.value?.scrollToIndex(0, 'start')
+  }
+}, { flush: 'post' })
 
 async function locate(): Promise<void>
 {
-  const index = findNearestPlaybackEntryIndex(entries.value, props.offsetMs, props.durationMs)
+  const index = findNearestPlaybackEntryIndex(visibleEntries.value, props.offsetMs, props.durationMs)
   if (index < 0)
   {
     return
   }
-  const sequence = entries.value[index]!.sequence
+  const sequence = visibleEntries.value[index]!.sequence
   locatedSequence.value = sequence
   await nextTick()
-  if (props.active && entries.value[index]?.sequence === sequence)
+  if (props.active && visibleEntries.value[index]?.sequence === sequence)
   {
     entryScroll.value?.scrollToIndex(index, 'center')
   }
