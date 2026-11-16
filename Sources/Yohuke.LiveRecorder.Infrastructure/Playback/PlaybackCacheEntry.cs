@@ -10,4 +10,5 @@ public sealed class PlaybackCacheEntry
     public double StartOffsetMs { get; set; }
     public double EndOffsetMs { get; set; }
     public DateTime BuiltAtUtc { get; set; }
+    public List<PlaybackWindowFileMetadata> Files { get; set; } = [];
 }

@@ -21,13 +21,15 @@ interface HlsDouble
   pauseBuffering: ReturnType<typeof vi.fn>
   resumeBuffering: ReturnType<typeof vi.fn>
   destroy: ReturnType<typeof vi.fn>
+  attachMedia: ReturnType<typeof vi.fn>
   loadSource: ReturnType<typeof vi.fn>
   emit: (event: string, data?: unknown) => void
 }
 
 const hlsState = vi.hoisted(() => ({ supported: true, instances: [] as HlsDouble[] }))
 const eventsRequest = vi.hoisted(() => vi.fn())
-vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { playbackEvents: eventsRequest } }))
+vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { playbackEvents: eventsRequest, eventSnapshot: eventsRequest } }))
+vi.mock('../src/stores/auth', () => ({ useAuthStore: () => ({ user: { id: 'playback-test-user' }, canViewRecordings: true }) }))
 vi.mock('hls.js', () => ({ default: class
 {
   static isSupported() { return hlsState.supported }
@@ -44,6 +46,7 @@ vi.mock('hls.js', () => ({ default: class
   loadSource = vi.fn()
   constructor(readonly config: Partial<HlsConfig>) { hlsState.instances.push(this) }
   on(event: string, callback: (event: string, data?: unknown) => void) { this.listeners.set(event, callback) }
+  off(event: string, callback: (event: string, data?: unknown) => void) { if (this.listeners.get(event) === callback) { this.listeners.delete(event) } }
   emit(event: string, data?: unknown) { this.listeners.get(event)?.(event, data) }
 } }))
 
@@ -831,7 +834,7 @@ describe('播放源定位与请求取消', () =>
 
 describe('有界下一窗口预取', () =>
 {
-  it('按墙钟剩余时间预取真实边界，只生成服务端窗口且只尝试一次', async () =>
+  it('按墙钟剩余时间预热下一窗口首片，边界提升同一实例且只加载一次清单', async () =>
   {
     const state = setupPlayer()
     await flushPromises()
@@ -843,15 +846,118 @@ describe('有界下一窗口预取', () =>
     tick(1000)
     await flushPromises()
     expect(state.loadWindow).toHaveBeenLastCalledWith(30000, expect.objectContaining({ prefetch: true }))
-    expect(hlsState.instances).toHaveLength(1)
+    expect(hlsState.instances).toHaveLength(2)
+    const prepared = hlsState.instances[1]!
+    expect(prepared.config).toMatchObject({ startFragPrefetch: true, maxBufferLength: 1, maxMaxBufferLength: 1 })
+    expect(prepared.attachMedia).not.toHaveBeenCalled()
+    expect(prepared.loadSource).toHaveBeenCalledTimes(1)
+    expect(hlsState.instances[0]!.destroy).not.toHaveBeenCalled()
     tick(1100)
     tick(1200)
     expect(state.loadWindow).toHaveBeenCalledTimes(2)
-    await state.controller.seek(45000)
+    state.video.value!.currentTime = 30
+    tick(2000)
+    await flushPromises()
     ready(state)
     expect(state.loadWindow).toHaveBeenCalledTimes(2)
-    expect(state.video.value!.currentTime).toBe(15)
+    expect(state.video.value!.currentTime).toBe(0)
     expect(hlsState.instances).toHaveLength(2)
+    expect(prepared.attachMedia).toHaveBeenCalledExactlyOnceWith(state.video.value)
+    expect(prepared.loadSource).toHaveBeenCalledTimes(1)
+    expect(prepared.config.maxBufferLength).toBe(30)
+    expect(hlsState.instances[0]!.destroy).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['pause', 'hidden', 'navigation', 'quality', 'unmount'])('%s 销毁已预热首片，迟到错误不影响活动播放', async reason =>
+  {
+    const state = setupPlayer()
+    await flushPromises()
+    state.loadWindow.mockResolvedValueOnce(playback(30000))
+    await nearEnd(state)
+    const prepared = hlsState.instances[1]!
+    if (reason === 'pause') { await state.controller.togglePlay() }
+    else if (reason === 'hidden') { visibility = 'hidden'; document.dispatchEvent(new Event('visibilitychange')) }
+    else if (reason === 'navigation') { await state.controller.seek(5000) }
+    else if (reason === 'quality')
+    {
+      state.controller.qualities.value.push({ id: '720p', name: '720p', available: true, state: 'Ready' })
+      state.loadWindow.mockResolvedValueOnce(playback())
+      await state.controller.selectQuality('720p')
+    }
+    else { state.wrapper.unmount() }
+    expect(prepared.destroy).toHaveBeenCalledTimes(1)
+    prepared.emit('error', { fatal: true })
+    expect(state.controller.error.value).toBe('')
+    expect(prepared.attachMedia).not.toHaveBeenCalled()
+  })
+
+  it('预热阶段保存转码时基，在提升时定位首帧，旧就绪事件不会覆盖映射', async () =>
+  {
+    const state = setupPlayer()
+    await flushPromises()
+    state.loadWindow.mockResolvedValueOnce({ ...playback(30000 - 400 / 3, 60000), mediaStartOffsetMs: 30000, timestampMapping: 'HlsInitPts', requestedQualityId: '720p', effectiveQualityId: '720p' })
+    await nearEnd(state)
+    const prepared = hlsState.instances[1]!
+    prepared.emit('initPts', { id: 'main', initPTS: 6400, timescale: 48000 })
+    prepared.emit('initPts', { id: 'audio', initPTS: 0, timescale: 48000 })
+    await state.controller.seek(30000)
+    ready(state)
+    expect(state.controller.loading.value).toBe(false)
+    expect(state.video.value!.currentTime).toBeCloseTo(0)
+    expect(hlsState.instances).toHaveLength(2)
+  })
+
+  it('待用源失败静默释放，边界通过前台重新获取', async () =>
+  {
+    const state = setupPlayer()
+    await flushPromises()
+    state.loadWindow.mockResolvedValueOnce(playback(30000))
+    await nearEnd(state)
+    const prepared = hlsState.instances[1]!
+    prepared.emit('error', { fatal: true })
+    expect(prepared.destroy).toHaveBeenCalledTimes(1)
+    expect(state.controller.error.value).toBe('')
+    expect(state.controller.playing.value).toBe(true)
+    tick(1500)
+    expect(state.loadWindow).toHaveBeenCalledTimes(2)
+    state.loadWindow.mockResolvedValueOnce(playback(30000))
+    await state.controller.seek(30000)
+    ready(state)
+    expect(state.loadWindow).toHaveBeenLastCalledWith(30000, expect.objectContaining({ prefetch: false }))
+  })
+
+  it.each(['pause', 'hidden'])('%s 结束后复用窗口地址重新预热，暂停期间不创建媒体加载', async reason =>
+  {
+    const state = setupPlayer()
+    await flushPromises()
+    state.loadWindow.mockResolvedValueOnce(playback(30000))
+    await nearEnd(state)
+    if (reason === 'pause') { await state.controller.togglePlay() }
+    else { visibility = 'hidden'; document.dispatchEvent(new Event('visibilitychange')) }
+    tick(1500)
+    expect(hlsState.instances).toHaveLength(2)
+    if (reason === 'pause') { await state.controller.togglePlay() }
+    else { visibility = 'visible'; document.dispatchEvent(new Event('visibilitychange')) }
+    tick(2000)
+    expect(state.loadWindow).toHaveBeenCalledTimes(2)
+    expect(hlsState.instances).toHaveLength(3)
+    expect(hlsState.instances[2]!.attachMedia).not.toHaveBeenCalled()
+  })
+
+  it('同窗口导航销毁待用源，再接近边界时复用地址重新预热', async () =>
+  {
+    const state = setupPlayer()
+    await flushPromises()
+    state.loadWindow.mockResolvedValueOnce(playback(30000))
+    await nearEnd(state)
+    await state.controller.seek(5000)
+    ready(state)
+    expect(hlsState.instances[1]!.destroy).toHaveBeenCalledTimes(1)
+    state.video.value!.currentTime = 21
+    tick(2000)
+    expect(state.loadWindow).toHaveBeenCalledTimes(2)
+    expect(hlsState.instances).toHaveLength(3)
+    expect(hlsState.instances[2]!.attachMedia).not.toHaveBeenCalled()
   })
 
   it('长录像在真实分段末端提升未完成的预取，并接入后续短窗口', async () =>
@@ -906,11 +1012,13 @@ describe('有界下一窗口预取', () =>
     expect(loadWindow).toHaveBeenLastCalledWith(32000, expect.objectContaining({ prefetch: true }))
     await state.controller.seek(30000)
     ready(state)
-    expect(hlsState.instances).toHaveLength(1)
+    expect(hlsState.instances).toHaveLength(2)
+    expect(hlsState.instances[0]!.destroy).not.toHaveBeenCalled()
+    expect(hlsState.instances[1]!.destroy).toHaveBeenCalledTimes(1)
     await state.controller.seek(40000)
     ready(state)
     expect(loadWindow).toHaveBeenCalledTimes(2)
-    expect(hlsState.instances).toHaveLength(2)
+    expect(hlsState.instances).toHaveLength(3)
     expect(state.video.value!.currentTime).toBe(12)
   })
 
@@ -1002,14 +1110,14 @@ describe('有界下一窗口预取', () =>
     await nearEnd(state)
     await state.controller.seek(35000)
     ready(state)
-    const prefetchedSource = hlsState.instances[1]!
+    const prefetchedSource = hlsState.instances.at(-1)!
     state.loadWindow.mockResolvedValueOnce(playback(30000))
     prefetchedSource.emit('error', { fatal: true })
     await flushPromises()
     prefetchedSource.emit('error', { fatal: true })
     expect(state.loadWindow).toHaveBeenCalledTimes(3)
     expect(state.loadWindow).toHaveBeenLastCalledWith(35000, expect.objectContaining({ prefetch: false }))
-    hlsState.instances[2]!.emit('error', { fatal: true })
+    hlsState.instances.at(-1)!.emit('error', { fatal: true })
     expect(state.controller.error.value).not.toBe('')
     expect(state.loadWindow).toHaveBeenCalledTimes(3)
   })

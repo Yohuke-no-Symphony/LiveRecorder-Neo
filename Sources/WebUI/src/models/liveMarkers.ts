@@ -11,6 +11,7 @@ export interface LiveMarkerFile
   calibrationMs: number
   sourceTimeZoneId: string
   canManage: boolean
+  revision?: string
 }
 
 export interface LiveMarkerFileList

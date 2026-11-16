@@ -3,7 +3,7 @@ import { useI18n } from 'vue-i18n'
 import { ApiError } from '@/apis/APIBase'
 import { LiveMarkerAPI } from '@/apis/LiveMarkerAPI'
 import type { LiveMarkerDetail, LiveMarkerFile, LiveMarkerUpload } from '@/models/liveMarkers'
-import { usePolling } from './usePolling'
+import { previewCacheKey, readPreviewCache, writePreviewCache } from '@/utilities/previewBrowserCache'
 
 export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, active: MaybeRefOrGetter<boolean>, preferredFileId?: MaybeRefOrGetter<string | undefined>, scopeKey?: MaybeRefOrGetter<string>)
 {
@@ -25,6 +25,10 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
   let disposed = false
   let requestedFileId = toValue(preferredFileId) ?? ''
   let requestedFileMissing = false
+  let hasSnapshot = false
+  let pendingRefresh = false
+  let pendingDetails = false
+  let loadingFile: LiveMarkerFile | undefined
 
   function cancelReads(): void
   {
@@ -34,6 +38,7 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
     entryController?.abort()
     loadingFiles.value = false
     loadingEntries.value = false
+    loadingFile = undefined
   }
 
   function sortFiles(values: LiveMarkerFile[]): LiveMarkerFile[]
@@ -41,10 +46,32 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
     return [...values].sort((left, right) => Date.parse(right.uploadedAtUtc) - Date.parse(left.uploadedAtUtc) || right.id.localeCompare(left.id))
   }
 
-  async function loadSelected(): Promise<void>
+  function sameVersion(left: LiveMarkerFile | undefined, right: LiveMarkerFile | undefined): boolean
+  {
+    return !!left && !!right && left.id === right.id && left.calibrationMs === right.calibrationMs && left.revision === right.revision
+  }
+
+  function cacheKey(file: LiveMarkerFile): string | undefined
+  {
+    const identity = toValue(scopeKey)
+    return identity && file.revision ? previewCacheKey('live-markers', toValue(sessionId), identity, JSON.stringify([file.id, file.revision])) : undefined
+  }
+
+  async function loadSelected(force = false, continueHidden = false): Promise<void>
   {
     const fileId = selectedId.value
-    if (disposed || !toValue(active) || saving.value || !fileId)
+    if (disposed || (!toValue(active) && !continueHidden) || saving.value || !fileId)
+    {
+      return
+    }
+    const file = files.value.find(item => item.id === fileId)
+    if (!file)
+    {
+      return
+    }
+    const hasCurrentDetail = sameVersion(detail.value?.file, file)
+    const loadingCurrentFile = loadingEntries.value && sameVersion(loadingFile, file)
+    if (!force && (hasCurrentDetail || loadingCurrentFile))
     {
       return
     }
@@ -54,13 +81,34 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
     entryController = new AbortController()
     const signal = entryController.signal
     loadingEntries.value = true
+    loadingFile = file
+    error.value = ''
     try
     {
+      const key = cacheKey(file)
+      if (!force && key)
+      {
+        const cached = await readPreviewCache<LiveMarkerDetail>(key)
+        if (disposed || signal.aborted || currentScope !== scope || sequence !== entrySequence || selectedId.value !== fileId)
+        {
+          return
+        }
+        if (cached && sameVersion(cached.file, file) && Array.isArray(cached.entries))
+        {
+          detail.value = { ...cached, file }
+          return
+        }
+      }
       const result = await LiveMarkerAPI.detail(toValue(sessionId), fileId, signal)
       if (!disposed && !signal.aborted && currentScope === scope && sequence === entrySequence && selectedId.value === fileId)
       {
         detail.value = { ...result, entries: [...result.entries].sort((left, right) => left.offsetMs - right.offsetMs || left.index - right.index) }
         files.value = files.value.map(file => file.id === fileId ? result.file : file)
+        const resultKey = cacheKey(result.file)
+        if (resultKey)
+        {
+          await writePreviewCache(resultKey, detail.value)
+        }
       }
     }
     catch (value)
@@ -73,7 +121,7 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
           files.value = files.value.filter(file => file.id !== fileId)
           selectedId.value = files.value[0]?.id ?? ''
           detail.value = undefined
-          if (selectedId.value) { void loadSelected() }
+          if (selectedId.value) { void loadSelected(false, continueHidden) }
         }
       }
     }
@@ -82,16 +130,26 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
       if (!disposed && currentScope === scope && sequence === entrySequence)
       {
         loadingEntries.value = false
+        loadingFile = undefined
       }
     }
   }
 
   async function refresh(forceDetails = true): Promise<void>
   {
-    if (disposed || !toValue(active) || saving.value)
+    if (disposed)
     {
       return
     }
+    pendingRefresh = true
+    pendingDetails ||= forceDetails
+    if (!toValue(active) || saving.value)
+    {
+      return
+    }
+    const reloadDetails = pendingDetails
+    pendingRefresh = false
+    pendingDetails = false
     listController?.abort()
     const sequence = ++listSequence
     const currentScope = scope
@@ -108,6 +166,7 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
       }
       files.value = sortFiles(result.files)
       defaultTimeZoneId.value = result.defaultTimeZoneId
+      hasSnapshot = true
       const requested = files.value.find(file => file.id === requestedFileId)
       if (requestedFileId && !requested)
       {
@@ -136,20 +195,22 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
         loadingEntries.value = false
         detail.value = undefined
       }
-      else if (forceDetails || detail.value?.file.id !== selected.id || detail.value.file.calibrationMs !== selected.calibrationMs)
+      else if (reloadDetails || !sameVersion(detail.value?.file, selected))
       {
         if (detail.value?.file.id !== selected.id) { detail.value = undefined }
-        await loadSelected()
+        await loadSelected(reloadDetails, true)
       }
       else
       {
-        detail.value = { ...detail.value, file: selected }
+        detail.value = { ...detail.value!, file: selected }
       }
     }
     catch (value)
     {
       if (!disposed && !signal.aborted && currentScope === scope && sequence === listSequence)
       {
+        pendingRefresh = true
+        pendingDetails ||= reloadDetails
         error.value = value instanceof Error ? value.message : t('liveMarkers.loadFailed')
       }
     }
@@ -168,12 +229,41 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
     {
       return
     }
+    if (selectedId.value === fileId)
+    {
+      await loadSelected()
+      return
+    }
     selectedId.value = fileId
     requestedFileId = ''
     requestedFileMissing = false
     detail.value = undefined
     error.value = ''
     await loadSelected()
+  }
+
+  async function ensureLoaded(): Promise<void>
+  {
+    if (!toValue(active) || saving.value)
+    {
+      return
+    }
+    if (pendingRefresh)
+    {
+      await refresh(false)
+    }
+    else if (loadingFiles.value || loadingEntries.value)
+    {
+      return
+    }
+    else if (!hasSnapshot)
+    {
+      await refresh(false)
+    }
+    else
+    {
+      await loadSelected()
+    }
   }
 
   async function reveal(fileId: string): Promise<void>
@@ -273,11 +363,14 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
     requestedFileMissing = false
     detail.value = undefined
     defaultTimeZoneId.value = ''
+    hasSnapshot = false
+    pendingRefresh = false
+    pendingDetails = false
     saving.value = false
     error.value = ''
     actionError.value = ''
-    void refresh()
-  }, { immediate: true })
+    void ensureLoaded()
+  }, { immediate: true, flush: 'sync' })
 
   watch(() => toValue(preferredFileId), value =>
   {
@@ -288,10 +381,8 @@ export function useSessionLiveMarkers(sessionId: MaybeRefOrGetter<string>, activ
 
   watch(() => toValue(active), value =>
   {
-    if (value) { void refresh() }
-    else { cancelReads() }
+    if (value) { void ensureLoaded() }
   })
-  usePolling(() => refresh(false), 10000, false)
   onBeforeUnmount(() =>
   {
     disposed = true

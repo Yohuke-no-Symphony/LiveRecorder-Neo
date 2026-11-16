@@ -3,8 +3,9 @@
     <CardHeader :title="t('liveMarkers.title')">
       <template #suffix><span v-if="detail" class="text-caption muted mono">{{ formatNumber(detail.entries.length) }}</span></template>
       <template #actions>
-        <AiLiveMarkerActions v-if="auth.canViewRecordings" :can-generate="canGenerateAi && editable" :can-start="canStartAi && !saving" @generate="generateAi" @details="aiDetailsOpen = true" />
-        <v-btn icon="mdi-refresh" variant="text" size="small" :loading="loadingFiles" :disabled="saving" :aria-label="t('liveMarkers.refresh')" @click="refresh()" />
+        <v-btn icon="mdi-crosshairs-gps" variant="text" size="small" :disabled="!hasSeekableEntries || loadingEntries" :title="t('liveMarkers.locate')" :aria-label="t('liveMarkers.locate')" @click="locateCurrentPosition" />
+        <AiLiveMarkerActions v-if="auth.canViewRecordings" :can-generate="canGenerateAi && editable" :can-start="canStartAi && !saving" @generate="generateAi" @details="openAiDetails" />
+        <v-btn icon="mdi-refresh" variant="text" size="small" :loading="loadingFiles" :disabled="saving" :aria-label="t('liveMarkers.refresh')" @click="refreshPanel" />
         <v-btn v-if="auth.canUploadLiveMarkers && editable" icon="mdi-upload" color="primary" variant="tonal" size="small" :disabled="saving || !defaultTimeZoneId" :aria-label="t('liveMarkers.upload')" @click="openUpload" />
       </template>
     </CardHeader>
@@ -20,9 +21,9 @@
         </div>
       </div>
     </div>
-    <v-virtual-scroll v-if="detail?.entries.length" class="marker-entry-scroll" :items="detail.entries" :item-height="100" item-key="index">
+    <v-virtual-scroll v-if="detail?.entries.length" ref="entriesViewport" class="marker-entry-scroll" :items="detail.entries" :item-height="100" item-key="index">
         <template #default="{ item }">
-          <button type="button" class="marker-entry" :disabled="!canSeekLiveMarker(item.offsetMs, durationMs)" :aria-label="t('liveMarkers.jump', { time: formatLiveMarkerOffset(item.offsetMs), message: item.message })" @click="seek(item)">
+          <button type="button" class="marker-entry" :class="{ 'is-located': item.index === locatedEntryIndex }" :aria-current="item.index === locatedEntryIndex ? 'true' : undefined" :disabled="!canSeekLiveMarker(item.offsetMs, durationMs)" :aria-label="t('liveMarkers.jump', { time: formatLiveMarkerOffset(item.offsetMs), message: item.message })" @click="seek(item)">
             <span class="marker-color" :class="`marker-${item.markerColor.toLowerCase()}`" :title="item.markerColor" />
             <span class="marker-entry-content">
               <span class="marker-message">{{ item.message }}</span>
@@ -78,6 +79,7 @@ import { useAiLiveMarkers } from '@/composables/useAiLiveMarkers'
 import type { LiveMarkerEntry, LiveMarkerFile, LiveMarkerUpload } from '@/models/liveMarkers'
 import { formatDate, formatNumber } from '@/utilities/format'
 import { canSeekLiveMarker, formatCompactLiveMarkerTime, formatLiveMarkerOffset } from '@/utilities/liveMarkers'
+import { findNearestPlaybackEntryIndex } from '@/utilities/nearestPlaybackEntry'
 import CardHeader from '@/components/common/CardHeader.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import SessionLiveMarkerUploadDialog from './SessionLiveMarkerUploadDialog.vue'
@@ -85,7 +87,7 @@ import SessionLiveMarkerAlignmentDialog from './SessionLiveMarkerAlignmentDialog
 import AiLiveMarkerActions from './AiLiveMarkerActions.vue'
 import AiAnalysisDetailsDialog from '@/components/analytics/AiAnalysisDetailsDialog.vue'
 
-const props = withDefaults(defineProps<{ sessionId: string; durationMs: number; active?: boolean; editable?: boolean; ended?: boolean; fileId?: string }>(), { active: true, editable: true, ended: false })
+const props = withDefaults(defineProps<{ sessionId: string; durationMs: number; offsetMs?: number; active?: boolean; editable?: boolean; ended?: boolean; fileId?: string }>(), { offsetMs: 0, active: true, editable: true, ended: false })
 const emit = defineEmits<{ seek: [offsetMs: number] }>()
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -105,6 +107,32 @@ const alignmentOpen = ref(false)
 const deleteOpen = ref(false)
 const editingFile = ref<LiveMarkerFile>()
 const deletingFile = ref<LiveMarkerFile>()
+const entriesViewport = ref<{ scrollToIndex: (index: number, position: 'center') => void }>()
+const locatedEntryIndex = ref<number>()
+const hasSeekableEntries = computed(() => detail.value?.entries.some(entry => canSeekLiveMarker(entry.offsetMs, props.durationMs)) === true)
+watch([selectedId, () => detail.value?.entries], () => { locatedEntryIndex.value = undefined }, { flush: 'sync' })
+
+function locateCurrentPosition(): void
+{
+  const index = findNearestPlaybackEntryIndex(detail.value?.entries ?? [], props.offsetMs, props.durationMs)
+  if (index < 0 || !detail.value || loadingEntries.value)
+  {
+    return
+  }
+  locatedEntryIndex.value = detail.value.entries[index]!.index
+  entriesViewport.value?.scrollToIndex(index, 'center')
+}
+
+async function refreshPanel(): Promise<void>
+{
+  await Promise.all([refresh(), refreshAi()])
+}
+
+function openAiDetails(): void
+{
+  aiDetailsOpen.value = true
+  void refreshAi()
+}
 
 function generateAi(): void
 {
@@ -200,6 +228,7 @@ async function deleteFile(): Promise<void>
 .marker-entry-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
 .marker-entry { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 14px var(--ui-card-padding); border: 0; border-top: 1px solid rgba(var(--v-theme-on-surface), .06); background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .marker-entry:hover:not(:disabled) { background: rgba(var(--v-theme-on-surface), .035); }
+.marker-entry.is-located { background: rgba(var(--v-theme-primary), .1); box-shadow: inset 3px 0 rgb(var(--v-theme-primary)); }
 .marker-entry:focus-visible { outline: 2px solid rgb(var(--v-theme-primary)); outline-offset: -2px; }
 .marker-entry:disabled { cursor: default; color: rgba(var(--v-theme-on-surface), .45); }
 .marker-color { width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; flex-shrink: 0; background: currentColor; }

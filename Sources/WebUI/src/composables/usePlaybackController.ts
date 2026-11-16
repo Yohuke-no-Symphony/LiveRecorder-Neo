@@ -59,6 +59,14 @@ export function usePlaybackController(options: {
   let prefetch: ReturnType<typeof createRequest> | undefined
   let readyPrefetch: PlaybackWindow | undefined
   let readyPrefetchQualityId: string | undefined
+  let warmedPrefetch: {
+    playback: PlaybackWindow
+    owner: object
+    offsetMs: number
+    hls: Hls
+    initPts: InitPTSFoundData | undefined
+    cleanup: () => void
+  } | undefined
   let prefetchAttemptedFor: object | undefined
   let generation = 0
   let playAttempt = 0
@@ -123,10 +131,53 @@ export function usePlaybackController(options: {
 
   function cancelPrefetch(allowRetry = false): void
   {
-    if (!prefetch) { return }
-    if (allowRetry && prefetchAttemptedFor === prefetch.owner) { prefetchAttemptedFor = undefined }
-    prefetch.controller.abort()
+    if ((allowRetry && prefetchAttemptedFor === prefetch?.owner) || (warmedPrefetch && prefetchAttemptedFor === warmedPrefetch.owner)) { prefetchAttemptedFor = undefined }
+    prefetch?.controller.abort()
     prefetch = undefined
+    const prepared = warmedPrefetch
+    warmedPrefetch = undefined
+    prepared?.cleanup()
+    prepared?.hls.destroy()
+  }
+
+  function warmPrefetch(playback: PlaybackWindow, owner: object, offsetMs: number): void
+  {
+    if (!Hls.isSupported() || !playback.url?.trim()) { return }
+    const instance = new Hls({
+      startPosition: windowPosition(offsetMs, playback.startOffsetMs),
+      startFragPrefetch: true,
+      maxBufferLength: PREVIEW_BUFFER_SECONDS,
+      maxMaxBufferLength: PREVIEW_BUFFER_SECONDS,
+      backBufferLength: BUFFER_LIMIT_SECONDS,
+      frontBufferFlushThreshold: BUFFER_LIMIT_SECONDS,
+      xhrSetup: xhr => { xhr.withCredentials = true },
+    })
+    const prepared = { playback, owner, offsetMs, hls: instance, initPts: undefined as InitPTSFoundData | undefined, cleanup: () => {} }
+    const timestampFound = (_: unknown, data: InitPTSFoundData) =>
+    {
+      if (warmedPrefetch === prepared && data.id === 'main' && Number.isFinite(data.initPTS) && Number.isFinite(data.timescale) && data.timescale > 0)
+      {
+        prepared.initPts = data
+      }
+    }
+    const failed = (_: unknown, data: { fatal: boolean }) =>
+    {
+      if (!data.fatal || warmedPrefetch !== prepared) { return }
+      warmedPrefetch = undefined
+      readyPrefetch = undefined
+      readyPrefetchQualityId = undefined
+      prepared.cleanup()
+      instance.destroy()
+    }
+    prepared.cleanup = () =>
+    {
+      instance.off(Hls.Events.INIT_PTS_FOUND, timestampFound)
+      instance.off(Hls.Events.ERROR, failed)
+    }
+    warmedPrefetch = prepared
+    instance.on(Hls.Events.INIT_PTS_FOUND, timestampFound)
+    instance.on(Hls.Events.ERROR, failed)
+    instance.loadSource(getServerUrl(playback.url))
   }
 
   function applySettings(): void
@@ -278,7 +329,7 @@ export function usePlaybackController(options: {
     cancelPrefetch()
   }
 
-  function installSource(playback: PlaybackWindow, offsetMs: number, operation: number, fromPrefetch: boolean, originalFallback = false): void
+  function installSource(playback: PlaybackWindow, offsetMs: number, operation: number, fromPrefetch: boolean, originalFallback = false, prepared?: NonNullable<typeof warmedPrefetch>): void
   {
     const element = video.value
     if (!element || !isCurrent(operation)) { return }
@@ -295,6 +346,11 @@ export function usePlaybackController(options: {
     qualities.value = playback.qualities?.length ? playback.qualities : [{ id: ORIGINAL_QUALITY_ID, name: '', available: true, state: 'Ready' }]
     fallbackReason.value = playback.fallbackReason || (originalFallback ? 'Unavailable' : '')
     const installed = { playback, qualityId: requestedQualityId.value, operation, hls: undefined as Hls | undefined, startOffsetMs: playback.startOffsetMs, timestampReady: !supportsHls || playback.timestampMapping !== 'HlsInitPts', needsPosition: true, awaitingSeek: false, previewPending: true, fromPrefetch, originalFallback, cleanup: () => {} }
+    if (prepared?.initPts && playback.timestampMapping === 'HlsInitPts')
+    {
+      installed.startOffsetMs += prepared.initPts.initPTS / prepared.initPts.timescale * 1000
+      installed.timestampReady = true
+    }
     source = installed
     serverGap.value = undefined
     const handlers = {
@@ -312,7 +368,7 @@ export function usePlaybackController(options: {
     applySettings()
     if (supportsHls)
     {
-      const instance = new Hls({
+      const instance = prepared?.hls ?? new Hls({
         startPosition: windowPosition(offsetMs, playback.startOffsetMs),
         maxBufferLength: playing.value ? BUFFER_TARGET_SECONDS : PREVIEW_BUFFER_SECONDS,
         maxMaxBufferLength: playing.value ? BUFFER_LIMIT_SECONDS : PREVIEW_BUFFER_SECONDS,
@@ -320,12 +376,16 @@ export function usePlaybackController(options: {
         frontBufferFlushThreshold: BUFFER_LIMIT_SECONDS,
         xhrSetup: xhr => { xhr.withCredentials = true },
       })
+      prepared?.cleanup()
+      instance.config.startFragPrefetch = false
+      instance.config.maxBufferLength = playing.value ? BUFFER_TARGET_SECONDS : PREVIEW_BUFFER_SECONDS
+      instance.config.maxMaxBufferLength = playing.value ? BUFFER_LIMIT_SECONDS : PREVIEW_BUFFER_SECONDS
       installed.hls = instance
       instance.on(Hls.Events.INIT_PTS_FOUND, (_, data) => mapTimestamp(installed, data))
       instance.on(Hls.Events.MANIFEST_PARSED, () => positionSource(installed))
       instance.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) { sourceFailed(installed, data.response?.code ?? (data.networkDetails as { status?: number } | undefined)?.status) } })
       instance.attachMedia(element)
-      instance.loadSource(getServerUrl(sourceUrl))
+      if (!prepared) { instance.loadSource(getServerUrl(sourceUrl)) }
     }
     else
     {
@@ -346,12 +406,14 @@ export function usePlaybackController(options: {
     const qualityId = originalFallback ? ORIGINAL_QUALITY_ID : requestedQualityId.value
     const reuseSource = !force && source?.qualityId === requestedQualityId.value && contains(source?.playback, offset)
     const prepared = !force && readyPrefetchQualityId === qualityId && contains(readyPrefetch, offset) ? readyPrefetch : undefined
+    let preparedMedia = !reuseSource && prepared && warmedPrefetch?.playback === prepared && Math.abs(warmedPrefetch.offsetMs - offset) <= WINDOW_START_TOLERANCE_MS ? warmedPrefetch : undefined
+    if (preparedMedia) { warmedPrefetch = undefined }
     let task = !force && !reuseSource && !prepared
       ? [foreground, prefetch].find(item => item?.offsetMs === offset && item.qualityId === qualityId && !item.controller.signal.aborted)
       : undefined
     if (foreground !== task) { foreground?.controller.abort() }
     foreground = undefined
-    if (prefetch === task) { prefetch = undefined }
+    if (task && prefetch === task) { prefetch = undefined }
     else { cancelPrefetch() }
     if (force)
     {
@@ -373,6 +435,8 @@ export function usePlaybackController(options: {
     if (options.durationMs() <= 0 || offset >= options.durationMs() || knownGap)
     {
       task?.controller.abort()
+      preparedMedia?.cleanup()
+      preparedMedia?.hls.destroy()
       video.value?.pause()
       source?.hls?.stopLoad()
       loading.value = false
@@ -436,7 +500,8 @@ export function usePlaybackController(options: {
       readyPrefetch = undefined
       await nextTick()
       if (!isCurrent(operation)) { return }
-      installSource(playback, offset, operation, fromPrefetch, originalFallback)
+      installSource(playback, offset, operation, fromPrefetch, originalFallback, preparedMedia)
+      preparedMedia = undefined
     }
     catch (value)
     {
@@ -454,6 +519,8 @@ export function usePlaybackController(options: {
     }
     finally
     {
+      preparedMedia?.cleanup()
+      preparedMedia?.hls.destroy()
       if (isCurrent(operation) && foreground === task) { foreground = undefined }
     }
   }
@@ -462,17 +529,27 @@ export function usePlaybackController(options: {
   {
     const current = source
     const element = video.value
-    if (!activeSource(current) || !element || !playing.value || loading.value || error.value || scrubbing.value || element.seeking || element.readyState < 3 || document.visibilityState !== 'visible' || prefetch || readyPrefetch || prefetchAttemptedFor === current) { return }
+    if (!activeSource(current) || !element || !playing.value || loading.value || error.value || scrubbing.value || element.seeking || element.readyState < 3 || document.visibilityState !== 'visible' || prefetch || warmedPrefetch || prefetchAttemptedFor === current) { return }
     const end = current.playback.endOffsetMs
     const remainingMs = (end - currentMs.value) / rate.value
     if (remainingMs <= 0 || remainingMs > PREFETCH_LEAD_MS || end >= options.durationMs() || findGap(end, normalizedGaps.value)) { return }
     prefetchAttemptedFor = current
+    if (readyPrefetch)
+    {
+      if (contains(readyPrefetch, end)) { warmPrefetch(readyPrefetch, current, end) }
+      return
+    }
     const task = createRequest(end, true, current)
     prefetch = task
     void task.promise.then(playback =>
     {
       if (disposed || task.controller.signal.aborted || prefetch !== task) { return }
-      if (contains(playback, end) && playback?.url?.trim()) { readyPrefetch = playback; readyPrefetchQualityId = task.qualityId }
+      if (contains(playback, end) && playback?.url?.trim())
+      {
+        readyPrefetch = playback
+        readyPrefetchQualityId = task.qualityId
+        warmPrefetch(playback, current, end)
+      }
     }).catch(() => {}).finally(() => { if (prefetch === task) { prefetch = undefined } })
   }
 

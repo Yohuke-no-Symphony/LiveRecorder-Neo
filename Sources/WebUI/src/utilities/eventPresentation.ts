@@ -93,7 +93,7 @@ function mergeRecords(previous: unknown, current: unknown, key: (item: Record<st
   return [...merged.values()]
 }
 
-function mergeRedPocket(previous: RecordedEvent, current: RecordedEvent): RecordedEvent
+export function mergeRedPocket(previous: RecordedEvent, current: RecordedEvent): RecordedEvent
 {
   const oldData = redPocketData(previous)
   const newData = redPocketData(current)

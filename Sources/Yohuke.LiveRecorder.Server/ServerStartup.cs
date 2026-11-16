@@ -114,6 +114,7 @@ public static class ServerStartup
         builder.Services.AddSingleton<SessionGroupingService>();
         builder.Services.AddSingleton<SessionConfigurationService>();
         builder.Services.AddSingleton<SessionEventReader>();
+        builder.Services.AddPlaybackEventSnapshotServices();
         builder.Services.AddSingleton<StorageService>();
         builder.Services.AddSingleton<StorageUsageService>();
         builder.Services.AddSingleton<StorageUsageMetadataService>();
@@ -349,11 +350,13 @@ public static class ServerStartup
             }
             await next();
         });
+        app.UsePlaybackEventSnapshotCompression();
         app.MapSetupEndpoints();
         app.MapUiSettingsEndpoints();
         app.MapIdentityEndpoints(developmentOrigins);
         app.MapBilibiliEndpoints();
         app.MapLibraryEndpoints();
+        app.MapPlaybackEventSnapshotEndpoints();
         app.MapAnalyticsExportEndpoints();
         app.MapSessionSegmentEndpoints();
         app.MapSessionConfigurationEndpoints();

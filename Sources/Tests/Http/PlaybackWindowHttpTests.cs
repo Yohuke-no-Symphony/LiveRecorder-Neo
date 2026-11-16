@@ -180,6 +180,45 @@ public sealed class PlaybackWindowHttpTests
         await PlaybackHttpMediaFixture.DownloadAndDecodeAsync(fixture, playback);
     }
 
+    /// <summary>窗口文件保留在浏览器私有缓存，内容未变化时返回 304，继续支持范围请求。</summary>
+    [MongoHttpFact]
+    public async Task WindowAssetsRevalidatePrivateCachesAndPreserveConditionalRanges()
+    {
+        await using var fixture = await PlaybackHttpMediaFixture.CreateAsync();
+        var session = await PlaybackHttpMediaFixture.SeedRecordingAsync(fixture, 12, isClosed: false);
+        var playback = await OpenAsync(fixture.Admin, $"/api/sessions/{session.Id}/playback", new { offsetMs = 1000 });
+        var resources = ResourceUris(fixture, playback, await ReadPlaylistAsync(fixture.Admin, playback.Url!));
+        foreach (var resource in resources)
+        {
+            using var original = await fixture.Admin.Client.GetAsync(resource);
+            Assert.Equal(HttpStatusCode.OK, original.StatusCode);
+            var content = await original.Content.ReadAsByteArrayAsync();
+            var entityTag = ContentEntityTag(content);
+            Assert.Equal(entityTag, original.Headers.ETag?.ToString());
+            AssertPrivateRevalidation(original);
+
+            using var unchangedRequest = new HttpRequestMessage(HttpMethod.Get, resource);
+            unchangedRequest.Headers.IfNoneMatch.ParseAdd(entityTag);
+            using var unchanged = await fixture.Admin.Client.SendAsync(unchangedRequest);
+            Assert.Equal(HttpStatusCode.NotModified, unchanged.StatusCode);
+            Assert.Empty(await unchanged.Content.ReadAsByteArrayAsync());
+            AssertPrivateRevalidation(unchanged);
+
+            using var head = await fixture.Admin.Client.SendAsync(new(HttpMethod.Head, resource));
+            Assert.Equal(HttpStatusCode.OK, head.StatusCode);
+            Assert.Equal(content.Length, head.Content.Headers.ContentLength);
+            Assert.Equal(entityTag, head.Headers.ETag?.ToString());
+
+            using var rangeRequest = new HttpRequestMessage(HttpMethod.Get, resource);
+            rangeRequest.Headers.Range = new(4, 31);
+            rangeRequest.Headers.IfRange = new(System.Net.Http.Headers.EntityTagHeaderValue.Parse(entityTag));
+            using var range = await fixture.Admin.Client.SendAsync(rangeRequest);
+            Assert.Equal(HttpStatusCode.PartialContent, range.StatusCode);
+            Assert.Equal(content[4..32], await range.Content.ReadAsByteArrayAsync());
+            Assert.Equal(entityTag, range.Headers.ETag?.ToString());
+        }
+    }
+
     /// <summary>连续资源以真实内容摘要逐次校验私有缓存，并保留 HEAD、Range 和 If-Range 语义。</summary>
     [MongoHttpFact]
     public async Task ContinuousAssetsRevalidatePrivateCachesAndPreserveConditionalRanges()

@@ -11,12 +11,22 @@ import SessionLiveMarkerPanel from '../src/components/player/SessionLiveMarkerPa
 import SessionLiveMarkerUploadDialog from '../src/components/player/SessionLiveMarkerUploadDialog.vue'
 import SessionLiveMarkerAlignmentDialog from '../src/components/player/SessionLiveMarkerAlignmentDialog.vue'
 import { canSeekLiveMarker, formatLiveMarkerOffset, parseLiveMarkerCalibration } from '../src/utilities/liveMarkers'
+import { previewCacheKey } from '../src/utilities/previewBrowserCache'
+
+const previewCache = vi.hoisted(() => ({ values: new Map<string, unknown>(), read: vi.fn(), write: vi.fn(), remove: vi.fn() }))
+vi.mock('../src/utilities/previewBrowserCache', () => ({
+  previewCacheKey: (kind: string, id: string, scope: string, revision: string) => JSON.stringify([kind, id, scope, revision]),
+  readPreviewCache: previewCache.read,
+  writePreviewCache: previewCache.write,
+  removePreviewCache: previewCache.remove,
+}))
 
 const auth = vi.hoisted(() => ({ canUploadLiveMarkers: true, canViewRecordings: true, canGenerateLiveMarkers: false }))
 vi.mock('../src/stores/auth', () => ({ useAuthStore: () => auth }))
 vi.mock('../src/apis/AiAnalysisAPI', () => ({ AiAnalysisAPI: { liveMarkerStatus: vi.fn().mockResolvedValue({ enabled: false, canGenerate: false, currentJob: null, latestCompleted: null, latestPartial: null, stale: false }) } }))
 
 const mounted: VueWrapper[] = []
+const scrollToIndex = vi.fn()
 const container = defineComponent({ setup: (_, { slots }) => () => h('div', slots.default?.()) })
 const dialog = defineComponent({
   props: ['modelValue', 'persistent', 'scrollable'],
@@ -61,15 +71,16 @@ const select = defineComponent({
 })
 const virtualScroll = defineComponent({
   props: ['items'],
-  setup(props, { slots })
+  setup(props, { slots, expose })
   {
+    expose({ scrollToIndex })
     return () => h('div', (props.items as LiveMarkerEntry[]).flatMap(item => slots.default?.({ item }) ?? []))
   },
 })
 const stubs = {
   VCard: container, VCardText: container, VDialog: dialog, VBtn: button, VAlert: container,
   VFileInput: fileInput, VTextField: textField, VSelect: select, VVirtualScroll: virtualScroll,
-  VIcon: true, VProgressLinear: true, VTooltip: { template: '<slot name="activator" :props="{}" />' },
+  VIcon: true, VProgressLinear: true, VTooltip: { props: ['text', 'location'], template: '<slot name="activator" :props="{}" />' },
   AiLiveMarkerActions: true, AiAnalysisDetailsDialog: true,
 }
 
@@ -96,16 +107,25 @@ function setupFeed(activeInitially = true)
 {
   const id = ref('session-1')
   const active = ref(activeInitially)
+  const scope = ref('viewer-1')
+  const preferredFileId = ref<string>()
   let feed!: ReturnType<typeof useSessionLiveMarkers>
   const wrapper = mount(defineComponent({
     setup()
     {
-      feed = useSessionLiveMarkers(id, active)
+      feed = useSessionLiveMarkers(id, active, preferredFileId, scope)
       return () => h('div')
     },
   }), { global: { plugins: [i18n] } })
   mounted.push(wrapper)
-  return { id, active, wrapper, get feed() { return feed } }
+  return { id, active, scope, preferredFileId, wrapper, get feed() { return feed } }
+}
+
+function deferred<T>()
+{
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(accept => { resolve = accept })
+  return { promise, resolve }
 }
 
 function mockArchive(initialFiles = [file('older'), file('newer', { uploadedAtUtc: '2026-11-13T00:00:20Z' })])
@@ -123,7 +143,12 @@ function mockArchive(initialFiles = [file('older'), file('newer', { uploadedAtUt
 
 beforeEach(() =>
 {
+  previewCache.values.clear()
+  previewCache.read.mockReset().mockImplementation(async (key: string) => previewCache.values.get(key))
+  previewCache.write.mockReset().mockImplementation(async (key: string, value: unknown) => { previewCache.values.set(key, structuredClone(value)) })
+  previewCache.remove.mockReset().mockImplementation(async (key: string) => { previewCache.values.delete(key) })
   auth.canUploadLiveMarkers = true
+  scrollToIndex.mockReset()
   i18n.global.locale.value = 'zh-CN'
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
 })
@@ -197,6 +222,58 @@ describe('直播记录 API', () =>
 
 describe('场次共享直播记录状态', () =>
 {
+  it('服务器确认文件版本后复用浏览器详情，重新进入不重复下载条目', async () =>
+  {
+    const current = file('current', { revision: 'revision-1' })
+    const state = mockArchive([current])
+    const first = setupFeed()
+    await flushPromises()
+    expect(state.read).toHaveBeenCalledTimes(1)
+    first.wrapper.unmount()
+    state.archive.files = [{ ...current, canManage: false }]
+    const second = setupFeed()
+    await flushPromises()
+    expect(state.files).toHaveBeenCalledTimes(2)
+    expect(state.read).toHaveBeenCalledTimes(1)
+    expect(second.feed.detail.value?.entries.map(value => value.index)).toEqual([0, 1])
+    expect(second.feed.detail.value?.file.canManage).toBe(false)
+  })
+
+  it('内容或场次投影版本变化不复用旧缓存，显式刷新强制读取服务器', async () =>
+  {
+    const state = mockArchive([file('current', { revision: 'revision-1' })])
+    const first = setupFeed()
+    await flushPromises()
+    first.wrapper.unmount()
+    state.archive.files = [file('current', { revision: 'revision-2', calibrationMs: -500 })]
+    const second = setupFeed()
+    await flushPromises()
+    expect(state.read).toHaveBeenCalledTimes(2)
+    expect(second.feed.detail.value?.entries.map(value => value.offsetMs)).toEqual([500, 1500])
+    await second.feed.refresh()
+    expect(state.read).toHaveBeenCalledTimes(3)
+  })
+
+  it('浏览器缓存身份隔离，身份切换期间迟到的缓存不能恢复旧详情', async () =>
+  {
+    const current = file('current', { revision: 'revision-1' })
+    mockArchive([current])
+    const pending = deferred<LiveMarkerDetail | undefined>()
+    previewCache.read.mockReturnValueOnce(pending.promise)
+    const mountedFeed = setupFeed()
+    await flushPromises()
+    mountedFeed.scope.value = 'viewer-2'
+    await flushPromises()
+    pending.resolve(detail(current, [entry(0, 9000, { message: '旧身份条目' })]))
+    await flushPromises()
+    expect(previewCache.read.mock.calls.map(([key]) => key)).toEqual([
+      previewCacheKey('live-markers', 'session-1', 'viewer-1', JSON.stringify([current.id, current.revision])),
+      previewCacheKey('live-markers', 'session-1', 'viewer-2', JSON.stringify([current.id, current.revision])),
+    ])
+    expect(mountedFeed.feed.detail.value?.file.id).toBe('current')
+    expect(mountedFeed.feed.detail.value?.entries.map(value => value.message)).not.toContain('旧身份条目')
+  })
+
   it('上传时间的小数秒精度不影响按真实时间选择最新文件', async () =>
   {
     mockArchive([
@@ -261,7 +338,7 @@ describe('场次共享直播记录状态', () =>
     expect(mountedFeed.feed.defaultTimeZoneId.value).toBe('Asia/Shanghai')
   })
 
-  it('隐藏标签停止轮询且保留选择，激活时刷新当前文件', async () =>
+  it('首次激活读取，切回复用所选文件且活动期间不轮询', async () =>
   {
     const state = mockArchive()
     const mountedFeed = setupFeed(false)
@@ -279,8 +356,200 @@ describe('场次共享直播记录状态', () =>
     expect(mountedFeed.feed.selectedId.value).toBe('older')
     mountedFeed.active.value = true
     await flushPromises()
-    expect(state.files).toHaveBeenCalledTimes(count + 1)
+    expect(state.files).toHaveBeenCalledTimes(count)
+    expect(state.read).toHaveBeenCalledTimes(2)
     expect(mountedFeed.feed.detail.value?.file.id).toBe('older')
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(state.files).toHaveBeenCalledTimes(count)
+    expect(state.read).toHaveBeenCalledTimes(2)
+  })
+
+  it('空文件清单也是成功快照，重复激活不重新读取', async () =>
+  {
+    const state = mockArchive([])
+    const mountedFeed = setupFeed()
+    await flushPromises()
+    for (let index = 0; index < 3; index++)
+    {
+      mountedFeed.active.value = false
+      await nextTick()
+      mountedFeed.active.value = true
+      await flushPromises()
+    }
+    expect(state.files).toHaveBeenCalledTimes(1)
+    expect(state.read).not.toHaveBeenCalled()
+    expect(mountedFeed.feed.defaultTimeZoneId.value).toBe('Asia/Shanghai')
+  })
+
+  it('隐藏期间完成已启动清单及其详情，重复激活不产生并行请求', async () =>
+  {
+    const state = mockArchive([file('current')])
+    const pending = deferred<LiveMarkerFileList>()
+    state.files.mockReturnValueOnce(pending.promise)
+    const mountedFeed = setupFeed()
+    mountedFeed.active.value = false
+    await nextTick()
+    expect(state.files.mock.calls[0]![1]?.aborted).toBe(false)
+    mountedFeed.active.value = true
+    await nextTick()
+    expect(state.files).toHaveBeenCalledTimes(1)
+    mountedFeed.active.value = false
+    await nextTick()
+    pending.resolve({ files: state.archive.files, defaultTimeZoneId: 'Asia/Shanghai' })
+    await flushPromises()
+    expect(mountedFeed.feed.detail.value?.file.id).toBe('current')
+    mountedFeed.active.value = true
+    await flushPromises()
+    expect(state.files).toHaveBeenCalledTimes(1)
+    expect(state.read).toHaveBeenCalledTimes(1)
+  })
+
+  it('隐藏期间允许同一场次详情完成并缓存，选择当前文件不重读', async () =>
+  {
+    const state = mockArchive([file('current')])
+    const pending = deferred<LiveMarkerDetail>()
+    state.read.mockReturnValueOnce(pending.promise)
+    const mountedFeed = setupFeed()
+    await flushPromises()
+    mountedFeed.active.value = false
+    await nextTick()
+    expect(state.read.mock.calls[0]![2]?.aborted).toBe(false)
+    pending.resolve(detail(file('current')))
+    await flushPromises()
+    mountedFeed.active.value = true
+    await flushPromises()
+    await mountedFeed.feed.select('current')
+    expect(state.files).toHaveBeenCalledTimes(1)
+    expect(state.read).toHaveBeenCalledTimes(1)
+  })
+
+  it('详情失败后切回仅补读详情，成功时清除旧错误', async () =>
+  {
+    const state = mockArchive([file('current')])
+    state.read.mockRejectedValueOnce(new Error('详情暂时不可读'))
+    const mountedFeed = setupFeed()
+    await flushPromises()
+    expect(mountedFeed.feed.error.value).toBe('详情暂时不可读')
+    mountedFeed.active.value = false
+    await nextTick()
+    mountedFeed.active.value = true
+    await flushPromises()
+    expect(state.files).toHaveBeenCalledTimes(1)
+    expect(state.read).toHaveBeenCalledTimes(2)
+    expect(mountedFeed.feed.detail.value?.file.id).toBe('current')
+    expect(mountedFeed.feed.error.value).toBe('')
+  })
+
+  it('隐藏期间显式刷新会在恢复时替换在途旧清单，旧结果不能覆盖', async () =>
+  {
+    const state = mockArchive([file('current')])
+    const pending = deferred<LiveMarkerFileList>()
+    state.files.mockReturnValueOnce(pending.promise)
+    const mountedFeed = setupFeed()
+    mountedFeed.active.value = false
+    await nextTick()
+    await mountedFeed.feed.reveal('generated')
+    state.archive.files.push(file('generated'))
+    mountedFeed.active.value = true
+    await flushPromises()
+    expect(state.files).toHaveBeenCalledTimes(2)
+    expect(state.files.mock.calls[0]![1]?.aborted).toBe(true)
+    pending.resolve({ files: [file('old')], defaultTimeZoneId: 'UTC' })
+    await flushPromises()
+    expect(mountedFeed.feed.detail.value?.file.id).toBe('generated')
+    expect(mountedFeed.feed.defaultTimeZoneId.value).toBe('Asia/Shanghai')
+  })
+
+  it('隐藏期间显式刷新或定位新文件会留待激活，不丢失更新意图', async () =>
+  {
+    const state = mockArchive([file('current')])
+    const mountedFeed = setupFeed()
+    await flushPromises()
+    mountedFeed.active.value = false
+    await nextTick()
+    state.archive.files.push(file('generated', { uploadedAtUtc: '2026-11-13T00:00:30Z' }))
+    await mountedFeed.feed.refresh(false)
+    await mountedFeed.feed.reveal('generated')
+    expect(state.files).toHaveBeenCalledTimes(1)
+    mountedFeed.active.value = true
+    await flushPromises()
+    expect(state.files).toHaveBeenCalledTimes(2)
+    expect(state.read).toHaveBeenCalledTimes(2)
+    expect(mountedFeed.feed.detail.value?.file.id).toBe('generated')
+  })
+
+  it.each(['upload', 'align', 'remove'] as const)('%s 在隐藏期间完成，切回后补齐受影响详情', async mutation =>
+  {
+    const state = mockArchive()
+    const mountedFeed = setupFeed()
+    await flushPromises()
+    const pending = deferred<void>()
+    const saved = file(mutation === 'upload' ? 'uploaded' : 'newer', { calibrationMs: -500, uploadedAtUtc: '2026-11-13T00:00:30Z' })
+    let operation: Promise<unknown>
+    if (mutation === 'remove')
+    {
+      vi.spyOn(LiveMarkerAPI, 'remove').mockImplementationOnce(async () =>
+      {
+        await pending.promise
+        state.archive.files = state.archive.files.filter(value => value.id !== 'newer')
+      })
+      operation = mountedFeed.feed.remove('newer')
+    }
+    else if (mutation === 'align')
+    {
+      vi.spyOn(LiveMarkerAPI, 'align').mockImplementationOnce(async () =>
+      {
+        await pending.promise
+        state.archive.files = state.archive.files.map(value => value.id === saved.id ? saved : value)
+        return saved
+      })
+      operation = mountedFeed.feed.align('newer', -500)
+    }
+    else
+    {
+      vi.spyOn(LiveMarkerAPI, 'upload').mockImplementationOnce(async () =>
+      {
+        await pending.promise
+        state.archive.files.push(saved)
+        return saved
+      })
+      operation = mountedFeed.feed.upload({ file: new File(['Marker: []'], 'new.yaml'), timeZoneId: 'Asia/Shanghai', calibrationMs: -500 })
+    }
+    mountedFeed.active.value = false
+    await nextTick()
+    pending.resolve()
+    await operation
+    expect(state.files).toHaveBeenCalledTimes(1)
+    mountedFeed.active.value = true
+    await flushPromises()
+    expect(state.files).toHaveBeenCalledTimes(2)
+    expect(mountedFeed.feed.detail.value?.file.id).toBe(mutation === 'remove' ? 'older' : saved.id)
+    if (mutation !== 'remove')
+    {
+      expect(mountedFeed.feed.detail.value?.entries.map(value => value.offsetMs)).toEqual([500, 1500])
+    }
+  })
+
+  it('隐藏期间身份范围变化取消旧详情并清空快照，旧响应不能回写', async () =>
+  {
+    const state = mockArchive([file('current')])
+    const pending = deferred<LiveMarkerDetail>()
+    state.read.mockReturnValueOnce(pending.promise)
+    const mountedFeed = setupFeed()
+    await flushPromises()
+    mountedFeed.active.value = false
+    await nextTick()
+    mountedFeed.scope.value = 'viewer-2'
+    await nextTick()
+    expect(state.read.mock.calls[0]![2]?.aborted).toBe(true)
+    expect(mountedFeed.feed.files.value).toEqual([])
+    pending.resolve(detail(file('current')))
+    await flushPromises()
+    expect(mountedFeed.feed.detail.value).toBeUndefined()
+    mountedFeed.active.value = true
+    await flushPromises()
+    expect(state.files).toHaveBeenCalledTimes(2)
+    expect(mountedFeed.feed.detail.value?.file.id).toBe('current')
   })
 
   it('刷新失败保留已加载内容，重试恢复列表并清除错误', async () =>
@@ -431,7 +700,7 @@ describe('直播记录时间输入与边界', () =>
 
 describe('直播记录面板', () =>
 {
-  function openPanel(values: { active?: boolean; editable?: boolean; durationMs?: number } = {}): VueWrapper
+  function openPanel(values: { active?: boolean; editable?: boolean; durationMs?: number; offsetMs?: number } = {}): VueWrapper
   {
     const wrapper = mount(SessionLiveMarkerPanel, {
       props: { sessionId: 'session-1', durationMs: 10000, ...values },
@@ -440,6 +709,54 @@ describe('直播记录面板', () =>
     mounted.push(wrapper)
     return wrapper
   }
+
+  it('只点击定位按钮才滚动并高亮最近可播放条目，不移动视频播放位置', async () =>
+  {
+    const state = mockArchive([file('current')])
+    state.read.mockResolvedValue(detail(file('current'), [
+      entry(0, -10), entry(1, 1000), entry(2, 3000), entry(3, 3000), entry(4, 10000),
+    ]))
+    const wrapper = openPanel({ offsetMs: 2000 })
+    await flushPromises()
+    expect(scrollToIndex).not.toHaveBeenCalled()
+    await wrapper.get('button[aria-label="定位当前播放位置"]').trigger('click')
+    expect(scrollToIndex).toHaveBeenCalledExactlyOnceWith(1, 'center')
+    expect(wrapper.findAll('.marker-entry[aria-current="true"]').map(row => row.text())).toEqual([expect.stringContaining('打点1')])
+    expect(wrapper.emitted('seek')).toBeUndefined()
+    await wrapper.setProps({ offsetMs: 3000, active: false })
+    await wrapper.setProps({ active: true })
+    await flushPromises()
+    expect(scrollToIndex).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('.marker-entry[aria-current="true"]').text()).toContain('打点1')
+    await wrapper.get('button[aria-label="定位当前播放位置"]').trigger('click')
+    expect(scrollToIndex).toHaveBeenLastCalledWith(2, 'center')
+    expect(wrapper.get('.marker-entry[aria-current="true"]').text()).toContain('打点2')
+    expect(state.files).toHaveBeenCalledTimes(1)
+    expect(state.read).toHaveBeenCalledTimes(1)
+  })
+
+  it('切换记录文件清理上次定位高亮，内容加载不触发滚动', async () =>
+  {
+    mockArchive()
+    const wrapper = openPanel({ offsetMs: 1000 })
+    await flushPromises()
+    await wrapper.get('button[aria-label="定位当前播放位置"]').trigger('click')
+    expect(wrapper.find('.marker-entry[aria-current="true"]').exists()).toBe(true)
+    await wrapper.get('select').setValue('older')
+    await flushPromises()
+    expect(wrapper.find('.marker-entry[aria-current="true"]').exists()).toBe(false)
+    expect(scrollToIndex).toHaveBeenCalledTimes(1)
+  })
+
+  it('没有录像范围内条目时禁用定位按钮', async () =>
+  {
+    const state = mockArchive([file('current')])
+    state.read.mockResolvedValue(detail(file('current'), [entry(0, -1), entry(1, 10000)]))
+    const wrapper = openPanel({ offsetMs: 5000 })
+    await flushPromises()
+    expect(wrapper.get<HTMLButtonElement>('button[aria-label="定位当前播放位置"]').element.disabled).toBe(true)
+    expect(scrollToIndex).not.toHaveBeenCalled()
+  })
 
   it('只允许录像范围内的打点跳转，保留原文和七色标识', async () =>
   {

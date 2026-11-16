@@ -8,8 +8,8 @@
     <EventFeed v-show="tab === 'events'" class="sidebar-panel" :active="tab === 'events'" :session-id="sessionId" :offset-ms="offsetMs" :enabled="hasDanmu" :is-live="isLive" :navigation-revision="navigationRevision" :retention-count="auth.user?.playbackEventRetentionCount ?? DEFAULT_PLAYBACK_EVENT_RETENTION_COUNT" @seek="emit('seek', $event)">
       <template #settings><PlaybackEventSettings /></template>
     </EventFeed>
-    <SessionTranslationPanel v-show="tab === 'translations'" class="sidebar-panel" :active="tab === 'translations'" :session-id="sessionId" :duration-ms="durationMs" :enabled="hasDanmu" :is-live="isLive" :configuration-revision="configurationRevision" @seek="emit('seek', $event)" @configure="emit('configure')" />
-    <SessionLiveMarkerPanel v-show="tab === 'markers'" class="sidebar-panel" :active="tab === 'markers'" :session-id="sessionId" :duration-ms="durationMs" :editable="editable" :ended="ended" :file-id="liveMarkerFileId" @seek="emit('seek', $event)" />
+    <SessionTranslationPanel v-show="tab === 'translations'" class="sidebar-panel" :active="tab === 'translations'" :session-id="sessionId" :duration-ms="durationMs" :offset-ms="offsetMs" :enabled="hasDanmu" :is-live="isLive" :configuration-revision="configurationRevision" @seek="emit('seek', $event)" @configure="emit('configure')" />
+    <SessionLiveMarkerPanel v-show="tab === 'markers'" class="sidebar-panel" :active="tab === 'markers'" :session-id="sessionId" :duration-ms="durationMs" :offset-ms="offsetMs" :editable="editable" :ended="ended" :file-id="liveMarkerFileId" @seek="emit('seek', $event)" />
   </v-card>
 </template>
 
@@ -18,6 +18,7 @@ import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { DEFAULT_PLAYBACK_EVENT_RETENTION_COUNT } from '@/models/playbackPreferences'
+import { provideSessionEventSnapshot } from '@/composables/useSessionEventSnapshot'
 import EventFeed from './EventFeed.vue'
 import PlaybackEventSettings from './PlaybackEventSettings.vue'
 import SessionLiveMarkerPanel from './SessionLiveMarkerPanel.vue'
@@ -32,6 +33,7 @@ watch([() => props.sessionId, () => props.showLiveMarkers, () => props.liveMarke
 {
   if (props.showLiveMarkers || props.liveMarkerFileId) { tab.value = 'markers' }
 }, { immediate: true })
+provideSessionEventSnapshot({ sessionId: () => props.sessionId, active: () => tab.value === 'events' || tab.value === 'translations', enabled: () => props.hasDanmu, isLive: () => props.isLive, configurationRevision: () => props.configurationRevision })
 </script>
 
 <style scoped>

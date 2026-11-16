@@ -98,7 +98,7 @@ public sealed class EventArchiveReader : IDisposable
                 indexVersion == (index is null ? null : EventArchiveFileVersion.Capture(index)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                return new(stream, cached!.Blocks);
+                return new(stream, cached!.Blocks, committedLength);
             }
             var (blocks, needsRepair) = append && reusable
                 ? (cached!.Blocks.ToList(), true)
@@ -140,7 +140,7 @@ public sealed class EventArchiveReader : IDisposable
                     indexCache.Set(key, entry, new MemoryCacheEntryOptions { Size = size });
                 }
             }
-            return new(stream, blocks);
+            return new(stream, blocks, committedLength);
         }
         catch
         {
@@ -170,6 +170,18 @@ public sealed class EventArchiveReader : IDisposable
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         await foreach (var line in CompleteLinesAsync(snapshot.Stream, block.StartByte, block.EndByte, cancellationToken))
+        {
+            if (DeserializeEvent(line.Bytes) is { } item)
+            {
+                yield return item;
+            }
+        }
+    }
+
+    internal static async IAsyncEnumerable<RecordedEventEnvelope> ReadSnapshotAsync(EventArchiveSnapshot snapshot, long startByte,
+        long maximumLength, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await foreach (var line in CompleteLinesAsync(snapshot.Stream, startByte, Math.Min(snapshot.CommittedLength, maximumLength), cancellationToken))
         {
             if (DeserializeEvent(line.Bytes) is { } item)
             {

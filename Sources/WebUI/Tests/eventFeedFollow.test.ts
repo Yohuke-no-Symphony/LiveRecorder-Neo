@@ -7,12 +7,12 @@ import type { RecordedEvent } from '../src/models/media'
 import EventFeed from '../src/components/player/EventFeed.vue'
 
 const { eventsRequest } = vi.hoisted(() => ({ eventsRequest: vi.fn() }))
+vi.mock('../src/stores/auth', () => ({ useAuthStore: () => ({ user: { id: 'viewer' }, canViewRecordings: true }) }))
 vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: {
-  events: eventsRequest,
-  playbackEvents: async (id: string, options: { offsetMs: number }, signal?: AbortSignal) =>
+  eventSnapshot: async (id: string, cursor?: string, signal?: AbortSignal) =>
   {
-    const page = await eventsRequest(id, options, signal)
-    return { fromMs: options.offsetMs, toMs: options.offsetMs + 30000, items: page.items }
+    const page = await eventsRequest(id, { cursor }, signal)
+    return { version: 'v1', reset: !cursor, items: page.items, translationSequences: [], cursor: 'cursor-1', isLive: false }
   },
 } }))
 const mounted: VueWrapper[] = []
@@ -102,11 +102,11 @@ describe('直播消息侧栏激活状态', () =>
     await wrapper.setProps({ active: true })
     await flushPromises()
     expect(eventsRequest).toHaveBeenCalledTimes(1)
-    expect(eventsRequest.mock.calls[0]?.[1]).toMatchObject({ offsetMs: 45000, limit: 500 })
+    expect(eventsRequest.mock.calls[0]?.[1]).toEqual({ cursor: undefined })
     expect(wrapper.text()).toContain('消息1')
   })
 
-  it('切出标签取消在途请求，迟到响应不覆盖切回后的消息', async () =>
+  it('切出标签继续完整下载，切回和定位复用同一个在途请求', async () =>
   {
     let completeOld!: (value: { items: RecordedEvent[]; nextCursor: null }) => void
     eventsRequest.mockImplementationOnce(() => new Promise(resolve => { completeOld = resolve }))
@@ -118,16 +118,17 @@ describe('直播消息侧栏激活状态', () =>
     await flushPromises()
     const oldSignal = eventsRequest.mock.calls[0]?.[2] as AbortSignal
     await wrapper.setProps({ active: false, offsetMs: 4000 })
-    expect(oldSignal.aborted).toBe(true)
+    expect(oldSignal.aborted).toBe(false)
 
     eventsRequest.mockResolvedValueOnce({ items: [event(2, 3000)], nextCursor: null })
     await wrapper.setProps({ active: true })
     await flushPromises()
-    expect(wrapper.text()).toContain('消息2')
+    expect(eventsRequest).toHaveBeenCalledTimes(1)
     completeOld({ items: [event(1, 1000)], nextCursor: null })
     await flushPromises()
-    expect(wrapper.text()).toContain('消息2')
-    expect(wrapper.text()).not.toContain('消息1')
+    expect(wrapper.text()).toContain('消息1')
+    expect(wrapper.text()).not.toContain('消息2')
+    expect(eventsRequest).toHaveBeenCalledTimes(1)
   })
 
   it('切换标签保留用户暂停跟随的状态', async () =>

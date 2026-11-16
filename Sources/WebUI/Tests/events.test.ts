@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { config, flushPromises, mount, type VueWrapper } from '@vue/test-utils'
-import { defineComponent, h, isProxy } from 'vue'
+import { defineComponent, h, isProxy, reactive } from 'vue'
 import { i18n } from '../src/plugins/i18n'
+import { ApiError } from '../src/apis/APIBase'
 import type { RecordedEvent } from '../src/models/media'
 import { displayEvents, redPocketData, safeImageUrl } from '../src/utilities/eventPresentation'
 import DanmuContent from '../src/components/events/DanmuContent.vue'
@@ -15,12 +16,13 @@ import MediaPlayer from '../src/components/player/MediaPlayer.vue'
 
 const { hlsConstructor, supported, eventsRequest } = vi.hoisted(() => ({ hlsConstructor: vi.fn(), supported: vi.fn(() => true), eventsRequest: vi.fn() }))
 vi.mock('hls.js', () => ({ default: Object.assign(hlsConstructor, { isSupported: supported, Events: { MANIFEST_PARSED: 'manifest', ERROR: 'error' } }) }))
+const auth = reactive({ user: { id: 'viewer' }, canViewRecordings: true })
+vi.mock('../src/stores/auth', () => ({ useAuthStore: () => auth }))
 vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: {
-  events: eventsRequest,
-  playbackEvents: async (id: string, options: { offsetMs: number }, signal?: AbortSignal) =>
+  eventSnapshot: async (id: string, cursor?: string, signal?: AbortSignal) =>
   {
-    const page = await eventsRequest(id, options, signal)
-    return { fromMs: options.offsetMs, toMs: options.offsetMs + 30000, items: page.items }
+    const page = await eventsRequest(id, { cursor }, signal)
+    return { version: 'v1', reset: !cursor, items: page.items, translationSequences: [], cursor: 'cursor-1', isLive: false }
   },
 } }))
 const mounted: VueWrapper[] = []
@@ -52,7 +54,7 @@ function pocketEvents(): RecordedEvent[]
 
 beforeAll(() => { config.global.plugins = [...originalPlugins, i18n] })
 afterAll(() => { config.global.plugins = originalPlugins })
-beforeEach(() => { vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1)); vi.stubGlobal('cancelAnimationFrame', vi.fn()); vi.stubGlobal('ResizeObserver', vi.fn(function () { return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() } })); i18n.global.locale.value = 'zh-CN'; hlsConstructor.mockClear(); supported.mockClear(); eventsRequest.mockReset(); scrollToIndex.mockClear() })
+beforeEach(() => { auth.user.id = 'viewer'; auth.canViewRecordings = true; vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1)); vi.stubGlobal('cancelAnimationFrame', vi.fn()); vi.stubGlobal('ResizeObserver', vi.fn(function () { return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() } })); i18n.global.locale.value = 'zh-CN'; hlsConstructor.mockClear(); supported.mockClear(); eventsRequest.mockReset(); scrollToIndex.mockClear() })
 afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
 describe('实际消息内容组件', () =>
@@ -234,6 +236,39 @@ describe('空播放地址', () =>
 
 describe('消息播放与阅读稳定性', () =>
 {
+  it('暂停阅读后服务器撤销权限，刷新失败也会立即清除保留的旧正文', async () =>
+  {
+    eventsRequest.mockResolvedValueOnce({ items: [event({ text: '保留的私有正文' })], nextCursor: null })
+    const wrapper = mountFeed()
+    await flushPromises()
+    await wrapper.get('.event-scroll').trigger('wheel', { deltaY: -100 })
+    eventsRequest.mockRejectedValueOnce(new ApiError(403, '观看权限已撤销'))
+    await wrapper.get('.feed-refresh').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('保留的私有正文')
+    expect(wrapper.text()).toContain('观看权限已撤销')
+  })
+
+  it.each(['account', 'permission'] as const)('暂停阅读时变更%s也不能残留旧身份消息', async change =>
+  {
+    eventsRequest.mockResolvedValueOnce({ items: [event({ text: '旧账号的消息' })], nextCursor: null })
+    const wrapper = mountFeed()
+    await flushPromises()
+    await wrapper.get('.event-scroll').trigger('wheel', { deltaY: -100 })
+    eventsRequest.mockReturnValueOnce(new Promise(() => {}))
+    if (change === 'account')
+    {
+      auth.user.id = 'other-viewer'
+    }
+    else
+    {
+      auth.canViewRecordings = false
+    }
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('旧账号的消息')
+    expect(wrapper.find('.event-row').exists()).toBe(false)
+  })
+
   function mountFeed(offsetMs = 2000, isLive = false): VueWrapper
   {
     const wrapper = mount(EventFeed, { props: { sessionId: 's1', offsetMs, enabled: true, isLive }, global: { stubs: { VCard: card, VVirtualScroll: virtualScroll, VBtn: true, VIcon: true, VAvatar: true, VImg: true, VChipGroup: true, VChip: true, VAlert: card, VProgressLinear: true } } })
@@ -264,11 +299,10 @@ describe('消息播放与阅读稳定性', () =>
     expect(eventsRequest).toHaveBeenCalledTimes(1)
   })
 
-  it('慢请求完成时已超出预取范围，只补拉最新播放位置', async () =>
+  it('完整下载期间播放推进很远，完成后直接显示本地目标位置', async () =>
   {
     let complete!: (value: { items: RecordedEvent[]; nextCursor: null }) => void
     eventsRequest.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
-    eventsRequest.mockResolvedValue({ items: [event({ sequence: 2, offsetMs: 44000, text: '最新位置消息' })], nextCursor: null })
     const wrapper = mountFeed()
     await flushPromises()
 
@@ -276,16 +310,15 @@ describe('消息播放与阅读稳定性', () =>
     {
       await wrapper.setProps({ offsetMs })
     }
-    complete({ items: [event({ text: '先前位置消息' })], nextCursor: null })
+    complete({ items: [event({ text: '先前位置消息' }), event({ sequence: 2, offsetMs: 44000, text: '最新位置消息' })], nextCursor: null })
     await flushPromises()
 
-    expect(eventsRequest).toHaveBeenCalledTimes(2)
-    expect(eventsRequest.mock.calls[1]![1]).toMatchObject({ offsetMs: 45000 })
+    expect(eventsRequest).toHaveBeenCalledTimes(1)
     expect(wrapper.text()).toContain('最新位置消息')
     expect(wrapper.find('v-progress-linear-stub').exists()).toBe(false)
   })
 
-  it('直播轮询与播放推进共同复用在途预取请求', async () =>
+  it('直播通过游标轮询增量，播放推进不打断正在进行的追加', async () =>
   {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     eventsRequest.mockResolvedValueOnce({ items: [event({ text: '已加载消息' })], nextCursor: null })
@@ -295,6 +328,8 @@ describe('消息播放与阅读稳定性', () =>
     eventsRequest.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
 
     await wrapper.setProps({ offsetMs: 25000 })
+    expect(eventsRequest).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(10000)
     const signal = eventsRequest.mock.calls[1]![2] as AbortSignal
     await wrapper.setProps({ offsetMs: 30000 })
     await vi.advanceTimersByTimeAsync(10000)
@@ -323,26 +358,24 @@ describe('消息播放与阅读稳定性', () =>
     expect(wrapper.find('v-progress-linear-stub').exists()).toBe(false)
   })
 
-  it('显式跳转立即替换慢请求，迟到响应不会覆盖目标位置', async () =>
+  it('显式跳转复用完整下载，完成时按最新播放时间显示', async () =>
   {
     let complete!: (value: { items: RecordedEvent[]; nextCursor: null }) => void
     eventsRequest.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
-    eventsRequest.mockResolvedValue({ items: [event({ sequence: 2, offsetMs: 44000, text: '跳转目标消息' })], nextCursor: null })
     const wrapper = mountFeed()
     await flushPromises()
     const signal = eventsRequest.mock.calls[0]![2] as AbortSignal
 
     await wrapper.setProps({ offsetMs: 45000, navigationRevision: 1 })
     await flushPromises()
-    expect(signal.aborted).toBe(true)
-    expect(eventsRequest).toHaveBeenCalledTimes(2)
-    expect(wrapper.text()).toContain('跳转目标消息')
+    expect(signal.aborted).toBe(false)
+    expect(eventsRequest).toHaveBeenCalledTimes(1)
 
-    complete({ items: [event({ text: '过期消息' })], nextCursor: null })
+    complete({ items: [event({ text: '历史消息' }), event({ sequence: 2, offsetMs: 44000, text: '跳转目标消息' })], nextCursor: null })
     await flushPromises()
     expect(wrapper.text()).toContain('跳转目标消息')
-    expect(wrapper.text()).not.toContain('过期消息')
-    expect(eventsRequest).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('历史消息')
+    expect(eventsRequest).toHaveBeenCalledTimes(1)
   })
 
   it('归档消息和协议资料保持普通对象，列表无需逐层创建响应式代理', async () =>
@@ -433,8 +466,9 @@ describe('消息播放与阅读稳定性', () =>
     expect(scrollToIndex).toHaveBeenCalledExactlyOnceWith(1, 'end')
   })
 
-  it('暂停阅读跨过直播分页窗口后仍保留旧消息，恢复跟随后继续保留历史并追加新消息', async () =>
+  it('暂停阅读时直播增量仍入缓存，恢复跟随后保留历史并显示新增消息', async () =>
   {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     eventsRequest.mockResolvedValueOnce({ items: [event({ offsetMs: 120000, text: '保留的旧消息' })], nextCursor: null })
     const wrapper = mountFeed(130000, true)
     await flushPromises()
@@ -444,6 +478,7 @@ describe('消息播放与阅读稳定性', () =>
     scrollToIndex.mockClear()
     eventsRequest.mockResolvedValue({ items: [event({ offsetMs: 120000, text: '保留的旧消息' }), event({ sequence: 2, eventId: 'new-window', offsetMs: 299000, text: '新窗口消息' })], nextCursor: null })
     await wrapper.setProps({ offsetMs: 300000 })
+    await vi.advanceTimersByTimeAsync(10000)
     await flushPromises()
     expect(eventsRequest).toHaveBeenCalledTimes(2)
     expect(scroller.props('items')).toBe(items)
@@ -531,35 +566,33 @@ describe('消息播放与阅读稳定性', () =>
     expect(wrapper.get('.feed-heading v-btn-stub').attributes('color')).toBe('primary')
   })
 
-  it('同一5秒区间内的显式导航仍强制刷新消息，普通位置回退不解除暂停', async () =>
+  it('显式导航只在本地恢复跟随，普通位置回退不解除暂停', async () =>
   {
-    eventsRequest.mockResolvedValueOnce({ items: [event({ text: '正在阅读' })], nextCursor: null })
+    eventsRequest.mockResolvedValueOnce({ items: [event({ text: '正在阅读' }), event({ sequence: 2, eventId: 'near-navigation', offsetMs: 2100, text: '同区间新消息' })], nextCursor: null })
     const wrapper = mountFeed()
     await flushPromises()
     await wrapper.get('.event-scroll').trigger('wheel', { deltaY: -200 })
     await wrapper.setProps({ offsetMs: 1990 })
     await flushPromises()
     expect(wrapper.get('.feed-heading v-btn-stub').attributes('color')).toBe('secondary')
-    expect(eventsRequest).toHaveBeenCalledTimes(2)
-    eventsRequest.mockResolvedValue({ items: [event({ text: '正在阅读' }), event({ sequence: 2, eventId: 'near-navigation', offsetMs: 2100, text: '同区间新消息' })], nextCursor: null })
+    expect(eventsRequest).toHaveBeenCalledTimes(1)
     await wrapper.setProps({ offsetMs: 2200, navigationRevision: 1 })
     await flushPromises()
-    expect(eventsRequest).toHaveBeenCalledTimes(3)
+    expect(eventsRequest).toHaveBeenCalledTimes(1)
     expect(wrapper.get('.feed-heading v-btn-stub').attributes('color')).toBe('primary')
     expect(wrapper.text()).toContain('同区间新消息')
   })
 
   it('暂停阅读后显式向前导航会恢复跟随并定位目标之前的历史', async () =>
   {
-    eventsRequest.mockResolvedValueOnce({ items: [event({ offsetMs: 120000, text: '暂停中的旧消息' })], nextCursor: null })
+    eventsRequest.mockResolvedValueOnce({ items: [event({ offsetMs: 120000, text: '暂停中的旧消息' }), event({ sequence: 2, eventId: 'navigation-target', offsetMs: 359000, text: '导航目标消息' })], nextCursor: null })
     const wrapper = mountFeed(130000, true)
     await flushPromises()
     await wrapper.get('.event-scroll').trigger('wheel', { deltaY: -200 })
     scrollToIndex.mockClear()
-    eventsRequest.mockResolvedValue({ items: [event({ offsetMs: 120000, text: '暂停中的旧消息' }), event({ sequence: 2, eventId: 'navigation-target', offsetMs: 359000, text: '导航目标消息' })], nextCursor: null })
     await wrapper.setProps({ offsetMs: 360000, navigationRevision: 1 })
     await flushPromises()
-    expect(eventsRequest).toHaveBeenCalledTimes(2)
+    expect(eventsRequest).toHaveBeenCalledTimes(1)
     expect(wrapper.get('.feed-heading v-btn-stub').attributes('color')).toBe('primary')
     expect(wrapper.text()).toContain('暂停中的旧消息')
     expect(wrapper.text()).toContain('导航目标消息')

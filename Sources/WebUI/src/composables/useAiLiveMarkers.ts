@@ -8,7 +8,7 @@ export function useAiLiveMarkers(sessionId: MaybeRefOrGetter<string>, ended: May
   const scope = computed(() => JSON.stringify([auth.user?.id, auth.user?.role, auth.user?.status, [...(auth.user?.permissions ?? [])].sort()]))
   const analysis = useAiAnalysis(sessionId, ended, {
     purpose: 'LiveMarkers', active: () => auth.canViewRecordings && toValue(active),
-    canGenerate: () => auth.canGenerateLiveMarkers, scope,
+    canGenerate: () => auth.canGenerateLiveMarkers, scope, retainSnapshot: true,
   })
   return { ...analysis, scope }
 }

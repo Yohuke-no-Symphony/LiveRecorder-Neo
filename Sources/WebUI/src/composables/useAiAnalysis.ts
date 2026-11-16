@@ -42,6 +42,7 @@ export function useAiAnalysis(sessionId: MaybeRefOrGetter<string>, ended: MaybeR
     requestRevision++
     clearTimeout(timer)
     controller?.abort()
+    controller = undefined
   }
 
   function isCurrent(context: number): boolean
@@ -85,8 +86,12 @@ export function useAiAnalysis(sessionId: MaybeRefOrGetter<string>, ended: MaybeR
     {
       if (isCurrent(context) && request === requestRevision)
       {
+        controller = undefined
         loading.value = false
-        timer = setTimeout(() => void refresh(), running.value ? 3000 : 30000)
+        if (toValue(options.active) !== false && (!options.retainSnapshot || running.value))
+        {
+          timer = setTimeout(() => void refresh(), running.value ? 3000 : 30000)
+        }
       }
     }
   }
@@ -171,7 +176,7 @@ export function useAiAnalysis(sessionId: MaybeRefOrGetter<string>, ended: MaybeR
     await refresh()
   }
 
-  watch([() => toValue(sessionId), () => toValue(options.active), () => toValue(options.scope)], () =>
+  watch([() => toValue(sessionId), () => options.retainSnapshot ? undefined : toValue(options.active), () => toValue(options.scope)], () =>
   {
     contextRevision++
     stopReading()
@@ -184,6 +189,22 @@ export function useAiAnalysis(sessionId: MaybeRefOrGetter<string>, ended: MaybeR
     actionError.value = ''
     void refresh()
   }, { immediate: true, flush: 'sync' })
+
+  watch(() => toValue(options.active), active =>
+  {
+    if (!options.retainSnapshot)
+    {
+      return
+    }
+    if (active === false)
+    {
+      clearTimeout(timer)
+    }
+    else if (!controller && (!status.value || running.value))
+    {
+      void refresh()
+    }
+  }, { flush: 'sync' })
 
   onScopeDispose(() =>
   {

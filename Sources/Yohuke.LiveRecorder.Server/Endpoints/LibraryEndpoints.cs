@@ -174,11 +174,11 @@ public static class LibraryEndpoints
                 throw new InfrastructureException(MessageCode.TRANSLATION_DANMU_PATTERN_TIMEOUT);
             }
         }).RequireAuthorization(UserPermissionNames.VIEW_ANALYTICS);
-        viewing.MapGet("/playback/{key}/{generation}/{fileName}", async (string key, string generation, string fileName, PlaybackService playback, CancellationToken ct) =>
+        viewing.MapMethods("/playback/{key}/{generation}/{fileName}", [HttpMethods.Get, HttpMethods.Head], async (string key, string generation, string fileName, PlaybackService playback, CancellationToken ct) =>
         {
-            var path = await playback.ResolveAssetAsync(key, generation, fileName, ct);
-            var type = Path.GetExtension(path) switch { ".m3u8" => "application/vnd.apple.mpegurl", ".m4s" => "video/iso.segment", ".mp4" => "video/mp4", ".ts" => "video/mp2t", _ => "application/octet-stream" };
-            return new MediaFileResult(path, type, MediaTrafficKind.Playback);
+            var asset = await playback.ResolveAssetAsync(key, generation, fileName, ct);
+            var type = Path.GetExtension(asset.Path) switch { ".m3u8" => "application/vnd.apple.mpegurl", ".m4s" => "video/iso.segment", ".mp4" => "video/mp4", ".ts" => "video/mp2t", _ => "application/octet-stream" };
+            return new MediaFileResult(asset.Path, type, MediaTrafficKind.Playback, contentHash: asset.ContentHash);
         });
         api.MapGet("/jobs", async (HttpContext http, IMongoContext context, CancellationToken ct) =>
         {

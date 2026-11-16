@@ -10,4 +10,7 @@ public sealed record LiveMarkerFileSummary(
     int EntryCount,
     long CalibrationMs,
     string SourceTimeZoneId,
-    bool CanManage);
+    bool CanManage)
+{
+    public string Revision { get; init; } = "";
+}

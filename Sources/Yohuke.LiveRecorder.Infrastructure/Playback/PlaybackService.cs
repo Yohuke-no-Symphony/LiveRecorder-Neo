@@ -151,6 +151,10 @@ public sealed class PlaybackService(LibraryService library, PlaybackCache cache,
                         }
                         File.Copy(result.PlaylistPath, Path.Combine(output, "index.m3u8"));
                     }
+                    foreach (var file in Directory.EnumerateFiles(output).Where(file => Path.GetExtension(file) is ".m3u8" or ".m4s" or ".mp4" or ".ts"))
+                    {
+                        entry.Files.Add(await DescribeFileAsync(file, cancellationToken));
+                    }
                     await JsonFiles.WriteAsync(Path.Combine(output, "window.json"), entry, cancellationToken);
                     await JsonFiles.WriteAsync(latestPath, entry, cancellationToken);
                     published = true;
@@ -184,39 +188,86 @@ public sealed class PlaybackService(LibraryService library, PlaybackCache cache,
     }
 
     /// <summary>解析一个已生成的播放资源，并重新验证场次存在。</summary>
-    public async Task<string> ResolveAssetAsync(string key, string generation, string fileName, CancellationToken cancellationToken = default)
+    public async Task<PlaybackWindowAsset> ResolveAssetAsync(string key, string generation, string fileName, CancellationToken cancellationToken = default)
     {
         if (!Regex.IsMatch(key, "^[a-f0-9]{32}$") || !Regex.IsMatch(generation, "^[a-f0-9]{32}$") || fileName != Path.GetFileName(fileName) || fileName is "window.json" or "latest.json")
         {
             throw new InfrastructureException(MessageCode.PLAYBACK_RESOURCE_NOT_FOUND, 404);
         }
-        var directory = MediaPaths.Resolve(paths.CacheDirectory, Path.Combine("playback", key, generation));
-        var manifest = Path.Combine(directory, "window.json");
-        if (!File.Exists(manifest))
+        var gate = gates[(int)(Convert.ToUInt32(key[..8], 16) % gates.Length)];
+        await gate.WaitAsync(cancellationToken);
+        try
         {
-            throw new InfrastructureException(MessageCode.PLAYBACK_CACHE_EXPIRED, 410);
+            using var protection = cache.ProtectBuild(key, generation);
+            var directory = MediaPaths.Resolve(paths.CacheDirectory, Path.Combine("playback", key, generation));
+            var manifest = Path.Combine(directory, "window.json");
+            if (!File.Exists(manifest))
+            {
+                throw new InfrastructureException(MessageCode.PLAYBACK_CACHE_EXPIRED, 410);
+            }
+            PlaybackCacheEntry entry;
+            await using (var input = File.OpenRead(manifest))
+            {
+                entry = await JsonSerializer.DeserializeAsync<PlaybackCacheEntry>(input, JsonFiles.Options, cancellationToken)
+                        ?? throw new InfrastructureException(MessageCode.PLAYBACK_RESOURCE_INVALID, 404);
+            }
+            var detail = await library.GetAsync(entry.SessionId, cancellationToken);
+            if (detail.Segments.All(x => x.Id != entry.SegmentId))
+            {
+                throw new InfrastructureException(MessageCode.PLAYBACK_CACHE_EXPIRED, 410);
+            }
+            var path = MediaPaths.Resolve(directory, fileName);
+            var file = new FileInfo(path);
+            if (!file.Exists)
+            {
+                throw new InfrastructureException(MessageCode.PLAYBACK_RESOURCE_NOT_FOUND, 404);
+            }
+            var metadata = entry.Files.FirstOrDefault(item => item.Name == fileName);
+            if (metadata is not null && (metadata.Length != file.Length || metadata.WriteTicks != file.LastWriteTimeUtc.Ticks))
+            {
+                throw new InfrastructureException(MessageCode.PLAYBACK_CACHE_EXPIRED, 410);
+            }
+            if (metadata is null || metadata.ContentHash is not { Length: 64 } || metadata.ContentHash.Any(character => !char.IsAsciiHexDigitLower(character)))
+            {
+                metadata = await DescribeFileAsync(path, cancellationToken);
+                entry.Files.RemoveAll(item => item.Name == fileName);
+                entry.Files.Add(metadata);
+                await JsonFiles.WriteAsync(manifest, entry, cancellationToken);
+            }
+            cache.Touch(key, generation);
+            return new(path, metadata.ContentHash);
         }
-        await using var input = File.OpenRead(manifest);
-        var entry = await JsonSerializer.DeserializeAsync<PlaybackCacheEntry>(input, JsonFiles.Options, cancellationToken)
-                    ?? throw new InfrastructureException(MessageCode.PLAYBACK_RESOURCE_INVALID, 404);
-        var detail = await library.GetAsync(entry.SessionId, cancellationToken);
-        if (detail.Segments.All(x => x.Id != entry.SegmentId))
+        finally
         {
-            throw new InfrastructureException(MessageCode.PLAYBACK_CACHE_EXPIRED, 410);
+            gate.Release();
         }
-        cache.Touch(key, generation);
-        var path = MediaPaths.Resolve(directory, fileName);
-        if (!File.Exists(path))
-        {
-            throw new InfrastructureException(MessageCode.PLAYBACK_RESOURCE_NOT_FOUND, 404);
-        }
-        return path;
     }
 
     /// <summary>回收不活跃的过期窗口，并执行缓存容量限制。</summary>
     public Task MaintainAsync(CancellationToken cancellationToken = default)
     {
         return cache.MaintainAsync(cancellationToken);
+    }
+
+    private static async Task<PlaybackWindowFileMetadata> DescribeFileAsync(string path, CancellationToken cancellationToken)
+    {
+        var file = new FileInfo(path);
+        var length = file.Length;
+        var writeTicks = file.LastWriteTimeUtc.Ticks;
+        await using var stream = new FileStream(path, new FileStreamOptions
+        {
+            Mode = FileMode.Open,
+            Access = FileAccess.Read,
+            Share = FileShare.Read,
+            Options = FileOptions.Asynchronous | FileOptions.SequentialScan
+        });
+        var hash = Convert.ToHexString(await SHA256.HashDataAsync(stream, cancellationToken)).ToLowerInvariant();
+        file.Refresh();
+        if (!file.Exists || file.Length != length || file.LastWriteTimeUtc.Ticks != writeTicks)
+        {
+            throw new InfrastructureException(MessageCode.PLAYBACK_CACHE_EXPIRED, 410);
+        }
+        return new(file.Name, length, writeTicks, hash);
     }
 
     private static bool Covers(PlaybackCacheEntry entry, double offsetMs)

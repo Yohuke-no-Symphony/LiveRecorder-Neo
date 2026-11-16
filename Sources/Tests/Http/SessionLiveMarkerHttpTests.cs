@@ -38,13 +38,16 @@ public sealed class SessionLiveMarkerHttpTests
             file = (await uploaded.Content.ReadFromJsonAsync<LiveMarkerFileSummary>())!;
             Assert.True(file.CanManage);
             Assert.Equal(author.Id, file.UploaderId);
+            Assert.Equal(64, file.Revision.Length);
         }
 
         var list = await viewerBrowser.Client.GetFromJsonAsync<LiveMarkerFileListResponse>(path);
         Assert.False(Assert.Single(list!.Files).CanManage);
+        Assert.Equal(file.Revision, Assert.Single(list.Files).Revision);
         var filePath = path + "/" + file.Id;
         var detail = await viewerBrowser.Client.GetFromJsonAsync<LiveMarkerFileResponse>(filePath);
         Assert.Equal(1500, Assert.Single(detail!.Entries).OffsetMs);
+        Assert.Equal(file.Revision, detail.File.Revision);
         using (var denied = await viewerBrowser.SendAsync(HttpMethod.Delete, filePath))
         {
             Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
@@ -56,6 +59,8 @@ public sealed class SessionLiveMarkerHttpTests
         {
             Assert.Equal(HttpStatusCode.OK, aligned.StatusCode);
         }
+        var calibrated = await authorBrowser.Client.GetFromJsonAsync<LiveMarkerFileResponse>(filePath);
+        Assert.NotEqual(file.Revision, calibrated!.File.Revision);
 
         foreach (var invalid in new object[]
                  {

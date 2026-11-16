@@ -98,6 +98,35 @@ afterEach(() =>
 
 describe('AI 生成共享直播记录', () =>
 {
+  it('切换标签复用空闲的AI状态，已加载记录不继续轮询', async () =>
+  {
+    const wrapper = await mountPanel()
+    expect(liveMarkerStatus).toHaveBeenCalledTimes(1)
+    await wrapper.setProps({ active: false })
+    await wrapper.setProps({ active: true })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(liveMarkerStatus).toHaveBeenCalledTimes(1)
+  })
+
+  it('切出后保留本地生成任务，切回时检查完成并选中新记录', async () =>
+  {
+    const wrapper = await mountPanel({ fileId: 'old' })
+    const actions = await openActions(wrapper)
+    await findButton(actions, '生成直播记录').trigger('click')
+    await flushPromises()
+    await wrapper.setProps({ active: false })
+    archive.push(file('ai-hidden', '00:00:30'))
+    status.currentJob = job('local', 'Completed', 'ai-hidden')
+    const count = liveMarkerStatus.mock.calls.length
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(liveMarkerStatus).toHaveBeenCalledTimes(count)
+    await wrapper.setProps({ active: true })
+    await flushPromises()
+    expect(wrapper.get<HTMLSelectElement>('select').element.value).toBe('ai-hidden')
+    expect(generateLiveMarkers).toHaveBeenCalledTimes(1)
+  })
+
   it('生成权限独立于分析和上传，页面进入与文件选择只读取', async () =>
   {
     const auth = useAuthStore()
@@ -234,7 +263,8 @@ describe('AI 生成共享直播记录', () =>
     const wrapper = await mountPanel()
     let resolve!: (value: AiAnalysisStatus) => void
     liveMarkerStatus.mockReturnValueOnce(new Promise<AiAnalysisStatus>(accept => { resolve = accept }))
-    await vi.advanceTimersByTimeAsync(30000)
+    await wrapper.get('[aria-label="刷新记录"]').trigger('click')
+    expect(liveMarkerStatus).toHaveBeenCalledTimes(2)
     const signal = liveMarkerStatus.mock.calls.at(-1)![1] as AbortSignal
     useAuthStore().user!.permissions = []
     await flushPromises()

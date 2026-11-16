@@ -29,7 +29,7 @@ public sealed class SessionLiveMarkerService(
         var detail = await RequireAccessibleAsync(sessionId, cancellationToken);
         var result = await files.ListAsync(detail.Session.DirectoryPath, cancellationToken);
         var settings = await settingsStore.GetAsync(cancellationToken);
-        return new(result.Select(file => Summary(file, actor)).ToArray(), settings.TimeZone);
+        return new(result.Select(file => Summary(file, actor, detail.Session.StartedAtUtc)).ToArray(), settings.TimeZone);
     }
 
     /// <inheritdoc/>
@@ -46,7 +46,7 @@ public sealed class SessionLiveMarkerService(
                 entry.Message, entry.MarkerColor.ToString(),
                 (entry.RealDateTime.UtcDateTime - detail.Session.StartedAtUtc).TotalMilliseconds + file.CalibrationMs))
             .OrderBy(entry => entry.OffsetMs).ThenBy(entry => entry.Index).ToArray();
-        return new(Summary(file, actor), document.StartTime.ToString("O", CultureInfo.InvariantCulture), entries);
+        return new(Summary(file, actor, detail.Session.StartedAtUtc), document.StartTime.ToString("O", CultureInfo.InvariantCulture), entries);
     }
 
     /// <inheritdoc/>
@@ -83,7 +83,7 @@ public sealed class SessionLiveMarkerService(
         await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
         var detail = await RequireWritableAsync(sessionId, cancellationToken);
         await files.PublishAsync(detail.Session.DirectoryPath, bytes, document, metadata, cancellationToken);
-        return Summary(metadata, actor);
+        return Summary(metadata, actor, detail.Session.StartedAtUtc);
     }
 
     /// <inheritdoc/>
@@ -98,7 +98,7 @@ public sealed class SessionLiveMarkerService(
         LiveMarkerYamlParser.ValidateAlignment(document, calibrationMs);
         var updated = metadata with { CalibrationMs = calibrationMs };
         await files.WriteMetadataAsync(detail.Session.DirectoryPath, updated, cancellationToken);
-        return Summary(updated, actor);
+        return Summary(updated, actor, detail.Session.StartedAtUtc);
     }
 
     /// <inheritdoc/>
@@ -137,11 +137,14 @@ public sealed class SessionLiveMarkerService(
         return detail;
     }
 
-    private static LiveMarkerFileSummary Summary(LiveMarkerFileMetadata file, LiveMarkerActor actor)
+    private static LiveMarkerFileSummary Summary(LiveMarkerFileMetadata file, LiveMarkerActor actor, DateTime startedAtUtc)
     {
         return new(file.Id, file.OriginalFileName, file.UploaderId, file.UploaderName, file.UploadedAtUtc,
             file.EntryCount,
-            file.CalibrationMs, file.SourceTimeZoneId, actor.CanManageOthers || file.UploaderId == actor.Id);
+            file.CalibrationMs, file.SourceTimeZoneId, actor.CanManageOthers || file.UploaderId == actor.Id)
+        {
+            Revision = LiveMarkerPreviewRevision.Create(file, startedAtUtc)
+        };
     }
 
     private static void RequireManager(LiveMarkerFileMetadata file, LiveMarkerActor actor)

@@ -7,4 +7,5 @@ export interface AiAnalysisOptions
   active?: MaybeRefOrGetter<boolean>
   canGenerate?: MaybeRefOrGetter<boolean>
   scope?: MaybeRefOrGetter<string>
+  retainSnapshot?: boolean
 }

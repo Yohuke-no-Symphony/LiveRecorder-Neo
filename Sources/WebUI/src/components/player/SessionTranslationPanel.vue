@@ -3,15 +3,16 @@
     <CardHeader :title="t('translations.title')">
       <template #suffix><span v-if="hasSnapshot" class="text-caption muted mono">{{ formatNumber(entries.length) }}</span></template>
       <template #actions>
+        <v-btn icon="mdi-crosshairs-gps" variant="text" size="small" :disabled="!hasSeekableEntries" :aria-label="t('translations.locate')" :title="t('translations.locate')" @click="locate" />
         <v-btn icon="mdi-refresh" variant="text" size="small" :loading="loading" :disabled="!enabled" :aria-label="t('translations.refresh')" @click="refresh()" />
         <v-btn v-if="auth.canConfigureRecordings" icon="mdi-cog-outline" variant="text" size="small" :aria-label="t('shell.recordingConfiguration.title')" @click="emit('configure')" />
       </template>
     </CardHeader>
     <v-progress-linear v-if="loading" indeterminate color="primary" :aria-label="t('translations.loading')" />
     <v-alert v-if="error" type="error" density="compact" class="mx-4 my-3">{{ error }}</v-alert>
-    <v-virtual-scroll v-if="entries.length" class="translation-scroll" :items="entries" :item-height="88" item-key="sequence">
+    <v-virtual-scroll v-if="entries.length" ref="entryScroll" class="translation-scroll" :items="entries" :item-height="88" item-key="sequence">
       <template #default="{ item }">
-        <button type="button" class="translation-entry" :disabled="!canSeek(item.offsetMs)" :aria-label="t('translations.jump', { time: formatDuration(item.offsetMs, true), message: item.text })" @click="seek(item.offsetMs)">
+        <button type="button" class="translation-entry" :class="{ 'translation-entry-located': locatedSequence === item.sequence }" :aria-current="locatedSequence === item.sequence ? 'true' : undefined" :disabled="!canSeek(item.offsetMs)" :aria-label="t('translations.jump', { time: formatDuration(item.offsetMs, true), message: item.text })" @click="seek(item.offsetMs)">
           <span class="translation-meta"><span class="translation-author">{{ item.userName }}</span><span class="translation-time mono">{{ formatDuration(item.offsetMs, true) }}</span></span>
           <span class="translation-text">{{ item.text }}</span>
         </button>
@@ -23,22 +24,42 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import CardHeader from '@/components/common/CardHeader.vue'
 import { useSessionTranslations } from '@/composables/useSessionTranslations'
 import { formatDuration, formatNumber } from '@/utilities/format'
+import { findNearestPlaybackEntryIndex } from '@/utilities/nearestPlaybackEntry'
 
-const props = withDefaults(defineProps<{ sessionId: string; durationMs: number; enabled: boolean; isLive: boolean; active?: boolean; configurationRevision?: number }>(), { active: true })
+const props = withDefaults(defineProps<{ sessionId: string; durationMs: number; offsetMs?: number; enabled: boolean; isLive: boolean; active?: boolean; configurationRevision?: number }>(), { active: true, offsetMs: 0 })
 const emit = defineEmits<{ seek: [offsetMs: number]; configure: [] }>()
 const { t } = useI18n()
 const auth = useAuthStore()
-const { entries, loading, hasSnapshot, error, refresh } = useSessionTranslations(() => props.sessionId, () => props.durationMs, () => props.active, () => props.enabled, () => props.isLive)
-watch(() => props.configurationRevision, () => { void refresh() })
+const { entries, loading, hasSnapshot, error, refresh } = useSessionTranslations(() => props.sessionId, () => props.active, () => props.enabled, () => props.isLive, () => props.configurationRevision)
+const entryScroll = ref<{ scrollToIndex: (index: number, position: 'center') => void }>()
+const locatedSequence = ref<number>()
+const hasSeekableEntries = computed(() => entries.value.some(item => canSeek(item.offsetMs)))
+watch(entries, () => { locatedSequence.value = undefined })
+
+async function locate(): Promise<void>
+{
+  const index = findNearestPlaybackEntryIndex(entries.value, props.offsetMs, props.durationMs)
+  if (index < 0)
+  {
+    return
+  }
+  const sequence = entries.value[index]!.sequence
+  locatedSequence.value = sequence
+  await nextTick()
+  if (props.active && entries.value[index]?.sequence === sequence)
+  {
+    entryScroll.value?.scrollToIndex(index, 'center')
+  }
+}
 
 function canSeek(offsetMs: number): boolean
 {
-  return Number.isFinite(offsetMs) && offsetMs >= 0 && offsetMs <= props.durationMs
+  return Number.isFinite(offsetMs) && Number.isFinite(props.durationMs) && offsetMs >= 0 && offsetMs < props.durationMs
 }
 
 function seek(offsetMs: number): void
@@ -56,6 +77,7 @@ function seek(offsetMs: number): void
 .translation-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
 .translation-entry { display: flex; flex-direction: column; gap: 7px; width: 100%; padding: 14px var(--ui-card-padding); border: 0; border-top: 1px solid rgba(var(--v-theme-on-surface), .06); background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .translation-entry:hover:not(:disabled) { background: rgba(var(--v-theme-primary), .06); }
+.translation-entry.translation-entry-located { background: rgba(var(--v-theme-primary), .12); box-shadow: inset 3px 0 rgb(var(--v-theme-primary)); }
 .translation-entry:focus-visible { outline: 2px solid rgb(var(--v-theme-primary)); outline-offset: -2px; }
 .translation-entry:disabled { cursor: default; opacity: .45; }
 .translation-meta { display: flex; align-items: baseline; gap: 12px; width: 100%; min-width: 0; color: rgba(var(--v-theme-on-surface), .5); font-size: .7rem; }

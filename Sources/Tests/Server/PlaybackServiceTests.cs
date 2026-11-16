@@ -1,5 +1,7 @@
 using MongoDB.Driver;
 using Microsoft.Extensions.Options;
+using System.Security.Cryptography;
+using System.Text.Json.Nodes;
 using Xunit;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Localization;
@@ -51,6 +53,51 @@ public sealed class PlaybackServiceTests
 
         Assert.Equal(first.Url, cached.Url);
         Assert.Single(builder.Requests);
+    }
+
+    /// <summary>窗口摘要随文件发布，服务重建后仍复用相同内容身份，旧窗口可按需补充摘要。</summary>
+    [Fact]
+    public async Task WindowContentHashesPersistAndLegacyMetadataIsBackfilledWithoutRebuilding()
+    {
+        await using var fixture = await JobTestContext.CreateAsync();
+        var (session, _) = await SeedAsync(fixture);
+        var builder = new PlaybackServiceTestBuilder();
+        var service = CreateService(fixture, builder);
+        var response = await service.OpenAsync(session.Id, 1000);
+        var pieces = response.Url!.Split('/');
+        var first = await service.ResolveAssetAsync(pieces[^3], pieces[^2], pieces[^1]);
+        var expectedHash = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(first.Path))).ToLowerInvariant();
+        Assert.Equal(expectedHash, first.ContentHash);
+
+        var manifest = Path.Combine(Path.GetDirectoryName(first.Path)!, "window.json");
+        var saved = JsonNode.Parse(await File.ReadAllTextAsync(manifest))!.AsObject();
+        Assert.Equal(expectedHash, Assert.Single(saved["files"]!.AsArray())!["contentHash"]!.GetValue<string>());
+        saved.Remove("files");
+        await File.WriteAllTextAsync(manifest, saved.ToJsonString());
+
+        var restarted = CreateService(fixture, builder);
+        var restored = await restarted.ResolveAssetAsync(pieces[^3], pieces[^2], pieces[^1]);
+        Assert.Equal(expectedHash, restored.ContentHash);
+        var backfilled = JsonNode.Parse(await File.ReadAllTextAsync(manifest))!.AsObject();
+        Assert.Equal(expectedHash, Assert.Single(backfilled["files"]!.AsArray())!["contentHash"]!.GetValue<string>());
+        Assert.Single(builder.Requests);
+    }
+
+    /// <summary>已发布文件身份变化后拒绝沿用旧 ETag，避免错误的 304 响应。</summary>
+    [Fact]
+    public async Task ChangedWindowFileCannotReuseItsPublishedContentHash()
+    {
+        await using var fixture = await JobTestContext.CreateAsync();
+        var (session, _) = await SeedAsync(fixture);
+        var service = CreateService(fixture, new PlaybackServiceTestBuilder());
+        var response = await service.OpenAsync(session.Id, 1000);
+        var pieces = response.Url!.Split('/');
+        var asset = await service.ResolveAssetAsync(pieces[^3], pieces[^2], pieces[^1]);
+        await File.AppendAllTextAsync(asset.Path, "changed");
+
+        var error = await Assert.ThrowsAsync<InfrastructureException>(() => service.ResolveAssetAsync(pieces[^3], pieces[^2], pieces[^1]));
+
+        Assert.Equal(410, error.StatusCode);
     }
 
     /// <summary>保留正常音视频起点偏差的真实映射，零点定位仍可播放和复用。</summary>
@@ -277,9 +324,9 @@ public sealed class PlaybackServiceTests
         return (session, segment);
     }
 
-    private static Task<string> ResolvePlaylistAsync(PlaybackService service, PlaybackResponse response)
+    private static async Task<string> ResolvePlaylistAsync(PlaybackService service, PlaybackResponse response)
     {
         var pieces = response.Url!.Split('/');
-        return service.ResolveAssetAsync(pieces[^3], pieces[^2], pieces[^1]);
+        return (await service.ResolveAssetAsync(pieces[^3], pieces[^2], pieces[^1])).Path;
     }
 }
