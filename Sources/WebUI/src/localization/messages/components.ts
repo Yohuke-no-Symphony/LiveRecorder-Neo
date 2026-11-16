@@ -66,7 +66,7 @@ export const componentsZh = {
     restartRequired: '目录变更待重启后生效，服务继续使用上方显示的当前目录。',
   },
   events: {
-    title: '直播消息', follow: '跟随', all: '全部', danmu: '弹幕', superChat: 'SC', gift: '礼物', guard: '舰长',
+    title: '弹幕', follow: '跟随', all: '全部', danmu: '弹幕', superChat: 'SC', gift: '礼物', guard: '舰长',
     settings: '回放弹幕设置', retentionCount: '回放弹幕留存数量', retentionInvalid: '请输入有效的正整数。',
     redPocket: '红包', gap: '录制中断', guest: '访客', empty: '当前时段暂无消息', notRecorded: '此场录播未保存弹幕',
     count: '{count} 条', messageCount: '{count} 条消息', loadFailed: '消息加载失败', roomAdmin: '房管',
@@ -185,7 +185,7 @@ export const componentsEn: MessageSchema<typeof componentsZh> = {
     restartRequired: 'A restart is required to apply the directory changes. The server still uses the current directories shown above.',
   },
   events: {
-    title: 'Live messages', follow: 'Follow', all: 'All', danmu: 'Chat', superChat: 'SC', gift: 'Gifts', guard: 'Memberships',
+    title: 'Chat', follow: 'Follow', all: 'All', danmu: 'Chat', superChat: 'SC', gift: 'Gifts', guard: 'Memberships',
     settings: 'Replay chat settings', retentionCount: 'Replay messages to retain', retentionInvalid: 'Enter a valid positive integer.',
     redPocket: 'Red packets', gap: 'Recording interrupted', guest: 'Guest', empty: 'No messages in this period',
     notRecorded: 'Chat was not recorded for this session', count: '{count} messages', messageCount: '{count} messages',
@@ -306,7 +306,7 @@ export const componentsJa: MessageSchema<typeof componentsZh> = {
     restartRequired: 'ディレクトリの変更には再起動が必要です。現在は上に表示されているディレクトリを使用しています。',
   },
   events: {
-    title: '配信メッセージ', follow: '追従', all: 'すべて', danmu: 'コメント', superChat: 'SC', gift: 'ギフト', guard: 'メンバーシップ',
+    title: 'コメント', follow: '追従', all: 'すべて', danmu: 'コメント', superChat: 'SC', gift: 'ギフト', guard: 'メンバーシップ',
     settings: 'リプレイコメント設定', retentionCount: 'リプレイコメント保持件数', retentionInvalid: '有効な正の整数を入力してください。',
     redPocket: '紅包', gap: '録画が中断されました', guest: 'ゲスト', empty: 'この時間帯にメッセージはありません',
     notRecorded: 'この配信ではコメントを記録していません', count: '{count} 件', messageCount: 'メッセージ {count} 件',
