@@ -72,13 +72,33 @@ internal sealed class ClipExecutor(ClipFileTransfer transfer)
     internal static async Task<MediaExportResult> ExportAsync(ClipAssignment assignment, WorkerConfiguration configuration,
         ClipWorkspaceLease workspace, CancellationToken cancellationToken, Action<double>? progress)
     {
-        var inputs = assignment.Inputs.Select((input, index) => input.IsGap
-            ? new MediaInputSpan { SessionStartMs = input.SessionStartMs, DurationMs = input.DurationMs }
-            : new MediaInputSpan
+        var inputs = assignment.Inputs.Select((input, index) =>
+        {
+            if (input.IsGap)
             {
-                Path = Path.Combine(workspace.DirectoryPath, $"input-{index:D5}.flv"), SessionStartMs = input.SessionStartMs,
-                SourceStartMs = Math.Max(0, input.SourceStartMs - input.Range!.StartMs), DurationMs = input.DurationMs
-            }).ToList();
+                return new MediaInputSpan { SessionStartMs = input.SessionStartMs, DurationMs = input.DurationMs };
+            }
+            var path = Path.Combine(workspace.DirectoryPath, $"input-{index:D5}.flv");
+            var source = input.Range!;
+            IndexedFlvRangePlan? range = null;
+            if (assignment.Mode == "Fast")
+            {
+                range = IndexedFlvRange.PlanReconstructedInput(new()
+                {
+                    SourceLength = source.SourceLength, StartOffset = source.StartOffset, EndOffset = source.EndOffset,
+                    StartMs = source.StartMs, EndMs = source.EndMs, VideoHeader = source.VideoHeader, AudioHeader = source.AudioHeader
+                });
+                if (new FileInfo(path).Length != range.SourceLength)
+                {
+                    throw new InvalidDataException("The prepared clipping input does not match its assigned range length.");
+                }
+            }
+            return new MediaInputSpan
+            {
+                Path = path, SessionStartMs = input.SessionStartMs,
+                SourceStartMs = Math.Max(0, input.SourceStartMs - source.StartMs), DurationMs = input.DurationMs, Range = range
+            };
+        }).ToList();
         using var processes = new MediaProcessRunner(Options.Create(new MediaToolOptions()), new ClipMediaSettingsStore(configuration));
         return await new FfmpegMediaProcessor(processes).ExportAsync(new()
         {

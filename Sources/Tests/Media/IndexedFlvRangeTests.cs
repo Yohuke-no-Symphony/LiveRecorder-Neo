@@ -247,6 +247,43 @@ public sealed class IndexedFlvRangeTests
             ["-v", "error", "-xerror", "-i", rebuiltPath, "-map", "0:v:0", "-map", "0:a:0", "-f", "null", "-"], CancellationToken.None);
     }
 
+    /// <summary>Appending a later range preserves audio that precedes its video keyframe in decode time.</summary>
+    [Fact]
+    public async Task ContinuousAppendPreservesInterleavedAudioBeforeTheRangeOrigin()
+    {
+        using var fixture = new MediaFixture();
+        var video = CreateTag(9, 2000, [0x17, 1, 0, 0, 0, 0x65]);
+        var raw = video.Concat(CreateTag(8, 1990, [0xaf, 1, 2])).ToArray();
+        var path = Path.Combine(fixture.DirectoryPath, "interleaved.range");
+        await File.WriteAllBytesAsync(path, raw);
+        var plan = CreatePlan(raw.Length, 2000) with { StartOffset = 0, EndOffset = raw.Length, SourceLength = raw.Length };
+        await using var output = new MemoryStream();
+
+        await IndexedFlvRange.AppendAsync(path, plan, output, 1000, false, CancellationToken.None);
+
+        var bytes = output.ToArray();
+        Assert.Equal(raw.Length, bytes.Length);
+        Assert.Equal(1000u, ReadTimestamp(bytes.AsSpan(0, 11)));
+        Assert.Equal(990u, ReadTimestamp(bytes.AsSpan(video.Length, 11)));
+    }
+
+    /// <summary>A continuous input fails instead of silently clamping media before its common timestamp origin.</summary>
+    [Fact]
+    public async Task ContinuousAppendRejectsAnUnrepresentableNegativeTimestamp()
+    {
+        using var fixture = new MediaFixture();
+        var raw = CreateTag(8, 1990, [0xaf, 1, 2]);
+        var path = Path.Combine(fixture.DirectoryPath, "negative.range");
+        await File.WriteAllBytesAsync(path, raw);
+        var plan = CreatePlan(raw.Length, 2000) with { StartOffset = 0, EndOffset = raw.Length, SourceLength = raw.Length };
+        await using var output = new MemoryStream();
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            IndexedFlvRange.AppendAsync(path, plan, output, 0, false, CancellationToken.None));
+
+        Assert.Equal(0, output.Length);
+    }
+
     private static List<FlvIndexEntry> CreateIndex()
     {
         return

@@ -7,5 +7,6 @@ public sealed class MediaInputSpan
     public double SourceStartMs { get; set; }
     public double DurationMs { get; set; }
     public double SessionStartMs { get; set; }
+    public IndexedFlvRangePlan? Range { get; set; }
     public bool IsGap => Path is null;
 }

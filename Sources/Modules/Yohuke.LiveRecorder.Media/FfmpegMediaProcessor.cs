@@ -157,43 +157,56 @@ public sealed class FfmpegMediaProcessor : IMediaProcessor
         var partial = Path.Combine(work, "result.mp4");
         try
         {
-            var firstProbe = spans.FirstOrDefault(span => span.Details is not null)?.Details?.Probe;
-            var width = Math.Max(64, (firstProbe?.Width ?? 1280) / 2 * 2);
-            var height = Math.Max(32, (firstProbe?.Height ?? 720) / 2 * 2);
-            var frameRate = firstProbe is { FrameRate: > 0 and <= 120 } ? firstProbe.FrameRate : 30;
-            var slate = Path.Combine(work, "gap.ppm");
-            if (spans.Any(span => span.Path is null))
-            {
-                await GapSlateRenderer.WriteAsync(slate, width, height, cancellationToken);
-            }
-            var concat = new StringBuilder("ffconcat version 1.0\n");
             var totalDuration = spans.Sum(span => span.DurationMs);
-            var processedDuration = 0d;
-            for (var index = 0; index < spans.Count; index++)
+            var firstProbe = spans.FirstOrDefault(span => span.Details is not null)?.Details?.Probe;
+            var frameRate = firstProbe is { FrameRate: > 0 and <= 120 } ? firstProbe.FrameRate : 30;
+            if (request.Mode == "Fast" && CanCopyContinuousInput(spans, totalDuration))
             {
-                var span = spans[index];
-                var part = Path.Combine(work, $"part{index:D5}.ts");
-                var partProgressStart = processedDuration;
-                var partProgress = new CallbackProgress<double>(value => progress.Report((partProgressStart + span.DurationMs * value) / totalDuration * 0.9));
-                var arguments = request.Mode == "Fast"
-                    ? BuildFastArguments(span, part)
-                    : BuildExactArguments(span, part, slate, width, height, frameRate, request.EncodingThreads);
-                Func<Stream, CancellationToken, Task>? input = span.Range is { } range
-                    ? (stream, token) => IndexedFlvRange.CopyAsync(span.Path!, range, stream, token)
-                    : null;
-                await processes.RunAsync(MediaProcessKind.Export, arguments, cancellationToken, input, partProgress, TimeSpan.FromMilliseconds(span.DurationMs));
-                concat.Append("file '").Append(EscapeConcatPath(part)).Append("'\n");
-                concat.Append("duration ").Append(Seconds(span.DurationMs)).Append('\n');
-                processedDuration += span.DurationMs;
+                await processes.RunAsync(MediaProcessKind.Export,
+                [
+                    "-hide_banner", "-loglevel", "error", "-nostdin", "-progress", "pipe:1", "-copyts", "-f", "flv", "-i", "pipe:0",
+                    "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-avoid_negative_ts", "make_zero",
+                    "-movflags", "+faststart", "-f", "mp4", "-y", partial
+                ], cancellationToken, (stream, token) => CopyContinuousInputAsync(spans, stream, token),
+                    new CallbackProgress<double>(value => progress.Report(value * 0.98)), TimeSpan.FromMilliseconds(totalDuration));
             }
-            var concatPath = Path.Combine(work, "parts.ffconcat");
-            await File.WriteAllTextAsync(concatPath, concat.ToString(), new UTF8Encoding(false), cancellationToken);
-            await processes.RunAsync(MediaProcessKind.Export,
-            [
-                "-hide_banner", "-loglevel", "error", "-nostdin", "-progress", "pipe:1", "-f", "concat", "-safe", "0", "-i", concatPath,
-                "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-t", Seconds(totalDuration),
-                "-avoid_negative_ts", "make_zero", "-movflags", "+faststart", "-f", "mp4", "-y", partial
-            ], cancellationToken, progress: new CallbackProgress<double>(value => progress.Report(0.9 + value * 0.08)), expectedDuration: TimeSpan.FromMilliseconds(totalDuration));
+            else
+            {
+                var width = Math.Max(64, (firstProbe?.Width ?? 1280) / 2 * 2);
+                var height = Math.Max(32, (firstProbe?.Height ?? 720) / 2 * 2);
+                var slate = Path.Combine(work, "gap.ppm");
+                if (spans.Any(span => span.Path is null))
+                {
+                    await GapSlateRenderer.WriteAsync(slate, width, height, cancellationToken);
+                }
+                var concat = new StringBuilder("ffconcat version 1.0\n");
+                var processedDuration = 0d;
+                for (var index = 0; index < spans.Count; index++)
+                {
+                    var span = spans[index];
+                    var part = Path.Combine(work, $"part{index:D5}.ts");
+                    var partProgressStart = processedDuration;
+                    var partProgress = new CallbackProgress<double>(value => progress.Report((partProgressStart + span.DurationMs * value) / totalDuration * 0.9));
+                    var arguments = request.Mode == "Fast"
+                        ? BuildFastArguments(span, part)
+                        : BuildExactArguments(span, part, slate, width, height, frameRate, request.EncodingThreads);
+                    Func<Stream, CancellationToken, Task>? input = span.Range is { } range
+                        ? (stream, token) => IndexedFlvRange.CopyAsync(span.Path!, range, stream, token)
+                        : null;
+                    await processes.RunAsync(MediaProcessKind.Export, arguments, cancellationToken, input, partProgress, TimeSpan.FromMilliseconds(span.DurationMs));
+                    concat.Append("file '").Append(EscapeConcatPath(part)).Append("'\n");
+                    concat.Append("duration ").Append(Seconds(span.DurationMs)).Append('\n');
+                    processedDuration += span.DurationMs;
+                }
+                var concatPath = Path.Combine(work, "parts.ffconcat");
+                await File.WriteAllTextAsync(concatPath, concat.ToString(), new UTF8Encoding(false), cancellationToken);
+                await processes.RunAsync(MediaProcessKind.Export,
+                [
+                    "-hide_banner", "-loglevel", "error", "-nostdin", "-progress", "pipe:1", "-f", "concat", "-safe", "0", "-i", concatPath,
+                    "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-t", Seconds(totalDuration),
+                    "-avoid_negative_ts", "make_zero", "-movflags", "+faststart", "-f", "mp4", "-y", partial
+                ], cancellationToken, progress: new CallbackProgress<double>(value => progress.Report(0.9 + value * 0.08)), expectedDuration: TimeSpan.FromMilliseconds(totalDuration));
+            }
             var resultProbe = await ProbeAsync(partial, cancellationToken);
             var bytes = new FileInfo(partial).Length;
             if (bytes == 0 || resultProbe.VideoCodec.Length == 0 || resultProbe.DurationMs <= 0)
@@ -217,6 +230,26 @@ public sealed class FfmpegMediaProcessor : IMediaProcessor
         finally
         {
             Directory.Delete(work, recursive: true);
+        }
+    }
+
+    private static bool CanCopyContinuousInput(IReadOnlyList<ExportSpan> spans, double durationMs)
+    {
+        return durationMs <= uint.MaxValue && spans.Zip(spans.Skip(1))
+            .All(pair => Math.Abs(pair.First.SessionStartMs + pair.First.DurationMs - pair.Second.SessionStartMs) < 0.001)
+            && spans.All(span => span.Range is { } range
+            && Math.Abs(range.StartMs - span.SourceStartMs) < 0.001
+            && Math.Abs(range.EndMs - span.SourceStartMs - span.DurationMs) < 0.001);
+    }
+
+    private static async Task CopyContinuousInputAsync(IReadOnlyList<ExportSpan> spans, Stream output, CancellationToken cancellationToken)
+    {
+        var start = spans[0].SessionStartMs;
+        for (var index = 0; index < spans.Count; index++)
+        {
+            var span = spans[index];
+            await IndexedFlvRange.AppendAsync(span.Path!, span.Range!, output, span.SessionStartMs - start,
+                index == 0, cancellationToken);
         }
     }
 
@@ -288,7 +321,8 @@ public sealed class FfmpegMediaProcessor : IMediaProcessor
                 Path = input.Path,
                 SessionStartMs = start,
                 SourceStartMs = input.SourceStartMs + start - input.SessionStartMs,
-                DurationMs = stop - start
+                DurationMs = stop - start,
+                Range = input.Range
             });
             cursor = stop;
         }
@@ -333,6 +367,10 @@ public sealed class FfmpegMediaProcessor : IMediaProcessor
 
     private static async Task PrepareIndexedSpanAsync(ExportSpan span, CancellationToken cancellationToken)
     {
+        if (span.Range is not null)
+        {
+            return;
+        }
         var path = Path.ChangeExtension(span.Path!, ".index.jsonl");
         if (!File.Exists(path))
         {

@@ -58,12 +58,42 @@ public static class IndexedFlvRange
         return CopyTagsAsync(input, plan.Length, plan.StartMs, plan.VideoHeader, plan.AudioHeader, output, cancellationToken);
     }
 
+    /// <summary>Plans the normalized media bytes produced by reconstructing an indexed range, excluding its repeated decoder headers.</summary>
+    public static IndexedFlvRangePlan PlanReconstructedInput(IndexedFlvRangePlan sourcePlan)
+    {
+        ArgumentNullException.ThrowIfNull(sourcePlan);
+        ValidatePlan(sourcePlan);
+        var prefixBytes = 13 + TAG_HEADER_BYTES + PREVIOUS_TAG_SIZE_BYTES + sourcePlan.VideoHeader.Length
+            + (sourcePlan.AudioHeader is { } audio ? TAG_HEADER_BYTES + PREVIOUS_TAG_SIZE_BYTES + audio.Length : 0);
+        var length = checked(prefixBytes + sourcePlan.Length);
+        return new()
+        {
+            SourceLength = length,
+            StartOffset = prefixBytes,
+            EndOffset = length,
+            StartMs = 0,
+            EndMs = sourcePlan.EndMs - sourcePlan.StartMs,
+            VideoHeader = sourcePlan.VideoHeader.ToArray(),
+            AudioHeader = sourcePlan.AudioHeader?.ToArray()
+        };
+    }
+
     internal static async Task CopyAsync(string path, IndexedFlvRangePlan plan, Stream output, CancellationToken cancellationToken)
     {
         ValidatePlan(plan);
         await using var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 65536, FileOptions.Asynchronous);
         source.Position = plan.StartOffset;
         await CopyAsync(source, plan, output, cancellationToken);
+    }
+
+    internal static async Task AppendAsync(string path, IndexedFlvRangePlan plan, Stream output, double outputStartMs,
+        bool includeHeaders, CancellationToken cancellationToken)
+    {
+        ValidatePlan(plan);
+        await using var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 65536, FileOptions.Asynchronous);
+        source.Position = plan.StartOffset;
+        await CopyTagsAsync(source, plan.Length, plan.StartMs, plan.VideoHeader, plan.AudioHeader, output, cancellationToken,
+            outputStartMs, includeHeaders, preserveTimeline: true);
     }
 
     internal static async Task CopyAsync(string path, FlvIndexSnapshot index, FlvIndexEntry first, long endOffset, Stream output, CancellationToken cancellationToken)
@@ -91,20 +121,24 @@ public static class IndexedFlvRange
     }
 
     private static async Task CopyTagsAsync(Stream source, long length, double timestampOriginMs, byte[] videoHeader, byte[]? audioHeader,
-        Stream output, CancellationToken cancellationToken)
+        Stream output, CancellationToken cancellationToken, double outputStartMs = 0, bool includeHeaders = true, bool preserveTimeline = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ValidateDecoderHeaders(videoHeader, audioHeader);
         if (length < TAG_HEADER_BYTES + PREVIOUS_TAG_SIZE_BYTES || !double.IsFinite(timestampOriginMs)
-            || timestampOriginMs < 0 || timestampOriginMs > uint.MaxValue)
+            || timestampOriginMs < 0 || timestampOriginMs > uint.MaxValue || !double.IsFinite(outputStartMs)
+            || outputStartMs < 0 || outputStartMs > uint.MaxValue)
         {
             throw new InvalidDataException("The indexed byte range or timestamp origin is invalid.");
         }
-        await output.WriteAsync(new byte[] { 70, 76, 86, 1, (byte)(audioHeader is null ? 1 : 5), 0, 0, 0, 9, 0, 0, 0, 0 }, cancellationToken);
-        await WriteHeaderAsync(output, 9, videoHeader, cancellationToken);
-        if (audioHeader is { } audioData)
+        if (includeHeaders)
         {
-            await WriteHeaderAsync(output, 8, audioData, cancellationToken);
+            await output.WriteAsync(new byte[] { 70, 76, 86, 1, (byte)(audioHeader is null ? 1 : 5), 0, 0, 0, 9, 0, 0, 0, 0 }, cancellationToken);
+            await WriteHeaderAsync(output, 9, videoHeader, cancellationToken);
+            if (audioHeader is { } audioData)
+            {
+                await WriteHeaderAsync(output, 8, audioData, cancellationToken);
+            }
         }
 
         var header = new byte[TAG_HEADER_BYTES];
@@ -127,7 +161,13 @@ public static class IndexedFlvRange
                     throw new InvalidDataException("The committed window ends inside an FLV tag.");
                 }
                 var timestamp = ((uint)header[7] << 24) | ((uint)header[4] << 16) | ((uint)header[5] << 8) | header[6];
-                var relative = (uint)Math.Max(0, timestamp - (long)timestampOriginMs);
+                var relativeMs = timestamp - (long)timestampOriginMs;
+                relativeMs = (preserveTimeline ? relativeMs : Math.Max(0, relativeMs)) + (long)Math.Round(outputStartMs);
+                if (relativeMs is < 0 or > uint.MaxValue)
+                {
+                    throw new InvalidDataException("The continuous FLV input exceeds its timestamp range.");
+                }
+                var relative = (uint)relativeMs;
                 header[4] = (byte)(relative >> 16);
                 header[5] = (byte)(relative >> 8);
                 header[6] = (byte)relative;
