@@ -51,6 +51,30 @@ internal sealed class FlvArchiveTargetProvider : IFlvWriterTargetProvider
     internal FlvOutputState? Current { get; private set; }
     internal List<FlvArchivedOutput> Outputs { get; } = [];
 
+    internal void CloseAt(double durationMs, double nextPresentationStartMs)
+    {
+        if (Current is { } current)
+        {
+            current.ClosingDurationMs = durationMs;
+            current.NextPresentationStartMs = nextPresentationStartMs;
+        }
+    }
+
+    internal void FinalizeDuration()
+    {
+        if (Current is not { EndFinalized: false } current)
+        {
+            return;
+        }
+        var duration = current.ClosingDurationMs ?? Math.Max(current.DurationMs, current.EstimatedEndMs);
+        if (duration < current.DurationMs)
+        {
+            throw new InvalidDataException("The FLV segment boundary precedes its published watermark.");
+        }
+        current.DurationMs = duration;
+        current.EndFinalized = true;
+    }
+
     public (Stream stream, object? state) CreateOutputStream()
     {
         part++;
@@ -113,6 +137,7 @@ internal sealed class FlvArchiveTargetProvider : IFlvWriterTargetProvider
         {
             return;
         }
+        FinalizeDuration();
         current.Stream.Flush();
         current.CommittedBytes = current.Stream.Length;
         current.IndexWriter.WriteLine(System.Text.Json.JsonSerializer.Serialize(new FlvIndexEntry

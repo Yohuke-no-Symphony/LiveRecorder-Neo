@@ -47,6 +47,10 @@ internal static class FlvArchiveEngine
                 var originalIndices = observations.Keys.Where(index => index <= lastIndex).ToArray();
                 context.Reset(group, state);
                 pipeline(context);
+                if (context.Actions.OfType<PipelineNewFileAction>().Any())
+                {
+                    await tagWriter.PrepareCloseAsync();
+                }
                 await writer.WriteAsync(context);
                 await target.CommitAsync();
                 foreach (var index in originalIndices)
@@ -63,6 +67,7 @@ internal static class FlvArchiveEngine
         {
             if (target.Current is not null)
             {
+                await tagWriter.PrepareCloseAsync();
                 await target.CommitAsync();
             }
             writer.Dispose();

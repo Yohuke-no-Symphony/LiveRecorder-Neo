@@ -8,6 +8,7 @@ internal sealed class IndexedFlvTagWriter : IFlvTagWriter
     private readonly IFlvTagWriter inner;
     private readonly FlvArchiveTargetProvider target;
     private readonly Dictionary<long, FlvSourceTagInfo> sourceTags;
+    private ScriptTagBody? currentMetadata;
 
     internal IndexedFlvTagWriter(IFlvTagWriter inner, FlvArchiveTargetProvider target, Dictionary<long, FlvSourceTagInfo> sourceTags)
     {
@@ -21,7 +22,22 @@ internal sealed class IndexedFlvTagWriter : IFlvTagWriter
 
     public Task CreateNewFile()
     {
+        currentMetadata = null;
         return inner.CreateNewFile();
+    }
+
+    internal async Task PrepareCloseAsync()
+    {
+        if (target.Current is not { } current)
+        {
+            return;
+        }
+        target.FinalizeDuration();
+        if (currentMetadata?.GetMetadataValue() is { } value)
+        {
+            value["duration"] = (ScriptDataNumber)(current.MetadataDurationMs / 1000d);
+            await inner.OverwriteMetadata(currentMetadata);
+        }
     }
 
     public bool CloseCurrentFile()
@@ -46,6 +62,10 @@ internal sealed class IndexedFlvTagWriter : IFlvTagWriter
 
     public async Task WriteTag(Tag tag)
     {
+        if (tag.Type == TagType.Script || tag.IsHeader())
+        {
+            tag.Timestamp = 0;
+        }
         var offset = inner.FileSize;
         var current = target.Current!;
         sourceTags.TryGetValue(tag.Index, out var source);
@@ -59,11 +79,11 @@ internal sealed class IndexedFlvTagWriter : IFlvTagWriter
                 Kind = kind,
                 Offset = offset,
                 Size = tag.Size,
-                TimestampMs = tag.Timestamp,
+                TimestampMs = FlvTagTiming.TimestampMs(tag),
                 OriginalTimestampMs = source?.Timestamp,
                 SourceTagIndex = source is null ? null : tag.Index,
                 ReceivedAtUtc = source?.ReceivedAtUtc ?? DateTime.UtcNow,
-                SessionOffsetMs = current.StartOffsetMs + tag.Timestamp,
+                SessionOffsetMs = current.StartOffsetMs + FlvTagTiming.TimestampMs(tag),
                 HeaderData = tag.IsHeader() ? tag.BinaryData?.ToArray() : null
             });
         }
@@ -72,19 +92,40 @@ internal sealed class IndexedFlvTagWriter : IFlvTagWriter
         {
             current.Codec = (video.GetBuffer()[0] & 0x0F) == 12 ? "hevc" : "avc";
         }
-        if (!tag.IsHeader() && tag.Type is TagType.Audio or TagType.Video)
+        if (FlvAudioTiming.FrameDurationMs(tag) is { } audioDuration)
         {
+            current.AudioFrameDurationMs = audioDuration;
+        }
+        if (tag.Type == TagType.Script && tag.ScriptData?.GetMetadataValue() is { } script
+            && script.TryGetValue("framerate", out var rate) && rate is ScriptDataNumber { Value: > 0 } frameRate)
+        {
+            current.FrameDurationMs = 1000d / frameRate.Value;
+        }
+        if (tag.IsData())
+        {
+            var timestamp = FlvTagTiming.TimestampMs(tag);
+            var presentation = FlvTagTiming.PresentationTimestampMs(tag);
             if (tag.Type == TagType.Video)
             {
-                var difference = tag.Timestamp - current.LastVideoTimestampMs;
+                current.FirstVideoPresentationMs ??= presentation;
+                var difference = timestamp - current.LastVideoTimestampMs;
                 if (current.LastVideoTimestampMs >= 0 && difference is > 0 and < 250)
                 {
                     current.FrameDurationMs = difference;
                 }
-                current.LastVideoTimestampMs = tag.Timestamp;
+                current.LastVideoTimestampMs = timestamp;
             }
-            var duration = tag.Timestamp + (tag.Type == TagType.Video ? current.FrameDurationMs : 1024d / 48);
-            current.DurationMs = Math.Max(current.DurationMs, duration);
+            else if (tag.Type == TagType.Audio)
+            {
+                current.FirstAudioPresentationMs ??= presentation;
+                current.LastAudioTimestampMs = timestamp;
+            }
+            var duration = presentation + (tag.Type == TagType.Video ? current.FrameDurationMs : current.AudioFrameDurationMs);
+            current.EstimatedEndMs = Math.Max(current.EstimatedEndMs, duration);
+            var watermark = current.LastVideoTimestampMs >= 0 && current.LastAudioTimestampMs >= 0
+                ? Math.Min(current.LastVideoTimestampMs, current.LastAudioTimestampMs)
+                : Math.Max(current.LastVideoTimestampMs, current.LastAudioTimestampMs);
+            current.DurationMs = Math.Max(current.DurationMs, watermark);
         }
         await inner.WriteTag(tag);
         if (!tag.IsHeader() && tag.Type is TagType.Audio or TagType.Video && source is not null
@@ -96,6 +137,7 @@ internal sealed class IndexedFlvTagWriter : IFlvTagWriter
 
     public Task OverwriteMetadata(ScriptTagBody metadata)
     {
+        currentMetadata = metadata;
         return inner.OverwriteMetadata(metadata);
     }
 

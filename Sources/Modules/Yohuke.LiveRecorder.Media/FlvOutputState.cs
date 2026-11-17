@@ -14,6 +14,17 @@ internal sealed class FlvOutputState
     public required StreamWriter IndexWriter { get; init; }
     public double StartOffsetMs { get; init; }
     public double DurationMs { get; set; }
+    public double EstimatedEndMs { get; set; }
+    public double? ClosingDurationMs { get; set; }
+    public double? NextPresentationStartMs { get; set; }
+    public double? FirstVideoPresentationMs { get; set; }
+    public double? FirstAudioPresentationMs { get; set; }
+    public double PresentationStartMs => Math.Min(FirstVideoPresentationMs ?? FirstAudioPresentationMs ?? 0,
+        FirstAudioPresentationMs ?? FirstVideoPresentationMs ?? 0);
+    public double MetadataDurationMs => Math.Max(0, DurationMs + (NextPresentationStartMs ?? 0) - PresentationStartMs);
+    public bool EndFinalized { get; set; }
+    public double LastAudioTimestampMs { get; set; } = -1;
+    public double AudioFrameDurationMs { get; set; } = 1024d / 48;
     public DateTime? LastMediaReceivedAtUtc { get; set; }
     public double LastVideoTimestampMs { get; set; } = -1;
     public double FrameDurationMs { get; set; } = 33.333333;
