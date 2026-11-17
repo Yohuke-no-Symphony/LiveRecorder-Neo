@@ -22,16 +22,20 @@ internal sealed class RecordingFileTransfer : IDisposable
         client.PostJsonAsync(Lease(assignment), "sessions", descriptor, cancellationToken);
 
     internal async Task<RecordingCommitAcknowledgement> SegmentAsync(RecordingAssignment assignment, string directory,
-        string sessionId, MediaRecordingCommitSnapshot snapshot, long bytesPerSecond, CancellationToken cancellationToken)
+        string sessionId, MediaRecordingCommitSnapshot snapshot, long bytesPerSecond, CancellationToken cancellationToken,
+        Action<RecordingSessionTransferProgress>? progress = null)
     {
         var lease = Lease(assignment);
         var endpoint = "sessions/" + Uri.EscapeDataString(sessionId) + "/segments/" + Uri.EscapeDataString(snapshot.SegmentId);
         await client.AppendFileAsync(lease, RecordingSpoolFiles.Resolve(directory, snapshot.RelativePath), endpoint + "/media",
-            snapshot.MediaCommittedBytes, bytesPerSecond, cancellationToken);
+            snapshot.MediaCommittedBytes, bytesPerSecond, cancellationToken,
+            bytes => progress?.Invoke(new() { ArtifactKind = "media", BytesTransferred = bytes, TotalBytes = snapshot.MediaCommittedBytes }));
         await client.AppendFileAsync(lease, RecordingSpoolFiles.Resolve(directory, snapshot.IndexRelativePath), endpoint + "/index",
-            snapshot.IndexCommittedBytes, bytesPerSecond, cancellationToken);
+            snapshot.IndexCommittedBytes, bytesPerSecond, cancellationToken,
+            bytes => progress?.Invoke(new() { ArtifactKind = "index", BytesTransferred = bytes, TotalBytes = snapshot.IndexCommittedBytes }));
         await client.UploadFileAsync(lease, RecordingSpoolFiles.Resolve(directory, snapshot.PrefixRelativePath),
-            endpoint + "/prefixes/" + snapshot.PrefixSha256, snapshot.PrefixLength, bytesPerSecond, cancellationToken);
+            endpoint + "/prefixes/" + snapshot.PrefixSha256, snapshot.PrefixLength, bytesPerSecond, cancellationToken,
+            bytes => progress?.Invoke(new() { ArtifactKind = "prefix", BytesTransferred = bytes, TotalBytes = snapshot.PrefixLength }));
         var commit = new RecordingSegmentCommit
         {
             SessionId = sessionId, SegmentId = snapshot.SegmentId,
@@ -52,7 +56,7 @@ internal sealed class RecordingFileTransfer : IDisposable
     }
 
     internal async Task<RecordingEventAcknowledgement> EventsAsync(RecordingAssignment assignment, RecordingSpoolSession session,
-        long bytesPerSecond, CancellationToken cancellationToken)
+        long bytesPerSecond, CancellationToken cancellationToken, Action<RecordingSessionTransferProgress>? progress = null)
     {
         var commit = session.State.Events ?? throw new InvalidDataException("Missing recording event commit.");
         var lease = Lease(assignment);
@@ -60,12 +64,14 @@ internal sealed class RecordingFileTransfer : IDisposable
         if (commit.CommittedBytes > 0)
         {
             await client.AppendFileAsync(lease, Path.Combine(session.DirectoryPath, "弹幕", "事件.jsonl"), endpoint + "/events",
-                commit.CommittedBytes, bytesPerSecond, cancellationToken);
+                commit.CommittedBytes, bytesPerSecond, cancellationToken,
+                bytes => progress?.Invoke(new() { ArtifactKind = "events", BytesTransferred = bytes, TotalBytes = commit.CommittedBytes }));
         }
         if (commit.IndexCommittedBytes > 0)
         {
             await client.UploadFileAsync(lease, RecordingSpoolFiles.Resolve(session.DirectoryPath, session.State.EventIndexPath!),
-                endpoint + "/event-indexes/" + commit.IndexSha256, commit.IndexCommittedBytes, bytesPerSecond, cancellationToken);
+                endpoint + "/event-indexes/" + commit.IndexSha256, commit.IndexCommittedBytes, bytesPerSecond, cancellationToken,
+                bytes => progress?.Invoke(new() { ArtifactKind = "event-index", BytesTransferred = bytes, TotalBytes = commit.IndexCommittedBytes }));
         }
         var acknowledgement = await client.PostJsonResponseAsync<RecordingEventCommit, RecordingEventAcknowledgement>(lease,
             endpoint + "/events/commit", commit, cancellationToken);

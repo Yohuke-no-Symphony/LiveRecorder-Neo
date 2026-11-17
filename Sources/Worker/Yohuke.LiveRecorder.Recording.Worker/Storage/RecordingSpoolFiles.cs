@@ -1,36 +1,12 @@
-using System.Text.Json;
-using Yohuke.LiveRecorder.Transcoding.Contracts;
+using Yohuke.LiveRecorder.Worker.Common.Storage;
 
 namespace Yohuke.LiveRecorder.Recording.Worker.Storage;
 
 internal static class RecordingSpoolFiles
 {
-    internal static T Read<T>(string path) => JsonSerializer.Deserialize<T>(File.ReadAllBytes(path), WorkerProtocol.JsonOptions)
-        ?? throw new InvalidDataException("The recording spool contains an empty manifest.");
+    internal static T Read<T>(string path) => WorkerJsonFileStore.Read<T>(path);
 
-    internal static void Write<T>(string path, T value)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try
-        {
-            var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
-            if (!OperatingSystem.IsWindows())
-            {
-                options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-            }
-            using (var output = new FileStream(temporary, options))
-            {
-                JsonSerializer.Serialize(output, value, WorkerProtocol.JsonOptions);
-                output.Flush(true);
-            }
-            File.Move(temporary, path, true);
-        }
-        finally
-        {
-            File.Delete(temporary);
-        }
-    }
+    internal static void Write<T>(string path, T value) => WorkerJsonFileStore.Write(path, value);
 
     internal static string Resolve(string root, string relative)
     {

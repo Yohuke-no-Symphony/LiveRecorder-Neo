@@ -5,7 +5,8 @@ using Yohuke.LiveRecorder.Transcoding.Contracts;
 namespace Yohuke.LiveRecorder.Recording.Worker.Transport;
 
 internal sealed class RecordingSpoolUploader(RecordingSpool spool, RecordingFileTransfer transfer,
-    Func<WorkerConfiguration> configuration, Func<string, bool> captureStopped, Action<string> log)
+    Func<WorkerConfiguration> configuration, Func<string, bool> captureStopped, Action<string> log,
+    RecordingSessionProgressReporter? progress = null)
 {
     internal async Task RunAsync(CancellationToken cancellationToken)
     {
@@ -17,7 +18,18 @@ internal sealed class RecordingSpoolUploader(RecordingSpool spool, RecordingFile
                 {
                     foreach (var session in spool.Sessions(assignment.Assignment.AssignmentId))
                     {
-                        await UploadSessionAsync(assignment.Assignment, session, cancellationToken);
+                        var sessionId = session.State.Descriptor.SessionId;
+                        progress?.Uploading(sessionId);
+                        try
+                        {
+                            await UploadSessionAsync(assignment.Assignment, session, cancellationToken);
+                            progress?.Uploaded(sessionId);
+                        }
+                        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                        {
+                            progress?.Failed(sessionId);
+                            throw;
+                        }
                     }
                     if (!assignment.Assignment.Enabled && captureStopped(assignment.Assignment.AssignmentId)
                         && spool.Sessions(assignment.Assignment.AssignmentId).Count == 0)
@@ -63,7 +75,8 @@ internal sealed class RecordingSpoolUploader(RecordingSpool spool, RecordingFile
                 || commit.IsClosed && !accepted.IsClosed)
             {
                 accepted = await transfer.SegmentAsync(assignment, session.DirectoryPath, session.State.Descriptor.SessionId,
-                    commit, configuration().UploadBytesPerSecond, cancellationToken);
+                    commit, configuration().UploadBytesPerSecond, cancellationToken,
+                    value => progress?.Transfer(session.State.Descriptor.SessionId, value));
                 receipt.Segments[commit.SegmentId] = accepted;
                 RecordingSpoolFiles.Write(receiptPath, receipt);
             }
@@ -78,7 +91,8 @@ internal sealed class RecordingSpoolUploader(RecordingSpool spool, RecordingFile
             if (current is not null && (receipt.Events is null || receipt.Events.ThroughSequence < current.ThroughSequence
                     || receipt.Events.CommittedBytes < current.CommittedBytes || current.IsClosed && !receipt.Events.IsClosed))
             {
-                receipt.Events = await transfer.EventsAsync(assignment, events.Session, configuration().UploadBytesPerSecond, cancellationToken);
+                receipt.Events = await transfer.EventsAsync(assignment, events.Session, configuration().UploadBytesPerSecond, cancellationToken,
+                    value => progress?.Transfer(session.State.Descriptor.SessionId, value));
                 RecordingSpoolFiles.Write(receiptPath, receipt);
             }
         }
@@ -90,6 +104,7 @@ internal sealed class RecordingSpoolUploader(RecordingSpool spool, RecordingFile
             && state.Events is { IsClosed: true } finalEvents && receipt.Events is { IsClosed: true } acknowledgedEvents
             && acknowledgedEvents.CommittedBytes >= finalEvents.CommittedBytes)
         {
+            progress?.Finalizing(state.Descriptor.SessionId);
             await transfer.SessionAsync(assignment, state.Descriptor, cancellationToken);
             receipt.SessionClosed = true;
             RecordingSpoolFiles.Write(receiptPath, receipt);

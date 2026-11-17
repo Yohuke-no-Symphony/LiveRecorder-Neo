@@ -13,7 +13,7 @@ namespace Yohuke.LiveRecorder.Infrastructure.Recording;
 /// <summary>Assigns durable room reservations and exchanges lightweight controls without tying capture to a connection lease.</summary>
 public sealed class RecordingJobScheduler(IMongoContext context, IAppPaths paths, ISettingsStore settingsStore,
     TranscodeWorkerService workers, RecordingOwnershipService ownership, RecordingAccountProvider accounts, IStatusPublisher publisher,
-    RecordingHandoffService handoff, RecordingTargetStatusService? targetStatus = null)
+    RecordingHandoffService handoff, RecordingTargetStatusService? targetStatus = null, RecordingSessionTaskService? sessionTasks = null)
 {
     /// <summary>Returns existing room controls even for disabled nodes, while only enabled configured nodes receive new rooms.</summary>
     public async Task<WorkerState> HeartbeatAsync(string workerId, WorkerHeartbeat heartbeat, CancellationToken cancellationToken,
@@ -54,6 +54,7 @@ public sealed class RecordingJobScheduler(IMongoContext context, IAppPaths paths
             {
             }
         }
+        await (sessionTasks ?? new(context, ownership)).ReportAsync(workerId, heartbeat.RecordingSessions, cancellationToken);
         var owned = (await ownership.ListWorkerAsync(workerId, cancellationToken)).ToList();
         foreach (var excess in owned.Skip(worker.Configuration.MaxConcurrentEncodes))
         {

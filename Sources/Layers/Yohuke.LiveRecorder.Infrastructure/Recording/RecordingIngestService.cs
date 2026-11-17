@@ -112,6 +112,14 @@ public sealed class RecordingIngestService(IMongoContext context, IAppPaths path
             }
             await PublishSessionAsync(assignment, receipt, cancellationToken);
             await CleanupFinalizedAsync(receipt, cancellationToken);
+            if (receipt.Descriptor.IsClosed && receipt.FinalizedAtUtc is null && await IsSealedAsync(receipt, cancellationToken))
+            {
+                receipt.FinalizedAtUtc = DateTime.UtcNow;
+                await Sessions.UpdateOneAsync(value => value.Id == receipt.Id && value.FinalizedAtUtc == null,
+                    Builders<RecordingSessionReceipt>.Update.Set(value => value.FinalizedAtUtc, receipt.FinalizedAtUtc),
+                    cancellationToken: cancellationToken);
+                await publisher.PublishAsync("session", receipt.Id, cancellationToken: cancellationToken);
+            }
         }
         finally
         {

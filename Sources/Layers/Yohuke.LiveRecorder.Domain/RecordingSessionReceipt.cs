@@ -13,4 +13,5 @@ public sealed class RecordingSessionReceipt : Entity
     public bool LibraryPublished { get; set; }
     public bool Retired { get; set; }
     public RecordingEventCommit? Events { get; set; }
+    public DateTime? FinalizedAtUtc { get; set; }
 }

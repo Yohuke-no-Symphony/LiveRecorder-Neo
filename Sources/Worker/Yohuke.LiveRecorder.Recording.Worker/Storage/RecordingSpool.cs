@@ -131,25 +131,67 @@ internal sealed class RecordingSpool : IDisposable
         }
     }
 
-    internal IReadOnlyList<RecordingSpoolSession> Sessions(string? assignmentId = null)
+    internal IReadOnlyList<RecordingSpoolSession> Sessions(string? assignmentId = null, bool includeDrafts = false)
     {
         lock (sync)
         {
             var result = new List<RecordingSpoolSession>();
             foreach (var root in roots.Keys)
             {
-                foreach (var directory in Directory.EnumerateDirectories(Path.Combine(root, "sessions")))
+                var locations = includeDrafts ? new[] { "sessions", "drafts" } : ["sessions"];
+                foreach (var location in locations.Where(value => Directory.Exists(Path.Combine(root, value))))
                 {
-                    var path = Path.Combine(directory, "session.json");
-                    if (File.Exists(path))
+                    foreach (var directory in Directory.EnumerateDirectories(Path.Combine(root, location)))
                     {
-                        var state = RecordingSpoolFiles.Read<RecordingSessionState>(path);
-                        if (assignmentId is null || state.AssignmentId == assignmentId)
+                        var path = Path.Combine(directory, "session.json");
+                        if (File.Exists(path))
                         {
-                            result.Add(new(directory, state));
+                            var state = RecordingSpoolFiles.Read<RecordingSessionState>(path);
+                            if (assignmentId is null || state.AssignmentId == assignmentId)
+                            {
+                                result.Add(new(directory, state));
+                            }
                         }
                     }
                 }
+            }
+            return result;
+        }
+    }
+
+    internal IReadOnlyList<RecordingSessionProgress> SessionProgress()
+    {
+        lock (sync)
+        {
+            var assignments = Assignments().ToDictionary(value => value.Assignment.AssignmentId, StringComparer.Ordinal);
+            var result = new List<RecordingSessionProgress>();
+            foreach (var session in Sessions(includeDrafts: true))
+            {
+                if (!assignments.TryGetValue(session.State.AssignmentId, out var saved))
+                {
+                    continue;
+                }
+                var commits = Commits(session.DirectoryPath);
+                var receiptPath = Path.Combine(session.DirectoryPath, "uploaded.json");
+                var receipt = File.Exists(receiptPath) ? RecordingSpoolFiles.Read<RecordingUploadReceipt>(receiptPath) : new();
+                var committed = checked(commits.Sum(value => checked(value.MediaCommittedBytes + value.IndexCommittedBytes))
+                    + (session.State.Events?.CommittedBytes ?? 0) + (session.State.Events?.IndexCommittedBytes ?? 0));
+                var acknowledged = checked(commits.Sum(value => receipt.Segments.TryGetValue(value.SegmentId, out var accepted)
+                        ? checked(Math.Min(value.MediaCommittedBytes, accepted.MediaCommittedBytes)
+                            + Math.Min(value.IndexCommittedBytes, accepted.IndexCommittedBytes)) : 0)
+                    + Math.Min(session.State.Events?.CommittedBytes ?? 0, receipt.Events?.CommittedBytes ?? 0)
+                    + Math.Min(session.State.Events?.IndexCommittedBytes ?? 0, receipt.Events?.IndexCommittedBytes ?? 0));
+                var draft = Path.GetFileName(Path.GetDirectoryName(session.DirectoryPath)) == "drafts";
+                result.Add(new()
+                {
+                    AssignmentId = saved.Assignment.AssignmentId, Generation = saved.Assignment.Generation, Token = saved.Assignment.Token,
+                    Descriptor = session.State.Descriptor, LastCapturedAtUtc = session.State.LastCapturedAtUtc,
+                    CaptureState = draft ? "NoMedia" : session.State.Descriptor.IsClosed ? "Closed" : "Paused",
+                    CapturedDurationMs = commits.Sum(value => value.DurationMs), CommittedArchiveBytes = committed,
+                    AcknowledgedArchiveBytes = acknowledged,
+                    UploadState = draft ? "Skipped" : session.State.Descriptor.IsClosed && acknowledged >= committed
+                        ? "Finalizing" : committed > 0 && acknowledged >= committed ? "CaughtUp" : "Queued"
+                });
             }
             return result;
         }

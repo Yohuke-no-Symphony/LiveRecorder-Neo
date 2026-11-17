@@ -56,12 +56,13 @@ internal sealed class RecordingWorkerRuntime
         using var spool = new RecordingSpool(settings.Path, options.WorkerId, configuration.TempDirectory, WriteLog);
         using var transfers = new RecordingFileTransfer(options, transferHandler);
         await spool.RecoverAsync(lifetime.Token);
+        var sessionProgress = new RecordingSessionProgressReporter(spool);
         IMediaRecorder Recorder(WorkerConfiguration selected) => recorderFactory?.Invoke(selected)
             ?? new FlvMediaRecorder(media, Options.Create(new MediaToolOptions()), new RecordingMediaSettingsStore(selected));
         RefreshRooms(spool, Recorder, lifetime.Token);
         var supervisor = SuperviseRoomsAsync(spool, Recorder, lifetime);
         var uploader = new RecordingSpoolUploader(spool, transfers, () => Volatile.Read(ref configuration),
-            id => !rooms.TryGetValue(id, out var room) || room.IsStopped, WriteLog).RunAsync(lifetime.Token);
+            id => !rooms.TryGetValue(id, out var room) || room.IsStopped, WriteLog, sessionProgress).RunAsync(lifetime.Token);
         try
         {
             var delay = 1;
@@ -84,6 +85,7 @@ internal sealed class RecordingWorkerRuntime
                         {
                             AppliedConfigurationRevision = appliedRevision, ConfigurationError = configurationError,
                             Capabilities = Capabilities(), Recordings = progress,
+                            RecordingSessions = sessionProgress.Batch(progress),
                             Telemetry = new()
                             {
                                 ActiveRecordings = progress.Count(room => room.State == "Recording"),

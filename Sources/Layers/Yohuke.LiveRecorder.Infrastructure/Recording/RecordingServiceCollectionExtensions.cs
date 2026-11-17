@@ -15,6 +15,7 @@ public static class RecordingServiceCollectionExtensions
         services.AddSingleton<RecordingIngestService>();
         services.AddSingleton<RecordingHandoffService>();
         services.AddSingleton<RecordingTargetStatusService>();
+        services.AddSingleton<RecordingSessionTaskService>();
         return services;
     }
 }

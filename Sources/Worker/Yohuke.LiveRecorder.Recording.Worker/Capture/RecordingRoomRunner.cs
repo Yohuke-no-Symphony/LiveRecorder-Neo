@@ -25,6 +25,7 @@ internal sealed class RecordingRoomRunner : IDisposable
     private CancellationTokenSource? eventsCancellation;
     private Task events = Task.CompletedTask;
     private string state = "Monitoring";
+    private string? errorCode;
     private DateTime? lastMediaAtUtc;
     private bool explicitStop;
     private CancellationTokenSource? activeAttempt;
@@ -92,6 +93,7 @@ internal sealed class RecordingRoomRunner : IDisposable
             {
                 AssignmentId = assignment.AssignmentId, Generation = assignment.Generation, Token = assignment.Token,
                 ConfigurationRevision = assignment.ConfigurationRevision, State = state,
+                ErrorCode = errorCode,
                 SessionId = session?.State.Descriptor.SessionId, LastCapturedAtUtc = lastMediaAtUtc, Room = roomSnapshot
             };
         }
@@ -122,7 +124,7 @@ internal sealed class RecordingRoomRunner : IDisposable
                 {
                     if (!spool.HasCapacity(configuration(), session?.DirectoryPath))
                     {
-                        SetState("StorageFull");
+                        SetState("StorageFull", "RecordingStorageFull");
                         await Task.Delay(TimeSpan.FromSeconds(1), time, lifetimeToken);
                         continue;
                     }
@@ -187,7 +189,7 @@ internal sealed class RecordingRoomRunner : IDisposable
                 }
                 catch (Exception error)
                 {
-                    SetState("Retrying");
+                    SetState("Retrying", "RecordingSourceUnavailable");
                     log("Recording source will reconnect (" + error.GetType().Name + ").");
                 }
                 await Task.Delay(TimeSpan.FromSeconds(2), time, lifetimeToken);
@@ -246,6 +248,7 @@ internal sealed class RecordingRoomRunner : IDisposable
                 {
                     lastMediaAtUtc = activeSession.State.Descriptor.StartedAtUtc.AddMilliseconds(commit.StartOffsetMs + commit.DurationMs);
                     state = "Recording";
+                    errorCode = null;
                     if (Current().RecordDanmu && events.IsCompleted)
                     {
                         StartEvents(activeSession);
@@ -303,7 +306,7 @@ internal sealed class RecordingRoomRunner : IDisposable
             var current = Current();
             if (!spool.HasCapacity(configuration(), activeSession.DirectoryPath))
             {
-                SetState("StorageFull");
+                SetState("StorageFull", "RecordingStorageFull");
                 return;
             }
             if (time.GetUtcNow() < nextRoomCheck)
@@ -446,11 +449,12 @@ internal sealed class RecordingRoomRunner : IDisposable
         inactivity = null;
     }
 
-    private void SetState(string value)
+    private void SetState(string value, string? error = null)
     {
         lock (sync)
         {
             state = value;
+            errorCode = error;
         }
     }
 
