@@ -264,9 +264,13 @@ internal sealed class RecordingWorkerRuntime
         Architecture = RuntimeInformation.ProcessArchitecture.ToString()
     };
 
-    private void WriteLog(string message)
+    private void WriteLog(string message) => WriteLog(new WorkerLogEntry { Message = message });
+
+    private void WriteLog(WorkerLogEntry entry)
     {
-        logs.Append(new() { Message = message });
-        log("[" + time.GetUtcNow().ToString("O") + "] " + message);
+        logs.Append(entry);
+        var level = entry.Level == "Information" ? "" : " " + entry.Level;
+        var scope = entry.JobId is { } sessionId ? " [Session " + sessionId + ", " + entry.Stage + "]" : "";
+        log("[" + time.GetUtcNow().ToString("O") + "]" + level + scope + " " + entry.Message);
     }
 }

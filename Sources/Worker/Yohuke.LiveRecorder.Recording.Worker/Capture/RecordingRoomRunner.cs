@@ -17,7 +17,7 @@ internal sealed class RecordingRoomRunner : IDisposable
     private readonly Func<WorkerConfiguration, IMediaRecorder> recorders;
     private readonly Func<WorkerConfiguration> configuration;
     private readonly TimeProvider time;
-    private readonly Action<string> log;
+    private readonly Action<WorkerLogEntry> log;
     private readonly CancellationTokenSource cancellation;
     private readonly Dictionary<CancellationTokenSource, Task> cancellationTasks = new();
     private RecordingAssignment assignment;
@@ -35,7 +35,7 @@ internal sealed class RecordingRoomRunner : IDisposable
 
     internal RecordingRoomRunner(RecordingAssignment assignment, RecordingSpool spool, IRecordingCaptureSource source,
         Func<WorkerConfiguration, IMediaRecorder> recorders, Func<WorkerConfiguration> configuration, TimeProvider time,
-        Action<string> log, CancellationToken cancellationToken)
+        Action<WorkerLogEntry> log, CancellationToken cancellationToken)
     {
         this.assignment = assignment;
         this.spool = spool;
@@ -113,6 +113,10 @@ internal sealed class RecordingRoomRunner : IDisposable
         DateTime? offlineSince = null;
         try
         {
+            if (session is not null)
+            {
+                WriteCaptureLog(session, "Recovered the persisted broadcast session.");
+            }
             while (!lifetimeToken.IsCancellationRequested)
             {
                 var current = Current();
@@ -142,7 +146,7 @@ internal sealed class RecordingRoomRunner : IDisposable
                         offlineSince ??= time.GetUtcNow().UtcDateTime;
                         if (session is not null && time.GetUtcNow().UtcDateTime - offlineSince >= TimeSpan.FromMinutes(current.SessionGraceMinutes))
                         {
-                            await CloseSessionAsync();
+                            await CloseSessionAsync("Capture closed after the room remained offline beyond the grace interval.");
                             token = lifetimeToken;
                         }
                         SetState("Monitoring");
@@ -155,17 +159,22 @@ internal sealed class RecordingRoomRunner : IDisposable
                     if (session is not null && (graceExpired || session.State.Descriptor.LiveTime > 0 && liveTime > 0
                         && session.State.Descriptor.LiveTime != liveTime))
                     {
-                        await CloseSessionAsync();
+                        await CloseSessionAsync(graceExpired ? "Capture closed after the offline grace interval."
+                            : "Capture closed because a new live broadcast was detected.");
                         token = lifetimeToken;
                     }
                     offlineSince = null;
-                    session ??= spool.CreateSession(current, new()
+                    if (session is null)
                     {
-                        SessionId = Guid.NewGuid().ToString("N"), RoomId = current.RoomId, LiveTime = liveTime,
-                        StartedAtUtc = time.GetUtcNow().UtcDateTime, Title = room.Title,
-                        StreamerName = room.Name, StreamerUid = room.Uid, CoverUrl = room.CoverUrl,
-                        HasDanmu = current.RecordDanmu
-                    }, configuration().TempDirectory);
+                        session = spool.CreateSession(current, new()
+                        {
+                            SessionId = Guid.NewGuid().ToString("N"), RoomId = current.RoomId, LiveTime = liveTime,
+                            StartedAtUtc = time.GetUtcNow().UtcDateTime, Title = room.Title,
+                            StreamerName = room.Name, StreamerUid = room.Uid, CoverUrl = room.CoverUrl,
+                            HasDanmu = current.RecordDanmu
+                        }, configuration().TempDirectory);
+                        WriteCaptureLog(session, "Created a broadcast session; waiting for valid media.");
+                    }
                     inactivity ??= new(TimeSpan.FromMinutes(current.RecordingTimeoutMinutes), time, lifetimeToken);
                     token = inactivity.Token;
                     if (current.RecordDanmu && lastMediaAtUtc is not null && events.IsCompleted)
@@ -175,6 +184,7 @@ internal sealed class RecordingRoomRunner : IDisposable
                     var stream = await source.ResolveStreamAsync(current, token);
                     await RecordAttemptAsync(current, session, stream, token);
                     SetState("Retrying");
+                    WriteCaptureLog(session, "The capture connection ended; room monitoring continues before reconnecting.");
                 }
                 catch (OperationCanceledException) when (lifetimeToken.IsCancellationRequested)
                 {
@@ -182,15 +192,15 @@ internal sealed class RecordingRoomRunner : IDisposable
                 }
                 catch (Exception) when (inactivity is { IsExpired: true })
                 {
-                    await CloseSessionAsync();
+                    await CloseSessionAsync(FormattableString.Invariant(
+                        $"Capture ended after {current.RecordingTimeoutMinutes} minutes without valid media. Room monitoring continues."));
                     offlineSince = null;
                     SetState("Monitoring");
-                    log("The broadcast ended after the configured interval without valid media. Room monitoring continues.");
                 }
                 catch (Exception error)
                 {
                     SetState("Retrying", "RecordingSourceUnavailable");
-                    log("Recording source will reconnect (" + error.GetType().Name + ").");
+                    WriteCaptureLog(session, "Recording source will reconnect (" + error.GetType().Name + ").", "Warning");
                 }
                 await Task.Delay(TimeSpan.FromSeconds(2), time, lifetimeToken);
             }
@@ -216,6 +226,11 @@ internal sealed class RecordingRoomRunner : IDisposable
                     if (explicitStop && session is not null)
                     {
                         spool.CloseSession(session.DirectoryPath, lastMediaAtUtc ?? time.GetUtcNow().UtcDateTime);
+                        WriteCaptureLog(session, "Capture stopped by the assignment; committed media and events remain queued for upload.");
+                    }
+                    else if (session is not null)
+                    {
+                        WriteCaptureLog(session, "Capture paused for worker shutdown; the open session remains available for recovery.");
                     }
                 }
                 finally
@@ -244,8 +259,12 @@ internal sealed class RecordingRoomRunner : IDisposable
             spool.RecordMedia(activeSession.DirectoryPath, update);
             if (progress.HasMedia && update.Kind == "Committed" && update.CommitSnapshot is { DurationMs: > 0 } commit)
             {
+                bool changed;
+                bool resumed;
                 lock (sync)
                 {
+                    changed = state != "Recording";
+                    resumed = lastMediaAtUtc is not null;
                     lastMediaAtUtc = activeSession.State.Descriptor.StartedAtUtc.AddMilliseconds(commit.StartOffsetMs + commit.DurationMs);
                     state = "Recording";
                     errorCode = null;
@@ -254,12 +273,18 @@ internal sealed class RecordingRoomRunner : IDisposable
                         StartEvents(activeSession);
                     }
                 }
+                if (changed)
+                {
+                    WriteCaptureLog(activeSession, resumed ? "Media capture resumed in the existing broadcast session."
+                        : "Received the first committed media for the broadcast session.");
+                }
             }
         }));
         var recording = Task.CompletedTask;
         var monitor = Task.CompletedTask;
         try
         {
+            WriteCaptureLog(activeSession, "Opening a capture connection.");
             recording = recorders(selected).RecordAsync(new()
             {
                 SessionId = activeSession.State.Descriptor.SessionId, AttemptId = Guid.NewGuid().ToString("N"),
@@ -327,7 +352,7 @@ internal sealed class RecordingRoomRunner : IDisposable
             }
             catch (Exception error) when (!cancellationToken.IsCancellationRequested)
             {
-                log("Room monitoring is unavailable; the current media connection continues (" + error.GetType().Name + ").");
+                WriteCaptureLog(activeSession, "Room monitoring is unavailable; the current media connection continues (" + error.GetType().Name + ").", "Warning");
             }
         }
     }
@@ -384,6 +409,7 @@ internal sealed class RecordingRoomRunner : IDisposable
         {
             try
             {
+                WriteCaptureLog(activeSession, "Opening an event capture connection.");
                 await using var writer = new SessionEventWriter(Path.Combine(activeSession.DirectoryPath, "弹幕"),
                     commit => spool.RecordEventsAsync(activeSession.DirectoryPath, commit));
                 await source.SubscribeEventsAsync(Current(), async (item, token) =>
@@ -399,7 +425,7 @@ internal sealed class RecordingRoomRunner : IDisposable
             }
             catch (Exception error)
             {
-                log("The event archive will reconnect; committed events remain in the spool (" + error.GetType().Name + ").");
+                WriteCaptureLog(activeSession, "The event archive will reconnect; committed events remain in the spool (" + error.GetType().Name + ").", "Warning");
             }
             await Task.Delay(TimeSpan.FromSeconds(2), time, cancellationToken);
         }
@@ -433,12 +459,13 @@ internal sealed class RecordingRoomRunner : IDisposable
         return pending;
     }
 
-    private async Task CloseSessionAsync()
+    private async Task CloseSessionAsync(string message)
     {
         await StopEventsAsync();
         if (session is not null)
         {
             spool.CloseSession(session.DirectoryPath, lastMediaAtUtc ?? time.GetUtcNow().UtcDateTime);
+            WriteCaptureLog(session, message);
             lock (sync)
             {
                 session = null;
@@ -451,11 +478,28 @@ internal sealed class RecordingRoomRunner : IDisposable
 
     private void SetState(string value, string? error = null)
     {
+        RecordingSpoolSession? selected;
+        bool changed;
         lock (sync)
         {
+            changed = state != value || errorCode != error;
             state = value;
             errorCode = error;
+            selected = session;
         }
+        if (changed && value == "StorageFull")
+        {
+            WriteCaptureLog(selected, "Capture is waiting for available spool capacity; committed data remain preserved.", "Warning");
+        }
+    }
+
+    private void WriteCaptureLog(RecordingSpoolSession? selected, string message, string level = "Information")
+    {
+        log(new()
+        {
+            TimestampUtc = time.GetUtcNow().UtcDateTime, JobId = selected?.State.Descriptor.SessionId,
+            Stage = selected is null ? null : "Capturing", Level = level, Message = message
+        });
     }
 
     private void RecordRoom(LiveRoomSnapshot value)

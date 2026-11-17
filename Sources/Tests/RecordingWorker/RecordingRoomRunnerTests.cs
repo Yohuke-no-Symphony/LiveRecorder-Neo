@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using Yohuke.LiveRecorder.Recording.Worker.Capture;
 using Yohuke.LiveRecorder.Recording.Tests;
+using Yohuke.LiveRecorder.Transcoding.Contracts;
 using Xunit;
 
 namespace Yohuke.LiveRecorder.Recording.Worker.Tests;
@@ -46,8 +48,9 @@ public sealed class RecordingRoomRunnerTests
         spool.SaveAssignment(fixture.Assignment, fixture.DirectoryPath);
         var recorder = new RecordingTestRecorder();
         var source = new RecordingTestCaptureSource();
+        var entries = new ConcurrentQueue<WorkerLogEntry>();
         using var runner = new RecordingRoomRunner(fixture.Assignment, spool, source, _ => recorder,
-            () => fixture.Configuration, TimeProvider.System, _ => { }, CancellationToken.None);
+            () => fixture.Configuration, TimeProvider.System, entries.Enqueue, CancellationToken.None);
         runner.Start();
         await recorder.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await source.EventsStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -59,6 +62,10 @@ public sealed class RecordingRoomRunnerTests
         Assert.True(source.EventsStopped.Task.IsCompleted);
         Assert.True(Assert.Single(spool.Sessions()).State.Descriptor.IsClosed);
         Assert.False(Assert.Single(spool.Assignments()).Released);
+        var stopped = Assert.Single(entries, value => value.Message.Contains("stopped by the assignment", StringComparison.Ordinal));
+        Assert.Equal(Assert.Single(spool.Sessions()).State.Descriptor.SessionId, stopped.JobId);
+        Assert.Equal("Capturing", stopped.Stage);
+        Assert.Equal("Information", stopped.Level);
     }
 
     /// <summary>Account or event settings revisions cancel the current connections without replacing the broadcast session.</summary>
@@ -110,9 +117,10 @@ public sealed class RecordingRoomRunnerTests
         spool.SaveAssignment(assignment, fixture.DirectoryPath);
         var clock = new ManualRecordingTimeProvider();
         var recorder = new RecordingRetryTestRecorder();
+        var entries = new ConcurrentQueue<WorkerLogEntry>();
         using var cancellation = new CancellationTokenSource();
         using var runner = new RecordingRoomRunner(assignment, spool, new RecordingTestCaptureSource(), _ => recorder,
-            () => fixture.Configuration, clock, _ => { }, cancellation.Token);
+            () => fixture.Configuration, clock, entries.Enqueue, cancellation.Token);
         runner.Start();
         await recorder.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         clock.Advance(TimeSpan.FromSeconds(40));
@@ -129,6 +137,10 @@ public sealed class RecordingRoomRunnerTests
         Assert.False(Assert.Single(spool.Assignments()).Released);
         await cancellation.CancelAsync();
         await runner.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        var ended = Assert.Single(entries, value => value.Message.Contains("1 minutes without valid media", StringComparison.Ordinal));
+        Assert.Equal(Assert.Single(spool.Sessions()).State.Descriptor.SessionId, ended.JobId);
+        Assert.Equal("Capturing", ended.Stage);
+        Assert.Equal("Information", ended.Level);
     }
 
     /// <summary>A stop persisted before a process crash drains the recovered broadcast without resuming capture.</summary>
