@@ -5,7 +5,7 @@
   </PageHeader>
   <v-alert v-if="error || ((!deleteTarget && !clearPreview) && actionError) || filterError" type="error" density="compact" class="mb-4">{{ ((!deleteTarget && !clearPreview) && actionError) || error || filterError }}</v-alert>
   <v-alert v-if="notice" type="info" density="compact" class="mb-4">{{ notice }}</v-alert>
-  <v-card class="task-board">
+  <div class="task-board">
     <div class="task-filters">
       <v-text-field v-model="searchDraft" :label="t('taskHistory.search')" prepend-inner-icon="mdi-magnify" clearable density="compact" hide-details />
       <v-select v-model="state" :items="stateOptions" :label="t('taskHistory.status')" density="compact" hide-details />
@@ -22,7 +22,7 @@
       <span class="text-caption mono">{{ t('taskHistory.page', { page: formatNumber(page) }) }}</span>
       <v-btn variant="text" append-icon="mdi-chevron-right" :disabled="!nextCursor || loading" @click="nextPage">{{ t('taskHistory.next') }}</v-btn>
     </nav>
-  </v-card>
+  </div>
   <TaskStageDetailsDialog :task="selectedTask" :stage-id="selectedStageId" :scope="scope" @close="selectedTask = undefined" />
   <ConfirmDialog :model-value="!!deleteTarget" :title="t('taskHistory.deleteTitle')" :message="t('taskHistory.deleteMessage', { title: deleteTarget?.title || t('components.library.unnamedSession') })" :action-label="t('taskHistory.delete')" danger :busy="!!actionKey" :error="actionError" @update:model-value="!$event && !actionKey && (deleteTarget = undefined)" @confirm="dismiss" />
   <ConfirmDialog :model-value="!!clearPreview" :title="t('taskHistory.clearTitle')" :message="`${t('taskHistory.clearMessage', { count: formatNumber(clearPreview?.count ?? 0) })} · ${frozenFilterLabel}`" :action-label="t('taskHistory.clearCompleted')" danger :busy="!!actionKey" :error="actionError" @update:model-value="!$event && !actionKey && closeClear()" @confirm="clearCompleted" />
@@ -105,11 +105,11 @@ onScopeDispose(() => { clearTimeout(debounce); filterRevision++; filterControlle
 </script>
 
 <style scoped>
-.task-board { min-width: 0; overflow: hidden; }
-.task-filters { display: flex; flex-wrap: wrap; gap: 10px; padding: 16px 16px 8px; }
+.task-board { min-width: 0; }
+.task-filters { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 0 8px; }
 .task-filters > * { flex: 1 1 150px; min-width: 0; max-width: 240px; }
 .task-filters > :first-child { flex: 2 1 230px; max-width: none; }
-.task-count { padding: 0 16px 12px; }
+.task-count { padding: 0 0 12px; }
 .task-empty { padding: 44px 16px; text-align: center; }
 .task-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 16px; border-top: 1px solid rgba(var(--v-theme-on-surface), .07); }
 @media (max-width: 600px) { .task-filters > * { max-width: none; flex-basis: 130px; } .task-pagination { justify-content: space-between; gap: 4px; } }
