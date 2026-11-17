@@ -61,6 +61,12 @@
 ![Streamer](Screenshots/streamer.webp)
 ![Streamer](Screenshots/streamer2.webp)
 
+### Worker
+> 分布式内容处理和任务式分发，清晰管理
+
+![Worker](Screenshots/worker.webp)
+![Worker](Screenshots/worker2.webp)
+
 ## 快速部署
 
 支持 Linux、Windows 和 macOS。发布包自带 .NET 运行时，运行时不需要 Node.js。
