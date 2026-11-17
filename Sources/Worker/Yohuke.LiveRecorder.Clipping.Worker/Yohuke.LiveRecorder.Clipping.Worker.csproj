@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <AssemblyName>ylr-rec-worker</AssemblyName>
+    <AssemblyName>ylr-clip-worker</AssemblyName>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
@@ -9,14 +9,13 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Yohuke.LiveRecorder.Worker.Common/Yohuke.LiveRecorder.Worker.Common.csproj" />
-    <ProjectReference Include="../Yohuke.LiveRecorder.Recording/Yohuke.LiveRecorder.Recording.csproj" />
-    <ProjectReference Include="../Yohuke.LiveRecorder.Recording.Contracts/Yohuke.LiveRecorder.Recording.Contracts.csproj" />
-    <ProjectReference Include="../Yohuke.LiveRecorder.Media/Yohuke.LiveRecorder.Media.csproj" />
-    <InternalsVisibleTo Include="Yohuke.LiveRecorder.Recording.Worker.Tests" />
+    <ProjectReference Include="../../Modules/Yohuke.LiveRecorder.Clipping.Contracts/Yohuke.LiveRecorder.Clipping.Contracts.csproj" />
+    <ProjectReference Include="../../Modules/Yohuke.LiveRecorder.Media/Yohuke.LiveRecorder.Media.csproj" />
+    <InternalsVisibleTo Include="Yohuke.LiveRecorder.Clipping.Worker.Tests" />
     <InternalsVisibleTo Include="Yohuke.LiveRecorder.Http.Tests" />
   </ItemGroup>
   <ItemGroup>
     <None Remove="settings.json;settings.json.lock;settings.json.*.tmp" />
   </ItemGroup>
-  <Import Project="../../scripts/SingleFile.Publish.targets" />
+  <Import Project="../../../scripts/SingleFile.Publish.targets" />
 </Project>

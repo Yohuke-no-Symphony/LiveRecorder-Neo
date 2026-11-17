@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <ProjectReference Include="../Yohuke.LiveRecorder.Application/Yohuke.LiveRecorder.Application.csproj" />
-    <ProjectReference Include="../../Core/Sources/Yohuke.DanmuCore/Yohuke.DanmuCore.csproj" />
+    <ProjectReference Include="../../Layers/Yohuke.LiveRecorder.Application/Yohuke.LiveRecorder.Application.csproj" />
+    <ProjectReference Include="../../../Core/Sources/Yohuke.DanmuCore/Yohuke.DanmuCore.csproj" />
     <InternalsVisibleTo Include="Yohuke.LiveRecorder.Infrastructure" />
     <InternalsVisibleTo Include="ylr-rec-worker" />
     <InternalsVisibleTo Include="Yohuke.LiveRecorder.Tests" />

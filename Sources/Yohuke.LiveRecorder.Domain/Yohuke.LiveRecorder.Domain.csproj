@@ -1,5 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-    <ItemGroup>
-        <ProjectReference Include="../Yohuke.LiveRecorder.Transcoding.Contracts/Yohuke.LiveRecorder.Transcoding.Contracts.csproj" />
-    </ItemGroup>
-</Project>

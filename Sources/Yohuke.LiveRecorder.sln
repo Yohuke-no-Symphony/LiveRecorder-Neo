@@ -2,11 +2,11 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Server", "Yohuke.LiveRecorder.Server\Yohuke.LiveRecorder.Server.csproj", "{E340A77A-AC82-4DA6-A86D-695FC071DFB6}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Domain", "Yohuke.LiveRecorder.Domain\Yohuke.LiveRecorder.Domain.csproj", "{21BA0862-FA3B-484F-AB16-6FA42D0653E3}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Domain", "Layers\Yohuke.LiveRecorder.Domain\Yohuke.LiveRecorder.Domain.csproj", "{21BA0862-FA3B-484F-AB16-6FA42D0653E3}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Application", "Yohuke.LiveRecorder.Application\Yohuke.LiveRecorder.Application.csproj", "{46045A5F-EB47-489E-987C-BB6054D6D446}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Application", "Layers\Yohuke.LiveRecorder.Application\Yohuke.LiveRecorder.Application.csproj", "{46045A5F-EB47-489E-987C-BB6054D6D446}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Infrastructure", "Yohuke.LiveRecorder.Infrastructure\Yohuke.LiveRecorder.Infrastructure.csproj", "{3FB2B037-00E8-4464-9CE2-A3EBC7FE8993}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Infrastructure", "Layers\Yohuke.LiveRecorder.Infrastructure\Yohuke.LiveRecorder.Infrastructure.csproj", "{3FB2B037-00E8-4464-9CE2-A3EBC7FE8993}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.DanmuCore", "..\Core\Sources\Yohuke.DanmuCore\Yohuke.DanmuCore.csproj", "{4D76B1A3-0C54-4848-B128-704516898654}"
 EndProject
@@ -16,7 +16,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Server", "Server", "{87008D
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Tests", "Tests\Server\Yohuke.LiveRecorder.Tests.csproj", "{14A37D1A-3A57-460E-A593-DC06969749D7}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Media", "Yohuke.LiveRecorder.Media\Yohuke.LiveRecorder.Media.csproj", "{187470A4-0C5E-4C28-B907-AB565CDE0812}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Media", "Modules\Yohuke.LiveRecorder.Media\Yohuke.LiveRecorder.Media.csproj", "{187470A4-0C5E-4C28-B907-AB565CDE0812}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ThirdParty", "ThirdParty", "{356D9C46-07F5-7F13-4EEF-5DD22B885BE8}"
 EndProject
@@ -42,17 +42,17 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Recording", "Recording", "{
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Recording.Tests", "Tests\Recording\Yohuke.LiveRecorder.Recording.Tests.csproj", "{1C11EC7A-BE4B-4A8E-9A50-04C0E0B40835}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.AI", "Yohuke.LiveRecorder.AI\Yohuke.LiveRecorder.AI.csproj", "{F9C835F5-036E-4DE7-BA3C-20E7C0EA048B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.AI", "Modules\Yohuke.LiveRecorder.AI\Yohuke.LiveRecorder.AI.csproj", "{F9C835F5-036E-4DE7-BA3C-20E7C0EA048B}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "AI", "AI", "{10C7AADA-240C-599B-D086-2F2CEEE02EBE}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.AI.Tests", "Tests\AI\Yohuke.LiveRecorder.AI.Tests.csproj", "{B148CC16-ABCA-47EE-8B00-86ED659B047E}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Transcoding.Contracts", "Yohuke.LiveRecorder.Transcoding.Contracts\Yohuke.LiveRecorder.Transcoding.Contracts.csproj", "{EDEE63B7-20D6-4B72-A55E-D3F776150256}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Transcoding.Contracts", "Modules\Yohuke.LiveRecorder.Transcoding.Contracts\Yohuke.LiveRecorder.Transcoding.Contracts.csproj", "{EDEE63B7-20D6-4B72-A55E-D3F776150256}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Transcoding.Worker", "Yohuke.LiveRecorder.Transcoding.Worker\Yohuke.LiveRecorder.Transcoding.Worker.csproj", "{D307477A-B949-4E73-A6F3-0F630DD38EEE}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Transcoding.Worker", "Worker\Yohuke.LiveRecorder.Transcoding.Worker\Yohuke.LiveRecorder.Transcoding.Worker.csproj", "{D307477A-B949-4E73-A6F3-0F630DD38EEE}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Core", "Core", "{03C13092-74CE-4250-9265-B9A25D59CA7C}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Modules", "Modules", "{03C13092-74CE-4250-9265-B9A25D59CA7C}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Shared", "Shared", "{C412EA82-3AD0-42E3-861B-32317E780223}"
 EndProject
@@ -62,25 +62,27 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "TranscodingWorker", "Transc
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Transcoding.Worker.Tests", "Tests\TranscodingWorker\Yohuke.LiveRecorder.Transcoding.Worker.Tests.csproj", "{D64C3F18-ED64-4BE4-A744-2F5B0C5B58F7}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Worker.Common", "Yohuke.LiveRecorder.Worker.Common\Yohuke.LiveRecorder.Worker.Common.csproj", "{6044DF55-F176-4F39-8358-8C18CD2D7BEE}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Worker.Common", "Worker\Yohuke.LiveRecorder.Worker.Common\Yohuke.LiveRecorder.Worker.Common.csproj", "{6044DF55-F176-4F39-8358-8C18CD2D7BEE}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Clipping.Contracts", "Yohuke.LiveRecorder.Clipping.Contracts\Yohuke.LiveRecorder.Clipping.Contracts.csproj", "{A18BCC88-CA37-498C-919D-D5EBE57C3A64}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Clipping.Contracts", "Modules\Yohuke.LiveRecorder.Clipping.Contracts\Yohuke.LiveRecorder.Clipping.Contracts.csproj", "{A18BCC88-CA37-498C-919D-D5EBE57C3A64}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Clipping.Worker", "Yohuke.LiveRecorder.Clipping.Worker\Yohuke.LiveRecorder.Clipping.Worker.csproj", "{100F1A1C-AB17-4A37-A0FF-C9923B6EE2A5}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Clipping.Worker", "Worker\Yohuke.LiveRecorder.Clipping.Worker\Yohuke.LiveRecorder.Clipping.Worker.csproj", "{100F1A1C-AB17-4A37-A0FF-C9923B6EE2A5}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ClippingWorker", "ClippingWorker", "{9A65A949-4597-75C8-F6BC-0B7F27EDBB8D}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Clipping.Worker.Tests", "Tests\ClippingWorker\Yohuke.LiveRecorder.Clipping.Worker.Tests.csproj", "{4F52677E-1C44-4E92-88F8-DD8B5239AC3C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Recording.Contracts", "Yohuke.LiveRecorder.Recording.Contracts\Yohuke.LiveRecorder.Recording.Contracts.csproj", "{38CA179F-D042-4645-A8FC-EB654E2D8E85}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Recording.Contracts", "Modules\Yohuke.LiveRecorder.Recording.Contracts\Yohuke.LiveRecorder.Recording.Contracts.csproj", "{38CA179F-D042-4645-A8FC-EB654E2D8E85}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Recording", "Yohuke.LiveRecorder.Recording\Yohuke.LiveRecorder.Recording.csproj", "{9902F857-3223-431C-97D5-FBF1747AE79D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Recording", "Modules\Yohuke.LiveRecorder.Recording\Yohuke.LiveRecorder.Recording.csproj", "{9902F857-3223-431C-97D5-FBF1747AE79D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Recording.Worker", "Yohuke.LiveRecorder.Recording.Worker\Yohuke.LiveRecorder.Recording.Worker.csproj", "{D74F254D-91E6-4029-87A0-3F7244B20D09}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Recording.Worker", "Worker\Yohuke.LiveRecorder.Recording.Worker\Yohuke.LiveRecorder.Recording.Worker.csproj", "{D74F254D-91E6-4029-87A0-3F7244B20D09}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "RecordingWorker", "RecordingWorker", "{B78790E0-902E-DD15-3766-C8EEC4A65A11}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yohuke.LiveRecorder.Recording.Worker.Tests", "Tests\RecordingWorker\Yohuke.LiveRecorder.Recording.Worker.Tests.csproj", "{5566C993-4046-4DDB-96AA-D3990E0A972B}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Layers", "Layers", "{16D0D5A5-A092-40E2-93E9-CA90337A6B28}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -409,9 +411,6 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
-		{21BA0862-FA3B-484F-AB16-6FA42D0653E3} = {03C13092-74CE-4250-9265-B9A25D59CA7C}
-		{46045A5F-EB47-489E-987C-BB6054D6D446} = {03C13092-74CE-4250-9265-B9A25D59CA7C}
-		{3FB2B037-00E8-4464-9CE2-A3EBC7FE8993} = {03C13092-74CE-4250-9265-B9A25D59CA7C}
 		{4D76B1A3-0C54-4848-B128-704516898654} = {C412EA82-3AD0-42E3-861B-32317E780223}
 		{87008D2B-D29E-68B5-A223-E2B1CD68373E} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{14A37D1A-3A57-460E-A593-DC06969749D7} = {87008D2B-D29E-68B5-A223-E2B1CD68373E}
@@ -430,7 +429,6 @@ Global
 		{F9C835F5-036E-4DE7-BA3C-20E7C0EA048B} = {03C13092-74CE-4250-9265-B9A25D59CA7C}
 		{10C7AADA-240C-599B-D086-2F2CEEE02EBE} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{B148CC16-ABCA-47EE-8B00-86ED659B047E} = {10C7AADA-240C-599B-D086-2F2CEEE02EBE}
-		{EDEE63B7-20D6-4B72-A55E-D3F776150256} = {14CBE188-FA25-453B-865D-6CF4F9858B72}
 		{D307477A-B949-4E73-A6F3-0F630DD38EEE} = {14CBE188-FA25-453B-865D-6CF4F9858B72}
 		{2AF0FD92-20A8-F7AB-9B5A-1D9548D001F0} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{D64C3F18-ED64-4BE4-A744-2F5B0C5B58F7} = {2AF0FD92-20A8-F7AB-9B5A-1D9548D001F0}
@@ -438,5 +436,15 @@ Global
 		{4F52677E-1C44-4E92-88F8-DD8B5239AC3C} = {9A65A949-4597-75C8-F6BC-0B7F27EDBB8D}
 		{B78790E0-902E-DD15-3766-C8EEC4A65A11} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{5566C993-4046-4DDB-96AA-D3990E0A972B} = {B78790E0-902E-DD15-3766-C8EEC4A65A11}
+		{6044DF55-F176-4F39-8358-8C18CD2D7BEE} = {14CBE188-FA25-453B-865D-6CF4F9858B72}
+		{D74F254D-91E6-4029-87A0-3F7244B20D09} = {14CBE188-FA25-453B-865D-6CF4F9858B72}
+		{100F1A1C-AB17-4A37-A0FF-C9923B6EE2A5} = {14CBE188-FA25-453B-865D-6CF4F9858B72}
+		{A18BCC88-CA37-498C-919D-D5EBE57C3A64} = {03C13092-74CE-4250-9265-B9A25D59CA7C}
+		{9902F857-3223-431C-97D5-FBF1747AE79D} = {03C13092-74CE-4250-9265-B9A25D59CA7C}
+		{38CA179F-D042-4645-A8FC-EB654E2D8E85} = {03C13092-74CE-4250-9265-B9A25D59CA7C}
+		{21BA0862-FA3B-484F-AB16-6FA42D0653E3} = {16D0D5A5-A092-40E2-93E9-CA90337A6B28}
+		{46045A5F-EB47-489E-987C-BB6054D6D446} = {16D0D5A5-A092-40E2-93E9-CA90337A6B28}
+		{3FB2B037-00E8-4464-9CE2-A3EBC7FE8993} = {16D0D5A5-A092-40E2-93E9-CA90337A6B28}
+		{EDEE63B7-20D6-4B72-A55E-D3F776150256} = {03C13092-74CE-4250-9265-B9A25D59CA7C}
 	EndGlobalSection
 EndGlobal

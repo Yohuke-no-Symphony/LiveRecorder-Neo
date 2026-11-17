@@ -3,7 +3,7 @@
     <PackageReference Include="Spectre.Console" Version="0.57.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.13" />
-    <ProjectReference Include="../Yohuke.LiveRecorder.Transcoding.Contracts/Yohuke.LiveRecorder.Transcoding.Contracts.csproj" />
+    <ProjectReference Include="../../Modules/Yohuke.LiveRecorder.Transcoding.Contracts/Yohuke.LiveRecorder.Transcoding.Contracts.csproj" />
     <InternalsVisibleTo Include="ylr-tc-worker" />
     <InternalsVisibleTo Include="ylr-clip-worker" />
     <InternalsVisibleTo Include="ylr-rec-worker" />

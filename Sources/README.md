@@ -84,7 +84,7 @@ Linux systemd 示例：[live-recorder.service](https://github.com/Yohuke-no-Symp
 
 1. 在「设置 → 转码」配置清晰度和默认档位，在「管理 → Worker → 转码」创建节点，保存节点 ID 与一次性 Secret。
 2. 主站 `appsettings.json` 的 `TranscodingControl` 配置控制监听，默认启用、端口 `4790`、不启用 TLS。Worker 的控制地址必须可以 TCP 直连，修改监听设置后重启主站。
-3. 在节点上运行 `ylr-tc-worker register`，填写网站地址、控制地址和凭据，再运行 `ylr-tc-worker run`。安装系统服务及 GPU 要求见 [Worker 部署说明](https://github.com/Yohuke-no-Symphony/LiveRecorder-Neo/blob/main/Sources/Yohuke.LiveRecorder.Transcoding.Worker/README.md)。
+3. 在节点上运行 `ylr-tc-worker register`，填写网站地址、控制地址和凭据，再运行 `ylr-tc-worker run`。安装系统服务及 GPU 要求见 [Worker 部署说明](https://github.com/Yohuke-no-Symphony/LiveRecorder-Neo/blob/main/Sources/Worker/Yohuke.LiveRecorder.Transcoding.Worker/README.md)。
 
 控制通道启用 TLS 时，主站配置包含私钥的 PFX 证书，Worker 的 `ControlUseTls` 与主站 `UseTls` 保持一致；PFX 密码可通过 `TranscodingControl__CertificatePassword` 设置。控制端口与网站 HTTPS 端口分别配置。
 

@@ -10,9 +10,9 @@
   <a href="#快速部署">快速部署</a> ·
   <a href="#功能">功能介绍</a> ·
   <a href="Sources/README.md">开发文档</a> ·
-  <a href="Sources/Yohuke.LiveRecorder.Transcoding.Worker/README.md">转码节点</a> ·
-  <a href="Sources/Yohuke.LiveRecorder.Clipping.Worker/README.md">切片节点</a> ·
-  <a href="Sources/Yohuke.LiveRecorder.Recording.Worker/README.md">录像节点</a>
+  <a href="Sources/Worker/Yohuke.LiveRecorder.Transcoding.Worker/README.md">转码节点</a> ·
+  <a href="Sources/Worker/Yohuke.LiveRecorder.Clipping.Worker/README.md">切片节点</a> ·
+  <a href="Sources/Worker/Yohuke.LiveRecorder.Recording.Worker/README.md">录像节点</a>
 </p>
 
 ## 功能

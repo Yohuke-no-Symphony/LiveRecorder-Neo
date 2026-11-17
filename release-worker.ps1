@@ -33,7 +33,7 @@ $workerProjects = @(
         ExecutableName = 'ylr-rec-worker'
     }
 )
-$workerVersionProject = Join-Path $PSScriptRoot "Sources/$($workerProjects[0].ProjectName)/$($workerProjects[0].ProjectName).csproj"
+$workerVersionProject = Join-Path $PSScriptRoot "Sources/Worker/$($workerProjects[0].ProjectName)/$($workerProjects[0].ProjectName).csproj"
 $workerRuntimes = @($Runtime)
 
 if ($All)
@@ -51,7 +51,7 @@ foreach ($workerRuntime in $workerRuntimes)
     {
         foreach ($workerProject in $workerProjects)
         {
-            $workerProjectDirectory = Join-Path $PSScriptRoot "Sources/$($workerProject.ProjectName)"
+            $workerProjectDirectory = Join-Path $PSScriptRoot "Sources/Worker/$($workerProject.ProjectName)"
             $workerProjectPath = Join-Path $workerProjectDirectory "$($workerProject.ProjectName).csproj"
             $workerOutputDirectory = Join-Path $workerStagingDirectory $workerProject.DirectoryName
             $workerPublishArguments = @(
