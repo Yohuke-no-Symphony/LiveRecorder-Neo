@@ -21,6 +21,8 @@ public sealed record AiAnalysisJobSummary(string Id, string SessionId, string St
     public int ContextCompactions { get; init; }
     public int ProgressRecoveries { get; init; }
     public int RequestRetries { get; init; }
+    public string? WorkerId { get; init; }
+    public int Attempt { get; init; }
 
     /// <summary>投影可公开给统计查看者的作业状态。</summary>
     public static AiAnalysisJobSummary From(AiAnalysisJob job) => new(job.Id, job.SessionId, job.State,
@@ -39,7 +41,9 @@ public sealed record AiAnalysisJobSummary(string Id, string SessionId, string St
         CurrentSegmentEndMs = Current(job)?.EndMs,
         ContextCompactions = job.Context.ContextCompactions,
         ProgressRecoveries = job.Context.ProgressRecoveries,
-        RequestRetries = job.RequestRetries
+        RequestRetries = job.RequestRetries,
+        WorkerId = job.WorkerId,
+        Attempt = job.Attempt
     };
 
     private static AiAnalysisSegment? Current(AiAnalysisJob job) => job.Context.Phase == "Analyzing"

@@ -16,7 +16,7 @@ public static class AiAnalysisPolicy
     /// <summary>验证兼容协议地址、正整数用量参考及可不限的调用次数，不解密或记录 key。</summary>
     public static void Validate(AiSettings settings)
     {
-        if (settings.Provider is not ("OpenAI" or "DeepSeek" or "Custom") ||
+        if (settings.MaxConcurrentJobs is < 1 or > 64 || settings.Provider is not ("OpenAI" or "DeepSeek" or "Custom") ||
             settings.TokensPerHour <= 0 || settings.MinimumTokens <= 0 || settings.MaximumTokens < settings.MinimumTokens ||
             settings.MaxOutputTokens <= 0 || settings.MaxModelRequests < 0 || settings.MaxToolCalls < 0 ||
             settings.RequestTimeoutSeconds < 0 || settings.MaxRequestRetries < 0 ||

@@ -23,7 +23,6 @@
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12"/>
         <ProjectReference Include="../Layers/Yohuke.LiveRecorder.Infrastructure/Yohuke.LiveRecorder.Infrastructure.csproj" />
         <ProjectReference Include="../Modules/Yohuke.LiveRecorder.Media/Yohuke.LiveRecorder.Media.csproj" />
-        <ProjectReference Include="../Modules/Yohuke.LiveRecorder.AI/Yohuke.LiveRecorder.AI.csproj" />
     </ItemGroup>
 
     <Target Name="BuildWebUI" BeforeTargets="IncludeWebUI" Condition="'$(BuildWebUI)' != 'false'">

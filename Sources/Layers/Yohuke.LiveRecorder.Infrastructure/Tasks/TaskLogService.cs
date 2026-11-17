@@ -61,7 +61,7 @@ public sealed class TaskLogService(TaskHistoryService history, TranscodeWorkerLo
         {
             await RestoreRecordingDiagnosticAsync(workerId, id, cancellationToken);
         }
-        return await logs.ReadTaskAsync(workerId, id, kind is "recording" or "ai" || task.Attempt == 0 ? null : task.Attempt,
+        return await logs.ReadTaskAsync(workerId, id, kind == "recording" || task.Attempt == 0 ? null : task.Attempt,
             stage, after, take, cancellationToken);
     }
 

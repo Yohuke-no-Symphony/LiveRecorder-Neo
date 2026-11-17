@@ -54,6 +54,8 @@ export interface AiAnalysisJob
   contextCompactions?: number
   progressRecoveries?: number
   requestRetries?: number
+  workerId?: string | null
+  attempt?: number
   promptTokens: number
   completionTokens: number
   estimatedTokens: number

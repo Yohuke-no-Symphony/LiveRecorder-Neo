@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Transcoding.Contracts;
 using Xunit;
 
 namespace Yohuke.LiveRecorder.AI.Tests;
@@ -20,6 +21,7 @@ public sealed class AiAnalysisWorkerTests
             job.Result.IsComplete = true;
             job.Result.CompletedAtUtc = DateTime.UtcNow;
             job.Result.Topics.Add(new() { Id = "saved", Title = "已校验话题" });
+            job.Context = new() { Phase = "Completed", Segments = [new() { Index = 0, State = "Completed" }] };
             await checkpoint.SaveAsync(job, cancellationToken);
             await fixture.Service().CancelAsync(job.Id, cancellationToken);
         }));
@@ -37,6 +39,33 @@ public sealed class AiAnalysisWorkerTests
         {
             await worker.StopAsync(CancellationToken.None);
         }
+    }
+
+    [Fact]
+    public async Task MaintenanceHonorsCancellationAfterACompleteCheckpointAndContinuesOtherJobs()
+    {
+        await using var fixture = await AiMongoFixture.CreateAsync();
+        var first = await fixture.SeedAsync();
+        var second = await fixture.SeedAsync();
+        var cancelled = await fixture.Service().CreateAsync(first.Id, "owner", false, CancellationToken.None);
+        var interrupted = await fixture.Service().CreateAsync(second.Id, "owner", false, CancellationToken.None);
+        await fixture.Jobs.UpdateOneAsync(job => job.Id == cancelled.Id, Builders<AiAnalysisJob>.Update
+            .Set(job => job.State, "Running").Set(job => job.CancelRequested, true)
+            .Set(job => job.LeaseUntilUtc, DateTime.UtcNow.AddMinutes(-1))
+            .Set(job => job.Result.IsComplete, true).Set(job => job.Result.CompletedAtUtc, DateTime.UtcNow)
+            .Set(job => job.Context, new() { Phase = "Completed", Segments = [new() { Index = 0, State = "Completed" }] }));
+        await fixture.Jobs.UpdateOneAsync(job => job.Id == interrupted.Id, Builders<AiAnalysisJob>.Update
+            .Set(job => job.State, "Running").Set(job => job.LeaseUntilUtc, DateTime.UtcNow.AddMinutes(-1))
+            .Set(job => job.ModelRequests, 1));
+
+        await fixture.Execution.MaintainAsync(CancellationToken.None);
+
+        var firstJob = await fixture.Jobs.Find(job => job.Id == cancelled.Id).SingleAsync();
+        Assert.Equal("Cancelled", firstJob.State);
+        Assert.False(firstJob.Result.IsComplete);
+        Assert.Null(firstJob.Result.CompletedAtUtc);
+        Assert.Null(firstJob.ActiveKey);
+        Assert.Equal("Interrupted", (await fixture.Jobs.Find(job => job.Id == interrupted.Id).SingleAsync()).State);
     }
 
     [Theory]
@@ -64,7 +93,7 @@ public sealed class AiAnalysisWorkerTests
                 }
             };
         });
-        using var worker = fixture.Worker(new AiAnalysisRunner(chat, fixture.Workspace.Data));
+        using var worker = fixture.Worker(new AiAnalysisRunner(chat, fixture.Workspace.Evidence));
         await worker.StartAsync(CancellationToken.None);
         try
         {
@@ -113,6 +142,56 @@ public sealed class AiAnalysisWorkerTests
     }
 
     [Fact]
+    public async Task SettledInFlightFlagStillRejectsRecoveryOfAnUnknownDispatchedRequest()
+    {
+        await using var fixture = await AiMongoFixture.CreateAsync();
+        var session = await fixture.SeedAsync();
+        var created = await fixture.Service().CreateAsync(session.Id, "owner", false, CancellationToken.None);
+        var worker = await fixture.RegisterNodeAsync();
+        var heartbeat = new WorkerHeartbeat
+        {
+            AppliedConfigurationRevision = worker.ConfigurationRevision,
+            Capabilities = new() { AiExecutionVersion = 1 }, Telemetry = new() { FreeBytes = long.MaxValue }
+        };
+        var assignment = Assert.Single((await fixture.Scheduler.HeartbeatAsync(worker.Id, heartbeat, CancellationToken.None)).AiAssignments);
+        var specification = await fixture.Execution.GetExecutionAsync(worker.Id, assignment.JobId, assignment.Attempt,
+            assignment.LeaseToken, CancellationToken.None);
+        specification.Execution.ModelRequests = 1;
+        specification.Execution.RequestInFlight = true;
+        specification.Execution.ReservedTokens = 900;
+        await fixture.Execution.CheckpointAsync(worker.Id, assignment.JobId, assignment.Attempt, assignment.LeaseToken,
+            new() { Sequence = 1, Execution = specification.Execution }, CancellationToken.None);
+        await fixture.Jobs.UpdateOneAsync(job => job.Id == created.Id,
+            Builders<AiAnalysisJob>.Update.Set(job => job.LeaseUntilUtc, DateTime.UtcNow.AddMinutes(-1)));
+        await fixture.Execution.MaintainAsync(CancellationToken.None);
+        var interrupted = await fixture.Jobs.Find(job => job.Id == created.Id).SingleAsync();
+        Assert.Equal("Interrupted", interrupted.State);
+        Assert.False(interrupted.RequestInFlight);
+        Assert.True(interrupted.UnsettledModelRequest);
+        Assert.Equal(900, interrupted.EstimatedTokens);
+        Assert.Equal(0, interrupted.ReservedTokens);
+
+        var recovery = await fixture.Execution.RecoverAsync(worker.Id,
+            new()
+            {
+                JobId = assignment.JobId, Attempt = assignment.Attempt, LeaseToken = assignment.LeaseToken,
+                NextLeaseToken = new('r', 32)
+            },
+            new()
+            {
+                JobId = assignment.JobId, Attempt = assignment.Attempt, Sequence = 1, ModelRequests = 1,
+                HasKnownResponse = false, HasDispatchedRequest = true
+            }, CancellationToken.None);
+
+        Assert.Equal("Rejected", recovery.Disposition);
+        var afterRecovery = await fixture.Jobs.Find(job => job.Id == created.Id).SingleAsync();
+        Assert.Equal("Interrupted", afterRecovery.State);
+        Assert.True(afterRecovery.UnsettledModelRequest);
+        Assert.Equal(900, afterRecovery.EstimatedTokens);
+        Assert.Empty((await fixture.Scheduler.HeartbeatAsync(worker.Id, heartbeat, CancellationToken.None)).AiAssignments);
+    }
+
+    [Fact]
     public async Task GlobalLeaseSerializesTwoWorkersAcrossDifferentSessions()
     {
         await using var fixture = await AiMongoFixture.CreateAsync();
@@ -135,6 +214,7 @@ public sealed class AiAnalysisWorkerTests
             await Task.Delay(100, cancellationToken);
             job.State = "Completed";
             job.Result.IsComplete = true;
+            job.Context = new() { Phase = "Completed", Segments = [new() { Index = 0, State = "Completed" }] };
             await checkpoint.SaveAsync(job, cancellationToken);
             Interlocked.Decrement(ref active);
         });

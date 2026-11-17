@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using MongoDB.Driver;
 using Xunit;
 using Yohuke.LiveRecorder.Application.AI;
@@ -20,7 +19,7 @@ public sealed class AiJobsHttpTests
         await using var fixture = await HttpServerFixture.CreateAsync();
         await fixture.InstallAsync();
         await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
-        await fixture.App.Services.GetServices<IHostedService>().OfType<AiAnalysisWorker>().Single().StopAsync(CancellationToken.None);
+        Assert.Null(fixture.App.Services.GetService<IAiAnalysisRunner>());
         var session = new BroadcastSession { Title = "后台 AI 任务测试", StartedAtUtc = DateTime.UtcNow.AddHours(-2), EndedAtUtc = DateTime.UtcNow };
         await fixture.Context.Collection<BroadcastSession>("sessions").InsertOneAsync(session);
         var job = new AiAnalysisJob

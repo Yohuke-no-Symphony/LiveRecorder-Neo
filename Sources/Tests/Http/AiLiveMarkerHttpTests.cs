@@ -2,9 +2,9 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using MongoDB.Driver;
 using Xunit;
+using Yohuke.LiveRecorder.AI;
 using Yohuke.LiveRecorder.Application.AI;
 using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Application.Library.LiveMarkers;
@@ -212,7 +212,12 @@ public sealed class AiLiveMarkerHttpTests
         var summary = await EnqueueAsync(owner, $"/api/sessions/{session.Id}/ai-live-markers");
         var jobs = fixture.Context.Collection<AiAnalysisJob>("ai_analysis_jobs");
         var job = await jobs.Find(item => item.Id == summary.Id).SingleAsync();
-        var evidence = Assert.Single((await fixture.App.Services.GetRequiredService<IAiEvidenceReader>()
+        var workspace = Path.Combine(fixture.DirectoryPath, "publication-evidence");
+        var input = job.Input!;
+        var sources = input.Sources.Select((source, index) => (source.Id, Path: Path.Combine(fixture.StoragePath, job.SourcePaths[index])))
+            .ToDictionary(value => value.Id, value => value.Path);
+        job.Snapshot = await new AiSnapshotBuilder().BuildAsync(AiExecutionMapper.ToExecution(job), input, sources, workspace);
+        var evidence = Assert.Single((await new AiFileEvidenceReader(workspace)
             .ReadAsync(job.Snapshot, 0, job.Snapshot.DurationMs, "All", null, null, 10, CancellationToken.None)).Items);
         job.Context = new()
         {
@@ -284,7 +289,7 @@ public sealed class AiLiveMarkerHttpTests
         {
             await fixture.InstallAsync();
             await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
-            await fixture.App.Services.GetServices<IHostedService>().OfType<AiAnalysisWorker>().Single().StopAsync(CancellationToken.None);
+            Assert.Null(fixture.App.Services.GetService<IAiAnalysisRunner>());
             var settings = (await fixture.Admin.Client.GetFromJsonAsync<ServerSettings>("/api/settings", JsonFiles.Options))!;
             settings.Ai = new()
             {

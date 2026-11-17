@@ -36,7 +36,13 @@ public sealed class AiAnalysisServiceTests
         Assert.Equal(AiSettingsSecrets.Fingerprint(fixture.Settings.Value.Ai), job.CredentialFingerprint);
         Assert.DoesNotContain(fixture.Settings.Value.Ai.ApiKey, JsonSerializer.Serialize(job));
         Assert.DoesNotContain("private-test-key", JsonSerializer.Serialize(job));
-        Assert.Single(Directory.EnumerateFiles(Path.Combine(fixture.Workspace.Paths.DataDirectory, "ai", "snapshots")));
+        Assert.NotNull(job.Input);
+        Assert.False(job.Input.PreparedSnapshot);
+        Assert.Single(job.Input.Sources);
+        Assert.Single(job.SourcePaths);
+        Assert.Equal(job.Input.Fingerprint, job.Snapshot.SourceFingerprint);
+        Assert.Equal("", job.Snapshot.EvidenceRelativePath);
+        Assert.False(Directory.Exists(Path.Combine(fixture.Workspace.Paths.DataDirectory, "ai", "snapshots")));
         Assert.All(fixture.Publisher.Events, item => Assert.Null(item.Owner));
     }
 
@@ -51,6 +57,13 @@ public sealed class AiAnalysisServiceTests
         ]);
         await fixture.Workspace.WriteAsync("first", new RecordedEventEnvelope { Kind = "Danmu", Text = "T:前半", OffsetMs = 1000 });
         await fixture.Workspace.WriteAsync("second", new RecordedEventEnvelope { Kind = "Danmu", Text = "T:后半", OffsetMs = 1000 });
+        var segments = fixture.Mongo.Collection<RecordingSegment>("segments");
+        await segments.DeleteManyAsync(segment => segment.SessionId == session.Id);
+        await segments.InsertManyAsync(
+        [
+            new() { SessionId = session.Id, DurationMs = 3600000, IsClosed = true, RelativePath = "first.flv" },
+            new() { SessionId = session.Id, StartOffsetMs = 10800000, DurationMs = 3600000, IsClosed = true, RelativePath = "second.flv" }
+        ]);
         var summary = await fixture.Service().CreateAsync(session.Id, "owner", false, CancellationToken.None);
         Assert.Equal(40000, summary.TokenBudget);
     }
@@ -58,19 +71,24 @@ public sealed class AiAnalysisServiceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task AmbiguousInsertKeepsOnlySnapshotsReferencedByPersistedJobs(bool committed)
+    public async Task AmbiguousInsertPreservesOnlyCommittedManifestsWithoutPreparingSnapshots(bool committed)
     {
         await using var fixture = await AiMongoFixture.CreateAsync();
         var session = await fixture.SeedAsync();
         var faulty = new AiInsertFaultContext(fixture.Mongo, committed);
         await Assert.ThrowsAsync<TimeoutException>(() => fixture.Service(faulty).CreateAsync(session.Id, "owner", false, CancellationToken.None));
-        var files = Directory.GetFiles(Path.Combine(fixture.Workspace.Paths.DataDirectory, "ai", "snapshots"));
-        Assert.Equal(committed ? 1 : 0, files.Length);
+        Assert.False(Directory.Exists(Path.Combine(fixture.Workspace.Paths.DataDirectory, "ai", "snapshots")));
         Assert.Equal(committed ? 1 : 0, await fixture.Jobs.CountDocumentsAsync(FilterDefinition<AiAnalysisJob>.Empty));
         if (committed)
         {
             var job = await fixture.Jobs.Find(FilterDefinition<AiAnalysisJob>.Empty).SingleAsync();
-            Assert.True(File.Exists(Path.Combine(fixture.Workspace.Paths.DataDirectory, job.Snapshot.EvidenceRelativePath)));
+            Assert.NotNull(job.Input);
+            Assert.False(job.Input.PreparedSnapshot);
+            Assert.Equal("", job.Snapshot.EvidenceRelativePath);
+            var source = Assert.Single(job.Input.Sources);
+            var path = Path.Combine(fixture.Workspace.Paths.RecordsDirectory, Assert.Single(job.SourcePaths));
+            Assert.Equal(new FileInfo(path).Length, source.Length);
+            Assert.Equal(new FileInfo(path).LastWriteTimeUtc.Ticks, source.LastWriteUtcTicks);
         }
     }
 

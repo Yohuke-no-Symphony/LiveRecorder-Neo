@@ -188,13 +188,14 @@ public sealed class AiLiveMarkerPublicationTests
     {
         var summary = await fixture.Service().CreateAsync(session.Id, "owner", "生成者", AiJobPurposes.LIVE_MARKERS, false, CancellationToken.None);
         var job = await fixture.Jobs.Find(item => item.Id == summary.Id).SingleAsync();
+        await fixture.PrepareSnapshotAsync(job);
         await CompleteAsync(fixture, job);
         return job;
     }
 
     private static async Task CompleteAsync(AiMongoFixture fixture, AiAnalysisJob job)
     {
-        var evidence = Assert.Single((await fixture.Workspace.Data.ReadAsync(job.Snapshot, 0, job.Snapshot.DurationMs, "All", null, null, 10, CancellationToken.None)).Items);
+        var evidence = Assert.Single((await fixture.Workspace.Evidence.ReadAsync(job.Snapshot, 0, job.Snapshot.DurationMs, "All", null, null, 10, CancellationToken.None)).Items);
         job.State = "Completed";
         job.Result.IsComplete = true;
         job.Result.CompletedAtUtc = DateTime.UtcNow;

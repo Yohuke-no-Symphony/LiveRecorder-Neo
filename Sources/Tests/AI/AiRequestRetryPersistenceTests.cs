@@ -18,7 +18,7 @@ public sealed class AiRequestRetryPersistenceTests
         var client = new AiTestChatClient((call, messages) => call == 1
             ? throw new AiProviderException("AI_RESPONSE_INTERRUPTED", true, retryable: true)
             : Complete(messages));
-        using var worker = fixture.Worker(new AiAnalysisRunner(client, fixture.Workspace.Data, clock));
+        using var worker = fixture.Worker(new AiAnalysisRunner(client, fixture.Workspace.Evidence, clock));
         await worker.StartAsync(CancellationToken.None);
         try
         {
@@ -57,7 +57,7 @@ public sealed class AiRequestRetryPersistenceTests
         var summary = await fixture.Service().CreateAsync(session.Id, "owner", false, CancellationToken.None);
         var clock = new AiManualTimeProvider();
         var client = new AiTestChatClient((_, _) => throw new AiProviderException("AI_RESPONSE_INTERRUPTED", true, retryable: true));
-        using var worker = fixture.Worker(new AiAnalysisRunner(client, fixture.Workspace.Data, clock));
+        using var worker = fixture.Worker(new AiAnalysisRunner(client, fixture.Workspace.Evidence, clock));
         await worker.StartAsync(CancellationToken.None);
         try
         {

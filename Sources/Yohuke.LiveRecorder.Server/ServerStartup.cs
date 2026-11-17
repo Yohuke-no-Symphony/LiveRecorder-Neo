@@ -11,7 +11,6 @@ using Microsoft.AspNetCore.Localization;
 using Microsoft.Extensions.FileProviders;
 using MongoDB.Driver;
 using Yohuke.DanmuCore.Services;
-using Yohuke.LiveRecorder.AI;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Application.Library.LiveMarkers;
@@ -161,7 +160,6 @@ public static class ServerStartup
                 && value.MaximumConnections is > 0 and <= 4096), "Worker control listener configuration is invalid.")
             .ValidateOnStart();
         builder.Services.AddHostedService<WorkerControlServer>();
-        builder.Services.AddLiveRecorderAi();
         builder.Services.AddLiveRecorderAiInfrastructure();
         builder.Services.AddHostedService<DatabaseIndexWorker>();
         builder.Services.AddHostedService<RecordingSupervisor>();
@@ -375,6 +373,7 @@ public static class ServerStartup
         app.MapClippingEndpoints();
         app.MapRecordingWorkerEndpoints();
         app.MapAiEndpoints();
+        app.MapAiWorkerEndpoints();
         app.MapTaskHistoryEndpoints();
         app.MapHub<StatusHub>("/hubs/status", options => options.CloseOnAuthenticationExpiration = true).RequireAuthorization();
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));

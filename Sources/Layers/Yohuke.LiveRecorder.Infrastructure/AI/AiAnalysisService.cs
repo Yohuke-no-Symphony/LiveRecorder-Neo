@@ -12,9 +12,9 @@ using Yohuke.LiveRecorder.Infrastructure.Persistence;
 
 namespace Yohuke.LiveRecorder.Infrastructure.AI;
 
-/// <summary>建立共享分析快照并管理独立、可取消的持久作业。</summary>
+/// <summary>固定分析输入身份并管理独立、可取消的持久作业。</summary>
 public sealed class AiAnalysisService(IMongoContext context, LibraryService library, ISettingsStore settingsStore,
-    AiArchiveDataSource data, IStatusPublisher publisher, AiLiveMarkerPublisher liveMarkers)
+    AiArchiveDataSource data, IStatusPublisher publisher, AiLiveMarkerPublisher liveMarkers, AiInputManifestFactory manifests)
 {
     private readonly SemaphoreSlim creationGate = new(1, 1);
     private IMongoCollection<AiAnalysisJob> Jobs => context.Collection<AiAnalysisJob>("ai_analysis_jobs");
@@ -43,7 +43,7 @@ public sealed class AiAnalysisService(IMongoContext context, LibraryService libr
                 RequestRetries = job.RequestRetries,
                 ErrorCode = job.ErrorCode, CreatedAtUtc = job.CreatedAtUtc, FinishedAtUtc = job.FinishedAtUtc,
                 CancelRequested = job.CancelRequested, Context = job.Context,
-                Purpose = job.Purpose, LiveMarkerFileId = job.LiveMarkerFileId,
+                Purpose = job.Purpose, LiveMarkerFileId = job.LiveMarkerFileId, WorkerId = job.WorkerId, Attempt = job.Attempt,
                 Snapshot = new AiAnalysisSnapshot { Title = session.Title }
             };
         return (await query.Take(200).ToListAsync(cancellationToken)).Select(AiAnalysisJobSummary.From).ToArray();
@@ -94,7 +94,8 @@ public sealed class AiAnalysisService(IMongoContext context, LibraryService libr
         CreateAsync(sessionId, ownerId, "", AiJobPurposes.ANALYSIS, force, cancellationToken);
 
     /// <summary>为指定用途创建独立任务并固定发起者姓名；强制重生成使用新的文件身份。</summary>
-    public async Task<AiAnalysisJobSummary> CreateAsync(string sessionId, string ownerId, string ownerName, string purpose, bool force, CancellationToken cancellationToken)
+    public async Task<AiAnalysisJobSummary> CreateAsync(string sessionId, string ownerId, string ownerName, string purpose, bool force,
+        CancellationToken cancellationToken, string? automaticKey = null)
     {
         RequirePurpose(purpose);
         await creationGate.WaitAsync(cancellationToken);
@@ -117,12 +118,24 @@ public sealed class AiAnalysisService(IMongoContext context, LibraryService libr
                 throw AiErrors.CreateException("AI_RECORDING_EMPTY", 409);
             }
             await EnsureIndexesAsync(cancellationToken);
+            if (automaticKey is not null)
+            {
+                if (automaticKey != sessionId + ":" + purpose || force)
+                {
+                    throw AiErrors.CreateException("AI_JOB_CONFLICT", 409);
+                }
+                var consumed = await Jobs.Find(item => item.AutomaticKey == automaticKey).FirstOrDefaultAsync(cancellationToken);
+                if (consumed is not null)
+                {
+                    return AiAnalysisJobSummary.From(consumed);
+                }
+            }
             var activeKey = purpose == AiJobPurposes.ANALYSIS ? sessionId : purpose + ":" + sessionId;
             var purposeFilter = ForPurpose(purpose);
             var active = await Jobs.Find(purposeFilter & Builders<AiAnalysisJob>.Filter.Eq(item => item.ActiveKey, activeKey)).FirstOrDefaultAsync(cancellationToken);
             if (active is not null)
             {
-                return AiAnalysisJobSummary.From(active);
+                return AiAnalysisJobSummary.From(await ClaimAutomaticAsync(active, automaticKey, cancellationToken));
             }
             var fingerprint = data.Fingerprint(detail, settings);
             var identity = AiArchiveDataSource.Identity(fingerprint, settings.Ai, purpose);
@@ -133,10 +146,15 @@ public sealed class AiAnalysisService(IMongoContext context, LibraryService libr
                 {
                     throw AiErrors.CreateException("AI_LIVE_MARKER_FILE_MISSING", 409);
                 }
-                return AiAnalysisJobSummary.From(existing);
+                return AiAnalysisJobSummary.From(await ClaimAutomaticAsync(existing, automaticKey, cancellationToken));
             }
-            var snapshot = await data.CreateAsync(detail, settings, cancellationToken);
-            identity = AiArchiveDataSource.Identity(snapshot.SourceFingerprint, settings.Ai, purpose);
+            var input = manifests.Create(detail, settings, out var sourcePaths);
+            var snapshot = new AiAnalysisSnapshot
+            {
+                SessionId = sessionId, Title = input.Title, StartedAtUtc = input.StartedAtUtc, DurationMs = input.DurationMs,
+                RecordedDurationMs = input.RecordedDurationMs, TranslationPattern = input.TranslationPattern, SourceFingerprint = input.Fingerprint
+            };
+            identity = AiArchiveDataSource.Identity(input.Fingerprint, settings.Ai, purpose);
             var configuration = JsonSerializer.Deserialize<AiSettings>(JsonSerializer.Serialize(settings.Ai, JsonFiles.Options), JsonFiles.Options)!;
             configuration.ApiKey = "";
             configuration.HasApiKey = false;
@@ -144,7 +162,8 @@ public sealed class AiAnalysisService(IMongoContext context, LibraryService libr
             var job = new AiAnalysisJob
             {
                 SessionId = sessionId, OwnerId = ownerId, OwnerName = ownerName, Purpose = purpose, ActiveKey = activeKey, Identity = identity,
-                Provenance = TaskProvenance.User(ownerId, ownerName),
+                Provenance = automaticKey is null ? TaskProvenance.User(ownerId, ownerName) : TaskProvenance.Automatic(),
+                AutomaticKey = automaticKey, Input = input, SourcePaths = sourcePaths,
                 CredentialFingerprint = AiSettingsSecrets.Fingerprint(settings.Ai),
                 Snapshot = snapshot, Settings = configuration, TokenBudget = AiAnalysisPolicy.Budget(settings.Ai, snapshot.RecordedDurationMs)
             };
@@ -155,14 +174,13 @@ public sealed class AiAnalysisService(IMongoContext context, LibraryService libr
             }
             catch (MongoWriteException error) when (error.WriteError.Category == ServerErrorCategory.DuplicateKey)
             {
-                data.DeleteSnapshot(snapshot);
+                if (automaticKey is not null && await Jobs.Find(item => item.AutomaticKey == automaticKey).FirstOrDefaultAsync(cancellationToken) is { } consumed)
+                {
+                    return AiAnalysisJobSummary.From(consumed);
+                }
                 var concurrent = await Jobs.Find(purposeFilter & Builders<AiAnalysisJob>.Filter.Eq(item => item.ActiveKey, activeKey)).FirstOrDefaultAsync(cancellationToken);
-                return concurrent is null ? throw AiErrors.CreateException("AI_JOB_CONFLICT", 409) : AiAnalysisJobSummary.From(concurrent);
-            }
-            catch
-            {
-                await RemoveUnreferencedSnapshotAsync(job);
-                throw;
+                return concurrent is null ? throw AiErrors.CreateException("AI_JOB_CONFLICT", 409)
+                    : AiAnalysisJobSummary.From(await ClaimAutomaticAsync(concurrent, automaticKey, cancellationToken));
             }
             await publisher.PublishAsync("ai-analysis", sessionId, cancellationToken: cancellationToken);
             return AiAnalysisJobSummary.From(job);
@@ -173,20 +191,27 @@ public sealed class AiAnalysisService(IMongoContext context, LibraryService libr
         }
     }
 
-    private async Task RemoveUnreferencedSnapshotAsync(AiAnalysisJob job)
+    private async Task<AiAnalysisJob> ClaimAutomaticAsync(AiAnalysisJob job, string? automaticKey, CancellationToken cancellationToken)
     {
-        using var verification = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        if (automaticKey is null)
+        {
+            return job;
+        }
         try
         {
-            var referenced = await Jobs.Find(item => item.Id == job.Id).AnyAsync(verification.Token);
-            if (!referenced)
+            var claimed = await Jobs.FindOneAndUpdateAsync(item => item.Id == job.Id && (item.AutomaticKey == null || item.AutomaticKey == automaticKey),
+                Builders<AiAnalysisJob>.Update.Set(item => item.AutomaticKey, automaticKey),
+                new FindOneAndUpdateOptions<AiAnalysisJob> { ReturnDocument = ReturnDocument.After }, cancellationToken);
+            if (claimed is not null)
             {
-                data.DeleteSnapshot(job.Snapshot);
+                return claimed;
             }
         }
-        catch (Exception error) when (error is MongoException or OperationCanceledException)
+        catch (MongoWriteException error) when (error.WriteError.Category == ServerErrorCategory.DuplicateKey)
         {
         }
+        return await Jobs.Find(item => item.AutomaticKey == automaticKey).FirstOrDefaultAsync(cancellationToken)
+            ?? throw AiErrors.CreateException("AI_JOB_CONFLICT", 409);
     }
 
     /// <summary>取消排队任务或通知后台执行器取消当前请求。</summary>
@@ -242,10 +267,17 @@ public sealed class AiAnalysisService(IMongoContext context, LibraryService libr
         }
     }
 
-    private Task EnsureIndexesAsync(CancellationToken cancellationToken) => Jobs.Indexes.CreateOneAsync(new CreateIndexModel<AiAnalysisJob>(
-        Builders<AiAnalysisJob>.IndexKeys.Ascending(item => item.ActiveKey), new CreateIndexOptions<AiAnalysisJob>
+    private Task EnsureIndexesAsync(CancellationToken cancellationToken) => Jobs.Indexes.CreateManyAsync(
+    [
+        new(Builders<AiAnalysisJob>.IndexKeys.Ascending(item => item.ActiveKey), new CreateIndexOptions<AiAnalysisJob>
         {
             Name = "ai_active_session", Unique = true,
             PartialFilterExpression = new BsonDocument("ActiveKey", new BsonDocument("$type", "string"))
-        }), cancellationToken: cancellationToken);
+        }),
+        new(Builders<AiAnalysisJob>.IndexKeys.Ascending(item => item.AutomaticKey), new CreateIndexOptions<AiAnalysisJob>
+        {
+            Name = "ai_automatic_session_purpose", Unique = true,
+            PartialFilterExpression = new BsonDocument("AutomaticKey", new BsonDocument("$type", "string"))
+        })
+    ], cancellationToken);
 }

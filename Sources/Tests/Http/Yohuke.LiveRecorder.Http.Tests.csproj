@@ -11,5 +11,6 @@
         <ProjectReference Include="../../Worker/Yohuke.LiveRecorder.Transcoding.Worker/Yohuke.LiveRecorder.Transcoding.Worker.csproj" />
         <ProjectReference Include="../../Worker/Yohuke.LiveRecorder.Clipping.Worker/Yohuke.LiveRecorder.Clipping.Worker.csproj" />
         <ProjectReference Include="../../Worker/Yohuke.LiveRecorder.Recording.Worker/Yohuke.LiveRecorder.Recording.Worker.csproj" />
+        <ProjectReference Include="../../Worker/Yohuke.LiveRecorder.AI.Worker/Yohuke.LiveRecorder.AI.Worker.csproj" />
     </ItemGroup>
 </Project>

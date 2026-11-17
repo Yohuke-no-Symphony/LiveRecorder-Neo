@@ -4,6 +4,7 @@ namespace Yohuke.LiveRecorder.Domain;
 public sealed class AiSettings
 {
     public bool Enabled { get; set; }
+    public int MaxConcurrentJobs { get; set; } = 1;
     public string Provider { get; set; } = "OpenAI";
     public string BaseUrl { get; set; } = "https://api.openai.com/v1";
     public string Model { get; set; } = "";

@@ -1,6 +1,7 @@
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Infrastructure.AI;
 using Yohuke.LiveRecorder.Infrastructure.Clipping;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
 using Yohuke.LiveRecorder.Transcoding.Contracts;
@@ -10,7 +11,7 @@ namespace Yohuke.LiveRecorder.Infrastructure.Transcoding;
 /// <summary>向主站管理、控制连接和媒体传输端点提供一致的转码边界。</summary>
 public sealed class TranscodingCoordinator(TranscodeWorkerService workers, TranscodeJobScheduler scheduler,
     TranscodeTransferService transfers, TranscodeRenditionCatalog catalog, TranscodeWorkerLogStore logs, ClippingJobScheduler clipping,
-    RecordingJobScheduler recording)
+    RecordingJobScheduler recording, AiJobScheduler? ai = null)
 {
     /// <summary>读取已登记节点。</summary>
     public Task<IReadOnlyList<TranscodeWorker>> ListWorkersAsync(CancellationToken cancellationToken = default) => workers.ListAsync(cancellationToken);
@@ -36,6 +37,10 @@ public sealed class TranscodingCoordinator(TranscodeWorkerService workers, Trans
     public async Task<WorkerState> HeartbeatAsync(string workerId, WorkerHeartbeat heartbeat, CancellationToken cancellationToken = default)
     {
         var worker = await workers.RequireAsync(workerId, cancellationToken, true);
+        if (worker.Kind == "AI")
+        {
+            return await RequireAi().HeartbeatAsync(workerId, heartbeat, cancellationToken);
+        }
         if (worker.Kind == "Recording")
         {
             return await recording.HeartbeatAsync(workerId, heartbeat, cancellationToken);
@@ -50,6 +55,10 @@ public sealed class TranscodingCoordinator(TranscodeWorkerService workers, Trans
     {
         var worker = await workers.RequireAsync(workerId, cancellationToken, true);
         var expectedHash = TranscodeWorkerService.SecretHash(secret);
+        if (worker.Kind == "AI")
+        {
+            return await RequireAi().HeartbeatAsync(workerId, heartbeat, cancellationToken, expectedHash, connectionIsCurrent);
+        }
         if (worker.Kind == "Recording")
         {
             return await recording.HeartbeatAsync(workerId, heartbeat, cancellationToken, expectedHash, connectionIsCurrent);
@@ -97,4 +106,6 @@ public sealed class TranscodingCoordinator(TranscodeWorkerService workers, Trans
     public Task<IReadOnlyList<PlaybackRendition>> GetRenditionsAsync(string sessionId, string segmentId, CancellationToken cancellationToken = default) => catalog.GetAsync(sessionId, segmentId, cancellationToken);
     /// <summary>按当前场次引用重新授权成品文件。</summary>
     public Task<RenditionAsset> ResolveRenditionAssetAsync(string sessionId, string segmentId, string renditionId, string fileName, CancellationToken cancellationToken = default) => catalog.ResolveAsync(sessionId, segmentId, renditionId, fileName, cancellationToken);
+
+    private AiJobScheduler RequireAi() => ai ?? throw new InfrastructureException("AI Worker coordination is unavailable.", 503);
 }

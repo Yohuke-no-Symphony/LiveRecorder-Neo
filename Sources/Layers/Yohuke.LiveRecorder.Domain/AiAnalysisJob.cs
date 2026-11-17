@@ -1,3 +1,6 @@
+using Yohuke.LiveRecorder.AI.Contracts;
+using Yohuke.LiveRecorder.Transcoding.Contracts;
+
 namespace Yohuke.LiveRecorder.Domain;
 
 /// <summary>具有独立租约、参考用量和增量结果的持久 AI 作业。</summary>
@@ -12,6 +15,19 @@ public sealed class AiAnalysisJob : Entity
     public bool PublicationStarted { get; set; }
     public string State { get; set; } = "Queued";
     public string? ActiveKey { get; set; }
+    public string? AutomaticKey { get; set; }
+    public AiInputManifest? Input { get; set; }
+    public List<string> SourcePaths { get; set; } = [];
+    public string? WorkerId { get; set; }
+    public int Attempt { get; set; }
+    public string? LeaseTokenHash { get; set; }
+    public long CheckpointSequence { get; set; }
+    public string? CheckpointHash { get; set; }
+    public bool ReportOnlyRecovery { get; set; }
+    public bool UnsettledModelRequest { get; set; }
+    public long UnsettledReservedTokens { get; set; }
+    public DateTime? LastProgressAtUtc { get; set; }
+    public List<WorkerStageSnapshot> Stages { get; set; } = [];
     public string Identity { get; set; } = "";
     public string CredentialFingerprint { get; set; } = "";
     public AiSettings Settings { get; set; } = new();

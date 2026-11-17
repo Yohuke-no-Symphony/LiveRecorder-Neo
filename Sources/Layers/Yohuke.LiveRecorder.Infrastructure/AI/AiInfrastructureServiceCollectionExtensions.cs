@@ -10,10 +10,14 @@ public static class AiInfrastructureServiceCollectionExtensions
     public static IServiceCollection AddLiveRecorderAiInfrastructure(this IServiceCollection services)
     {
         services.AddSingleton<AiArchiveDataSource>();
-        services.AddSingleton<IAiEvidenceReader>(provider => provider.GetRequiredService<AiArchiveDataSource>());
+        services.AddSingleton<AiInputManifestFactory>();
         services.AddSingleton<AiAnalysisService>();
         services.AddSingleton<AiLiveMarkerPublisher>();
-        services.AddHostedService<AiAnalysisWorker>();
+        services.AddSingleton<AiConnectionTestCoordinator>();
+        services.AddSingleton<AiJobExecutionService>();
+        services.AddSingleton<AiJobScheduler>();
+        services.AddSingleton<IAiConnectionTester, AiRemoteConnectionTester>();
+        services.AddHostedService<AiJobMaintenanceWorker>();
         return services;
     }
 }

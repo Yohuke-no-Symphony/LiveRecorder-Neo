@@ -226,6 +226,8 @@
   <data name="AI_REQUEST_UNKNOWN" xml:space="preserve"><value>AI 请求结果未知，未自动重试。</value></data>
   <data name="AI_CONFIGURATION_CHANGED" xml:space="preserve"><value>管理员修改了 AI 服务或密钥，本次分析已停止。</value></data>
   <data name="AI_LEASE_LOST" xml:space="preserve"><value>分析任务的执行租约已失效，当前执行器已停止。</value></data>
+  <data name="AI_WORKER_UNAVAILABLE" xml:space="preserve"><value>没有可用的 AI 节点，请先连接并启用 AI 节点。</value></data>
+  <data name="AI_WORKER_BUSY" xml:space="preserve"><value>AI 节点正在执行任务，请稍后重试连接测试。</value></data>
   <data name="AI_SOURCE_UNAVAILABLE" xml:space="preserve"><value>录像已删除或当前不可用，分析已停止。</value></data>
   <data name="AI_OUTPUT_LIMIT_REACHED" xml:space="preserve"><value>AI 响应达到单次输出上限，请提高输出上限或调整思考模式后重试。</value></data>
   <data name="AI_CONTEXT_LENGTH_EXCEEDED" xml:space="preserve"><value>压缩后仍超出模型上下文容量，请检查模型及单次输出配置。</value></data>

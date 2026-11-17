@@ -226,6 +226,8 @@
   <data name="AI_REQUEST_UNKNOWN" xml:space="preserve"><value>AI リクエストの結果が不明なため、自動再試行は行いません。</value></data>
   <data name="AI_CONFIGURATION_CHANGED" xml:space="preserve"><value>管理者が AI サービスまたはキーを変更したため、分析を停止しました。</value></data>
   <data name="AI_LEASE_LOST" xml:space="preserve"><value>分析ジョブの実行リースが失効したため、処理を停止しました。</value></data>
+  <data name="AI_WORKER_UNAVAILABLE" xml:space="preserve"><value>利用可能な AI ワーカーがありません。AI ワーカーを接続して有効にしてください。</value></data>
+  <data name="AI_WORKER_BUSY" xml:space="preserve"><value>AI ワーカーは処理中です。しばらくしてから接続テストをお試しください。</value></data>
   <data name="AI_SOURCE_UNAVAILABLE" xml:space="preserve"><value>録画が削除されたか利用できないため、分析を停止しました。</value></data>
   <data name="AI_OUTPUT_LIMIT_REACHED" xml:space="preserve"><value>AI 応答が出力上限に達しました。上限を増やすか思考モードを調整して再試行してください。</value></data>
   <data name="AI_CONTEXT_LENGTH_EXCEEDED" xml:space="preserve"><value>圧縮後もモデルのコンテキスト容量を超えています。モデルと出力設定を確認してください。</value></data>

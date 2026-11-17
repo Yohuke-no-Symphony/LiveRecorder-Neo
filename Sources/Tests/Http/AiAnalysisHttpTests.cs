@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using MongoDB.Driver;
 using Xunit;
 using Yohuke.LiveRecorder.Application;
@@ -167,15 +166,14 @@ public sealed class AiAnalysisHttpTests
         Assert.False((await fixture.Admin.Client.GetFromJsonAsync<ServerSettings>("/api/settings", JsonFiles.Options))!.Ai.HasApiKey);
     }
 
-    /// <summary>停止模型执行器后验证仅已结束录像能够入队，重复创建去重并可取消，任务不持有密钥。</summary>
+    /// <summary>主站不执行模型，已结束录像可持久排队、去重并取消，任务不持有密钥。</summary>
     [MongoHttpFact]
     public async Task OnlyFinishedRecordingsCreateDeduplicatedJobsWithoutExecutingTheModel()
     {
         await using var fixture = await HttpServerFixture.CreateAsync();
         await fixture.InstallAsync();
         await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
-        var worker = fixture.App.Services.GetServices<IHostedService>().OfType<AiAnalysisWorker>().Single();
-        await worker.StopAsync(CancellationToken.None);
+        Assert.Null(fixture.App.Services.GetService<IAiAnalysisRunner>());
         var settings = (await fixture.Admin.Client.GetFromJsonAsync<ServerSettings>("/api/settings", JsonFiles.Options))!;
         settings.Ai = new()
         {
@@ -212,7 +210,10 @@ public sealed class AiAnalysisHttpTests
         Assert.Equal("", job.Settings.ApiKey);
         Assert.Equal("Queued", job.State);
         Assert.Equal(0, job.ModelRequests);
-        Assert.True(File.Exists(Path.Combine(fixture.DataDirectory, job.Snapshot.EvidenceRelativePath)));
+        Assert.NotNull(job.Input);
+        Assert.Empty(job.Snapshot.Buckets);
+        Assert.Equal(0, job.Snapshot.EvidenceCount);
+        Assert.False(Directory.Exists(Path.Combine(fixture.DataDirectory, "ai", "snapshots")));
         using var cancellation = await fixture.Admin.SendAsync(HttpMethod.Post, $"/api/ai/jobs/{summary.Id}/cancel");
         Assert.Equal(HttpStatusCode.NoContent, cancellation.StatusCode);
         var cancelled = await ReadJobAsync(fixture, summary.Id);

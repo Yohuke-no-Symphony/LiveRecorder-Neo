@@ -134,6 +134,11 @@ internal static class TaskSummaryMapper
         Add(metrics, "toolCalls", Number(data, "ToolCalls"));
         Add(metrics, "completedSegments", Number(data, "CompletedSegments"));
         Add(metrics, "totalSegments", Number(data, "TotalSegments"));
+        if (data.GetValue("Stages", BsonNull.Value) is BsonArray snapshots && snapshots.Count > 0)
+        {
+            return WorkerStages(row, data).Select(stage => stage.Id == "Analyzing"
+                ? stage with { Metrics = stage.Metrics.Concat(metrics).ToArray() } : stage).ToArray();
+        }
         return [new()
         {
             Id = Text(data, "Phase") ?? "Analyzing", State = state == "Publishing" ? "Running" : state,

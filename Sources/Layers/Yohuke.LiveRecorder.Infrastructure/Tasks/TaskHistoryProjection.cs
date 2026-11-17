@@ -122,11 +122,14 @@ internal static class TaskHistoryProjection
     private static List<BsonDocument> Ai() =>
     [
         Project("ai", IfNull("$Purpose", AiJobPurposes.ANALYSIS), "$Snapshot.Title", "$SessionId", UserOrigin(), Initiator(),
-            IfNull("$Provenance.InitiatorName", IfNull("$OwnerName", "")), "local",
+            IfNull("$Provenance.InitiatorName", IfNull("$OwnerName", "")), IfNull("$WorkerId",
+                Cond(And(Eq(IfNull("$Attempt", 0), 0), Eq(IfNull("$Input", BsonNull.Value), BsonNull.Value),
+                    new BsonDocument("$ne", new BsonArray { "$State", "Queued" })), "local", BsonNull.Value)),
             Cond(And(Eq("$State", "Running"), Eq("$PublicationStarted", true)), "Publishing", "$State"),
             new BsonDocument
             {
                 { "Phase", IfNull("$Context.Phase", "Preparing") }, { "CancelRequested", "$CancelRequested" },
+                { "Stages", IfNull("$Stages", new BsonArray()) }, { "LastUpdatedAtUtc", "$LastProgressAtUtc" },
                 { "ErrorCode", "$ErrorCode" }, { "PromptTokens", "$PromptTokens" }, { "CompletionTokens", "$CompletionTokens" },
                 { "ModelRequests", "$ModelRequests" }, { "ToolCalls", "$ToolCalls" }, { "RequestRetries", "$RequestRetries" },
                 { "LiveMarkerFileId", "$LiveMarkerFileId" },

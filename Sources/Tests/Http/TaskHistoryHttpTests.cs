@@ -18,6 +18,24 @@ namespace Yohuke.LiveRecorder.Http.Tests;
 /// <summary>验证两种任务视图的权限、聚合分页以及独立历史清理。</summary>
 public sealed class TaskHistoryHttpTests
 {
+    /// <summary>等待节点的 AI 任务不伪装为主站执行，升级前已完成任务仍保留本地来源。</summary>
+    [MongoHttpFact]
+    public async Task UnassignedAiTasksWaitForNodesWhileLegacyHistoryRemainsLocal()
+    {
+        await using var fixture = await FixtureAsync();
+        await fixture.Context.Collection<AiAnalysisJob>("ai_analysis_jobs").InsertManyAsync(
+        [
+            new() { Id = "waiting-ai-node", State = "Queued", Input = new(), Snapshot = new() { Title = "waiting" } },
+            new() { Id = "legacy-ai-local", State = "Completed", FinishedAtUtc = DateTime.UtcNow, Snapshot = new() { Title = "legacy" } }
+        ]);
+
+        var page = await fixture.Admin.Client.GetFromJsonAsync<TaskHistoryPage>("/api/admin/worker-tasks?kind=ai");
+
+        Assert.NotNull(page);
+        Assert.Null(Assert.Single(page.Items, value => value.Id == "waiting-ai-node").WorkerId);
+        Assert.Equal("local", Assert.Single(page.Items, value => value.Id == "legacy-ai-local").WorkerId);
+    }
+
     /// <summary>个人页包含本人手动来源，管理员页包含全部来源且不暴露私有字段。</summary>
     [MongoHttpFact]
     public async Task PersonalScopeIsOwnedEvenForAdministratorsAndAdminScopeIncludesEverySource()
@@ -409,7 +427,7 @@ public sealed class TaskHistoryHttpTests
             await fixture.InstallAsync();
             await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
             foreach (var worker in fixture.App.Services.GetServices<IHostedService>().Where(value =>
-                value is MediaJobWorker or AiAnalysisWorker or RecordingSupervisor or TranscodeMaintenanceService))
+                value is MediaJobWorker or AiJobMaintenanceWorker or RecordingSupervisor or TranscodeMaintenanceService))
             {
                 await worker.StopAsync(CancellationToken.None);
             }

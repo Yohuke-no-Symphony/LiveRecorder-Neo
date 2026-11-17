@@ -156,6 +156,7 @@ public sealed class TranscodeWorkerService(IMongoContext context, IAppPaths path
 
     private async Task ReleaseJobsAsync(string id, CancellationToken cancellationToken)
     {
+        await ReleaseAiJobsAsync(id, cancellationToken);
         var recording = await Workers.Find(value => value.Id == id && value.Kind == "Recording").FirstOrDefaultAsync(cancellationToken);
         if (recording is { Enabled: false })
         {
@@ -178,6 +179,40 @@ public sealed class TranscodeWorkerService(IMongoContext context, IAppPaths path
                 Builders<MediaJob>.Update.Set(x => x.State, "Queued").Set(x => x.RemoteWorkerId, null)
                     .Set(x => x.RemoteLeaseTokenHash, null).Set(x => x.LeaseOwner, null).Set(x => x.LeaseUntilUtc, null),
                 cancellationToken: cancellationToken);
+        }
+    }
+
+    private async Task ReleaseAiJobsAsync(string workerId, CancellationToken cancellationToken)
+    {
+        var jobs = context.Collection<AiAnalysisJob>("ai_analysis_jobs");
+        var pending = await jobs.Find(value => value.WorkerId == workerId && value.State == "Running" && !value.PublicationStarted)
+            .ToListAsync(cancellationToken);
+        foreach (var candidate in pending)
+        {
+            await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, "ai-" + TranscodeAssetRegistry.Hash(candidate.Id), cancellationToken);
+            var job = await jobs.Find(value => value.Id == candidate.Id && value.WorkerId == workerId
+                && value.State == "Running" && !value.PublicationStarted).FirstOrDefaultAsync(cancellationToken);
+            if (job is null)
+            {
+                continue;
+            }
+            var interrupted = job.ModelRequests > 0 || job.RequestInFlight || job.UnsettledModelRequest;
+            var unknown = job.RequestInFlight || job.UnsettledModelRequest;
+            var update = Builders<AiAnalysisJob>.Update.Set(value => value.State, interrupted ? "Interrupted" : "Queued")
+                .Set(value => value.WorkerId, interrupted ? workerId : null).Set(value => value.LeaseTokenHash, null)
+                .Set(value => value.LeaseOwner, null).Set(value => value.LeaseUntilUtc, null)
+                .Set(value => value.ErrorCode, interrupted ? "AI_LEASE_LOST" : null)
+                .Set(value => value.RequestInFlight, false).Set(value => value.ReservedTokens, 0)
+                .Set(value => value.UnsettledModelRequest, unknown)
+                .Set(value => value.UnsettledReservedTokens, job.RequestInFlight ? job.ReservedTokens : job.UnsettledReservedTokens)
+                .Set(value => value.EstimatedTokens, job.EstimatedTokens + (job.RequestInFlight ? job.ReservedTokens : 0));
+            if (interrupted)
+            {
+                update = update.Set(value => value.ActiveKey, null).Set(value => value.FinishedAtUtc, DateTime.UtcNow)
+                    .Set(value => value.Result.IsComplete, false).Set(value => value.Result.CompletedAtUtc, null);
+            }
+            await jobs.UpdateOneAsync(value => value.Id == job.Id && value.WorkerId == workerId && value.Attempt == job.Attempt
+                && value.State == "Running" && !value.PublicationStarted, update, cancellationToken: cancellationToken);
         }
     }
 

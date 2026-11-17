@@ -24,6 +24,15 @@ afterEach(() =>
 
 describe('运行时界面语言', () =>
 {
+  it('AI 结果回传步骤使用本地化名称', () =>
+  {
+    for (const [language, label] of [['zh-CN', '回传结果'], ['en-US', 'Reporting results'], ['ja-JP', '結果を送信']] as const)
+    {
+      i18n.global.locale.value = language
+      expect(i18n.global.t('taskHistory.stages.Reporting')).toBe(label)
+    }
+  })
+
   it('逻辑场次收尾状态随界面语言显示归档进度', async () =>
   {
     const wrapper = mount(StatusChip, { props: { status: 'Finalizing' }, global: { plugins: [i18n], stubs: { VChip: container } } })

@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application.AI;
@@ -9,6 +8,7 @@ using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Library;
 using Yohuke.LiveRecorder.Infrastructure.Library.LiveMarkers;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
+using Yohuke.LiveRecorder.Infrastructure.Transcoding;
 
 namespace Yohuke.LiveRecorder.AI.Tests;
 
@@ -23,6 +23,10 @@ internal sealed class AiMongoFixture : IAsyncDisposable
     internal LibraryService Library { get; }
     internal LiveMarkerFileStore MarkerFiles { get; }
     internal AiLiveMarkerPublisher MarkerPublisher { get; }
+    internal TranscodeWorkerService Workers { get; }
+    internal AiJobExecutionService Execution { get; }
+    internal AiJobScheduler Scheduler { get; }
+    private AiInputManifestFactory Manifests { get; }
     internal IMongoCollection<AiAnalysisJob> Jobs => Mongo.Collection<AiAnalysisJob>("ai_analysis_jobs");
     private string DatabaseName { get; } = "ai_tests_" + Guid.NewGuid().ToString("N");
 
@@ -34,6 +38,11 @@ internal sealed class AiMongoFixture : IAsyncDisposable
         Library = new(Mongo, TimeProvider.System);
         MarkerFiles = new(Workspace.Paths);
         MarkerPublisher = new(Library, Workspace.Paths, MarkerFiles, new());
+        Manifests = new(Workspace.Paths, Workspace.Data);
+        Workers = new(Mongo, Workspace.Paths);
+        var probes = new AiConnectionTestCoordinator();
+        Execution = new(Mongo, Settings, Workspace.Paths, Workers, Library, Protector, Publisher, MarkerPublisher, Manifests, probes);
+        Scheduler = new(Mongo, Settings, Workspace.Paths, Workers, Execution, probes);
     }
 
     internal static async Task<AiMongoFixture> CreateAsync()
@@ -49,9 +58,38 @@ internal sealed class AiMongoFixture : IAsyncDisposable
         return fixture;
     }
 
-    internal AiAnalysisService Service(IMongoContext? context = null) => new(context ?? Mongo, Library, Settings, Workspace.Data, Publisher, MarkerPublisher);
+    internal AiAnalysisService Service(IMongoContext? context = null) => new(context ?? Mongo, Library, Settings, Workspace.Data, Publisher, MarkerPublisher, Manifests);
 
-    internal AiAnalysisWorker Worker(IAiAnalysisRunner runner) => new(Mongo, Bootstrap, Settings, Protector, runner, Publisher, NullLogger<AiAnalysisWorker>.Instance, Workspace.Paths, MarkerPublisher);
+    internal AiNodeTestHost Worker(IAiAnalysisRunner runner) => new(this, runner);
+
+    internal async Task<TranscodeWorker> RegisterNodeAsync(CancellationToken cancellationToken = default)
+    {
+        var created = await Workers.CreateAsync("AI test node", "AI", cancellationToken);
+        await Workers.ConnectAsync(new()
+        {
+            WorkerId = created.Worker.Id, Secret = created.Secret, Kind = "AI",
+            ExpectedConfigurationRevision = created.Worker.ConfigurationRevision,
+            InitialConfiguration = new()
+            {
+                TempDirectory = Workspace.Paths.DataDirectory, MinimumFreeBytes = 0, MaxConcurrentEncodes = 1
+            },
+            Capabilities = new() { AiExecutionVersion = 1 }
+        }, cancellationToken);
+        return await Workers.RequireAsync(created.Worker.Id, cancellationToken);
+    }
+
+    internal async Task PrepareSnapshotAsync(AiAnalysisJob job, IReadOnlyDictionary<string, string>? sourcePaths = null,
+        CancellationToken cancellationToken = default)
+    {
+        var input = job.Input ?? Manifests.Legacy(job);
+        sourcePaths ??= input.Sources.Select((source, index) => new
+        {
+            source.Id,
+            Path = Path.Combine(input.PreparedSnapshot ? Workspace.Paths.DataDirectory : Workspace.Paths.RecordsDirectory,
+                job.SourcePaths[index])
+        }).ToDictionary(source => source.Id, source => source.Path);
+        job.Snapshot = await Workspace.BuildSnapshotAsync(AiExecutionMapper.ToExecution(job), input, sourcePaths, cancellationToken);
+    }
 
     internal async Task<BroadcastSession> SeedAsync(bool ended = true, double duration = 120000, List<EventArchiveSource>? sources = null)
     {
