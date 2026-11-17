@@ -68,7 +68,7 @@ function serverSettings(): ServerSettings
 {
   return {
     id: 'server', defaultLanguage: 'zh-CN', translationDanmuPattern: '.*?【.*?】', timeZone: 'Asia/Shanghai', quality: 10000,
-    recordDanmu: true, segmentBytes: 1024 ** 3, recordingRetentionDays: 0, clipRetentionDays: 7, trashRetentionDays: 7,
+    recordDanmu: true, segmentBytes: 1024 ** 3, recordingRetentionDays: 0, clipRetentionDays: 7, trashRetentionDays: 7, taskLogRetentionDays: 7,
     cacheLimitBytes: 1024 ** 3, cacheRetentionMinutes: 30, minimumFreeBytes: 1024 ** 3,
     mediaConcurrency: 2, playbackConcurrency: 2, monitorIntervalSeconds: 15, sessionGraceMinutes: 5,
     streamDisconnectTimeoutMinutes: 5, defaultUserPermissions: [], registrationEnabled: true,

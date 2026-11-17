@@ -50,6 +50,7 @@ export interface ServerSettings
   recordingRetentionDays: number
   clipRetentionDays: number
   trashRetentionDays: number
+  taskLogRetentionDays: number
   cacheLimitBytes: number
   cacheRetentionMinutes: number
   minimumFreeBytes: number
