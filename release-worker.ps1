@@ -38,7 +38,7 @@ $workerRuntimes = @($Runtime)
 
 if ($All)
 {
-    $workerRuntimes = @('linux-x64', 'linux-arm64', 'win-x64', 'osx-x64', 'osx-arm64')
+    $workerRuntimes = @('linux-x64', 'win-x64', 'osx-arm64')
 }
 
 foreach ($workerRuntime in $workerRuntimes)

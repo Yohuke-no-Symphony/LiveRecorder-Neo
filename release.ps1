@@ -19,7 +19,7 @@ $runtimes = @($Runtime)
 
 if ($All)
 {
-    $runtimes = @('linux-x64', 'linux-arm64', 'win-x64', 'osx-x64', 'osx-arm64')
+    $runtimes = @('linux-x64', 'win-x64')
 }
 
 $publishParameters = @{}
