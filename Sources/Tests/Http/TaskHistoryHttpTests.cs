@@ -241,6 +241,85 @@ public sealed class TaskHistoryHttpTests
         Assert.Equal(HttpStatusCode.BadRequest, clear.StatusCode);
     }
 
+    /// <summary>阶段详情保留业务错误参数，并兼容参数缺失的旧记录。</summary>
+    [MongoHttpFact]
+    public async Task MediaErrorDiagnosticsAreLocalizedWithArguments()
+    {
+        await using var fixture = await FixtureAsync();
+        var formatted = Media("formatted-error", "owner");
+        formatted.State = "Failed";
+        formatted.Error = "old error text";
+        formatted.ErrorCode = "JOB_PROCESSING_FAILED";
+        formatted.ErrorArguments = ["specific diagnostic"];
+        var legacy = Media("legacy-error", "owner");
+        legacy.State = "Failed";
+        legacy.ErrorCode = "JOB_PROCESSING_FAILED";
+        await fixture.Context.Collection<MediaJob>("jobs").InsertManyAsync([formatted, legacy]);
+        fixture.Admin.Client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US");
+        var page = await fixture.Admin.Client.GetFromJsonAsync<TaskHistoryPage>("/api/admin/worker-tasks");
+        var row = Assert.Single(page!.Items, value => value.Id == formatted.Id);
+        Assert.Contains("specific diagnostic", row.Error);
+        Assert.DoesNotContain("old error text", row.Error);
+        Assert.Equal(row.Error, Assert.Single(row.Stages).Error);
+        Assert.Equal(2, page.Items.Count);
+    }
+
+    /// <summary>个人详情保留可理解的失败状态，原始工具路径仅向管理员开放。</summary>
+    [MongoHttpFact]
+    public async Task PersonalStageDetailsDoNotExposePrivateToolPaths()
+    {
+        await using var fixture = await FixtureAsync();
+        var owner = await fixture.CreateUserAsync("task-diagnostics@example.test");
+        var browser = fixture.NewBrowser();
+        await browser.LoginAsync(owner.Email, HttpServerFixture.USER_PASSWORD);
+        var job = Media("private-diagnostics", owner.Id);
+        job.State = "Failed";
+        job.Error = "FFmpeg failed opening /Users/internal/private.flv";
+        job.ErrorCode = "WorkerExecutionFailed";
+        job.Stages = [new()
+        {
+            Id = "Encoding", State = "Failed", Error = job.Error,
+            Activity = new() { CurrentFile = "C:\\private\\secret.flv" }
+        }];
+        await fixture.Context.Collection<MediaJob>("jobs").InsertOneAsync(job);
+        using var response = await browser.Client.GetAsync("/api/tasks/media/private-diagnostics");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var text = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("/Users/internal", text);
+        Assert.DoesNotContain("private\\\\secret.flv", text);
+        var task = (await response.Content.ReadFromJsonAsync<BackgroundTaskSummary>())!;
+        Assert.NotEmpty(task.Error!);
+        Assert.Equal("secret.flv", Assert.Single(Assert.Single(task.Stages).Metrics).Text);
+        var administrator = await fixture.Admin.Client.GetFromJsonAsync<BackgroundTaskSummary>("/api/admin/worker-tasks/media/private-diagnostics");
+        Assert.Contains("/Users/internal", administrator!.Error);
+    }
+
+    /// <summary>旧节点的阶段指标与新节点尚无确定进度的步骤采用真实数据投影。</summary>
+    [MongoHttpFact]
+    public async Task LegacyProgressDoesNotInventCompletedStagesOrUseOverallPercentAsStagePercent()
+    {
+        await using var fixture = await FixtureAsync();
+        var legacy = Transcode("legacy-progress", "worker", TaskProvenance.Automatic());
+        legacy.State = "Running";
+        legacy.Stage = "Encoding";
+        legacy.Progress = 50;
+        legacy.FinishedAtUtc = null;
+        legacy.Activity = new() { ProcessedDurationMs = 25, TotalDurationMs = 100 };
+        legacy.Stages = WorkerStageSnapshotPolicy.Create("Transcoding");
+        var inspecting = Transcode("inspecting", "worker", TaskProvenance.Automatic());
+        inspecting.State = "Running";
+        inspecting.FinishedAtUtc = null;
+        inspecting.Stages = [new() { Id = "Inspecting", State = "Running" }];
+        await fixture.Context.Collection<TranscodeJob>("transcodeJobs").InsertManyAsync([legacy, inspecting]);
+        var old = await fixture.Admin.Client.GetFromJsonAsync<BackgroundTaskSummary>("/api/admin/worker-tasks/transcode/legacy-progress");
+        var stage = Assert.Single(old!.Stages);
+        Assert.Equal("Encoding", stage.Id);
+        Assert.Equal(25, stage.Progress);
+        Assert.Null(stage.ElapsedMs);
+        var current = await fixture.Admin.Client.GetFromJsonAsync<BackgroundTaskSummary>("/api/admin/worker-tasks/transcode/inspecting");
+        Assert.Null(Assert.Single(current!.Stages).Progress);
+    }
+
     private static MediaJob Media(string id, string owner) => new()
     {
         Id = id, OwnerId = owner, Title = id, Kind = "Clip", State = "Completed", FinishedAtUtc = DateTime.UtcNow.AddMinutes(-1)

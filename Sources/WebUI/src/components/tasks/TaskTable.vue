@@ -59,7 +59,8 @@ function actions(task: TaskSummary): TaskAction[]
     const markers = task.type === 'LiveMarkers'
     result.push({ key: 'results', label: t(markers ? 'taskHistory.viewMarkers' : 'taskHistory.viewAnalysis'),
       icon: markers ? 'mdi-format-list-bulleted' : 'mdi-chart-box-outline', external: true,
-      href: markers ? `${recordingUrl(task)}?panel=markers` : `/analytics?sessionId=${encodeURIComponent(task.sessionId)}` })
+      href: markers ? `${recordingUrl(task)}?panel=markers${task.liveMarkerFileId ? `&liveMarkerFileId=${encodeURIComponent(task.liveMarkerFileId)}` : ''}`
+        : `/analytics?sessionId=${encodeURIComponent(task.sessionId)}` })
   }
   if (task.canCancel) { result.push({ key: 'cancel', label: t(task.cancelRequested ? 'taskHistory.cancelling' : 'taskHistory.cancel'), icon: 'mdi-close' }) }
   if (task.canRetry) { result.push({ key: 'retry', label: t('taskHistory.retry'), icon: 'mdi-refresh', color: 'primary' }) }

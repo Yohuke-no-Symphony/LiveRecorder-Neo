@@ -264,6 +264,21 @@ describe('统一任务表格', () =>
     expect(wrapper.text()).not.toContain('详情错误')
   })
 
+  it('历史直播记录结果链接保留该任务产物的文件ID并编码空格和斜线', async () =>
+  {
+    api.list.mockResolvedValue(page([task({ id: 'markers', kind: 'ai', type: 'LiveMarkers', state: 'Completed', canCancel: false, liveMarkerFileId: 'file /1' })]))
+    const wrapper = await open()
+    const link = wrapper.get('a[aria-label="查看直播记录"]')
+    const href = link.attributes('href')!
+    expect(href).toContain('liveMarkerFileId=file%20%2F1')
+    const url = new URL(href, 'https://recorder.test')
+    expect(url.pathname).toBe('/sessions/session%2Fid')
+    expect(url.searchParams.get('panel')).toBe('markers')
+    expect(url.searchParams.get('liveMarkerFileId')).toBe('file /1')
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.attributes('rel')).toContain('noopener')
+  })
+
   it('三语动态更新步骤、筛选与已打开的详情标题', async () =>
   {
     const wrapper = await open()

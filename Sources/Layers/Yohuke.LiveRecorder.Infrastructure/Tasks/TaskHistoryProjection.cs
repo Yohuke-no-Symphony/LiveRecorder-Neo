@@ -113,6 +113,8 @@ internal static class TaskHistoryProjection
             {
                 { "Stages", IfNull("$Stages", new BsonArray()) }, { "Stage", IfNull("$Stage", "Processing") },
                 { "Mode", "$Mode" }, { "Error", "$Error" }, { "CancelRequested", "$CancelRequested" },
+                { "ErrorCode", "$ErrorCode" }, { "ErrorArguments", "$ErrorArguments" },
+                { "LastUpdatedAtUtc", "$LastProgressAtUtc" },
                 { "OutputCount", new BsonDocument("$size", IfNull("$OutputRelativePaths", new BsonArray())) }
             })
     ];

@@ -18,6 +18,7 @@ public sealed record BackgroundTaskSummary
     public bool? WorkerOnline { get; init; }
     public string? ProfileName { get; init; }
     public string? Mode { get; init; }
+    public string? LiveMarkerFileId { get; init; }
     public double Progress { get; init; }
     public int Attempt { get; init; }
     public DateTime CreatedAtUtc { get; init; }

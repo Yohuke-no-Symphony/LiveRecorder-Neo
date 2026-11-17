@@ -21,6 +21,7 @@ public sealed class MediaJob : Entity
     public string? MutationKey { get; set; }
     public string State { get; set; } = "Queued";
     public double Progress { get; set; }
+    public DateTime? LastProgressAtUtc { get; set; }
     public List<WorkerStageSnapshot> Stages { get; set; } = [];
     public int CheckpointGeneration { get; set; }
     public string? ResumeWorkerId { get; set; }

@@ -51,6 +51,7 @@ public sealed class ClippingJobScheduler(IMongoContext context, TranscodeWorkerS
             {
                 var activeJob = await leases.RequireAsync(workerId, progress.JobId, progress.Attempt, progress.LeaseToken, cancellationToken);
                 var progressUpdate = Builders<MediaJob>.Update.Set(value => value.LeaseUntilUtc, DateTime.UtcNow.AddSeconds(90))
+                    .Set(value => value.LastProgressAtUtc, DateTime.UtcNow)
                     .Set(value => value.Progress, double.IsFinite(progress.Progress) ? Math.Clamp(progress.Progress, 0, 99.9) : 0);
                 var stages = WorkerStageSnapshotPolicy.Normalize("Clipping", progress.Stages);
                 if (stages.Count > 0)

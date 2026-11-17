@@ -50,6 +50,7 @@ export interface TaskSummary
   canRetry: boolean
   canDelete: boolean
   canViewResults: boolean
+  liveMarkerFileId?: string | null
   outputCount: number
   stages: TaskStage[]
 }
