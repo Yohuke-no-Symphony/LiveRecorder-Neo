@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <ItemGroup>
+        <ProjectReference Include="../../Layers/Yohuke.LiveRecorder.Domain/Yohuke.LiveRecorder.Domain.csproj" />
+        <InternalsVisibleTo Include="Yohuke.LiveRecorder.Infrastructure" />
+        <InternalsVisibleTo Include="Yohuke.LiveRecorder.Tests" />
+    </ItemGroup>
+</Project>

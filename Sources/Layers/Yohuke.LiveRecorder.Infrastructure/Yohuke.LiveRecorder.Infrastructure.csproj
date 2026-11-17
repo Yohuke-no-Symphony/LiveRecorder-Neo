@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <ItemGroup>
         <ProjectReference Include="../Yohuke.LiveRecorder.Application/Yohuke.LiveRecorder.Application.csproj" />
+        <ProjectReference Include="../../Modules/Yohuke.LiveRecorder.Analytics/Yohuke.LiveRecorder.Analytics.csproj" />
         <ProjectReference Include="../../Modules/Yohuke.LiveRecorder.Recording/Yohuke.LiveRecorder.Recording.csproj" />
         <ProjectReference Include="../../../Shared/Yohuke.DanmuCore/Sources/Yohuke.DanmuCore/Yohuke.DanmuCore.csproj" />
         <FrameworkReference Include="Microsoft.AspNetCore.App" />

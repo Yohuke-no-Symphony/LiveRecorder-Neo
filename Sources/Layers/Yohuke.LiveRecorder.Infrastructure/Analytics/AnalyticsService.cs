@@ -125,69 +125,27 @@ public sealed class AnalyticsService(EventArchiveReader reader)
                 return new() { Report = saved };
             }
 
-            var accumulator = new AnalyticsAccumulator(export);
-            var exportSequence = 0L;
-            var onlineSources = new List<(OnlineAnalyticsAccumulator Accumulator, double Offset, double From, double? To)>();
-            var fullEndMs = fixedEndMs ?? (liveStart is { } start ? Math.Max(0, (now - start).TotalMilliseconds) : 0);
-            var requestedFrom = Math.Min(fromMs ?? 0, fixedEndMs ?? double.MaxValue);
-            var requestedTo = Math.Min(toMs ?? double.MaxValue, fixedEndMs ?? double.MaxValue);
-            for (var sourceIndex = 0; sourceIndex < sources.Count; sourceIndex++)
+            var projectionSources = sources.Select((source, index) =>
             {
-                var source = sources[sourceIndex];
-                var sourceFrom = Math.Max(source.From, Math.Max(0, requestedFrom - source.Offset));
-                var sourceTo = Math.Min(source.To ?? double.MaxValue, requestedTo - source.Offset);
-                var online = new OnlineAnalyticsAccumulator();
-                onlineSources.Add((online, source.Offset, sourceFrom, sourceTo));
-                if (sourceFrom > 0)
+                var snapshotLength = snapshotLengths[index];
+                return new AnalyticsProjectionSource
                 {
-                    await foreach (var item in reader.EnumerateAsync(source.Path, snapshotLengths[sourceIndex], cancellationToken))
-                    {
-                        if (item.OffsetMs >= 0 && item.OffsetMs < Math.Min(sourceFrom, source.To ?? double.MaxValue))
-                        {
-                            accumulator.SeedBaseline(item);
-                        }
-                    }
-                }
-
-                await foreach (var item in reader.EnumerateAsync(source.Path, snapshotLengths[sourceIndex], cancellationToken))
-                {
-                    if (fixedEndMs is null && item.OffsetMs >= source.From &&
-                        (source.To is null || item.OffsetMs < source.To) && item.OffsetMs + source.Offset >= 0)
-                    {
-                        fullEndMs = Math.Max(fullEndMs, item.OffsetMs + source.Offset + 1);
-                    }
-                    if (item.OffsetMs < sourceTo)
-                    {
-                        online.Add(item);
-                    }
-                    if (item.OffsetMs < sourceFrom || item.OffsetMs >= sourceTo)
-                    {
-                        continue;
-                    }
-
-                    var projectedOffset = item.OffsetMs + source.Offset;
-                    if (projectedOffset < requestedFrom || projectedOffset >= requestedTo)
-                    {
-                        continue;
-                    }
-                    item.OffsetMs = projectedOffset;
-                    if (export)
-                    {
-                        item.Sequence = checked(++exportSequence);
-                    }
-                    accumulator.Add(item, item.Kind == "Danmu" && translationPattern?.IsMatch(item.Text) == true);
-                }
-            }
-
-            var result = export ? accumulator.BuildForExport() : accumulator.Build();
-            var rangeTo = Math.Min(requestedTo, fullEndMs);
-            var rangeFrom = Math.Min(requestedFrom, rangeTo);
-            var intervals = onlineSources.SelectMany(source =>
+                    OffsetMs = source.Offset,
+                    FromMs = source.From,
+                    ToMs = source.To,
+                    ReadAsync = token => reader.EnumerateAsync(source.Path, snapshotLength, token)
+                };
+            }).ToArray();
+            var projection = await new AnalyticsProjectionEngine().BuildAsync(projectionSources, new()
             {
-                var end = Math.Min(source.To ?? double.MaxValue, rangeTo - source.Offset);
-                return end > source.From ? source.Accumulator.Build(source.From, end, source.Offset).Intervals : [];
-            });
-            OnlineAnalyticsProjection.Apply(result, rangeFrom, rangeTo, intervals);
+                FixedEndMs = fixedEndMs,
+                InitialEndMs = liveStart is { } start ? Math.Max(0, (now - start).TotalMilliseconds) : 0,
+                FromMs = fromMs,
+                ToMs = toMs,
+                TranslationPattern = translationPattern,
+                CaptureContributions = export
+            }, cancellationToken);
+            var result = projection.Report;
             result.SourceBytes = length;
             result.SourceIdentity = identity;
             result.SourceFingerprint = fingerprint;
@@ -198,7 +156,7 @@ public sealed class AnalyticsService(EventArchiveReader reader)
             return new()
             {
                 Report = result,
-                Contributions = export ? AnalyticsContributionBuilder.Build(accumulator, "All") : null
+                Contributions = export ? AnalyticsContributionBuilder.Build(projection.Accumulator, "All") : null
             };
         }
         finally
