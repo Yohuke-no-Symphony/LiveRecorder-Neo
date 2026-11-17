@@ -60,6 +60,7 @@
   <data name="SETUP_MEDIA_TOOL_NOT_FOUND" xml:space="preserve"><value>A runnable FFmpeg/ffprobe was not found. Check the paths.</value></data>
   <data name="SETTINGS_STORAGE_PATH_LOCKED" xml:space="preserve"><value>The storage root cannot be changed while recordings exist.</value></data>
   <data name="SETTINGS_INVALID" xml:space="preserve"><value>The settings are invalid.</value></data>
+  <data name="SETTINGS_TASK_LOG_RETENTION_PENDING" xml:space="preserve"><value>Settings have been saved. Confirmation of the task log retention policy is pending and will retry automatically.</value></data>
   <data name="TRANSLATION_DANMU_PATTERN_INVALID" xml:space="preserve"><value>Enter a valid translation regular expression containing 1 to 2048 characters. Whitespace alone is not allowed.</value></data>
   <data name="TRANSLATION_DANMU_PATTERN_TIMEOUT" xml:space="preserve"><value>The translation regular expression timed out. Simplify the pattern and try again.</value></data>
   <data name="SETTINGS_TIME_ZONE_INVALID" xml:space="preserve"><value>The time zone is invalid.</value></data>

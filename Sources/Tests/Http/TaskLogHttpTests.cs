@@ -99,7 +99,7 @@ public sealed class TaskLogHttpTests
         var page = await fixture.Admin.Client.GetFromJsonAsync<TranscodeWorkerLogPage>("/api/admin/worker-tasks/media/job/logs?stage=Encoding");
         Assert.Equal("Retained after worker deletion", Assert.Single(page!.Entries).Message);
         await fixture.Context.Collection<TranscodeWorkerLogBatch>("transcodeWorkerLogBatches").UpdateManyAsync(batch => batch.WorkerId == "worker",
-            Builders<TranscodeWorkerLogBatch>.Update.Set(batch => batch.ExpiresAtUtc, DateTime.UtcNow.AddMinutes(-1)));
+            Builders<TranscodeWorkerLogBatch>.Update.Set(batch => batch.RetentionStartedAtUtc, DateTime.UtcNow.AddDays(-8)));
         var expired = await fixture.Admin.Client.GetFromJsonAsync<TranscodeWorkerLogPage>("/api/admin/worker-tasks/media/job/logs?stage=Encoding");
         Assert.Empty(expired!.Entries);
         Assert.Equal(page.NextCursor, expired.NextCursor);
@@ -166,7 +166,8 @@ public sealed class TaskLogHttpTests
         Assert.Equal(entry.Id, Assert.Single(repeated!.Entries).Id);
         Assert.Equal(page.NextCursor, repeated.NextCursor);
         var batch = await fixture.Context.Collection<TranscodeWorkerLogBatch>("transcodeWorkerLogBatches").Find(value => value.WorkerId == "local").SingleAsync();
-        Assert.Equal(ended.AddDays(7), batch.ExpiresAtUtc);
+        Assert.Equal(ended, batch.RetentionStartedAtUtc);
+        Assert.Null(batch.ExpiresAtUtc);
         var uploading = await fixture.Admin.Client.GetFromJsonAsync<TranscodeWorkerLogPage>("/api/admin/worker-tasks/recording/legacy-recording/logs?stage=Uploading");
         Assert.Empty(uploading!.Entries);
         await fixture.Context.Collection<BroadcastSession>("sessions").UpdateOneAsync(value => value.Id == "legacy-recording",

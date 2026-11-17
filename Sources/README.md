@@ -62,6 +62,8 @@ Windows 使用 `Yohuke.LiveRecorder.Server.exe`。首次启动会在终端输出
 
 默认数据目录为设置文件旁的 `Data/`，录像目录为 `Data/records/`。SMTP、OAuth、AI 接入、注册权限、带宽和保留期限均在后台设置。OAuth 回调为 `https://你的域名/oauth/callback/提供方标识`；邮件找回密码还需配置站点公开地址和 SMTP。
 
+任务日志保留期限位于「设置 → 媒体与存储 → 保留时间」，对应 `settings.json` 的 `taskLogRetentionDays`，默认 `7`，允许 `0` 至 `3650`，`0` 表示长期保留。通过后台保存后无需重启，按日志原接收时间或历史录像结束时间应用于尚存日志；任务记录不随日志过期删除，已清理的日志无法恢复。
+
 ### 反向代理与系统服务
 
 对外提供 HTTPS，转发原始 `Host`、`X-Forwarded-For` 和 `X-Forwarded-Proto`，并支持 `/hubs/status` 的 WebSocket 连接。在服务端 `appsettings.json` 的 `KnownProxies` 数组中填写实际连接主站的代理 IP。

@@ -9,7 +9,8 @@ using Yohuke.LiveRecorder.Infrastructure.Transcoding;
 namespace Yohuke.LiveRecorder.Infrastructure.Tasks;
 
 /// <summary>在任务视图权限内查询指定执行阶段的技术日志。</summary>
-public sealed class TaskLogService(TaskHistoryService history, TranscodeWorkerLogStore logs, IMongoContext context, TaskEventLogStore events)
+public sealed class TaskLogService(TaskHistoryService history, TranscodeWorkerLogStore logs, IMongoContext context, TaskEventLogStore events,
+    TaskLogRetentionPolicy retention)
 {
     /// <summary>仅向管理员提供已关联到可见任务和当前执行代次的日志。</summary>
     public async Task<TranscodeWorkerLogPage> ReadAsync(string kind, string id, string? stage, long? after, int take,
@@ -72,7 +73,7 @@ public sealed class TaskLogService(TaskHistoryService history, TranscodeWorkerLo
             return;
         }
         var timestamp = session.EndedAtUtc.Value;
-        if (timestamp == default || timestamp < DateTime.UtcNow.AddDays(-TranscodeWorkerLogStore.RETENTION_DAYS))
+        if (timestamp == default || !await retention.MayImportSnapshotAsync(timestamp, cancellationToken))
         {
             return;
         }

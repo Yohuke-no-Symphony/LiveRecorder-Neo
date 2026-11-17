@@ -19,6 +19,8 @@ public sealed class ServerSettings : Entity
     public int RecordingRetentionDays { get; set; }
     public int ClipRetentionDays { get; set; } = 30;
     public int TrashRetentionDays { get; set; } = 7;
+    public int TaskLogRetentionDays { get; set; } = 7;
+    public TaskLogRetentionChange? TaskLogRetentionPending { get; set; }
     public long CacheLimitBytes { get; set; } = 20L * 1024 * 1024 * 1024;
     public int CacheRetentionMinutes { get; set; } = 60;
     public long MinimumFreeBytes { get; set; } = 5L * 1024 * 1024 * 1024;

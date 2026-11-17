@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Yohuke.LiveRecorder.Infrastructure.Clipping;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
+using Yohuke.LiveRecorder.Infrastructure.Tasks;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Transcoding;
 
@@ -20,9 +21,12 @@ public static class TranscodingServiceCollectionExtensions
         services.AddSingleton<TranscodeTransferService>();
         services.AddSingleton<TranscodeRenditionCatalog>();
         services.AddSingleton<TranscodeWorkerLogStore>();
+        services.AddSingleton<TaskLogRetentionPolicy>();
+        services.AddSingleton<TaskLogRetentionSettingsService>();
         services.AddSingleton<TranscodeLifecycle>();
         services.AddSingleton<TranscodingCoordinator>();
         services.AddHostedService<TranscodeMaintenanceService>();
+        services.AddHostedService<TaskLogRetentionWorker>();
         return services;
     }
 }

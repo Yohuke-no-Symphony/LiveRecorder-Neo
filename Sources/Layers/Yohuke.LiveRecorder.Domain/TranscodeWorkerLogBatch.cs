@@ -13,5 +13,6 @@ public sealed class TranscodeWorkerLogBatch : Entity
     public long DroppedCount { get; set; }
     public List<WorkerLogEntry> Entries { get; set; } = [];
     public DateTime ReceivedAtUtc { get; set; } = DateTime.UtcNow;
-    public DateTime ExpiresAtUtc { get; set; }
+    public DateTime? RetentionStartedAtUtc { get; set; }
+    public DateTime? ExpiresAtUtc { get; set; }
 }

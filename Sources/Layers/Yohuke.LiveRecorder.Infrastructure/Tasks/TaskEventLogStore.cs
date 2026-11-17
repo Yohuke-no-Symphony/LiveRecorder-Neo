@@ -30,7 +30,7 @@ public sealed class TaskEventLogStore(TranscodeWorkerLogStore logs, ILogger<Task
         try
         {
             await logs.AppendAsync(workerId, batch, timeout.Token,
-                source == "SessionSnapshot" ? timestamp.AddDays(TranscodeWorkerLogStore.RETENTION_DAYS) : null);
+                source == "SessionSnapshot" ? timestamp : null);
         }
         catch (OperationCanceledException)
         {

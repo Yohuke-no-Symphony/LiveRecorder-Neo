@@ -60,6 +60,7 @@
   <data name="SETUP_MEDIA_TOOL_NOT_FOUND" xml:space="preserve"><value>找不到可运行的 FFmpeg/ffprobe，请检查路径。</value></data>
   <data name="SETTINGS_STORAGE_PATH_LOCKED" xml:space="preserve"><value>已有录播时不能直接修改存储根目录。</value></data>
   <data name="SETTINGS_INVALID" xml:space="preserve"><value>设置参数无效。</value></data>
+  <data name="SETTINGS_TASK_LOG_RETENTION_PENDING" xml:space="preserve"><value>设置已保存，任务日志保留策略尚待确认，系统将自动重试。</value></data>
   <data name="TRANSLATION_DANMU_PATTERN_INVALID" xml:space="preserve"><value>请输入有效的同传正则表达式，不能为空或超过 2048 个字符。</value></data>
   <data name="TRANSLATION_DANMU_PATTERN_TIMEOUT" xml:space="preserve"><value>同传正则匹配超时，请简化表达式后重试。</value></data>
   <data name="SETTINGS_TIME_ZONE_INVALID" xml:space="preserve"><value>时区无效。</value></data>

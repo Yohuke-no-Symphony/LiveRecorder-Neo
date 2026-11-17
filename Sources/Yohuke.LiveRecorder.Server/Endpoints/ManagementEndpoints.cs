@@ -10,6 +10,7 @@ using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.AI;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
+using Yohuke.LiveRecorder.Infrastructure.Tasks;
 using Yohuke.LiveRecorder.Server.Configuration;
 using Yohuke.LiveRecorder.Server.Bandwidth;
 using Yohuke.LiveRecorder.Server.Contracts;
@@ -41,14 +42,19 @@ public static class ManagementEndpoints
                 return Results.Ok(GetPaths(paths, startupConfiguration));
             });
         admin.MapPut("",
-            async (JsonElement body, IOptions<HttpJsonOptions> jsonOptions, ISettingsStore settingsStore,
+            async (JsonElement body, IOptions<HttpJsonOptions> jsonOptions, TaskLogRetentionSettingsService retentionSettings,
                 ISecretProtector protector, CancellationToken ct) =>
             {
                 var request = ReadSettingsRequest(body, jsonOptions.Value.SerializerOptions);
                 request.PublicWebUrl = PublicWebUrlPolicy.Normalize(request.PublicWebUrl);
                 Validate(request);
-                var saved = await settingsStore.UpdateAsync(previous =>
+                var hasTaskLogRetention = body.EnumerateObject().Any(property => property.Name.Equals(nameof(ServerSettings.TaskLogRetentionDays), StringComparison.OrdinalIgnoreCase));
+                var saved = await retentionSettings.UpdateAsync(previous =>
                 {
+                    if (!hasTaskLogRetention)
+                    {
+                        request.TaskLogRetentionDays = previous.TaskLogRetentionDays;
+                    }
                     request.DefaultBilibiliAccountId = previous.DefaultBilibiliAccountId;
                     request.Ai = AiSettingsSecrets.Protect(request.Ai, previous.Ai, protector);
                     request.Smtp.Password = string.IsNullOrEmpty(request.Smtp.Password)
@@ -129,6 +135,7 @@ public static class ManagementEndpoints
         var clone = JsonSerializer.Deserialize<ServerSettings>(JsonSerializer.Serialize(value, JsonFiles.Options),
             JsonFiles.Options)!;
         clone.Smtp.Password = "";
+        clone.TaskLogRetentionPending = null;
         clone.Ai = AiSettingsSecrets.Redact(value.Ai);
         foreach (var provider in clone.OAuthProviders)
         {
@@ -173,6 +180,7 @@ public static class ManagementEndpoints
 
         if (settings.Quality <= 0 || settings.SegmentBytes < 0 || settings.RecordingRetentionDays is < 0 or > 3650 ||
             settings.ClipRetentionDays is < 1 or > 3650 || settings.TrashRetentionDays is < 0 or > 3650 ||
+            settings.TaskLogRetentionDays is < 0 or > 3650 ||
             settings.DefaultUserPermissions is null || settings.MediaConcurrency is < 1 or > 16 ||
             settings.PlaybackConcurrency is < 1 or > 32 || settings.MonitorIntervalSeconds is < 5 or > 600 ||
             settings.SessionGraceMinutes is < 0 or > 120 || settings.MinimumFreeBytes < 0 ||

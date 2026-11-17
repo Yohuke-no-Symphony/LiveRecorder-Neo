@@ -61,6 +61,7 @@ public sealed class SettingsStoreTests
 
         Assert.Equal(5, settings.StreamDisconnectTimeoutMinutes);
         Assert.Equal(10, settings.SessionGraceMinutes);
+        Assert.Equal(7, settings.TaskLogRetentionDays);
         Assert.Equal(".*?【.*?】", settings.TranslationDanmuPattern);
     }
 
