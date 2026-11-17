@@ -203,6 +203,76 @@ public sealed class TaskHistoryHttpTests
         Assert.All(completed.Stages, stage => Assert.Equal("Completed", stage.State));
     }
 
+    /// <summary>超时结束的成功录像和已归档的重试快照不再携带当前错误。</summary>
+    [MongoHttpFact]
+    public async Task CompletedRecordingsDoNotExposeHistoricalTimeoutsAsCurrentFailures()
+    {
+        await using var fixture = await FixtureAsync();
+        var ended = DateTime.UtcNow.AddMinutes(-1);
+        await fixture.Context.Collection<BroadcastSession>("sessions").InsertOneAsync(new()
+        {
+            Id = "timeout-completed", State = "Completed", StartedAtUtc = ended.AddHours(-1), EndedAtUtc = ended,
+            ErrorCode = "RECORDING_STREAM_TIMEOUT", ErrorArguments = ["5"]
+        });
+        var descriptor = new RecordingSessionDescriptor { SessionId = "retry-completed", StartedAtUtc = ended.AddHours(-1), EndedAtUtc = ended, IsClosed = true };
+        await fixture.Context.Collection<RecordingSessionTaskSnapshot>("recordingSessionTasks").InsertOneAsync(new()
+        {
+            Id = descriptor.SessionId, Descriptor = descriptor, CaptureState = "Recording", UploadState = "Retrying", ErrorCode = "RecordingUploadFailed"
+        });
+        await fixture.Context.Collection<RecordingSessionReceipt>("recordingSessions").InsertOneAsync(new()
+        {
+            Id = descriptor.SessionId, Descriptor = descriptor, FinalizedAtUtc = ended
+        });
+        var page = await fixture.Admin.Client.GetFromJsonAsync<TaskHistoryPage>("/api/admin/worker-tasks");
+        Assert.Equal(2, page!.Items.Count);
+        Assert.All(page.Items, task =>
+        {
+            Assert.Equal("Completed", task.State);
+            Assert.Null(task.Error);
+            Assert.All(task.Stages, stage =>
+            {
+                Assert.Equal("Completed", stage.State);
+                Assert.Equal(100, stage.Progress);
+                Assert.Null(stage.Error);
+            });
+            Assert.Equal("Closed", task.Stages[0].Substate);
+        });
+    }
+
+    /// <summary>录像上传重试不污染采集阶段，采集重连不污染上传阶段。</summary>
+    [MongoHttpFact]
+    public async Task RecordingRetryDiagnosticsBelongToTheirOwnStage()
+    {
+        await using var fixture = await FixtureAsync();
+        await fixture.Context.Collection<RecordingSessionTaskSnapshot>("recordingSessionTasks").InsertManyAsync([
+            new()
+            {
+                Id = "upload-retry", Descriptor = new() { SessionId = "upload-retry", StartedAtUtc = DateTime.UtcNow },
+                CaptureState = "Recording", UploadState = "Retrying", ErrorCode = "RecordingUploadFailed"
+            },
+            new()
+            {
+                Id = "capture-retry", Descriptor = new() { SessionId = "capture-retry", StartedAtUtc = DateTime.UtcNow },
+                CaptureState = "Retrying", UploadState = "CaughtUp", ErrorCode = "RecordingSourceUnavailable"
+            },
+            new()
+            {
+                Id = "healthy", Descriptor = new() { SessionId = "healthy", StartedAtUtc = DateTime.UtcNow },
+                CaptureState = "Recording", UploadState = "CaughtUp", ErrorCode = "RecordingSourceUnavailable"
+            }
+        ]);
+        var page = await fixture.Admin.Client.GetFromJsonAsync<TaskHistoryPage>("/api/admin/worker-tasks");
+        var upload = Assert.Single(page!.Items, task => task.Id == "upload-retry");
+        Assert.Null(upload.Stages[0].Error);
+        Assert.NotNull(upload.Stages[1].Error);
+        var capture = Assert.Single(page.Items, task => task.Id == "capture-retry");
+        Assert.NotNull(capture.Stages[0].Error);
+        Assert.Null(capture.Stages[1].Error);
+        var healthy = Assert.Single(page.Items, task => task.Id == "healthy");
+        Assert.Null(healthy.Error);
+        Assert.All(healthy.Stages, stage => Assert.Null(stage.Error));
+    }
+
     /// <summary>节点卡片批量预览独立限制每个节点，已取消任务不会残留活动动画。</summary>
     [MongoHttpFact]
     public async Task ActivePreviewLimitsEachWorkerAndTerminalStagesStopRunning()

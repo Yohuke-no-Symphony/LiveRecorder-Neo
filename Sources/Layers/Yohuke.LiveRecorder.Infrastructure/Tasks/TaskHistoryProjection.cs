@@ -219,7 +219,7 @@ internal static class TaskHistoryProjection
                 { "UploadState", IfNull("$UploadState", Cond(Eq("$State", "Completed"), "Completed", "Queued")) },
                 { "CapturedDurationMs", "$CapturedDurationMs" }, { "CommittedArchiveBytes", "$CommittedArchiveBytes" },
                 { "AcknowledgedArchiveBytes", "$AcknowledgedArchiveBytes" }, { "LastCapturedAtUtc", "$LastCapturedAtUtc" },
-                { "CurrentTransfer", "$CurrentTransfer" }, { "ErrorCode", "$ErrorCode" },
+                { "CurrentTransfer", "$CurrentTransfer" }, { "ErrorCode", "$ErrorCode" }, { "ErrorArguments", "$ErrorArguments" },
                 { "LastUpdatedAtUtc", IfNull("$LastReportedAtUtc", "$LastCapturedAtUtc") },
                 { "IsClosed", "$Descriptor.IsClosed" }, { "Playable", IfNull("$_receipt.Published", source == "library") }
             }));

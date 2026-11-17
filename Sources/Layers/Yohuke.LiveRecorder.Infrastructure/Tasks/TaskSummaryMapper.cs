@@ -38,7 +38,7 @@ internal static class TaskSummaryMapper
                 ? stage with { State = state is "Partial" or "Interrupted" ? "Interrupted" : state }
                 : stage).ToArray();
         }
-        var error = Error(data);
+        var error = kind == "recording" ? stages.Select(stage => stage.Error).FirstOrDefault(value => value is not null) : Error(data);
         if (!viewer.IsAdmin)
         {
             var publicError = LocalizedText.Get(MessageCode.TASK_EXECUTION_FAILED);
@@ -168,14 +168,17 @@ internal static class TaskSummaryMapper
             }
         }
         var uploadState = Text(data, "UploadState");
+        var captureState = Text(data, "CaptureState");
+        var errorCode = Text(data, "ErrorCode");
+        var uploadError = errorCode == "RecordingUploadFailed";
         return
         [
             new()
             {
                 Id = "Capturing", State = skipped ? "Skipped" : closed ? "Completed" : "Running",
-                Progress = closed ? 100 : null, Substate = Text(data, "CaptureState"),
+                Progress = closed ? 100 : null, Substate = closed ? "Closed" : captureState,
                 StartedAtUtc = Date(row, "CreatedAtUtc"), FinishedAtUtc = closed ? Date(data, "CaptureEndedAtUtc") ?? Date(row, "FinishedAtUtc") : null,
-                Error = closed ? null : Describe(Text(data, "ErrorCode")), Metrics = capture
+                Error = !closed && !skipped && !uploadError && captureState is "Retrying" or "StorageFull" ? Error(data) : null, Metrics = capture
             },
             new()
             {
@@ -183,7 +186,7 @@ internal static class TaskSummaryMapper
                 Progress = completed ? 100 : captured is > 0 && acknowledged is { } count ? Math.Clamp(count / captured.Value * 100, 0, 100) : null,
                 Substate = completed ? "Completed" : uploadState,
                 FinishedAtUtc = completed ? Date(row, "FinishedAtUtc") : null,
-                Error = uploadState == "Retrying" ? Describe(Text(data, "ErrorCode")) : null, Metrics = upload
+                Error = !completed && !skipped && uploadState == "Retrying" && uploadError ? Error(data) : null, Metrics = upload
             }
         ];
     }
