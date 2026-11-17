@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { defineComponent, h } from 'vue'
+import { createPinia, disposePinia, setActivePinia, type Pinia } from 'pinia'
 import TranscodingWorkersPanel from '../src/components/common/TranscodingWorkersPanel.vue'
 import StatusChip from '../src/components/common/StatusChip.vue'
 import { TranscodingAPI } from '../src/apis/TranscodingAPI'
@@ -20,14 +21,15 @@ const stubs = {
   VTextField: field, VTextarea: field, VSelect: field,
   VSwitch: { props: ['modelValue', 'label', 'disabled'], emits: ['update:modelValue'], template: '<input type="checkbox" :aria-label="label" :checked="modelValue" :disabled="disabled" @change="$emit(\'update:modelValue\', $event.target.checked)" />' },
   VDialog: { props: ['modelValue'], template: '<div v-if="modelValue" role="dialog"><slot /></div>' },
-  VAlert: { template: '<div role="alert"><slot /></div>' }, VSpacer: true, VIcon: true, VChip: { template: '<span><slot /></span>' },
+  VAlert: { template: '<div role="alert"><slot /></div>' }, VSpacer: true, VIcon: true, VProgressLinear: true, VChip: { template: '<span><slot /></span>' },
 }
 const mounted: VueWrapper[] = []
 let worker: TranscodingWorker
+let pinia: Pinia
 
 async function open(kind?: WorkerKind): Promise<VueWrapper>
 {
-  const wrapper = mount(TranscodingWorkersPanel, { props: { kind }, attachTo: document.body, global: { plugins: [i18n], stubs } })
+  const wrapper = mount(TranscodingWorkersPanel, { props: { kind }, attachTo: document.body, global: { plugins: [pinia, i18n], stubs } })
   mounted.push(wrapper)
   await flushPromises()
   return wrapper
@@ -42,6 +44,7 @@ beforeEach(() =>
 {
   vi.resetAllMocks()
   vi.useFakeTimers()
+  pinia = createPinia(); setActivePinia(pinia)
   i18n.global.locale.value = 'zh-CN'
   worker = { id: 'node-1', name: '本地 Worker', enabled: true, configuration: defaultWorkerConfiguration(), configurationRevision: 4, appliedConfigurationRevision: 3, configurationError: null, capabilities: { operatingSystem: 'Darwin', architecture: 'Arm64', toolVersion: '7', encoders: [{ encoder: 'h264_videotoolbox', deviceId: null, available: true }] }, telemetry: { cpuPercent: null, cpuThreadBudget: 4, runningGpu: 1, runningCpu: 0, freeBytes: 1024 ** 3 }, lastSeenAtUtc: new Date().toISOString() }
   vi.mocked(TranscodingAPI.workers).mockResolvedValue([worker])
@@ -50,7 +53,7 @@ beforeEach(() =>
   vi.mocked(TranscodingAPI.updateWorker).mockResolvedValue(worker)
   vi.mocked(TranscodingAPI.rotateWorkerKey).mockResolvedValue({ secret: 'rotated-key' })
 })
-afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()); document.body.innerHTML = ''; vi.useRealTimers() })
+afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()); disposePinia(pinia); document.body.innerHTML = ''; vi.useRealTimers() })
 
 describe('Worker管理', () =>
 {

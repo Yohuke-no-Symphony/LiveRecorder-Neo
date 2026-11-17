@@ -28,5 +28,5 @@ const { t } = useI18n()
 .worker-task-heading a { color: rgb(var(--v-theme-primary)); white-space: nowrap; }
 .worker-task-item { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 5px 0; }
 .worker-task-title { flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; }
-@media (max-width: 600px) { .worker-task-item :deep(.task-stages) { flex-basis: 100%; } }
+@media (max-width: 600px) { .worker-task-item :deep(.task-stage-overview) { flex-basis: 100%; } }
 </style>

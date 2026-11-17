@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
+import { createPinia, disposePinia, setActivePinia, type Pinia } from 'pinia'
 import { createVuetify } from 'vuetify'
 import { VTab, VTabs } from 'vuetify/components/VTabs'
 import { VBtn } from 'vuetify/components/VBtn'
@@ -21,7 +22,7 @@ const stubs = {
   ContentCard: { props: ['title'], template: '<section><h2>{{ title }}</h2><slot name="header-actions" /><slot /><slot name="actions" /></section>' },
   VTooltip: { template: '<slot name="activator" :props="{}" />' },
   VDialog: { props: ['modelValue'], template: '<div v-if="modelValue"><slot /></div>' },
-  VAlert: container, VSpacer: true, VIcon: true, StatusChip: true,
+  VAlert: container, VSpacer: true, VIcon: true, VProgressLinear: true, StatusChip: true,
   VChip: container, VTextField: true, VTextarea: true, VSwitch: true, VSelect: true,
   ConfirmDialog: true, TranscodingLogDialog: true,
 }
@@ -29,12 +30,13 @@ const mounted: VueWrapper[] = []
 let transcoding: TranscodingWorker
 let clipping: ClippingWorker
 let recording: RecordingWorker
+let pinia: Pinia
 
 async function open(): Promise<VueWrapper>
 {
   const wrapper = mount(WorkersView, {
     attachTo: document.body,
-    global: { plugins: [i18n, createVuetify({ components: { VTabs, VTab, VBtn } })], stubs },
+    global: { plugins: [pinia, i18n, createVuetify({ components: { VTabs, VTab, VBtn } })], stubs },
   })
   mounted.push(wrapper)
   await flushPromises()
@@ -53,6 +55,7 @@ beforeEach(() =>
 {
   vi.resetAllMocks()
   vi.useFakeTimers()
+  pinia = createPinia(); setActivePinia(pinia)
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
   vi.stubGlobal('ResizeObserver', vi.fn(function () { return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() } }))
   i18n.global.locale.value = 'zh-CN'
@@ -66,6 +69,7 @@ beforeEach(() =>
 afterEach(() =>
 {
   mounted.splice(0).forEach(wrapper => wrapper.unmount())
+  disposePinia(pinia)
   document.body.innerHTML = ''
   vi.useRealTimers()
   vi.unstubAllGlobals()

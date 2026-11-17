@@ -167,6 +167,7 @@ export interface WorkerLogEntry
   droppedCount?: number
   stage?: string | null
   progress?: number | null
+  source?: string | null
 }
 
 export interface WorkerLogPage

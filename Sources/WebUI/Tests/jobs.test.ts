@@ -9,9 +9,10 @@ import WorkerTasksView from '../src/views/WorkerTasksView.vue'
 import { useAuthStore } from '../src/stores/auth'
 import type { TaskPage, TaskSummary } from '../src/models/taskHistory'
 import type { UserProfile } from '../src/models/auth'
+import type { WorkerLogEntry, WorkerLogPage } from '../src/models/transcoding'
 import { i18n } from '../src/plugins/i18n'
 
-const api = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn(), filters: vi.fn(), previewClear: vi.fn(), clearCompleted: vi.fn(), dismiss: vi.fn(), cancelMedia: vi.fn(), retryMedia: vi.fn(), cancelAi: vi.fn(), cancelTranscode: vi.fn(), retryTranscode: vi.fn(), download: vi.fn() }))
+const api = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn(), logs: vi.fn(), filters: vi.fn(), previewClear: vi.fn(), clearCompleted: vi.fn(), dismiss: vi.fn(), cancelMedia: vi.fn(), retryMedia: vi.fn(), cancelAi: vi.fn(), cancelTranscode: vi.fn(), retryTranscode: vi.fn(), download: vi.fn() }))
 vi.mock('../src/apis/TaskHistoryAPI', () => ({ TaskHistoryAPI: api }))
 vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { cancelJob: api.cancelMedia, retryJob: api.retryMedia, downloadJobOutput: api.download } }))
 vi.mock('../src/apis/AiAnalysisAPI', () => ({ AiAnalysisAPI: { cancel: api.cancelAi } }))
@@ -33,6 +34,7 @@ function task(overrides: Partial<TaskSummary> = {}): TaskSummary
   return { id: 'clip', kind: 'media', type: 'Clip', sessionId: 'session/id', title: '我的切片', state: 'Running', origin: 'User', initiatorUserId: 'viewer', initiatorName: '观众', initiatorAvatarUrl: '/avatars/user.png', workerId: 'worker', workerName: '节点甲', workerOnline: true, mode: 'Fast', progress: 30, attempt: 1, createdAtUtc: '2026-11-17T00:00:00Z', cancelRequested: false, canCancel: true, canRetry: false, canDelete: false, canViewResults: true, outputCount: 0, stages: [{ id: 'Downloading', state: 'Completed', progress: 100, metrics: [] }, { id: 'Encoding', state: 'Running', progress: 31, metrics: [{ key: 'framesPerSecond', value: 83.5, unit: 'fps' }, { key: 'promptTokens', value: 900, unit: 'number' }] }], ...overrides }
 }
 const page = (items: TaskSummary[], nextCursor: string | null = null, total = items.length): TaskPage => ({ items, nextCursor, total })
+const log = (id: string, message: string): WorkerLogEntry => ({ id, message, workerId: 'worker', streamId: 'stream', sequence: 1, cursor: 1, timestampUtc: '2026-11-17T00:00:00Z', receivedAtUtc: '2026-11-17T00:00:00Z', level: 'Information' })
 function deferred<T>() { let resolve!: (value: T) => void; let reject!: (error: Error) => void; const promise = new Promise<T>((accept, fail) => { resolve = accept; reject = fail }); return { promise, resolve, reject } }
 async function open(administration = false, query = '')
 {
@@ -63,6 +65,7 @@ beforeEach(() =>
   api.previewClear.mockResolvedValue({ count: 77, completedBeforeUtc: '2026-11-17T00:00:59Z' })
   api.clearCompleted.mockResolvedValue({ removed: 77 })
   api.download.mockImplementation((id, index) => `/api/jobs/${id}/outputs/${index}`)
+  api.logs.mockResolvedValue({ entries: [], nextCursor: null, hasMore: false })
 })
 afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()); disposePinia(pinia); vi.useRealTimers(); vi.unstubAllGlobals(); i18n.global.locale.value = 'zh-CN' })
 
@@ -93,6 +96,106 @@ describe('统一任务表格', () =>
     expect(modal.find('v-progress-linear-stub').exists()).toBe(true)
     await findButton(modal, '关闭').trigger('click')
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('列表显示当前步骤名称和阶段进度，弹窗通过带名称的阶段图切换', async () =>
+  {
+    const wrapper = await open()
+    const row = wrapper.get('[data-job-id="clip"]')
+    expect(row.get('.current-stage-heading').text()).toContain('导出')
+    expect(row.get('.current-stage-heading').text()).toContain('31%')
+    expect(row.get('.current-stage-heading').text()).not.toContain('30%')
+    await row.get('[data-stage-id="Encoding"]').trigger('click')
+    const modal = wrapper.get('[role="dialog"]')
+    expect(modal.get('[data-stage-id="Encoding"]').attributes('aria-pressed')).toBe('true')
+    expect(modal.get('[data-stage-id="Downloading"]').text()).toContain('下载')
+    expect(modal.get('[data-stage-id="Downloading"]').text()).toContain('100%')
+    await modal.get('[data-stage-id="Downloading"]').trigger('click')
+    expect(modal.get('h2').text()).toBe('下载')
+    expect(modal.get('[data-stage-id="Downloading"]').attributes('aria-pressed')).toBe('true')
+    expect(modal.text()).not.toContain('83.5 FPS')
+    await findButton(wrapper, '刷新').trigger('click'); await flushPromises()
+    expect(modal.get('h2').text()).toBe('下载')
+  })
+
+  it('管理员展开当前阶段日志，切换步骤中止旧请求且不混入迟到响应', async () =>
+  {
+    useAuthStore().user = viewer('Admin')
+    const pending = deferred<WorkerLogPage>()
+    api.logs.mockReturnValueOnce(pending.promise).mockResolvedValue({ entries: [log('download-log', '下载阶段日志')], nextCursor: 5, hasMore: false })
+    const wrapper = await open(true)
+    await wrapper.get('[data-stage-id="Encoding"]').trigger('click')
+    expect(api.logs).not.toHaveBeenCalled()
+    const modal = wrapper.get('[role="dialog"]')
+    await findButton(modal, '查看日志').trigger('click'); await flushPromises()
+    expect(api.logs).toHaveBeenCalledWith('administration', expect.objectContaining({ id: 'clip', kind: 'media' }), 'Encoding', undefined, expect.any(AbortSignal))
+    const oldSignal = api.logs.mock.calls[0]![4] as AbortSignal
+    await modal.get('[data-stage-id="Downloading"]').trigger('click'); await flushPromises()
+    expect(oldSignal.aborted).toBe(true)
+    expect(api.logs.mock.calls.at(-1)![2]).toBe('Downloading')
+    pending.resolve({ entries: [log('late-log', '迟到的编码日志')], nextCursor: 2, hasMore: false }); await flushPromises()
+    expect(modal.get('[role="log"]').text()).toContain('下载阶段日志')
+    expect(modal.get('[role="log"]').text()).not.toContain('迟到的编码日志')
+    await vi.advanceTimersByTimeAsync(1000); await flushPromises()
+    expect(api.logs.mock.calls.at(-1)![3]).toBe(5)
+    await findButton(modal, '关闭').trigger('click')
+    const count = api.logs.mock.calls.length
+    await vi.advanceTimersByTimeAsync(1000); await flushPromises()
+    expect(api.logs).toHaveBeenCalledTimes(count)
+  })
+
+  it('日志沿用个人页查询范围，历史录像日志标明来源并提供明确空态', async () =>
+  {
+    useAuthStore().user = viewer('Admin')
+    api.logs.mockResolvedValueOnce({ entries: [{ ...log('history', '连续 5 分钟无有效媒体，结束当前场次。'), source: 'SessionSnapshot' }], nextCursor: null, hasMore: false })
+    const wrapper = await open()
+    await wrapper.get('[data-stage-id="Encoding"]').trigger('click')
+    const modal = wrapper.get('[role="dialog"]')
+    await findButton(modal, '查看日志').trigger('click'); await flushPromises()
+    expect(api.logs.mock.calls[0]![0]).toBe('personal')
+    expect(modal.get('[role="log"]').text()).toContain('历史录像记录')
+    await modal.get('[data-stage-id="Downloading"]').trigger('click'); await flushPromises()
+    expect(modal.get('[role="log"]').text()).toContain('没有此阶段的日志')
+  })
+
+  it('普通用户不显示原始技术日志入口', async () =>
+  {
+    const wrapper = await open()
+    await wrapper.get('[data-stage-id="Encoding"]').trigger('click')
+    expect(wrapper.get('[role="dialog"]').text()).not.toContain('查看日志')
+    expect(api.logs).not.toHaveBeenCalled()
+  })
+
+  it('成功的采集和上传步骤不把任务残留超时当作当前错误', async () =>
+  {
+    useAuthStore().user = viewer('Admin')
+    api.list.mockResolvedValue(page([task({ kind: 'recording', type: 'Recording', state: 'Completed', error: 'RECORDING_STREAM_TIMEOUT', stages: [
+      { id: 'Capturing', state: 'Completed', progress: 100, metrics: [] },
+      { id: 'Uploading', state: 'Completed', progress: 100, error: 'RECORDING_STREAM_TIMEOUT', metrics: [] },
+    ] })]))
+    const wrapper = await open(true)
+    await wrapper.get('[data-stage-id="Capturing"]').trigger('click')
+    const modal = wrapper.get('[role="dialog"]')
+    expect(modal.text()).not.toContain('RECORDING_STREAM_TIMEOUT')
+    await modal.get('[data-stage-id="Uploading"]').trigger('click')
+    expect(modal.get('h2').text()).toBe('上传')
+    expect(modal.text()).not.toContain('RECORDING_STREAM_TIMEOUT')
+  })
+
+  it('运行阶段重试显示警告，失败阶段仍显示其错误', async () =>
+  {
+    const current = task({ state: 'Failed', error: '失败诊断', stages: [
+      { id: 'Downloading', state: 'Running', progress: 50, error: '等待重试', metrics: [] },
+      { id: 'Encoding', state: 'Failed', progress: 10, metrics: [] },
+    ] })
+    api.list.mockResolvedValue(page([current]))
+    const wrapper = await open()
+    await wrapper.get('[data-stage-id="Downloading"]').trigger('click')
+    const modal = wrapper.get('[role="dialog"]')
+    expect(modal.get('[type="warning"]').text()).toBe('等待重试')
+    expect(modal.text()).not.toContain('失败诊断')
+    await modal.get('[data-stage-id="Encoding"]').trigger('click')
+    expect(modal.get('[type="error"]').text()).toBe('失败诊断')
   })
 
   it('服务器cursor控制上下页，改变筛选重置cursor而非本地截取', async () =>

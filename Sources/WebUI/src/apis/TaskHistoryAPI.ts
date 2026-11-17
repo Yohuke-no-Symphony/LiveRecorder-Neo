@@ -1,5 +1,6 @@
 import { post, query, request } from './APIBase'
 import type { TaskClearPreview, TaskFilters, TaskPage, TaskQuery, TaskScope, TaskSummary } from '@/models/taskHistory'
+import type { WorkerLogPage } from '@/models/transcoding'
 
 const root = (scope: TaskScope) => scope === 'administration' ? 'admin/worker-tasks' : 'tasks'
 const target = (scope: TaskScope, task: Pick<TaskSummary, 'kind' | 'id'>) => `${root(scope)}/${encodeURIComponent(task.kind)}/${encodeURIComponent(task.id)}`
@@ -20,6 +21,7 @@ export const TaskHistoryAPI = {
   active,
   list: (scope: TaskScope, filters: TaskQuery, signal?: AbortSignal) => request<TaskPage>(`${root(scope)}${query({ ...filters })}`, { signal }),
   detail: (scope: TaskScope, task: Pick<TaskSummary, 'kind' | 'id'>, signal?: AbortSignal) => request<TaskSummary>(target(scope, task), { signal }),
+  logs: (scope: TaskScope, task: Pick<TaskSummary, 'kind' | 'id'>, stage: string, after?: number, signal?: AbortSignal) => request<WorkerLogPage>(`${target(scope, task)}/logs${query({ stage, after, take: 200 })}`, { signal }),
   filters: (signal?: AbortSignal) => request<TaskFilters>('admin/worker-tasks/filters', { signal }),
   previewClear: (scope: TaskScope, filters: TaskQuery, signal?: AbortSignal) => request<TaskClearPreview>(`${root(scope)}/clear-completed/preview${query({ ...filters, cursor: undefined })}`, { signal }),
   clearCompleted: (scope: TaskScope, filter: TaskQuery, completedBeforeUtc: string) => post<{ removed: number }>(`${root(scope)}/clear-completed`, { filter: { ...filter, cursor: undefined }, completedBeforeUtc }),

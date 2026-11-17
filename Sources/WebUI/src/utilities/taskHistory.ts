@@ -1,8 +1,14 @@
 import { i18n } from '@/plugins/i18n'
-import type { TaskMetric, TaskSummary } from '@/models/taskHistory'
+import type { TaskMetric, TaskStage, TaskSummary } from '@/models/taskHistory'
 import { formatBytes, formatDate, formatDuration, formatNumber } from './format'
 
 export const taskKey = (task: Pick<TaskSummary, 'kind' | 'id'>) => `${task.kind}:${task.id}`
+
+export function taskStageProgress(stage: TaskStage): string
+{
+  return typeof stage.progress === 'number' && Number.isFinite(stage.progress)
+    ? `${formatNumber(Math.min(100, Math.max(0, stage.progress)), { maximumFractionDigits: 1 })}%` : '—'
+}
 
 export function taskStageLabel(id: string, taskType?: string): string
 {

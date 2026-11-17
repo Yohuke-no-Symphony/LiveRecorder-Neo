@@ -23,7 +23,7 @@
       <v-btn variant="text" append-icon="mdi-chevron-right" :disabled="!nextCursor || loading" @click="nextPage">{{ t('taskHistory.next') }}</v-btn>
     </nav>
   </v-card>
-  <TaskStageDetailsDialog :task="selectedTask" :stage-id="selectedStageId" @close="selectedTask = undefined" />
+  <TaskStageDetailsDialog :task="selectedTask" :stage-id="selectedStageId" :scope="scope" @close="selectedTask = undefined" />
   <ConfirmDialog :model-value="!!deleteTarget" :title="t('taskHistory.deleteTitle')" :message="t('taskHistory.deleteMessage', { title: deleteTarget?.title || t('components.library.unnamedSession') })" :action-label="t('taskHistory.delete')" danger :busy="!!actionKey" :error="actionError" @update:model-value="!$event && !actionKey && (deleteTarget = undefined)" @confirm="dismiss" />
   <ConfirmDialog :model-value="!!clearPreview" :title="t('taskHistory.clearTitle')" :message="`${t('taskHistory.clearMessage', { count: formatNumber(clearPreview?.count ?? 0) })} · ${frozenFilterLabel}`" :action-label="t('taskHistory.clearCompleted')" danger :busy="!!actionKey" :error="actionError" @update:model-value="!$event && !actionKey && closeClear()" @confirm="clearCompleted" />
 </template>
