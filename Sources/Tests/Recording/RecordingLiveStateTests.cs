@@ -37,7 +37,7 @@ public sealed class RecordingLiveStateTests
         await fixture.AssertCommittedFilesAsync(true);
     }
 
-    /// <summary>宽限期内恢复同一开播时间时复用场次，并恢复录制状态。</summary>
+    /// <summary>宽限期内即使平台开播时间改变，也复用逻辑场次并恢复录制。</summary>
     [RecordingFact]
     public async Task SameBroadcastResumesInExistingSessionDuringGrace()
     {
@@ -49,6 +49,7 @@ public sealed class RecordingLiveStateTests
         room.IsLive = false;
         await WaitForStateAsync(fixture, room, "Waiting");
 
+        room.LiveStartedAtUtc = room.LiveStartedAtUtc.AddHours(1);
         room.IsLive = true;
         await RecordingFixture.WaitUntilAsync(async () => room.ActiveStreams == 1 && room.ActiveSubscriptions == 1 && room.Connections == 2 && (await fixture.SessionsAsync()).All(x => x.State == "Recording"), "same broadcast resumes after going offline", 10);
         var resumed = Assert.Single(await fixture.SessionsAsync());
@@ -82,26 +83,24 @@ public sealed class RecordingLiveStateTests
         await fixture.AssertCommittedFilesAsync(true);
     }
 
-    /// <summary>原 CDN 连接未结束时，新的平台开播时间也会结束旧场并启动新场。</summary>
+    /// <summary>只改变平台开播时间不会结束仍然在线的逻辑直播。</summary>
     [RecordingFact]
-    public async Task NewPlatformLiveTimeStopsExistingOpenStream()
+    public async Task NewPlatformLiveTimeKeepsTheExistingLogicalSession()
     {
         await using var fixture = await RecordingFixture.CreateAsync(30);
         var (_, room) = await fixture.AddRoomAsync(100);
         await fixture.StartSupervisorAsync();
         await WaitForMediaAsync(fixture, room);
         var original = Assert.Single(await fixture.SessionsAsync());
+        var queries = room.Queries;
         room.LiveStartedAtUtc = room.LiveStartedAtUtc.AddHours(1);
 
-        await RecordingFixture.WaitUntilAsync(async () => room.ActiveStreams == 1 && room.Connections == 2 && (await fixture.SessionsAsync()).Count == 2, "new broadcast replaces an open source connection", 10);
-        var sessions = await fixture.SessionsAsync();
-        var completed = sessions.Single(x => x.Id == original.Id);
-        Assert.Equal("Completed", completed.State);
-        Assert.NotNull(completed.EndedAtUtc);
-        var current = sessions.Single(x => x.Id != original.Id);
+        await RecordingFixture.WaitUntilAsync(() => Task.FromResult(room.Queries >= queries + 2), "changed LiveTime is observed", 10);
+        var current = Assert.Single(await fixture.SessionsAsync());
+        Assert.Equal(original.Id, current.Id);
+        Assert.Null(current.EndedAtUtc);
         Assert.Equal("Recording", current.State);
-        Assert.Equal(new DateTimeOffset(room.LiveStartedAtUtc).ToUnixTimeSeconds(), current.LiveTime);
-        Assert.All((await fixture.SegmentsAsync()).Where(x => x.SessionId == original.Id), segment => Assert.True(segment.IsClosed));
+        Assert.Equal(1, room.Connections);
         await fixture.StopSupervisorAsync();
         await fixture.AssertCommittedFilesAsync(true);
     }
@@ -187,14 +186,15 @@ public sealed class RecordingLiveStateTests
 
     private static Task WaitForMediaAsync(RecordingFixture fixture, ControlledRoom room)
     {
-        return RecordingFixture.WaitUntilAsync(async () => room.ActiveStreams == 1 && room.ActiveSubscriptions == 1 && (await fixture.SegmentsAsync()).Any(x => x.DurationMs > 1000), "open media connection commits data", 10);
+        return RecordingFixture.WaitUntilAsync(async () => room.ActiveStreams == 1 && room.ActiveSubscriptions == 1
+            && (await fixture.SegmentsAsync()).Any(x => x.DurationMs > 1000) && (await fixture.SessionsAsync()).Any(value => value.TotalBytes > 0), "open media connection commits data", 10);
     }
 
     private static Task WaitForStateAsync(RecordingFixture fixture, ControlledRoom room, string state)
     {
         return RecordingFixture.WaitUntilAsync(async () =>
         {
-            if (room.ActiveStreams != 0 || room.ActiveSubscriptions != 0)
+            if (room.ActiveStreams != 0 || room.ActiveSubscriptions != (state == "Waiting" ? 1 : 0))
             {
                 return false;
             }
@@ -204,7 +204,7 @@ public sealed class RecordingLiveStateTests
                 return false;
             }
             return (await ReadManifestAsync(fixture, sessions[0])).Session.State == state;
-        }, "offline broadcast stops both writers and updates session state", 10);
+        }, "offline broadcast stops media, keeps its lifecycle listener while waiting and updates session state", 10);
     }
 
     private static async Task<SessionManifest> ReadManifestAsync(RecordingFixture fixture, BroadcastSession session)

@@ -131,6 +131,20 @@ internal sealed class RecordingSpool : IDisposable
         }
     }
 
+    internal void SaveContinuation(string assignmentId, RecordingSessionContinuation continuation)
+    {
+        lock (sync)
+        {
+            var path = assignmentPaths[assignmentId];
+            var previous = RecordingSpoolFiles.Read<RecordingAssignmentState>(path);
+            if (previous.LastContinuation == continuation)
+            {
+                return;
+            }
+            RecordingSpoolFiles.Write(path, previous with { LastContinuation = continuation });
+        }
+    }
+
     internal IReadOnlyList<RecordingSpoolSession> Sessions(string? assignmentId = null, bool includeDrafts = false)
     {
         lock (sync)
@@ -213,8 +227,15 @@ internal sealed class RecordingSpool : IDisposable
     {
         if (update.CommitSnapshot is { DurationMs: > 0 } snapshot)
         {
-            UpdateSession(directory, state => state.LastCapturedAtUtc = state.Descriptor.StartedAtUtc
-                .AddMilliseconds(snapshot.StartOffsetMs + snapshot.DurationMs));
+            UpdateSession(directory, state =>
+            {
+                state.LastCapturedAtUtc = state.Descriptor.StartedAtUtc.AddMilliseconds(snapshot.StartOffsetMs + snapshot.DurationMs);
+                var received = snapshot.LastMediaReceivedAtUtc ?? update.LastMediaReceivedAtUtc;
+                if (received is { } activity && (state.LastMediaReceivedAtUtc is null || activity > state.LastMediaReceivedAtUtc))
+                {
+                    state.LastMediaReceivedAtUtc = activity;
+                }
+            });
         }
     }
 
@@ -347,7 +368,22 @@ internal sealed class RecordingSpool : IDisposable
     {
         foreach (var session in Sessions())
         {
-            foreach (var commit in Commits(session.DirectoryPath).Where(value => !value.IsClosed))
+            var commits = Commits(session.DirectoryPath);
+            var lastReceived = session.State.Descriptor.Lifecycle is { Revision: > 0, LastMediaReceivedAtUtc: not null } lifecycle
+                ? lifecycle.LastMediaReceivedAtUtc
+                : commits.Select(value => value.LastMediaReceivedAtUtc).Max();
+            if (lastReceived is { } receivedAtUtc)
+            {
+                UpdateSession(session.DirectoryPath, state =>
+                {
+                    if (state.Descriptor.Lifecycle is { Revision: > 0, LastMediaReceivedAtUtc: not null }
+                        || state.LastMediaReceivedAtUtc is null || receivedAtUtc > state.LastMediaReceivedAtUtc)
+                    {
+                        state.LastMediaReceivedAtUtc = receivedAtUtc;
+                    }
+                });
+            }
+            foreach (var commit in commits.Where(value => !value.IsClosed))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var media = RecordingSpoolFiles.Resolve(session.DirectoryPath, commit.RelativePath);

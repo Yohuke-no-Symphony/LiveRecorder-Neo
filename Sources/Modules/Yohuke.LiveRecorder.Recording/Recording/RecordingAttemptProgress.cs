@@ -22,7 +22,14 @@ public sealed class RecordingAttemptProgress(RecordingInactivityMonitor inactivi
             if (value.Kind == "Committed" && value.DurationMs > (previous?.DurationMs ?? 0)
                 && value.CommittedBytes > (previous?.CommittedBytes ?? 0))
             {
-                inactivity.ReportActivity();
+                if ((value.LastMediaReceivedAtUtc ?? value.CommitSnapshot?.LastMediaReceivedAtUtc) is { } receivedAtUtc)
+                {
+                    inactivity.ReportActivity(receivedAtUtc);
+                }
+                else
+                {
+                    inactivity.ReportActivity();
+                }
                 mediaReceived.TrySetResult();
             }
             latest[value.SegmentId] = value;

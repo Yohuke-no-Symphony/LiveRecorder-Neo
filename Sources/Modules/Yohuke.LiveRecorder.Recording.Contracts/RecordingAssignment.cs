@@ -19,5 +19,6 @@ public sealed record RecordingAssignment
     public int RecordingTimeoutMinutes { get; init; } = 5;
     public int MonitorIntervalSeconds { get; init; } = 30;
     public string TimeZone { get; init; } = "Asia/Shanghai";
+    public RecordingSessionContinuation? Continuation { get; init; }
     public List<RecordingAccount> Accounts { get; init; } = [];
 }

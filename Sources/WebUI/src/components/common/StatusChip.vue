@@ -26,6 +26,7 @@ const definitions: Record<string, { labelKey: string; color: string; icon?: stri
   pending: { labelKey: 'components.status.pending', color: 'warning' },
   running: { labelKey: 'components.status.running', color: 'info' },
   publishing: { labelKey: 'components.status.publishing', color: 'info' },
+  finalizing: { labelKey: 'components.status.finalizing', color: 'info' },
   completed: { labelKey: 'components.status.completed', color: 'success' },
   succeeded: { labelKey: 'components.status.completed', color: 'success' },
   ready: { labelKey: 'components.status.ready', color: 'success' },

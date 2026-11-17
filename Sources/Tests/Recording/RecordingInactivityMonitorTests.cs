@@ -38,6 +38,105 @@ public sealed class RecordingInactivityMonitorTests
         Assert.True(monitor.IsExpired);
     }
 
+    /// <summary>恢复时只等待持久接收时间之后剩余的无媒体时长。</summary>
+    [Fact]
+    public void RestoredDeadlineUsesOnlyTheRemainingSilence()
+    {
+        var clock = new ManualRecordingTimeProvider();
+        var received = clock.GetUtcNow().UtcDateTime.AddSeconds(-40);
+        using var monitor = new RecordingInactivityMonitor(TimeSpan.FromMinutes(1), clock, received);
+
+        clock.Advance(TimeSpan.FromSeconds(19));
+        Assert.False(monitor.IsExpired);
+        clock.Advance(TimeSpan.FromSeconds(1));
+
+        Assert.True(monitor.IsExpired);
+        Assert.True(monitor.Token.IsCancellationRequested);
+    }
+
+    /// <summary>停机期间已超过等待上限时不再给予完整的新等待期。</summary>
+    [Fact]
+    public void AlreadyExpiredRestoredDeadlineCancelsImmediately()
+    {
+        var clock = new ManualRecordingTimeProvider();
+        using var monitor = new RecordingInactivityMonitor(TimeSpan.FromMinutes(1), clock,
+            clock.GetUtcNow().UtcDateTime.AddMinutes(-2));
+
+        Assert.True(monitor.IsExpired);
+        Assert.True(monitor.Token.IsCancellationRequested);
+        monitor.ReportActivity(clock.GetUtcNow().UtcDateTime);
+        Assert.True(monitor.IsExpired);
+    }
+
+    /// <summary>恢复后系统 UTC 时钟跳变不改变已经换算的单调截止时间。</summary>
+    [Fact]
+    public void RestoredDeadlineContinuesUsingMonotonicTime()
+    {
+        var inner = new ManualRecordingTimeProvider();
+        var clock = new RecordingOffsetTimeProvider(inner);
+        using var monitor = new RecordingInactivityMonitor(TimeSpan.FromMinutes(1), clock,
+            clock.GetUtcNow().UtcDateTime.AddSeconds(-40));
+        clock.UtcOffset = TimeSpan.FromHours(-1);
+
+        inner.Advance(TimeSpan.FromSeconds(19));
+        monitor.Configure(TimeSpan.FromMinutes(1));
+        Assert.False(monitor.IsExpired);
+        inner.Advance(TimeSpan.FromSeconds(1));
+
+        Assert.True(monitor.IsExpired);
+    }
+
+    /// <summary>UTC 回拨之后真正新收到的媒体仍然刷新单调截止期。</summary>
+    [Fact]
+    public void FreshMediaAfterUtcRollbackStillRefreshesTheDeadline()
+    {
+        var inner = new ManualRecordingTimeProvider();
+        var clock = new RecordingOffsetTimeProvider(inner);
+        using var monitor = new RecordingInactivityMonitor(TimeSpan.FromMinutes(1), clock);
+        inner.Advance(TimeSpan.FromSeconds(50));
+        clock.UtcOffset = TimeSpan.FromHours(-1);
+
+        monitor.ReportActivity(clock.GetUtcNow().UtcDateTime);
+        inner.Advance(TimeSpan.FromSeconds(59));
+        Assert.False(monitor.IsExpired);
+        inner.Advance(TimeSpan.FromSeconds(1));
+
+        Assert.True(monitor.IsExpired);
+    }
+
+    /// <summary>旧接收戳既不推迟截止时间，也不把已接受的较新活动倒退。</summary>
+    [Fact]
+    public void OlderActivityDoesNotMoveTheDeadline()
+    {
+        var clock = new ManualRecordingTimeProvider();
+        var received = clock.GetUtcNow().UtcDateTime.AddSeconds(-20);
+        using var monitor = new RecordingInactivityMonitor(TimeSpan.FromMinutes(1), clock, received);
+        clock.Advance(TimeSpan.FromSeconds(10));
+
+        monitor.ReportActivity(received.AddSeconds(-5));
+        clock.Advance(TimeSpan.FromSeconds(29));
+        Assert.False(monitor.IsExpired);
+        clock.Advance(TimeSpan.FromSeconds(1));
+
+        Assert.True(monitor.IsExpired);
+    }
+
+    /// <summary>延迟到达的有效提交按原接收时间延长期限，不按通知时刻重新计时。</summary>
+    [Fact]
+    public void DelayedActivityUsesTheOriginalReceiptTime()
+    {
+        var clock = new ManualRecordingTimeProvider();
+        using var monitor = new RecordingInactivityMonitor(TimeSpan.FromMinutes(1), clock);
+        clock.Advance(TimeSpan.FromSeconds(40));
+
+        monitor.ReportActivity(clock.GetUtcNow().UtcDateTime.AddSeconds(-10));
+        clock.Advance(TimeSpan.FromSeconds(49));
+        Assert.False(monitor.IsExpired);
+        clock.Advance(TimeSpan.FromSeconds(1));
+
+        Assert.True(monitor.IsExpired);
+    }
+
     /// <summary>缩短时限时保留已等待时长，而不是从保存设置时重新计时。</summary>
     [Fact]
     public void ReducingTimeoutIncludesAlreadyElapsedSilence()

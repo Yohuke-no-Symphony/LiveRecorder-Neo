@@ -1,3 +1,5 @@
+using Yohuke.LiveRecorder.Recording.Contracts;
+
 namespace Yohuke.LiveRecorder.Domain;
 
 /// <summary>聚合重连与物理分段的一场录播。</summary>
@@ -13,6 +15,8 @@ public sealed class BroadcastSession : Entity
     public DateTime StartedAtUtc { get; set; }
     public DateTime? EndedAtUtc { get; set; }
     public DateTime LastMediaAtUtc { get; set; }
+    public DateTime? LastMediaReceivedAtUtc { get; set; }
+    public RecordingSessionLifecycleState? Lifecycle { get; set; }
     public string State { get; set; } = "Recording";
     public bool HasDanmu { get; set; }
     public string? TranslationDanmuPatternOverride { get; set; }

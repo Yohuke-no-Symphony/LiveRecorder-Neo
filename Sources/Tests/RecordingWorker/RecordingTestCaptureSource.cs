@@ -10,9 +10,20 @@ internal sealed class RecordingTestCaptureSource(Action? onCancellation = null) 
     internal TaskCompletionSource EventsStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     internal TaskCompletionSource EventsStopped { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     internal bool IsLive { get; set; } = true;
+    internal DateTime LiveStartedAtUtc { get; set; } = DateTime.UnixEpoch;
+    internal int Queries { get; private set; }
+    private Func<RecordedEventEnvelope, CancellationToken, Task>? eventHandler;
 
-    public Task<LiveRoomSnapshot> GetRoomAsync(RecordingAssignment assignment, CancellationToken cancellationToken) =>
-        Task.FromResult(new LiveRoomSnapshot(123, 456, "Recorder", "", "Broadcast", "", IsLive, DateTime.UnixEpoch));
+    public Task<LiveRoomSnapshot> GetRoomAsync(RecordingAssignment assignment, CancellationToken cancellationToken)
+    {
+        Queries++;
+        return Task.FromResult(new LiveRoomSnapshot(123, 456, "Recorder", "", "Broadcast", "", IsLive, LiveStartedAtUtc));
+    }
+
+    internal Task EmitAsync(string command, DateTime receivedAtUtc) => eventHandler!(new()
+    {
+        Kind = "RoomState", Command = command, Text = command, ReceivedAtUtc = receivedAtUtc
+    }, CancellationToken.None);
 
     public Task<LiveStreamDescriptor> ResolveStreamAsync(RecordingAssignment assignment, CancellationToken cancellationToken) =>
         Task.FromResult(new LiveStreamDescriptor("https://capture.invalid/live.flv", new Dictionary<string, string>(), 10000, "avc", "flv"));
@@ -22,6 +33,7 @@ internal sealed class RecordingTestCaptureSource(Action? onCancellation = null) 
     {
         var stopped = Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
         await using var registration = onCancellation is null ? default : cancellationToken.Register(onCancellation);
+        eventHandler = onEvent;
         EventsStarted.TrySetResult();
         try
         {

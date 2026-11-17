@@ -11,13 +11,15 @@ public sealed class FlvMediaRecorder : IMediaRecorder
     private readonly HttpClient client;
     private readonly MediaToolOptions options;
     private readonly ISettingsStore settings;
+    private readonly TimeProvider timeProvider;
 
     /// <summary>Creates the recorder using the configured HTTP client and stream deadline.</summary>
-    public FlvMediaRecorder(HttpClient client, IOptions<MediaToolOptions> options, ISettingsStore settings)
+    public FlvMediaRecorder(HttpClient client, IOptions<MediaToolOptions> options, ISettingsStore settings, TimeProvider? timeProvider = null)
     {
         this.client = client;
         this.options = options.Value;
         this.settings = settings;
+        this.timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <inheritdoc />
@@ -65,6 +67,6 @@ public sealed class FlvMediaRecorder : IMediaRecorder
         response.EnsureSuccessStatusCode();
         await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
         await using var deadline = new ReadTimeoutStream(source, options.StreamReadTimeout);
-        await FlvArchiveEngine.RunAsync(deadline, request, progress, cancellationToken, CheckCapacityAsync, collectOutputs: false);
+        await FlvArchiveEngine.RunAsync(deadline, request, progress, cancellationToken, CheckCapacityAsync, collectOutputs: false, timeProvider);
     }
 }

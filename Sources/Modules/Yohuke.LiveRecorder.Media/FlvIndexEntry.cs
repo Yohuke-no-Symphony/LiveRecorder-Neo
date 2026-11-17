@@ -9,6 +9,7 @@ internal sealed class FlvIndexEntry
     public int? OriginalTimestampMs { get; set; }
     public long? SourceTagIndex { get; set; }
     public DateTime ReceivedAtUtc { get; set; }
+    public DateTime? LastMediaReceivedAtUtc { get; set; }
     public byte[]? HeaderData { get; set; }
     public double SessionOffsetMs { get; set; }
 }

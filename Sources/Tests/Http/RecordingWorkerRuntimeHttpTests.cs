@@ -291,9 +291,13 @@ public sealed class RecordingWorkerRuntimeHttpTests
             await WaitUntilAsync(async () =>
             {
                 var latest = await fixture.Context.Collection<BroadcastSession>("sessions").Find(value => value.Id == session.Id).SingleAsync(timeout.Token);
-                var completedCount = await fixture.Context.Collection<BroadcastSession>("sessions")
-                    .CountDocumentsAsync(value => targetIds.Contains(value.StreamerId) && value.EndedAtUtc != null, cancellationToken: timeout.Token);
-                return latest.EndedAtUtc is not null && completedCount == roomCount
+                var pausedCount = await fixture.Context.Collection<BroadcastSession>("sessions")
+                    .CountDocumentsAsync(value => targetIds.Contains(value.StreamerId) && value.EndedAtUtc == null && value.State == "Waiting",
+                        cancellationToken: timeout.Token);
+                var roomIds = targets.Select(value => value.RoomId).ToArray();
+                var releasedCount = await fixture.Context.Collection<RecordingOwnership>("recordingOwnerships")
+                    .CountDocumentsAsync(value => roomIds.Contains(value.RoomId) && value.State == "Released", cancellationToken: timeout.Token);
+                return latest.EndedAtUtc is null && pausedCount == roomCount && releasedCount == roomCount
                     && !Directory.EnumerateFiles(configuration.TempDirectory, "*.flv", SearchOption.AllDirectories).Any();
             }, running, logs, timeout.Token);
         }

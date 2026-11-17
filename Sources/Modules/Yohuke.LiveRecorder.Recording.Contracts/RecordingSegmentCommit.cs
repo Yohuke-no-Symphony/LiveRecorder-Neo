@@ -14,6 +14,7 @@ public sealed record RecordingSegmentCommit
     public string PrefixSha256 { get; init; } = "";
     public double StartOffsetMs { get; init; }
     public double DurationMs { get; init; }
+    public DateTime? LastMediaReceivedAtUtc { get; init; }
     public string Codec { get; init; } = "avc";
     public bool IsClosed { get; init; }
 }

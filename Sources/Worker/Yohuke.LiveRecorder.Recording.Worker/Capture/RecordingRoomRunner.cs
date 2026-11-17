@@ -30,6 +30,10 @@ internal sealed class RecordingRoomRunner : IDisposable
     private bool explicitStop;
     private CancellationTokenSource? activeAttempt;
     private RecordingInactivityMonitor? inactivity;
+    private RecordingSessionLifecycle? lifecycle;
+    private RecordingSessionContinuation? continuation;
+    private RecordingSessionContinuation? lastClosedContinuation;
+    private string? lastCapturedSessionId;
     private RecordingRoomSnapshot? roomSnapshot;
     private bool disposed;
 
@@ -46,9 +50,41 @@ internal sealed class RecordingRoomRunner : IDisposable
         this.log = log;
         explicitStop = !assignment.Enabled;
         cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        session = spool.Sessions(assignment.AssignmentId).Where(value => !value.State.Descriptor.IsClosed)
+        var previousCaptures = spool.Sessions(assignment.AssignmentId);
+        session = previousCaptures.Where(value => !value.State.Descriptor.IsClosed)
             .MaxBy(value => value.State.Descriptor.StartedAtUtc);
         lastMediaAtUtc = session?.State.LastCapturedAtUtc;
+        lastCapturedSessionId = previousCaptures.Where(value => value.State.LastCapturedAtUtc is not null)
+            .MaxBy(value => value.State.Descriptor.StartedAtUtc)?.State.Descriptor.SessionId;
+        continuation = spool.Assignments().FirstOrDefault(value => value.Assignment.AssignmentId == assignment.AssignmentId)?.LastContinuation
+            ?? assignment.Continuation;
+        if (session is not null)
+        {
+            continuation = new()
+            {
+                LogicalSessionId = string.IsNullOrEmpty(session.State.Descriptor.LogicalSessionId)
+                    ? session.State.Descriptor.SessionId : session.State.Descriptor.LogicalSessionId,
+                StartedAtUtc = session.State.Descriptor.LogicalStartedAtUtc ?? session.State.Descriptor.StartedAtUtc,
+                Lifecycle = session.State.Descriptor.Lifecycle ?? new()
+                {
+                    LastMediaReceivedAtUtc = session.State.LastMediaReceivedAtUtc
+                }
+            };
+            if (session.State.LastMediaReceivedAtUtc is { } received
+                && (continuation.Lifecycle.Revision == 0 || continuation.Lifecycle.LastMediaReceivedAtUtc is null)
+                && (continuation.Lifecycle.LastMediaReceivedAtUtc is null || received > continuation.Lifecycle.LastMediaReceivedAtUtc))
+            {
+                continuation = continuation with
+                {
+                    Lifecycle = continuation.Lifecycle with { LastMediaReceivedAtUtc = received }
+                };
+            }
+        }
+        else if (continuation?.Lifecycle.EndReason is { } ended && ended != RecordingSessionEndReason.None)
+        {
+            lastClosedContinuation = continuation;
+            continuation = null;
+        }
     }
 
     internal Task Completion { get; private set; } = Task.CompletedTask;
@@ -94,7 +130,9 @@ internal sealed class RecordingRoomRunner : IDisposable
                 AssignmentId = assignment.AssignmentId, Generation = assignment.Generation, Token = assignment.Token,
                 ConfigurationRevision = assignment.ConfigurationRevision, State = state,
                 ErrorCode = errorCode,
-                SessionId = session?.State.Descriptor.SessionId, LastCapturedAtUtc = lastMediaAtUtc, Room = roomSnapshot
+                SessionId = lastCapturedSessionId, LastCapturedAtUtc = lastMediaAtUtc, Room = roomSnapshot,
+                Continuation = continuation is not null ? continuation with { Lifecycle = lifecycle?.State ?? continuation.Lifecycle }
+                    : lastClosedContinuation
             };
         }
     }
@@ -110,7 +148,6 @@ internal sealed class RecordingRoomRunner : IDisposable
     private async Task RunAsync()
     {
         var lifetimeToken = cancellation.Token;
-        DateTime? offlineSince = null;
         try
         {
             if (session is not null)
@@ -126,58 +163,85 @@ internal sealed class RecordingRoomRunner : IDisposable
                 }
                 try
                 {
-                    if (!spool.HasCapacity(configuration(), session?.DirectoryPath))
+                    if (continuation is not null)
                     {
-                        SetState("StorageFull", "RecordingStorageFull");
-                        await Task.Delay(TimeSpan.FromSeconds(1), time, lifetimeToken);
-                        continue;
-                    }
-                    if (session is not null)
-                    {
-                        inactivity ??= new(TimeSpan.FromMinutes(current.RecordingTimeoutMinutes), time, lifetimeToken);
+                        lifecycle ??= new(continuation.Lifecycle, time, current.SessionGraceMinutes, current.RecordingTimeoutMinutes);
+                        var recovered = lifecycle.State;
+                        inactivity ??= new(TimeSpan.FromMinutes(current.RecordingTimeoutMinutes), time,
+                            recovered.LastMediaReceivedAtUtc ?? recovered.TimeoutAnchorUtc, lifetimeToken);
                         inactivity.Configure(TimeSpan.FromMinutes(current.RecordingTimeoutMinutes));
+                        if (lifecycle.Evaluate(current.SessionGraceMinutes, current.RecordingTimeoutMinutes) != RecordingSessionEndReason.None)
+                        {
+                            await CloseSessionAsync("The persisted broadcast deadline elapsed; the logical session is complete.");
+                            SetState("Monitoring");
+                            await Task.Delay(TimeSpan.FromSeconds(2), time, lifetimeToken);
+                            continue;
+                        }
+                        PersistLifecycle();
+                        if (session is not null && events.IsCompleted)
+                        {
+                            StartEvents(session);
+                        }
                     }
                     var token = inactivity?.Token ?? lifetimeToken;
                     var room = await source.GetRoomAsync(current, token);
                     RecordRoom(room);
+                    lock (sync)
+                    {
+                        lifecycle?.ObserveRoom(room.IsLive, GetLiveTime(room), time.GetUtcNow().UtcDateTime);
+                        PersistLifecycle();
+                    }
                     if (!room.IsLive)
                     {
-                        await StopEventsAsync();
-                        offlineSince ??= time.GetUtcNow().UtcDateTime;
-                        if (session is not null && time.GetUtcNow().UtcDateTime - offlineSince >= TimeSpan.FromMinutes(current.SessionGraceMinutes))
+                        if (lifecycle?.Evaluate() is { } ended && ended != RecordingSessionEndReason.None)
                         {
                             await CloseSessionAsync("Capture closed after the room remained offline beyond the grace interval.");
                             token = lifetimeToken;
+                        }
+                        if (session is not null && events.IsCompleted)
+                        {
+                            StartEvents(session);
                         }
                         SetState("Monitoring");
                         await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(current.MonitorIntervalSeconds, 1, 300)), time, token);
                         continue;
                     }
-                    var graceExpired = offlineSince is { } offlineAt
-                        && time.GetUtcNow().UtcDateTime - offlineAt >= TimeSpan.FromMinutes(current.SessionGraceMinutes);
-                    var liveTime = room.LiveStartedAtUtc is { } start ? new DateTimeOffset(start).ToUnixTimeSeconds() : 0;
-                    if (session is not null && (graceExpired || session.State.Descriptor.LiveTime > 0 && liveTime > 0
-                        && session.State.Descriptor.LiveTime != liveTime))
+                    if (lifecycle?.Evaluate() is { } reason && reason != RecordingSessionEndReason.None)
                     {
-                        await CloseSessionAsync(graceExpired ? "Capture closed after the offline grace interval."
-                            : "Capture closed because a new live broadcast was detected.");
+                        await CloseSessionAsync("Capture closed at the logical broadcast deadline.");
                         token = lifetimeToken;
                     }
-                    offlineSince = null;
+                    if (!spool.HasCapacity(configuration(), session?.DirectoryPath))
+                    {
+                        SetState("StorageFull", "RecordingStorageFull");
+                        await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(current.MonitorIntervalSeconds, 1, 300)), time, token);
+                        continue;
+                    }
                     if (session is null)
                     {
+                        var physicalId = Guid.NewGuid().ToString("N");
+                        var now = time.GetUtcNow().UtcDateTime;
+                        continuation ??= new()
+                        {
+                            LogicalSessionId = physicalId, StartedAtUtc = now,
+                            Lifecycle = new() { TimeoutAnchorUtc = now, LiveTime = GetLiveTime(room) }
+                        };
+                        lifecycle ??= new(continuation.Lifecycle, time, current.SessionGraceMinutes, current.RecordingTimeoutMinutes);
                         session = spool.CreateSession(current, new()
                         {
-                            SessionId = Guid.NewGuid().ToString("N"), RoomId = current.RoomId, LiveTime = liveTime,
-                            StartedAtUtc = time.GetUtcNow().UtcDateTime, Title = room.Title,
+                            SessionId = physicalId, RoomId = current.RoomId, LiveTime = GetLiveTime(room),
+                            LogicalSessionId = continuation.LogicalSessionId, LogicalStartedAtUtc = continuation.StartedAtUtc,
+                            Lifecycle = lifecycle.State, StartedAtUtc = now, Title = room.Title,
                             StreamerName = room.Name, StreamerUid = room.Uid, CoverUrl = room.CoverUrl,
                             HasDanmu = current.RecordDanmu
                         }, configuration().TempDirectory);
                         WriteCaptureLog(session, "Created a broadcast session; waiting for valid media.");
                     }
-                    inactivity ??= new(TimeSpan.FromMinutes(current.RecordingTimeoutMinutes), time, lifetimeToken);
+                    var activeLifecycle = lifecycle!.State;
+                    inactivity ??= new(TimeSpan.FromMinutes(current.RecordingTimeoutMinutes), time,
+                        activeLifecycle.LastMediaReceivedAtUtc ?? activeLifecycle.TimeoutAnchorUtc, lifetimeToken);
                     token = inactivity.Token;
-                    if (current.RecordDanmu && lastMediaAtUtc is not null && events.IsCompleted)
+                    if (events.IsCompleted)
                     {
                         StartEvents(session);
                     }
@@ -192,9 +256,9 @@ internal sealed class RecordingRoomRunner : IDisposable
                 }
                 catch (Exception) when (inactivity is { IsExpired: true })
                 {
+                    lifecycle?.Evaluate();
                     await CloseSessionAsync(FormattableString.Invariant(
                         $"Capture ended after {current.RecordingTimeoutMinutes} minutes without valid media. Room monitoring continues."));
-                    offlineSince = null;
                     SetState("Monitoring");
                 }
                 catch (Exception error)
@@ -225,6 +289,7 @@ internal sealed class RecordingRoomRunner : IDisposable
                 {
                     if (explicitStop && session is not null)
                     {
+                        PersistLifecycle();
                         spool.CloseSession(session.DirectoryPath, lastMediaAtUtc ?? time.GetUtcNow().UtcDateTime);
                         WriteCaptureLog(session, "Capture stopped by the assignment; committed media and events remain queued for upload.");
                     }
@@ -254,6 +319,7 @@ internal sealed class RecordingRoomRunner : IDisposable
         }
         var started = time.GetUtcNow().UtcDateTime;
         var progress = new RecordingAttemptProgress(inactivity!);
+        var committedMedia = new Dictionary<string, (long Bytes, double Duration)>();
         progress.Activate(new RecordingProgress(update =>
         {
             spool.RecordMedia(activeSession.DirectoryPath, update);
@@ -263,12 +329,21 @@ internal sealed class RecordingRoomRunner : IDisposable
                 bool resumed;
                 lock (sync)
                 {
+                    var previous = committedMedia.GetValueOrDefault(update.SegmentId);
+                    if (update.CommittedBytes > previous.Bytes && update.DurationMs > previous.Duration)
+                    {
+                        var received = update.LastMediaReceivedAtUtc ?? commit.LastMediaReceivedAtUtc ?? time.GetUtcNow().UtcDateTime;
+                        lifecycle?.ReportMedia(received);
+                        committedMedia[update.SegmentId] = (update.CommittedBytes, update.DurationMs);
+                        PersistLifecycle();
+                    }
                     changed = state != "Recording";
                     resumed = lastMediaAtUtc is not null;
                     lastMediaAtUtc = activeSession.State.Descriptor.StartedAtUtc.AddMilliseconds(commit.StartOffsetMs + commit.DurationMs);
+                    lastCapturedSessionId = activeSession.State.Descriptor.SessionId;
                     state = "Recording";
                     errorCode = null;
-                    if (Current().RecordDanmu && events.IsCompleted)
+                    if (events.IsCompleted)
                     {
                         StartEvents(activeSession);
                     }
@@ -329,6 +404,11 @@ internal sealed class RecordingRoomRunner : IDisposable
         {
             await Task.Delay(TimeSpan.FromSeconds(1), time, cancellationToken);
             var current = Current();
+            if (lifecycle?.Evaluate(current.SessionGraceMinutes, current.RecordingTimeoutMinutes) is { } ended
+                && ended != RecordingSessionEndReason.None)
+            {
+                return;
+            }
             if (!spool.HasCapacity(configuration(), activeSession.DirectoryPath))
             {
                 SetState("StorageFull", "RecordingStorageFull");
@@ -343,9 +423,12 @@ internal sealed class RecordingRoomRunner : IDisposable
             {
                 var room = await source.GetRoomAsync(current, cancellationToken);
                 RecordRoom(room);
-                var liveTime = room.LiveStartedAtUtc is { } liveAt ? new DateTimeOffset(liveAt).ToUnixTimeSeconds() : 0;
-                if (!room.IsLive || activeSession.State.Descriptor.LiveTime > 0 && liveTime > 0
-                    && liveTime != activeSession.State.Descriptor.LiveTime)
+                lock (sync)
+                {
+                    lifecycle?.ObserveRoom(room.IsLive, GetLiveTime(room), time.GetUtcNow().UtcDateTime);
+                    PersistLifecycle();
+                }
+                if (!room.IsLive)
                 {
                     return;
                 }
@@ -361,12 +444,15 @@ internal sealed class RecordingRoomRunner : IDisposable
     {
         lock (sync)
         {
-            if (!events.IsCompleted || cancellation.IsCancellationRequested || !assignment.RecordDanmu)
+            if (!events.IsCompleted || cancellation.IsCancellationRequested)
             {
                 return;
             }
             eventsCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
-            spool.UpdateSession(activeSession.DirectoryPath, value => value.Descriptor = value.Descriptor with { HasDanmu = true });
+            if (assignment.RecordDanmu)
+            {
+                spool.UpdateSession(activeSession.DirectoryPath, value => value.Descriptor = value.Descriptor with { HasDanmu = true });
+            }
             events = RunEventsAsync(activeSession, eventsCancellation);
         }
     }
@@ -410,13 +496,36 @@ internal sealed class RecordingRoomRunner : IDisposable
             try
             {
                 WriteCaptureLog(activeSession, "Opening an event capture connection.");
-                await using var writer = new SessionEventWriter(Path.Combine(activeSession.DirectoryPath, "弹幕"),
-                    commit => spool.RecordEventsAsync(activeSession.DirectoryPath, commit));
+                await using var writer = Current().RecordDanmu
+                    ? new SessionEventWriter(Path.Combine(activeSession.DirectoryPath, "弹幕"), commit => spool.RecordEventsAsync(activeSession.DirectoryPath, commit))
+                    : null;
                 await source.SubscribeEventsAsync(Current(), async (item, token) =>
                 {
                     item.ReceivedAtUtc = item.ReceivedAtUtc == default ? time.GetUtcNow().UtcDateTime : item.ReceivedAtUtc;
+                    if (item.Kind == "RoomState" && item.Command is "LIVE" or "PREPARING")
+                    {
+                        lock (sync)
+                        {
+                            var before = lifecycle?.State;
+                            lifecycle?.ObserveSignal(item.Command, item.ReceivedAtUtc);
+                            var observed = lifecycle?.State;
+                            PersistLifecycle();
+                            if (item.Command == "PREPARING" && observed?.LastObservedIsLive == false
+                                && observed.LastObservationAtUtc == item.ReceivedAtUtc
+                                && before?.LastObservationAtUtc != observed.LastObservationAtUtc)
+                            {
+                                if (activeAttempt is not null)
+                                {
+                                    CancelWhileLocked(activeAttempt);
+                                }
+                            }
+                        }
+                    }
                     item.OffsetMs = Math.Max(0, ((item.SourceTimeUtc ?? item.ReceivedAtUtc) - activeSession.State.Descriptor.StartedAtUtc).TotalMilliseconds);
-                    await writer.WriteAsync(item, token);
+                    if (writer is not null)
+                    {
+                        await writer.WriteAsync(item, token);
+                    }
                 }, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -462,19 +571,50 @@ internal sealed class RecordingRoomRunner : IDisposable
     private async Task CloseSessionAsync(string message)
     {
         await StopEventsAsync();
-        if (session is not null)
+        RecordingInactivityMonitor? monitor;
+        lock (sync)
         {
-            spool.CloseSession(session.DirectoryPath, lastMediaAtUtc ?? time.GetUtcNow().UtcDateTime);
-            WriteCaptureLog(session, message);
-            lock (sync)
+            PersistLifecycle();
+            lastClosedContinuation = continuation;
+            if (session is not null)
             {
+                spool.CloseSession(session.DirectoryPath, lastMediaAtUtc ?? time.GetUtcNow().UtcDateTime);
+                WriteCaptureLog(session, message);
                 session = null;
                 lastMediaAtUtc = null;
             }
+            monitor = inactivity;
+            inactivity = null;
+            lifecycle = null;
+            continuation = null;
         }
-        inactivity?.Dispose();
-        inactivity = null;
+        monitor?.Dispose();
     }
+
+    private void PersistLifecycle()
+    {
+        lock (sync)
+        {
+            if (lifecycle is null || continuation is null)
+            {
+                return;
+            }
+            var snapshot = lifecycle.State;
+            continuation = continuation with { Lifecycle = snapshot };
+            if (session is not null)
+            {
+                spool.UpdateSession(session.DirectoryPath, value =>
+                {
+                    value.Descriptor = value.Descriptor with { Lifecycle = snapshot };
+                    value.LastMediaReceivedAtUtc = snapshot.LastMediaReceivedAtUtc;
+                });
+            }
+            spool.SaveContinuation(assignment.AssignmentId, continuation);
+        }
+    }
+
+    private static long GetLiveTime(LiveRoomSnapshot room) => room.LiveStartedAtUtc is { } started
+        ? new DateTimeOffset(started).ToUnixTimeSeconds() : 0;
 
     private void SetState(string value, string? error = null)
     {

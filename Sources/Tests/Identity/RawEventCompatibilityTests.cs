@@ -11,6 +11,24 @@ namespace Yohuke.LiveRecorder.Identity.Tests;
 /// <summary>确保新增原始旁路不会改变旧消费者行为。</summary>
 public sealed class RawEventCompatibilityTests
 {
+    /// <summary>平台上下播命令经过实际Socket解析旁路后保留为可识别的房间状态事件。</summary>
+    [Theory]
+    [InlineData("LIVE")]
+    [InlineData("PREPARING")]
+    public void BroadcastLifecycleCommandsReachTheRecordingEventMapper(string command)
+    {
+        using var socket = new BilibiliLiveWebSocket(100, "");
+        var events = new List<Yohuke.LiveRecorder.Domain.RecordedEventEnvelope>();
+        socket.RawBusinessEventReceived += (_, value) => events.AddRange(BilibiliEventMapper.Map(value));
+
+        Feed(socket, "{\"cmd\":\"" + command + "\",\"roomid\":100}");
+
+        var item = Assert.Single(events);
+        Assert.Equal("RoomState", item.Kind);
+        Assert.Equal(command, item.Command);
+        Assert.Equal(DateTimeKind.Utc, item.ReceivedAtUtc.Kind);
+    }
+
     [Fact]
     public void SameSocketPublishesRawBeforeExistingTypedEvent()
     {

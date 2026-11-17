@@ -10,6 +10,25 @@ namespace Yohuke.LiveRecorder.Tests;
 /// <summary>Verifies monitoring observes local broadcasts without publishing uncommitted media or claiming completion.</summary>
 public sealed class RecordingSessionTaskTests
 {
+    /// <summary>既有采集进度不能通过后续心跳改绑到另一个逻辑场次。</summary>
+    [Fact]
+    public async Task RejectsChangedLogicalSessionIdentity()
+    {
+        await using var fixture = await RecordingIngestTestContext.CreateAsync();
+        var service = new RecordingSessionTaskService(fixture.Fixture.Mongo, fixture.Ownership);
+        var progress = CreateProgress(fixture, Guid.NewGuid().ToString("N"));
+        progress = progress with { Descriptor = progress.Descriptor with
+        {
+            LogicalSessionId = progress.Descriptor.SessionId, LogicalStartedAtUtc = progress.Descriptor.StartedAtUtc
+        } };
+        await service.ReportAsync(fixture.WorkerId, [progress], CancellationToken.None);
+
+        var error = await Assert.ThrowsAsync<InfrastructureException>(() => service.ReportAsync(fixture.WorkerId,
+            [progress with { Descriptor = progress.Descriptor with { LogicalSessionId = "other-logical-session" } }], CancellationToken.None));
+
+        Assert.Equal(409, error.StatusCode);
+    }
+
     /// <summary>A new local broadcast is observable before its first upload without registering an ingest or library session.</summary>
     [Fact]
     public async Task HeartbeatPersistsEachBroadcastBeforeMediaArrives()

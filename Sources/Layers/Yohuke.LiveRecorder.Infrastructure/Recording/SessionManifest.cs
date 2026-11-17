@@ -8,4 +8,5 @@ public sealed class SessionManifest
     public int SchemaVersion { get; set; } = 1;
     public BroadcastSession Session { get; set; } = new();
     public List<RecordingSegment> Segments { get; set; } = [];
+    public List<RecordingCaptureBinding> Captures { get; set; } = [];
 }

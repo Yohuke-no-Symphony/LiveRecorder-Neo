@@ -10,6 +10,34 @@ namespace Yohuke.LiveRecorder.Recording.Worker.Tests;
 /// <summary>Verifies durable capture ownership and recovery without deleting unacknowledged archives.</summary>
 public sealed class RecordingSpoolTests
 {
+    /// <summary>版本化活动状态不会被时钟回拨前较大的历史 UTC 提交时间覆盖。</summary>
+    [Fact]
+    public async Task RecoveryKeepsVersionedActivityAcrossClockEpochs()
+    {
+        using var fixture = new RecordingWorkerFixture();
+        using var spool = fixture.Spool();
+        spool.SaveAssignment(fixture.Assignment, fixture.DirectoryPath);
+        var session = fixture.Session(spool);
+        var received = DateTime.UtcNow;
+        spool.UpdateSession(session.DirectoryPath, value =>
+        {
+            value.LastMediaReceivedAtUtc = received;
+            value.Descriptor = value.Descriptor with
+            {
+                Lifecycle = new() { Revision = 4, LastMediaReceivedAtUtc = received }
+            };
+        });
+        RecordingSpoolFiles.Write(Path.Combine(session.DirectoryPath, "录制提交", "older-clock", "latest.json"),
+            new MediaRecordingCommitSnapshot
+            {
+                SegmentId = "older-clock", IsClosed = true, LastMediaReceivedAtUtc = received.AddHours(1)
+            });
+
+        await spool.RecoverAsync(CancellationToken.None);
+
+        Assert.Equal(received, Assert.Single(spool.Sessions()).State.LastMediaReceivedAtUtc);
+    }
+
     /// <summary>Different configuration files cannot run two writers against the same physical Worker spool.</summary>
     [Fact]
     public void SpoolOwnershipIsExclusiveAcrossSettingsFiles()

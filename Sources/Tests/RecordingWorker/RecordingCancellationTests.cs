@@ -46,7 +46,7 @@ public sealed class RecordingCancellationTests
         }
     }
 
-    /// <summary>Offline event shutdown and a concurrent revision share one cancellation lifetime until the callback finishes.</summary>
+    /// <summary>Concurrent revisions share one subscription cancellation lifetime until the callback finishes.</summary>
     [Fact]
     public async Task StopEventsAndUpdateCanCancelTheSameSubscriptionWithoutHoldingTheRoomLock()
     {
@@ -72,13 +72,11 @@ public sealed class RecordingCancellationTests
         await source.EventsStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         try
         {
-            source.IsLive = false;
-            clock.Advance(TimeSpan.FromSeconds(1));
-            await WaitAsync(() => active.Snapshot().State == "Retrying");
-            clock.Advance(TimeSpan.FromSeconds(2));
+            await Task.Run(() => active.Update(fixture.Assignment with { ConfigurationRevision = 2, RecordDanmu = false }))
+                .WaitAsync(TimeSpan.FromSeconds(1));
             var callbackCanInspect = await inspected.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-            await Task.Run(() => active.Update(fixture.Assignment with { ConfigurationRevision = 2, RecordDanmu = false }))
+            await Task.Run(() => active.Update(fixture.Assignment with { ConfigurationRevision = 3, RecordDanmu = false }))
                 .WaitAsync(TimeSpan.FromSeconds(1));
 
             Assert.True(callbackCanInspect);

@@ -181,7 +181,8 @@ internal static class TaskHistoryProjection
         }
         else
         {
-            stages.Add(Lookup("sessions", "_id", "_library"));
+            stages.Add(new("$set", new BsonDocument("_logicalSessionId", IfNull("$Descriptor.LogicalSessionId", "$_id"))));
+            stages.Add(Lookup("sessions", "_logicalSessionId", "_library"));
             if (source == "snapshot")
             {
                 stages.Add(Lookup("recordingSessions", "_id", "_receipts"));
@@ -211,7 +212,7 @@ internal static class TaskHistoryProjection
             { "FinishedAtUtc", IfNull("$_finalized", Cond(Eq("$CaptureState", "NoMedia"), IfNull("$Descriptor.EndedAtUtc", "$Descriptor.StartedAtUtc"), BsonNull.Value)) },
             { "Progress", 0 }
         }));
-        stages.Add(Project("recording", Literal("Recording"), "$Descriptor.Title", "$_id", Literal("Automatic"), BsonNull.Value, BsonNull.Value,
+        stages.Add(Project("recording", Literal("Recording"), "$Descriptor.Title", IfNull("$Descriptor.LogicalSessionId", "$_id"), Literal("Automatic"), BsonNull.Value, BsonNull.Value,
             "$WorkerId", "$State", new BsonDocument
             {
                 { "CaptureState", IfNull("$CaptureState", Cond(Eq("$Descriptor.IsClosed", true), "Closed", "Recording")) },

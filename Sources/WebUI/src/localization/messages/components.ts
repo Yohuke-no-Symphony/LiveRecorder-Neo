@@ -45,7 +45,7 @@ export const componentsZh = {
   status: {
     recording: '录制中', live: '直播中', monitoring: '监听中', waiting: '等待开播', paused: '已暂停',
     reconnecting: '重连中', error: '异常', stopped: '已停止', offline: '未开播', online: '在线', queued: '排队中',
-    pending: '待审核', running: '处理中', publishing: '发布中', completed: '已完成', ready: '可播放',
+    pending: '待审核', running: '处理中', publishing: '发布中', finalizing: '归档收尾', completed: '已完成', ready: '可播放',
     failed: '失败', interrupted: '已中断', canceled: '已取消', approved: '已通过', rejected: '已拒绝',
     disabled: '已禁用', expired: '已过期', valid: '有效', invalid: '登录失效', needsLogin: '需重新登录', trashed: '回收站',
     unavailable: '暂不可用',
@@ -166,7 +166,7 @@ export const componentsEn: MessageSchema<typeof componentsZh> = {
   status: {
     recording: 'Recording', live: 'Live', monitoring: 'Monitoring', waiting: 'Waiting for stream', paused: 'Paused',
     reconnecting: 'Reconnecting', error: 'Error', stopped: 'Stopped', offline: 'Offline', online: 'Online', queued: 'Queued',
-    pending: 'Pending approval', running: 'Processing', publishing: 'Publishing', completed: 'Completed', ready: 'Ready to play',
+    pending: 'Pending approval', running: 'Processing', publishing: 'Publishing', finalizing: 'Finalizing archive', completed: 'Completed', ready: 'Ready to play',
     failed: 'Failed', interrupted: 'Interrupted', canceled: 'Canceled', approved: 'Approved', rejected: 'Rejected',
     disabled: 'Disabled', expired: 'Expired', valid: 'Active', invalid: 'Login expired', needsLogin: 'Login required', trashed: 'Trash',
     unavailable: 'Temporarily unavailable',
@@ -289,7 +289,7 @@ export const componentsJa: MessageSchema<typeof componentsZh> = {
   status: {
     recording: '録画中', live: '配信中', monitoring: '監視中', waiting: '配信開始待ち', paused: '一時停止中',
     reconnecting: '再接続中', error: 'エラー', stopped: '停止済み', offline: 'オフライン', online: 'オンライン', queued: '待機中',
-    pending: '承認待ち', running: '処理中', publishing: '公開処理中', completed: '完了', ready: '再生可能',
+    pending: '承認待ち', running: '処理中', publishing: '公開処理中', finalizing: 'アーカイブの確定中', completed: '完了', ready: '再生可能',
     failed: '失敗', interrupted: '中断', canceled: 'キャンセル済み', approved: '承認済み', rejected: '却下済み',
     disabled: '無効', expired: '期限切れ', valid: '有効', invalid: 'ログイン期限切れ', needsLogin: '再ログインが必要', trashed: 'ゴミ箱',
     unavailable: '一時的に利用不可',

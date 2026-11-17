@@ -52,6 +52,71 @@ public sealed class RecordingAttemptProgressTests
         Assert.Equal(200, sink.Values[^1].DurationMs);
     }
 
+    /// <summary>延迟激活和通知不会把源媒体接收时间替换为当前时刻。</summary>
+    [Fact]
+    public void DelayedActivationPreservesTheOriginalMediaReceiptTime()
+    {
+        var clock = new ManualRecordingTimeProvider();
+        using var monitor = new RecordingInactivityMonitor(TimeSpan.FromMinutes(1), clock);
+        var progress = new RecordingAttemptProgress(monitor);
+        var sink = new RecordingProgressCollector();
+        clock.Advance(TimeSpan.FromSeconds(10));
+        var received = clock.GetUtcNow().UtcDateTime;
+        clock.Advance(TimeSpan.FromSeconds(30));
+        var update = Update("Committed", 1000, 100);
+        update.LastMediaReceivedAtUtc = received;
+
+        progress.Report(update);
+        progress.Activate(sink);
+        Assert.Equal(received, Assert.Single(sink.Values).LastMediaReceivedAtUtc);
+        clock.Advance(TimeSpan.FromSeconds(29));
+        Assert.False(monitor.IsExpired);
+        clock.Advance(TimeSpan.FromSeconds(1));
+
+        Assert.True(monitor.IsExpired);
+    }
+
+    /// <summary>尾部提交仍保留有效媒体，但已经过期的场次不被延迟刷新复活。</summary>
+    [Fact]
+    public void TailCommitAfterExpiryRetainsMediaWithoutRevivingDeadline()
+    {
+        var clock = new ManualRecordingTimeProvider();
+        using var monitor = new RecordingInactivityMonitor(TimeSpan.FromMinutes(1), clock);
+        var progress = new RecordingAttemptProgress(monitor);
+        var sink = new RecordingProgressCollector();
+        var received = clock.GetUtcNow().UtcDateTime;
+        clock.Advance(TimeSpan.FromMinutes(1));
+        var update = Update("Committed", 1000, 100);
+        update.LastMediaReceivedAtUtc = received;
+
+        progress.Report(update);
+        progress.Activate(sink);
+
+        Assert.True(progress.HasMedia);
+        Assert.Equal(received, Assert.Single(sink.Values).LastMediaReceivedAtUtc);
+        Assert.True(monitor.IsExpired);
+        Assert.True(monitor.Token.IsCancellationRequested);
+    }
+
+    /// <summary>提交快照携带接收戳时也按原时刻计时，兼容仅转发持久快照的采集器。</summary>
+    [Fact]
+    public void DurableCommitReceiptTimeControlsTheDeadline()
+    {
+        var clock = new ManualRecordingTimeProvider();
+        using var monitor = new RecordingInactivityMonitor(TimeSpan.FromMinutes(1), clock);
+        var progress = new RecordingAttemptProgress(monitor);
+        clock.Advance(TimeSpan.FromSeconds(10));
+        var received = clock.GetUtcNow().UtcDateTime;
+        clock.Advance(TimeSpan.FromSeconds(30));
+        var update = Update("Committed", 1000, 100);
+        update.CommitSnapshot = new() { LastMediaReceivedAtUtc = received };
+
+        progress.Report(update);
+        clock.Advance(TimeSpan.FromSeconds(30));
+
+        Assert.True(monitor.IsExpired);
+    }
+
     /// <summary>重复提交和关闭回调不延长最后一帧之后的等待时限。</summary>
     [Fact]
     public void DuplicateCommitsAndCloseNotificationsDoNotRestartTheDeadline()

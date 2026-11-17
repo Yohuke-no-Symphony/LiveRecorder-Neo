@@ -11,13 +11,14 @@ namespace Yohuke.LiveRecorder.Media;
 
 internal static class FlvArchiveEngine
 {
-    internal static async Task<IReadOnlyList<FlvArchivedOutput>> RunAsync(Stream stream, RecordingRequest request, IProgress<MediaRecordingUpdate> progress, CancellationToken cancellationToken, Func<CancellationToken, Task>? capacityCheck = null, bool collectOutputs = true)
+    internal static async Task<IReadOnlyList<FlvArchivedOutput>> RunAsync(Stream stream, RecordingRequest request, IProgress<MediaRecordingUpdate> progress, CancellationToken cancellationToken, Func<CancellationToken, Task>? capacityCheck = null, bool collectOutputs = true, TimeProvider? timeProvider = null)
     {
+        var clock = timeProvider ?? TimeProvider.System;
         var memory = new DefaultMemoryStreamProvider();
         var observations = new Dictionary<long, FlvSourceTagInfo>();
-        using var reader = new ObservedFlvReader(new FlvTagPipeReader(PipeReader.Create(stream), memory, skipData: false, leaveOpen: false, logger: null), observations);
+        using var reader = new ObservedFlvReader(new FlvTagPipeReader(PipeReader.Create(stream), memory, skipData: false, leaveOpen: false, logger: null), observations, clock);
         using var groups = new TagGroupReader(reader, leaveOpen: true);
-        var target = new FlvArchiveTargetProvider(request, progress, collectOutputs);
+        var target = new FlvArchiveTargetProvider(request, progress, collectOutputs, clock);
         var tagWriter = new IndexedFlvTagWriter(new FlvTagFileWriter(target, memory, null), target, observations);
         using var writer = new FlvProcessingContextWriter(tagWriter, allowMissingHeader: true, disableKeyframes: true, logger: null);
         var pipeline = new ProcessingPipelineBuilder()

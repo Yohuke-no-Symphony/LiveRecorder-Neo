@@ -329,7 +329,17 @@ public sealed class RecordingDisconnectTests
 
     private static Task WaitForMediaAsync(RecordingFixture fixture, ControlledRoom room)
     {
-        return RecordingFixture.WaitUntilAsync(async () => room.ActiveStreams == 1 && room.ActiveSubscriptions == 1 && (await fixture.SegmentsAsync()).Any(segment => segment.DurationMs > 1000), "real FLV data activates a broadcast session");
+        return RecordingFixture.WaitUntilAsync(async () =>
+        {
+            if (room.ActiveStreams != 1 || room.ActiveSubscriptions != 1)
+            {
+                return false;
+            }
+            var sessions = await fixture.SessionsAsync();
+            var segments = await fixture.SegmentsAsync();
+            return sessions.Any(session => session is { State: "Recording", EndedAtUtc: null, TotalBytes: > 0 }
+                && segments.Any(segment => segment.SessionId == session.Id && segment.DurationMs > 1000));
+        }, "committed FLV media and its canonical recording session are published");
     }
 
     private static Task WaitForCompletedAsync(RecordingFixture fixture, ControlledRoom room)

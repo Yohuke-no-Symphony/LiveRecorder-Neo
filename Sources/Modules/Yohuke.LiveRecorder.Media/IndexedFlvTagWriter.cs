@@ -87,6 +87,11 @@ internal sealed class IndexedFlvTagWriter : IFlvTagWriter
             current.DurationMs = Math.Max(current.DurationMs, duration);
         }
         await inner.WriteTag(tag);
+        if (!tag.IsHeader() && tag.Type is TagType.Audio or TagType.Video && source is not null
+            && (current.LastMediaReceivedAtUtc is null || source.ReceivedAtUtc > current.LastMediaReceivedAtUtc))
+        {
+            current.LastMediaReceivedAtUtc = source.ReceivedAtUtc;
+        }
     }
 
     public Task OverwriteMetadata(ScriptTagBody metadata)

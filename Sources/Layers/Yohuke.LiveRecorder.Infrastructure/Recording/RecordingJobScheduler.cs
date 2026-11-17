@@ -13,8 +13,10 @@ namespace Yohuke.LiveRecorder.Infrastructure.Recording;
 /// <summary>Assigns durable room reservations and exchanges lightweight controls without tying capture to a connection lease.</summary>
 public sealed class RecordingJobScheduler(IMongoContext context, IAppPaths paths, ISettingsStore settingsStore,
     TranscodeWorkerService workers, RecordingOwnershipService ownership, RecordingAccountProvider accounts, IStatusPublisher publisher,
-    RecordingHandoffService handoff, RecordingTargetStatusService? targetStatus = null, RecordingSessionTaskService? sessionTasks = null)
+    RecordingHandoffService handoff, RecordingTargetStatusService? targetStatus = null, RecordingSessionTaskService? sessionTasks = null,
+    RecordingSessionProjectionService? projection = null)
 {
+    private readonly RecordingSessionProjectionService projections = projection ?? new(context, paths, settingsStore, publisher);
     /// <summary>Returns existing room controls even for disabled nodes, while only enabled configured nodes receive new rooms.</summary>
     public async Task<WorkerState> HeartbeatAsync(string workerId, WorkerHeartbeat heartbeat, CancellationToken cancellationToken,
         string? authenticatedSecretHash = null, Func<bool>? connectionIsCurrent = null)
@@ -49,6 +51,25 @@ public sealed class RecordingJobScheduler(IMongoContext context, IAppPaths paths
                         .Set(value => value.SpoolBytes, Math.Max(0, progress.SpoolBytes)).Set(value => value.CurrentSessionId, progress.SessionId)
                         .Set(value => value.Error, progress.Error is { Length: > 4096 } ? progress.Error[..4096] : progress.Error), cancellationToken: cancellationToken);
                 await (targetStatus ?? new(context, publisher)).ApplyAsync(assignment, progress, cancellationToken);
+                if (progress.Continuation is { } continuation)
+                {
+                    var authorized = assignment.Definition?.Continuation?.LogicalSessionId == continuation.LogicalSessionId
+                        || await context.Collection<RecordingCaptureBinding>("recordingCaptureBindings")
+                            .Find(value => value.LogicalSessionId == continuation.LogicalSessionId && value.AssignmentId == assignment.Id
+                                && value.Generation == assignment.Generation).AnyAsync(cancellationToken);
+                    if (!authorized)
+                    {
+                        throw new InfrastructureException("录制状态不属于此逻辑场次。", 409);
+                    }
+                    var lifecycle = continuation.Lifecycle;
+                    var deferred = lifecycle.EndReason != RecordingSessionEndReason.None
+                        && await HasUnregisteredCaptureAsync(assignment, continuation.LogicalSessionId, progress.SessionId,
+                            heartbeat.RecordingSessions, cancellationToken);
+                    if (!deferred)
+                    {
+                        await projections.SynchronizeLifecycleAsync(continuation.LogicalSessionId, lifecycle, cancellationToken);
+                    }
+                }
             }
             catch (InfrastructureException error) when (error.StatusCode is 409 or 410)
             {
@@ -61,7 +82,7 @@ public sealed class RecordingJobScheduler(IMongoContext context, IAppPaths paths
             await ownership.RequestStopAsync(excess.Id, cancellationToken);
             excess.State = "StopRequested";
         }
-        if (worker.Enabled && worker.Capabilities.RecordingVersion >= 1 && heartbeat.ConfigurationError is null
+        if (worker.Enabled && worker.Capabilities.RecordingVersion >= 2 && heartbeat.ConfigurationError is null
             && heartbeat.AppliedConfigurationRevision == worker.ConfigurationRevision && !string.IsNullOrWhiteSpace(worker.Configuration.TempDirectory)
             && heartbeat.Telemetry.FreeBytes >= worker.Configuration.MinimumFreeBytes && heartbeat.Telemetry.SpoolBytes < worker.Configuration.MaxCacheBytes
             && owned.Count < worker.Configuration.MaxConcurrentEncodes)
@@ -112,6 +133,28 @@ public sealed class RecordingJobScheduler(IMongoContext context, IAppPaths paths
 
     private IMongoCollection<RecordingAssignmentRecord> Assignments => context.Collection<RecordingAssignmentRecord>("recordingAssignments");
 
+    private async Task<bool> HasUnregisteredCaptureAsync(RecordingAssignmentRecord assignment, string logicalId, string? currentCaptureId,
+        IReadOnlyList<RecordingSessionProgress> sources, CancellationToken cancellationToken)
+    {
+        var ids = sources.Where(value => value.AssignmentId == assignment.Id && value.Generation == assignment.Generation
+                && (value.Descriptor.LogicalSessionId ?? value.Descriptor.SessionId) == logicalId
+                && (value.CapturedDurationMs > 0 || value.CommittedArchiveBytes > 0))
+            .Select(value => value.Descriptor.SessionId).ToHashSet(StringComparer.Ordinal);
+        if (currentCaptureId is not null)
+        {
+            ids.Add(currentCaptureId);
+        }
+        if (ids.Count == 0)
+        {
+            return false;
+        }
+        var captures = await context.Collection<RecordingCaptureBinding>("recordingCaptureBindings")
+            .Find(value => ids.Contains(value.Id) && value.LogicalSessionId == logicalId
+                && value.AssignmentId == assignment.Id && value.Generation == assignment.Generation)
+            .ToListAsync(cancellationToken);
+        return captures.Count != ids.Count;
+    }
+
     private async Task<RecordingAssignment> RefreshDefinitionAsync(RecordingAssignmentRecord assignment, TranscodeWorker worker,
         ServerSettings settings, string accountVersion, CancellationToken cancellationToken)
     {
@@ -131,7 +174,11 @@ public sealed class RecordingJobScheduler(IMongoContext context, IAppPaths paths
             RecordingTimeoutMinutes = settings.StreamDisconnectTimeoutMinutes, MonitorIntervalSeconds = settings.MonitorIntervalSeconds,
             TimeZone = settings.TimeZone
         };
-        var fingerprint = TranscodeAssetRegistry.Hash(JsonSerializer.Serialize(definition with { Name = "" }, WorkerProtocol.JsonOptions)
+        if (worker.Capabilities.RecordingVersion >= 2)
+        {
+            definition = definition with { Continuation = await projections.GetContinuationAsync(assignment.TargetId, cancellationToken) };
+        }
+        var fingerprint = TranscodeAssetRegistry.Hash(JsonSerializer.Serialize(definition with { Name = "", Continuation = null }, WorkerProtocol.JsonOptions)
             + ":" + accountVersion + ":" + target?.AccountId + ":" + settings.DefaultBilibiliAccountId);
         if (assignment.Definition is null || fingerprint != assignment.ConfigurationFingerprint)
         {

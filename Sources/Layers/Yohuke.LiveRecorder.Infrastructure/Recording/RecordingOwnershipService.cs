@@ -96,7 +96,7 @@ public sealed class RecordingOwnershipService(IMongoContext context, IAppPaths p
     {
         var recent = DateTime.UtcNow.AddSeconds(-15);
         var workers = await context.Collection<TranscodeWorker>("transcodeWorkers").Find(value => value.Kind == "Recording"
-            && value.Enabled && value.LastSeenAtUtc > recent && value.Capabilities.RecordingVersion >= 1
+            && value.Enabled && value.LastSeenAtUtc > recent && value.Capabilities.RecordingVersion >= 2
             && value.ConfigurationError == null).ToListAsync(cancellationToken);
         foreach (var worker in workers.Where(IsReady))
         {

@@ -68,7 +68,8 @@ internal sealed class RecordingFixture : IAsyncDisposable
             var chunks = ParseChunks(data);
             fixture.client = new(new ControlledStreamHandler(data, chunks, fixture.Bilibili)) { Timeout = Timeout.InfiniteTimeSpan };
             var options = Options.Create(new MediaToolOptions { HlsSegmentDuration = TimeSpan.FromSeconds(1), StreamReadTimeout = TimeSpan.FromSeconds(10) });
-            fixture.Recorder = new(fixture.client, options, fixture.Settings);
+            fixture.Recorder = new(fixture.client, options, fixture.Settings, fixture.Clock);
+            fixture.Bilibili.Clock = fixture.Clock;
             fixture.Processes = new(options, fixture.Settings);
             fixture.Processor = new(fixture.Processes);
             fixture.Playback = new(fixture.Processes, options, Options.Create(new PlaybackWindowOptions()));

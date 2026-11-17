@@ -47,7 +47,7 @@ internal sealed class RecordingIngestTestContext : IAsyncDisposable
             WorkerId = fixture.WorkerId, Secret = fixture.Secret, Kind = "Recording", ExpectedConfigurationRevision = 1,
             InitialConfiguration = new() { TempDirectory = Path.Combine(fixture.Fixture.DirectoryPath, "spool"), MinimumFreeBytes = 0,
                 FfmpegPath = "", FfprobePath = "", GpuConcurrency = 0, CpuConcurrency = 0 },
-            Capabilities = new() { RecordingVersion = 1 }
+            Capabilities = new() { RecordingVersion = 2 }
         }, CancellationToken.None);
         fixture.Revision = welcome.ConfigurationRevision;
         fixture.Lease = (await fixture.HeartbeatAsync()).RecordingAssignments.Single();

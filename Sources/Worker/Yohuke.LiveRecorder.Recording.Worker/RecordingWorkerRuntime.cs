@@ -58,7 +58,7 @@ internal sealed class RecordingWorkerRuntime
         await spool.RecoverAsync(lifetime.Token);
         var sessionProgress = new RecordingSessionProgressReporter(spool);
         IMediaRecorder Recorder(WorkerConfiguration selected) => recorderFactory?.Invoke(selected)
-            ?? new FlvMediaRecorder(media, Options.Create(new MediaToolOptions()), new RecordingMediaSettingsStore(selected));
+            ?? new FlvMediaRecorder(media, Options.Create(new MediaToolOptions()), new RecordingMediaSettingsStore(selected), time);
         RefreshRooms(spool, Recorder, lifetime.Token);
         var supervisor = SuperviseRoomsAsync(spool, Recorder, lifetime);
         var uploader = new RecordingSpoolUploader(spool, transfers, () => Volatile.Read(ref configuration),
@@ -260,7 +260,7 @@ internal sealed class RecordingWorkerRuntime
 
     private static WorkerCapabilities Capabilities() => new()
     {
-        RecordingVersion = 1, OperatingSystem = RuntimeInformation.OSDescription,
+        RecordingVersion = 2, OperatingSystem = RuntimeInformation.OSDescription,
         Architecture = RuntimeInformation.ProcessArchitecture.ToString()
     };
 

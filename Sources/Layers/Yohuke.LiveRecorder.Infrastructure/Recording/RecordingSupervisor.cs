@@ -16,16 +16,19 @@ using Yohuke.LiveRecorder.Infrastructure.Library;
 using Yohuke.LiveRecorder.Infrastructure.Storage;
 using Yohuke.LiveRecorder.Infrastructure.Transcoding;
 using Yohuke.LiveRecorder.Infrastructure.Tasks;
+using Yohuke.LiveRecorder.Recording.Contracts;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Recording;
 
 /// <summary>并行维护启用的直播间，数据库和派生任务不进入采集热路径。</summary>
-public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore bootstrap, ISettingsStore settingsStore, IBilibiliService bilibili, IMediaRecorder recorder, IStatusPublisher publisher, ILogger<RecordingSupervisor> logger, SessionGroupingService grouping, SessionSegmentTrashService segmentTrash, IAppPaths paths, TimeProvider? timeProvider = null, RecordingOwnershipService? ownership = null, RecordingHandoffService? handoff = null, TaskEventLogStore? taskLogs = null) : BackgroundService
+public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore bootstrap, ISettingsStore settingsStore, IBilibiliService bilibili, IMediaRecorder recorder, IStatusPublisher publisher, ILogger<RecordingSupervisor> logger, SessionGroupingService grouping, SessionSegmentTrashService segmentTrash, IAppPaths paths, TimeProvider? timeProvider = null, RecordingOwnershipService? ownership = null, RecordingHandoffService? handoff = null, TaskEventLogStore? taskLogs = null,
+    RecordingSessionProjectionService? projection = null) : BackgroundService
 {
     private readonly Dictionary<string, RecordingWorkerHandle> workers = new();
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     private readonly string localOwnerId = "local-" + TranscodeAssetRegistry.Hash(bootstrap.InstallationToken + ":" + Environment.MachineName);
     private readonly RecordingHandoffService handoffs = handoff ?? new(context, paths, publisher);
+    private readonly RecordingSessionProjectionService projections = projection ?? new(context, paths, settingsStore, publisher, timeProvider);
 
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -61,11 +64,6 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                         await ObserveAsync(item.Value.Task);
                         if (!ids.Contains(item.Key))
                         {
-                            var open = await context.Collection<BroadcastSession>("sessions").Find(x => x.StreamerId == item.Key && x.EndedAtUtc == null && !x.IsHidden && x.RecordingAssignmentId == null).FirstOrDefaultAsync(stoppingToken);
-                            if (open is not null)
-                            {
-                                await CloseSessionAsync(open, DateTime.UtcNow, stoppingToken);
-                            }
                             await context.Collection<Streamer>("streamers").UpdateOneAsync(x => x.Id == item.Key && !x.Enabled, Builders<Streamer>.Update.Set(x => x.State, "Stopped"), cancellationToken: stoppingToken);
                         }
                         item.Value.Cancellation.Dispose();
@@ -84,6 +82,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
                         workers[target.Id] = new RecordingWorkerHandle(cancellation, TrackOwnedAsync(target, cancellation.Token));
                     }
+                    await projections.MaintainPausedAsync(stoppingToken);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -160,9 +159,10 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         BroadcastSession? session = null;
         SessionEventCapture? eventCapture = null;
         RecordingInactivityMonitor? inactivity = null;
+        RecordingSessionLifecycle? lifecycle = null;
+        LocalRecordingCapture? capture = null;
         LiveRoomSnapshot? pendingRoom = null;
         Streamer? target = null;
-        DateTime? offlineSince = null;
         var sessionPublished = false;
         var publicationPending = false;
         var retrySeconds = 2;
@@ -172,8 +172,13 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         var timeoutMinutes = defaults.StreamDisconnectTimeoutMinutes;
         try
         {
-            session = await context.Collection<BroadcastSession>("sessions").Find(x => x.StreamerId == id && x.EndedAtUtc == null && !x.IsTrashed && x.RecordingAssignmentId == null).SortByDescending(x => x.CreatedAtUtc).FirstOrDefaultAsync(cancellationToken);
-            sessionPublished = session is not null;
+            var continuation = await projections.GetContinuationAsync(id, cancellationToken);
+            if (continuation is not null)
+            {
+                session = await context.Collection<BroadcastSession>("sessions").Find(value => value.Id == continuation.LogicalSessionId)
+                    .FirstOrDefaultAsync(cancellationToken);
+                sessionPublished = session is not null;
+            }
             while (!cancellationToken.IsCancellationRequested)
             {
                 try
@@ -186,55 +191,69 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                     timeoutMinutes = settings.StreamDisconnectTimeoutMinutes;
                     if (session is not null)
                     {
-                        inactivity ??= new(TimeSpan.FromMinutes(timeoutMinutes), clock, cancellationToken);
+                        session.Lifecycle ??= new()
+                        {
+                            LastMediaReceivedAtUtc = session.LastMediaReceivedAtUtc,
+                            TimeoutAnchorUtc = clock.GetUtcNow().UtcDateTime, LiveTime = session.LiveTime
+                        };
+                        lifecycle ??= new(session.Lifecycle, clock, settings.SessionGraceMinutes, timeoutMinutes);
+                        inactivity ??= new(TimeSpan.FromMinutes(timeoutMinutes), clock,
+                            lifecycle.State.LastMediaReceivedAtUtc ?? session.LastMediaReceivedAtUtc ?? lifecycle.State.TimeoutAnchorUtc, cancellationToken);
                         inactivity.Configure(TimeSpan.FromMinutes(timeoutMinutes));
+                        if (lifecycle.Evaluate(settings.SessionGraceMinutes, timeoutMinutes) != RecordingSessionEndReason.None)
+                        {
+                            await StopEventCaptureAsync(eventCapture);
+                            eventCapture = null;
+                            await CloseSessionAsync(session, capture, lifecycle, cancellationToken);
+                            session = null;
+                            capture = null;
+                            lifecycle = null;
+                            sessionPublished = false;
+                            publicationPending = false;
+                            inactivity.Dispose();
+                            inactivity = null;
+                            pendingRoom = null;
+                            continue;
+                        }
                         token = inactivity.Token;
                     }
-                    target = await context.Collection<Streamer>("streamers").Find(x => x.Id == id).FirstOrDefaultAsync(token);
+                    target = await context.Collection<Streamer>("streamers").Find(value => value.Id == id).FirstOrDefaultAsync(token);
                     if (target is null || !target.Enabled || !target.IsMonitored)
                     {
                         break;
                     }
-                    var room = pendingRoom ?? await bilibili.GetRoomAsync(target.RoomId, target.AccountId, token);
+                    var room = pendingRoom ?? await GetRoomWithLifecycleAsync(target, lifecycle, false, monitorIntervalSeconds, token);
                     pendingRoom = null;
+                    if (session is not null && lifecycle is not null)
+                    {
+                        lifecycle.ObserveRoom(room.IsLive, GetLiveTime(room), clock.GetUtcNow().UtcDateTime);
+                        session.Lifecycle = lifecycle.State;
+                        await SaveSessionStateAsync(session, token);
+                        if (lifecycle.Evaluate() != RecordingSessionEndReason.None)
+                        {
+                            await StopEventCaptureAsync(eventCapture);
+                            eventCapture = null;
+                            await CloseSessionAsync(session, capture, lifecycle, cancellationToken);
+                            session = null;
+                            capture = null;
+                            lifecycle = null;
+                            sessionPublished = false;
+                            publicationPending = false;
+                            inactivity?.Dispose();
+                            inactivity = null;
+                            continue;
+                        }
+                    }
                     await UpdateTargetAsync(target, room, room.IsLive && sessionPublished ? "Recording" : "Waiting", null, token);
                     if (!room.IsLive)
                     {
-                        offlineSince ??= DateTime.UtcNow;
-                        await StopEventCaptureAsync(eventCapture);
-                        eventCapture = null;
                         if (session is not null)
                         {
-                            if (DateTime.UtcNow - offlineSince >= TimeSpan.FromMinutes(settings.SessionGraceMinutes))
-                            {
-                                await CloseSessionAsync(session, offlineSince.Value, token);
-                                session = null;
-                                sessionPublished = false;
-                                inactivity?.Dispose();
-                                inactivity = null;
-                            }
-                            else
-                            {
-                                await UpdateSessionStateAsync(session, "Waiting", token);
-                            }
+                            await UpdateSessionStateAsync(session, "Waiting", token);
                         }
                         retryDelay = TimeSpan.FromSeconds(monitorIntervalSeconds);
                         continue;
                     }
-                    var liveTime = GetLiveTime(room);
-                    var graceExpired = offlineSince is { } offlineAt && DateTime.UtcNow - offlineAt >= TimeSpan.FromMinutes(settings.SessionGraceMinutes);
-                    if (session is not null && (graceExpired || session.LiveTime > 0 && liveTime > 0 && session.LiveTime != liveTime))
-                    {
-                        await StopEventCaptureAsync(eventCapture);
-                        eventCapture = null;
-                        await CloseSessionAsync(session, offlineSince ?? session.LastMediaAtUtc, token);
-                        session = null;
-                        sessionPublished = false;
-                        inactivity?.Dispose();
-                        inactivity = null;
-                        token = cancellationToken;
-                    }
-                    offlineSince = null;
                     if (AvailableBytes(paths.RecordsDirectory) < settings.MinimumFreeBytes)
                     {
                         throw new InfrastructureException(MessageCode.RECORDING_DISK_SPACE_LOW, 507);
@@ -242,72 +261,77 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                     var source = await bilibili.ResolveStreamAsync(target.RoomId, target.Quality ?? settings.Quality, target.AccountId, token);
                     if (session is null)
                     {
-                        session = PrepareSession(target, room, liveTime, settings);
+                        session = PrepareSession(target, room, GetLiveTime(room), settings);
+                        session.Lifecycle = new()
+                        {
+                            TimeoutAnchorUtc = clock.GetUtcNow().UtcDateTime, LiveTime = GetLiveTime(room)
+                        };
+                        lifecycle = new(session.Lifecycle, clock, settings.SessionGraceMinutes, timeoutMinutes);
+                        lifecycle.ObserveRoom(true, GetLiveTime(room), clock.GetUtcNow().UtcDateTime);
+                        session.Lifecycle = lifecycle.State;
                         sessionPublished = false;
                         publicationPending = true;
-                        inactivity = new(TimeSpan.FromMinutes(timeoutMinutes), clock, cancellationToken);
+                        inactivity = new(TimeSpan.FromMinutes(timeoutMinutes), clock, session.Lifecycle.TimeoutAnchorUtc, cancellationToken);
                         token = inactivity.Token;
                     }
-                    var directory = MediaPaths.Resolve(paths.RecordsDirectory, session.DirectoryPath);
+                    capture ??= await PrepareCaptureAsync(session, token);
+                    var directory = MediaPaths.Resolve(paths.RecordsDirectory, capture.DirectoryPath);
                     var attemptId = Guid.NewGuid().ToString("N");
                     var activeSession = session;
                     var activeTarget = target;
+                    var activeCapture = capture;
+                    var activeLifecycle = lifecycle!;
                     var activity = inactivity!;
-                    var activeEvents = eventCapture;
                     var hasActiveSession = sessionPublished;
                     var needsPublication = publicationPending;
                     var progress = new RecordingAttemptProgress(activity);
                     RecordingProgressSink? sink = null;
+                    eventCapture ??= new(activeSession, activeTarget, directory,
+                        (value, streamer, writer, stop) => CaptureEventsAsync(value, streamer, writer, activeLifecycle,
+                            activeCapture.StartedAtUtc, stop), cancellationToken, activeTarget.RecordDanmu ?? settings.RecordDanmu);
                     try
                     {
                         if (hasActiveSession)
                         {
-                            var sessionId = activeSession.Id;
-                            var existing = await context.Collection<RecordingSegment>("segments").Find(x => x.SessionId == sessionId).ToListAsync(token);
-                            sink = new(activeSession, existing, attemptId, directory, context, publisher, logger);
+                            await RegisterCaptureAsync(activeSession, activeCapture, token);
+                            var existing = await context.Collection<RecordingSegment>("segments").Find(value => value.SessionId == activeSession.Id).ToListAsync(token);
+                            sink = new(activeSession, existing, attemptId, directory, context, publisher, logger,
+                                projections, activeCapture.Id, activeCapture.RelativePathPrefix, activeLifecycle, clock);
                             progress.Activate(sink);
                         }
                         async Task ActivateSessionAsync()
                         {
                             if (!hasActiveSession)
                             {
+                                await RegisterCaptureAsync(activeSession, activeCapture, CancellationToken.None);
                                 hasActiveSession = true;
-                                sink = new(activeSession, [], attemptId, directory, context, publisher, logger);
+                                sink = new(activeSession, [], attemptId, directory, context, publisher, logger,
+                                    projections, activeCapture.Id, activeCapture.RelativePathPrefix, activeLifecycle, clock);
                                 progress.Activate(sink);
                             }
                             if (needsPublication)
                             {
-                                await PublishSessionAsync(activeSession, activeTarget, room, cancellationToken);
+                                await sink!.FlushAsync();
+                                await PublishSessionAsync(activeSession, activeTarget, room, CancellationToken.None);
                                 needsPublication = false;
                             }
-                            await UpdateSessionStateAsync(activeSession, "Recording", cancellationToken);
-                            await UpdateTargetAsync(activeTarget, room, "Recording", null, cancellationToken);
-                            await WriteTaskLogAsync(activeSession, "Capturing", "Information", "Valid media is being captured in the broadcast archive.", cancellationToken);
-                            if ((activeTarget.RecordDanmu ?? settings.RecordDanmu) && activeEvents is null)
-                            {
-                                activeEvents = new(activeSession, activeTarget, directory, CaptureEventsAsync, activity.Token);
-                            }
+                            await UpdateSessionStateAsync(activeSession, "Recording", CancellationToken.None);
+                            await UpdateTargetAsync(activeTarget, room, "Recording", null, CancellationToken.None);
+                            await WriteTaskLogAsync(activeSession, "Capturing", "Information", "Valid media is being captured in the broadcast archive.", CancellationToken.None);
                         }
                         pendingRoom = await RecordUntilRoomChangesAsync(new RecordingRequest
                         {
-                            SessionId = session.Id,
-                            AttemptId = attemptId,
-                            RoomId = target.RoomId,
-                            StreamUrl = source.Url,
-                            Headers = source.Headers.ToDictionary(),
-                            OutputDirectory = directory,
-                            Title = room.Title,
-                            MaxSegmentBytes = target.SegmentBytes ?? settings.SegmentBytes,
-                            StartedAtUtc = DateTime.UtcNow,
-                            SessionStartedAtUtc = session.StartedAtUtc,
+                            SessionId = activeSession.Id, AttemptId = attemptId, RoomId = target.RoomId,
+                            StreamUrl = source.Url, Headers = source.Headers.ToDictionary(), OutputDirectory = directory,
+                            Title = room.Title, MaxSegmentBytes = target.SegmentBytes ?? settings.SegmentBytes,
+                            StartedAtUtc = clock.GetUtcNow().UtcDateTime, SessionStartedAtUtc = activeSession.StartedAtUtc,
                             FileTimeZoneId = settings.TimeZone
-                        }, progress, ActivateSessionAsync, target, session.LiveTime, monitorIntervalSeconds, token);
+                        }, progress, ActivateSessionAsync, target, activeLifecycle, room, monitorIntervalSeconds, token);
                     }
                     finally
                     {
                         sessionPublished = hasActiveSession;
                         publicationPending = needsPublication;
-                        eventCapture = activeEvents;
                         if (sink is not null)
                         {
                             await sink.DisposeAsync();
@@ -334,23 +358,24 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                         SetRecordingError(target, session, error);
                         await TrySaveTargetAsync(target, cancellationToken);
                     }
-                    if (session is not null && sessionPublished)
+                    if (session is not null && sessionPublished && lifecycle is not null)
                     {
+                        lifecycle.Evaluate();
                         await WriteTaskLogAsync(session, "Capturing", "Information",
                             "The configured interval without valid media elapsed; the broadcast archive will close and room monitoring will continue. Interval (minutes): "
                             + timeoutMinutes.ToString(CultureInfo.InvariantCulture) + ".", cancellationToken);
-                        await CloseSessionAsync(session, session.LastMediaAtUtc, cancellationToken);
+                        await CloseSessionAsync(session, capture, lifecycle, cancellationToken);
                     }
                     else if (session is not null)
                     {
                         DiscardDraft(session);
                     }
-                    logger.LogInformation("直播间 {RoomId} 连续 {Minutes} 分钟无有效媒体，结束当前场次并继续监控", target?.RoomId, timeoutMinutes);
                     session = null;
+                    capture = null;
+                    lifecycle = null;
                     sessionPublished = false;
                     publicationPending = false;
                     pendingRoom = null;
-                    offlineSince = null;
                     inactivity.Dispose();
                     inactivity = null;
                     retrySeconds = 2;
@@ -369,10 +394,6 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                         await TrySaveTargetAsync(target, cancellationToken);
                         logger.LogWarning("直播间 {RoomId} 等待重试：{Message}", target.RoomId, error.Message);
                     }
-                    else
-                    {
-                        logger.LogWarning("录制目标 {TargetId} 等待重试：{Message}", id, error.Message);
-                    }
                     retryDelay = TimeSpan.FromSeconds(retrySeconds);
                     retrySeconds = Math.Min(30, retrySeconds * 2);
                 }
@@ -380,8 +401,12 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                 {
                     if (session is not null && !sessionPublished)
                     {
+                        await StopEventCaptureAsync(eventCapture);
+                        eventCapture = null;
                         DiscardDraft(session);
                         session = null;
+                        capture = null;
+                        lifecycle = null;
                         inactivity?.Dispose();
                         inactivity = null;
                         publicationPending = false;
@@ -396,19 +421,16 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         {
             inactivity?.Dispose();
             await StopEventCaptureAsync(eventCapture);
-            if (session is not null && sessionPublished)
+            if (session is not null && sessionPublished && lifecycle is not null)
             {
                 try
                 {
-                    target = await context.Collection<Streamer>("streamers").Find(x => x.Id == id).FirstOrDefaultAsync(CancellationToken.None);
-                    if (target is null || !target.Enabled || !target.IsMonitored)
-                    {
-                        await CloseSessionAsync(session, DateTime.UtcNow, CancellationToken.None);
-                    }
+                    session.Lifecycle = lifecycle.State;
+                    await SealCaptureAsync(session, capture, CancellationToken.None);
                 }
                 catch (Exception error)
                 {
-                    logger.LogWarning("场次停止状态等待数据库恢复：{Message}", error.Message);
+                    logger.LogWarning("场次暂停状态等待数据库恢复：{Message}", error.Message);
                 }
             }
         }
@@ -444,11 +466,11 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         }
     }
 
-    private async Task<LiveRoomSnapshot?> RecordUntilRoomChangesAsync(RecordingRequest request, RecordingAttemptProgress progress, Func<Task> activateSession, Streamer target, long liveTime, int monitorIntervalSeconds, CancellationToken cancellationToken)
+    private async Task<LiveRoomSnapshot?> RecordUntilRoomChangesAsync(RecordingRequest request, RecordingAttemptProgress progress, Func<Task> activateSession, Streamer target, RecordingSessionLifecycle lifecycle, LiveRoomSnapshot initialRoom, int monitorIntervalSeconds, CancellationToken cancellationToken)
     {
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var recording = recorder.RecordAsync(request, progress, lifetime.Token);
-        var roomChange = WaitForRoomChangeAsync(target, liveTime, monitorIntervalSeconds, progress, lifetime.Token);
+        var roomChange = WaitForRoomChangeAsync(request.SessionId, target, lifecycle, initialRoom, monitorIntervalSeconds, progress, lifetime.Token);
         ExceptionDispatchInfo? failure = null;
         var activationStarted = false;
         async Task ActivateAsync()
@@ -500,16 +522,21 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         return roomChange.IsCompletedSuccessfully ? await roomChange : null;
     }
 
-    private async Task<LiveRoomSnapshot> WaitForRoomChangeAsync(Streamer target, long liveTime, int monitorIntervalSeconds, RecordingAttemptProgress progress, CancellationToken cancellationToken)
+    private async Task<LiveRoomSnapshot> WaitForRoomChangeAsync(string sessionId, Streamer target, RecordingSessionLifecycle lifecycle, LiveRoomSnapshot initialRoom, int monitorIntervalSeconds, RecordingAttemptProgress progress, CancellationToken cancellationToken)
     {
         while (true)
         {
+            if (lifecycle.State.LastObservedIsLive == false || lifecycle.Evaluate() != RecordingSessionEndReason.None)
+            {
+                return initialRoom with { IsLive = false };
+            }
             await Task.Delay(TimeSpan.FromSeconds(monitorIntervalSeconds), cancellationToken);
             try
             {
-                var room = await bilibili.GetRoomAsync(target.RoomId, target.AccountId, cancellationToken);
-                var currentLiveTime = GetLiveTime(room);
-                if (!room.IsLive || liveTime > 0 && currentLiveTime > 0 && liveTime != currentLiveTime)
+                var room = await GetRoomWithLifecycleAsync(target, lifecycle, true, monitorIntervalSeconds, cancellationToken);
+                lifecycle.ObserveRoom(room.IsLive, GetLiveTime(room), clock.GetUtcNow().UtcDateTime);
+                await projections.SynchronizeLifecycleAsync(sessionId, lifecycle.State, cancellationToken);
+                if (!room.IsLive || lifecycle.Evaluate() != RecordingSessionEndReason.None)
                 {
                     return room;
                 }
@@ -520,6 +547,32 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                 logger.LogWarning("直播间 {RoomId} 状态查询暂缓，继续当前录制：{Message}", target.RoomId, error.Message);
             }
         }
+    }
+
+    private async Task<LiveRoomSnapshot> GetRoomWithLifecycleAsync(Streamer target, RecordingSessionLifecycle? lifecycle,
+        bool stopOnPreparing, int monitorIntervalSeconds, CancellationToken cancellationToken)
+    {
+        using var lookupStop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var lookup = bilibili.GetRoomAsync(target.RoomId, target.AccountId, lookupStop.Token);
+        while (!lookup.IsCompleted)
+        {
+            await Task.WhenAny(lookup, Task.Delay(TimeSpan.FromSeconds(monitorIntervalSeconds), lookupStop.Token));
+            cancellationToken.ThrowIfCancellationRequested();
+            if (lifecycle is not null && (lifecycle.Evaluate() != RecordingSessionEndReason.None
+                || stopOnPreparing && lifecycle.State.LastObservedIsLive == false))
+            {
+                await lookupStop.CancelAsync();
+                try
+                {
+                    await lookup;
+                }
+                catch (OperationCanceledException) when (lookupStop.IsCancellationRequested)
+                {
+                }
+                return new(target.RoomId, target.Uid, target.Name, target.AvatarUrl, "", "", false, null);
+            }
+        }
+        return await lookup;
     }
 
     private static long GetLiveTime(LiveRoomSnapshot room)
@@ -543,7 +596,8 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         }
     }
 
-    private async Task CaptureEventsAsync(BroadcastSession session, Streamer target, SessionEventWriter writer, CancellationToken cancellationToken)
+    private async Task CaptureEventsAsync(BroadcastSession session, Streamer target, SessionEventWriter? writer,
+        RecordingSessionLifecycle lifecycle, DateTime captureStartedAtUtc, CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -551,10 +605,19 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
             {
                 await bilibili.SubscribeEventsAsync(target.RoomId, target.AccountId, async (item, token) =>
                 {
-                    item.ReceivedAtUtc = item.ReceivedAtUtc == default ? DateTime.UtcNow : item.ReceivedAtUtc;
+                    item.ReceivedAtUtc = item.ReceivedAtUtc == default ? clock.GetUtcNow().UtcDateTime : item.ReceivedAtUtc;
+                    if (item.Command is "PREPARING" or "LIVE")
+                    {
+                        lifecycle.ObserveSignal(item.Command, item.ReceivedAtUtc);
+                        session.Lifecycle = lifecycle.State;
+                        await projections.SynchronizeLifecycleAsync(session.Id, session.Lifecycle, token);
+                    }
                     var time = item.SourceTimeUtc ?? item.ReceivedAtUtc;
-                    item.OffsetMs = Math.Max(0, (time - session.StartedAtUtc).TotalMilliseconds);
-                    await writer.WriteAsync(item, token);
+                    item.OffsetMs = Math.Max(0, (time - captureStartedAtUtc).TotalMilliseconds);
+                    if (writer is not null)
+                    {
+                        await writer.WriteAsync(item, token);
+                    }
                 }, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -566,14 +629,16 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                 session.Error = "弹幕采集缺失：" + error.Message;
                 session.ErrorCode = (error as InfrastructureException)?.Code ?? MessageCode.RECORDING_EVENT_CAPTURE_GAP.ToString();
                 session.ErrorArguments = error is InfrastructureException { Code: not null } businessError ? businessError.Arguments.ToList() : [error.Message];
-                await writer.WriteAsync(new RecordedEventEnvelope
+                if (writer is not null)
                 {
-                    Kind = "Gap",
-                    ReceivedAtUtc = DateTime.UtcNow,
-                    OffsetMs = Math.Max(0, (DateTime.UtcNow - session.StartedAtUtc).TotalMilliseconds),
-                    Text = LocalizedText.Format(MessageCode.RECORDING_EVENT_CONNECTION_LOST.ToString(), "", culture: CultureInfo.InvariantCulture),
-                    TextCode = MessageCode.RECORDING_EVENT_CONNECTION_LOST.ToString()
-                }, cancellationToken);
+                    await writer.WriteAsync(new RecordedEventEnvelope
+                    {
+                        Kind = "Gap", ReceivedAtUtc = clock.GetUtcNow().UtcDateTime,
+                        OffsetMs = Math.Max(0, (clock.GetUtcNow().UtcDateTime - captureStartedAtUtc).TotalMilliseconds),
+                        Text = LocalizedText.Format(MessageCode.RECORDING_EVENT_CONNECTION_LOST.ToString(), "", culture: CultureInfo.InvariantCulture),
+                        TextCode = MessageCode.RECORDING_EVENT_CONNECTION_LOST.ToString()
+                    }, cancellationToken);
+                }
                 logger.LogWarning("直播间 {RoomId} 弹幕将重连：{Message}", target.RoomId, error.Message);
                 await WriteTaskLogAsync(session, "Capturing", "Warning",
                     "The event connection will reconnect; committed events remain in the broadcast archive (" + error.GetType().Name + "). " + error.Message, cancellationToken);
@@ -584,7 +649,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
 
     private BroadcastSession PrepareSession(Streamer target, LiveRoomSnapshot room, long liveTime, ServerSettings settings)
     {
-        var now = DateTime.UtcNow;
+        var now = clock.GetUtcNow().UtcDateTime;
         var zone = TimeZoneInfo.FindSystemTimeZoneById(settings.TimeZone);
         var session = new BroadcastSession
         {
@@ -609,25 +674,54 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
 
     private async Task PublishSessionAsync(BroadcastSession session, Streamer target, LiveRoomSnapshot room, CancellationToken cancellationToken)
     {
-        var directory = MediaPaths.Resolve(paths.RecordsDirectory, session.DirectoryPath);
-        await SessionManifestFiles.WriteAsync(Path.Combine(directory, "场次.json"), new SessionManifest { Session = session }, cancellationToken);
         await JsonFiles.WriteAsync(Path.Combine(paths.RecordsDirectory, target.DirectoryName, "主播信息.json"), room, cancellationToken);
-        await context.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == session.Id, session, new ReplaceOptions { IsUpsert = true }, cancellationToken);
         await TrySaveTargetAsync(target, cancellationToken);
         await publisher.PublishAsync("session", session.Id, cancellationToken: cancellationToken);
         await WriteTaskLogAsync(session, "Capturing", "Information", "The local broadcast archive was published after receiving valid media.",
             cancellationToken, "recording-start:" + session.Id, session.StartedAtUtc);
     }
 
-    private async Task CloseSessionAsync(BroadcastSession session, DateTime end, CancellationToken cancellationToken)
+    private async Task CloseSessionAsync(BroadcastSession session, LocalRecordingCapture? capture,
+        RecordingSessionLifecycle lifecycle, CancellationToken cancellationToken)
     {
-        session.EndedAtUtc = end < session.LastMediaAtUtc ? session.LastMediaAtUtc : end;
-        session.State = "Completed";
+        session.Lifecycle = lifecycle.State;
         await SaveSessionStateAsync(session, cancellationToken);
+        await SealCaptureAsync(session, capture, cancellationToken);
+        session.EndedAtUtc = session.LastMediaAtUtc;
+        session.State = "Completed";
+        await projections.SynchronizeLifecycleAsync(session.Id, session.Lifecycle, cancellationToken);
         await WriteTaskLogAsync(session, "Capturing", "Information", "The local broadcast archive is closed; committed media has been preserved.",
             cancellationToken, "recording-close:" + session.Id + ":" + session.EndedAtUtc.Value.Ticks / TimeSpan.TicksPerMillisecond, session.EndedAtUtc);
         await WriteTaskLogAsync(session, "Uploading", "Information", "The broadcast archive is stored on the main server; no worker upload is required.",
             cancellationToken, "recording-local-archive:" + session.Id + ":" + session.EndedAtUtc.Value.Ticks / TimeSpan.TicksPerMillisecond, session.EndedAtUtc);
+    }
+
+    private async Task<LocalRecordingCapture> PrepareCaptureAsync(BroadcastSession session, CancellationToken cancellationToken)
+    {
+        var captures = await projections.GetBindingsAsync(session.Id, cancellationToken);
+        var id = Guid.NewGuid().ToString("N");
+        var prefix = captures.Count == 0 ? "" : Path.Combine(".captures", id);
+        var relative = Path.Combine(session.DirectoryPath, prefix);
+        Directory.CreateDirectory(MediaPaths.Resolve(paths.RecordsDirectory, relative));
+        return new(id, relative, prefix, captures.Count == 0 ? session.StartedAtUtc : clock.GetUtcNow().UtcDateTime);
+    }
+
+    private Task<RecordingCaptureBinding> RegisterCaptureAsync(BroadcastSession session, LocalRecordingCapture capture, CancellationToken cancellationToken) =>
+        projections.RegisterLocalCaptureAsync(session, capture.Id, capture.DirectoryPath, capture.StartedAtUtc, null, 0, cancellationToken);
+
+    private async Task SealCaptureAsync(BroadcastSession session, LocalRecordingCapture? capture, CancellationToken cancellationToken)
+    {
+        session.State = "Waiting";
+        session.EndedAtUtc = null;
+        if (capture is not null)
+        {
+            var segments = await context.Collection<RecordingSegment>("segments").Find(value => value.SessionId == session.Id).ToListAsync(cancellationToken);
+            await projections.PublishLocalAsync(session, segments, capture.Id, true, cancellationToken);
+        }
+        else if (session.Lifecycle is not null)
+        {
+            await projections.SynchronizeLifecycleAsync(session.Id, session.Lifecycle, cancellationToken);
+        }
     }
 
     private Task WriteTaskLogAsync(BroadcastSession session, string stage, string level, string message, CancellationToken cancellationToken,
@@ -659,15 +753,28 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
     private async Task SaveSessionStateAsync(BroadcastSession session, CancellationToken cancellationToken)
     {
         var segments = await context.Collection<RecordingSegment>("segments").Find(x => x.SessionId == session.Id).ToListAsync(cancellationToken);
+        var update = Builders<BroadcastSession>.Update.Set(x => x.Error, session.Error).Set(x => x.ErrorCode, session.ErrorCode)
+            .Set(x => x.ErrorArguments, session.ErrorArguments);
+        if (session.Lifecycle is null)
+        {
+            update = update.Set(x => x.EndedAtUtc, session.EndedAtUtc).Set(x => x.State, session.State)
+                .Set(x => x.LastMediaReceivedAtUtc, session.LastMediaReceivedAtUtc);
+        }
         var current = await context.Collection<BroadcastSession>("sessions").FindOneAndUpdateAsync(x => x.Id == session.Id,
-            Builders<BroadcastSession>.Update.Set(x => x.EndedAtUtc, session.EndedAtUtc).Set(x => x.State, session.State)
-                .Set(x => x.Error, session.Error).Set(x => x.ErrorCode, session.ErrorCode).Set(x => x.ErrorArguments, session.ErrorArguments),
+            update,
             new FindOneAndUpdateOptions<BroadcastSession> { ReturnDocument = ReturnDocument.After }, cancellationToken);
         if (current is null)
         {
             await context.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == session.Id, session, new ReplaceOptions { IsUpsert = true }, cancellationToken);
         }
-        await SessionManifestFiles.WriteAsync(Path.Combine(MediaPaths.Resolve(paths.RecordsDirectory, session.DirectoryPath), "场次.json"), new SessionManifest { Session = current ?? session, Segments = segments }, cancellationToken);
+        if (session.Lifecycle is not null)
+        {
+            await projections.SynchronizeLifecycleAsync(session.Id, session.Lifecycle, cancellationToken);
+        }
+        else
+        {
+            await SessionManifestFiles.WriteAsync(Path.Combine(MediaPaths.Resolve(paths.RecordsDirectory, session.DirectoryPath), "场次.json"), new SessionManifest { Session = current ?? session, Segments = segments }, cancellationToken);
+        }
         await publisher.PublishAsync("session", session.Id, cancellationToken: cancellationToken);
     }
 
@@ -682,7 +789,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         target.Error = error;
         target.ErrorCode = null;
         target.ErrorArguments = [];
-        target.LastCheckedAtUtc = DateTime.UtcNow;
+        target.LastCheckedAtUtc = clock.GetUtcNow().UtcDateTime;
         await TrySaveTargetAsync(target, cancellationToken);
     }
 
@@ -724,11 +831,31 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                 {
                     continue;
                 }
+                if (manifest.Captures.Count == 0 && manifest.Session.RecordingAssignmentId is null && manifest.Segments.Count > 0)
+                {
+                    manifest.Captures.Add(new()
+                    {
+                        Id = manifest.Session.Id, LogicalSessionId = manifest.Session.Id, DirectoryPath = manifest.Session.DirectoryPath,
+                        StartedAtUtc = manifest.Session.StartedAtUtc, IsLocal = true, IsClosed = true,
+                        HasDanmu = manifest.Session.HasDanmu, LastMediaReceivedAtUtc = manifest.Session.LastMediaReceivedAtUtc
+                    });
+                }
+                foreach (var capture in manifest.Captures)
+                {
+                    if (capture.IsLocal)
+                    {
+                        capture.IsClosed = true;
+                    }
+                    await context.Collection<RecordingCaptureBinding>("recordingCaptureBindings").ReplaceOneAsync(value => value.Id == capture.Id,
+                        capture, new ReplaceOptions { IsUpsert = true }, cancellationToken);
+                }
+                await RestoreLocalActivityAsync(manifest, cancellationToken);
                 await context.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == manifest.Session.Id, manifest.Session, new ReplaceOptions { IsUpsert = true }, cancellationToken);
                 foreach (var segment in manifest.Segments)
                 {
                     segment.AssetId = TranscodeAssetRegistry.AssetId(manifest.Session, segment);
-                    if (manifest.Session.RecordingAssignmentId is null)
+                    var relative = segment.RootRelativePath ?? Path.Combine(manifest.Session.DirectoryPath, segment.RelativePath);
+                    if (manifest.Captures.Any(value => value.IsLocal && relative.StartsWith(value.DirectoryPath + Path.DirectorySeparatorChar, StringComparison.Ordinal)))
                     {
                         segment.IsClosed = true;
                     }
@@ -742,13 +869,51 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         }
         await segmentTrash.ReconcileUnderLibraryLockAsync(cancellationToken);
         await grouping.ReconcileUnderLibraryLockAsync(cancellationToken);
-        var unfinished = await context.Collection<BroadcastSession>("sessions").Find(x => x.EndedAtUtc == null && !x.IsHidden && x.RecordingAssignmentId == null).ToListAsync(cancellationToken);
-        foreach (var session in unfinished)
+    }
+
+    private async Task RestoreLocalActivityAsync(SessionManifest manifest, CancellationToken cancellationToken)
+    {
+        var received = manifest.Session.LastMediaReceivedAtUtc;
+        foreach (var segment in manifest.Segments.Where(value => value.DurationMs > 0))
         {
-            var target = await context.Collection<Streamer>("streamers").Find(x => x.Id == session.StreamerId).FirstOrDefaultAsync(cancellationToken);
-            if (target is null || !target.Enabled || !target.IsMonitored)
+            var relative = segment.RootIndexRelativePath ?? Path.Combine(manifest.Session.DirectoryPath, segment.IndexRelativePath);
+            if (!manifest.Captures.Any(value => value.IsLocal && relative.StartsWith(value.DirectoryPath + Path.DirectorySeparatorChar, StringComparison.Ordinal)))
             {
-                await CloseSessionAsync(session, session.LastMediaAtUtc, cancellationToken);
+                continue;
+            }
+            var index = MediaPaths.Resolve(paths.RecordsDirectory, relative);
+            if (!File.Exists(index))
+            {
+                continue;
+            }
+            using var reader = new StreamReader(index);
+            while (await reader.ReadLineAsync(cancellationToken) is { } line)
+            {
+                try
+                {
+                    using var document = JsonDocument.Parse(line);
+                    if (document.RootElement.TryGetProperty("lastMediaReceivedAtUtc", out var stamp)
+                        && stamp.ValueKind == JsonValueKind.String && stamp.TryGetDateTime(out var value)
+                        && (received is null || value > received))
+                    {
+                        received = value;
+                    }
+                }
+                catch (JsonException)
+                {
+                }
+            }
+        }
+        if (manifest.Session.Lifecycle is { Revision: > 0, LastMediaReceivedAtUtc: not null } lifecycle)
+        {
+            manifest.Session.LastMediaReceivedAtUtc = lifecycle.LastMediaReceivedAtUtc;
+        }
+        else
+        {
+            manifest.Session.LastMediaReceivedAtUtc = received;
+            if (manifest.Session.Lifecycle is not null)
+            {
+                manifest.Session.Lifecycle.LastMediaReceivedAtUtc = received;
             }
         }
     }

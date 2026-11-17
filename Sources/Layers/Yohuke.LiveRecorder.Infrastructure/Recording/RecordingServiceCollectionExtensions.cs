@@ -9,6 +9,7 @@ public static class RecordingServiceCollectionExtensions
     public static IServiceCollection AddLiveRecorderRecording(this IServiceCollection services)
     {
         services.AddSingleton<RecordingOwnershipService>();
+        services.AddSingleton<RecordingSessionProjectionService>();
         services.AddSingleton<RecordingWorkerAssignmentService>();
         services.AddSingleton<RecordingAccountProvider>();
         services.AddSingleton<RecordingJobScheduler>();

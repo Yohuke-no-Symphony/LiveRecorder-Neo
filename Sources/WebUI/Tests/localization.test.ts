@@ -24,6 +24,18 @@ afterEach(() =>
 
 describe('运行时界面语言', () =>
 {
+  it('逻辑场次收尾状态随界面语言显示归档进度', async () =>
+  {
+    const wrapper = mount(StatusChip, { props: { status: 'Finalizing' }, global: { plugins: [i18n], stubs: { VChip: container } } })
+    mounted.push(wrapper)
+    for (const [language, label] of [['zh-CN', '归档收尾'], ['en-US', 'Finalizing archive'], ['ja-JP', 'アーカイブの確定中']] as const)
+    {
+      i18n.global.locale.value = language
+      await nextTick()
+      expect(wrapper.text()).toBe(label)
+    }
+  })
+
   it('Worker在线与离线三语状态独立于有效和未开播状态', async () =>
   {
     const statuses = ['online', 'disconnected', 'valid', 'offline']

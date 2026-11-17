@@ -20,11 +20,18 @@ public sealed class RecordingProgressSink : IProgress<MediaRecordingUpdate>, IAs
     private readonly Dictionary<string, RecordingSegment> segments;
     private readonly CancellationTokenSource stop = new();
     private readonly Task persister;
+    private readonly RecordingSessionProjectionService? projection;
+    private readonly string? captureId;
+    private readonly string relativePathPrefix;
+    private readonly RecordingSessionLifecycle? lifecycle;
+    private readonly TimeProvider clock;
     private bool dirty;
     private readonly HashSet<string> dirtySegments = [];
 
     /// <summary>从已有分段恢复同一场次的进度。</summary>
-    public RecordingProgressSink(BroadcastSession session, IEnumerable<RecordingSegment> existing, string attemptId, string directory, IMongoContext context, IStatusPublisher publisher, ILogger logger)
+    public RecordingProgressSink(BroadcastSession session, IEnumerable<RecordingSegment> existing, string attemptId, string directory, IMongoContext context, IStatusPublisher publisher, ILogger logger,
+        RecordingSessionProjectionService? projection = null, string? captureId = null, string relativePathPrefix = "",
+        RecordingSessionLifecycle? lifecycle = null, TimeProvider? timeProvider = null)
     {
         this.session = session;
         this.attemptId = attemptId;
@@ -32,6 +39,11 @@ public sealed class RecordingProgressSink : IProgress<MediaRecordingUpdate>, IAs
         this.context = context;
         this.publisher = publisher;
         this.logger = logger;
+        this.projection = projection;
+        this.captureId = captureId;
+        this.relativePathPrefix = relativePathPrefix;
+        this.lifecycle = lifecycle;
+        clock = timeProvider ?? TimeProvider.System;
         segments = existing.ToDictionary(x => x.Id);
         persister = PersistLoopAsync();
     }
@@ -49,11 +61,25 @@ public sealed class RecordingProgressSink : IProgress<MediaRecordingUpdate>, IAs
                     AssetId = value.SegmentId,
                     SessionId = session.Id,
                     AttemptId = attemptId,
-                    RelativePath = value.RelativePath,
-                    IndexRelativePath = value.IndexRelativePath,
+                    RelativePath = Path.Combine(relativePathPrefix, value.RelativePath),
+                    IndexRelativePath = Path.Combine(relativePathPrefix, value.IndexRelativePath),
                     StartOffsetMs = value.StartOffsetMs
                 };
                 segments.Add(segment.Id, segment);
+            }
+            if (value.Kind == "Committed" && value.CommittedBytes > segment.CommittedBytes && value.DurationMs > segment.DurationMs)
+            {
+                var received = value.LastMediaReceivedAtUtc ?? value.CommitSnapshot?.LastMediaReceivedAtUtc ?? clock.GetUtcNow().UtcDateTime;
+                if (lifecycle is not null)
+                {
+                    lifecycle.ReportMedia(received);
+                    session.Lifecycle = lifecycle.State;
+                    session.LastMediaReceivedAtUtc = session.Lifecycle.LastMediaReceivedAtUtc;
+                }
+                else if (session.LastMediaReceivedAtUtc is null || received > session.LastMediaReceivedAtUtc)
+                {
+                    session.LastMediaReceivedAtUtc = received;
+                }
             }
             segment.CommittedBytes = Math.Max(segment.CommittedBytes, value.CommittedBytes);
             segment.DurationMs = Math.Max(segment.DurationMs, value.DurationMs);
@@ -66,6 +92,9 @@ public sealed class RecordingProgressSink : IProgress<MediaRecordingUpdate>, IAs
             dirtySegments.Add(segment.Id);
         }
     }
+
+    /// <summary>提交已合并的媒体和生命周期事实，不等待后台批处理周期。</summary>
+    public Task FlushAsync() => PersistAsync(true);
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
@@ -106,15 +135,27 @@ public sealed class RecordingProgressSink : IProgress<MediaRecordingUpdate>, IAs
             dirtySegments.Clear();
             dirty = false;
         }
-        await SessionManifestFiles.WriteAsync(Path.Combine(directory, "场次.json"), manifest);
+        if (projection is null)
+        {
+            await SessionManifestFiles.WriteAsync(Path.Combine(directory, "场次.json"), manifest);
+        }
         try
         {
+            if (projection is not null && captureId is not null)
+            {
+                await context.Collection<BroadcastSession>("sessions").UpdateOneAsync(value => value.Id == session.Id,
+                    Builders<BroadcastSession>.Update.Set(value => value.Error, session.Error).Set(value => value.ErrorCode, session.ErrorCode)
+                        .Set(value => value.ErrorArguments, session.ErrorArguments));
+                await projection.PublishLocalAsync(session, manifest.Segments, captureId, false, CancellationToken.None);
+                return;
+            }
             foreach (var segment in changed)
             {
                 await context.Collection<RecordingSegment>("segments").ReplaceOneAsync(x => x.Id == segment.Id, segment, new ReplaceOptions { IsUpsert = true });
             }
             await context.Collection<BroadcastSession>("sessions").UpdateOneAsync(x => x.Id == session.Id,
                 Builders<BroadcastSession>.Update.Set(x => x.LastMediaAtUtc, session.LastMediaAtUtc).Set(x => x.TotalBytes, session.TotalBytes)
+                    .Set(x => x.LastMediaReceivedAtUtc, session.LastMediaReceivedAtUtc).Set(x => x.Lifecycle, session.Lifecycle)
                     .Set(x => x.Error, session.Error).Set(x => x.ErrorCode, session.ErrorCode).Set(x => x.ErrorArguments, session.ErrorArguments)
                     .Set(x => x.State, session.State).Set(x => x.HasDanmu, session.HasDanmu));
             await publisher.PublishAsync("session", session.Id);

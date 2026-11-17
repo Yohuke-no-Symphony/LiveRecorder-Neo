@@ -11,6 +11,7 @@ public sealed record MediaRecordingCommitSnapshot
     public long IndexCommittedBytes { get; init; }
     public double StartOffsetMs { get; init; }
     public double DurationMs { get; init; }
+    public DateTime? LastMediaReceivedAtUtc { get; init; }
     public string Codec { get; init; } = "avc";
     public int PrefixLength { get; init; }
     public string PrefixSha256 { get; init; } = "";

@@ -20,19 +20,29 @@ namespace Yohuke.LiveRecorder.Infrastructure.Recording;
 
 /// <summary>Receives durable recording spools and exposes only coherent media, prefix and event commit boundaries.</summary>
 public sealed class RecordingIngestService(IMongoContext context, IAppPaths paths, ISettingsStore settingsStore,
-    RecordingOwnershipService ownership, IStatusPublisher publisher) : IDisposable
+    RecordingOwnershipService ownership, IStatusPublisher publisher, RecordingSessionProjectionService? projection = null) : IDisposable
 {
     private const int MAX_CHUNK_BYTES = 8 * 1024 * 1024;
     private readonly SemaphoreSlim[] gates = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
+    private readonly RecordingSessionProjectionService projections = projection ?? new(context, paths, settingsStore, publisher);
 
     /// <summary>Creates or seals a stable remote broadcast without overwriting an existing local or different-owner session.</summary>
     public async Task RegisterSessionAsync(string workerId, string assignmentId, int generation, string token,
         RecordingSessionDescriptor descriptor, CancellationToken cancellationToken)
     {
+        if (descriptor.LogicalSessionId is null && descriptor.Lifecycle is not null)
+        {
+            descriptor = descriptor with { LogicalSessionId = descriptor.SessionId, LogicalStartedAtUtc = descriptor.StartedAtUtc };
+        }
         RecordingIngestPaths.RequireId(descriptor.SessionId);
+        if (descriptor.LogicalSessionId is not null)
+        {
+            RecordingIngestPaths.RequireId(descriptor.LogicalSessionId);
+        }
         if (descriptor.RoomId <= 0 || descriptor.StartedAtUtc == default || descriptor.Title.Length > 1024
             || descriptor.StreamerName.Length > 256 || descriptor.IsClosed && descriptor.EndedAtUtc is null
-            || descriptor.EndedAtUtc < descriptor.StartedAtUtc)
+            || descriptor.EndedAtUtc < descriptor.StartedAtUtc
+            || descriptor.LogicalSessionId is not null && (descriptor.LogicalStartedAtUtc is null || descriptor.LogicalStartedAtUtc > descriptor.StartedAtUtc))
         {
             throw new InfrastructureException("录像场次描述无效。");
         }
@@ -67,6 +77,16 @@ public sealed class RecordingIngestService(IMongoContext context, IAppPaths path
                     Id = descriptor.SessionId, AssignmentId = assignmentId, Generation = generation, Descriptor = descriptor,
                     DirectoryPath = Path.Combine(folder, date + "_" + MediaPaths.SafeName(descriptor.Title) + "_" + descriptor.SessionId[..Math.Min(8, descriptor.SessionId.Length)])
                 };
+                if (descriptor.LogicalSessionId is { } logicalId && logicalId != descriptor.SessionId)
+                {
+                    var logical = await context.Collection<BroadcastSession>("sessions").Find(value => value.Id == logicalId)
+                        .FirstOrDefaultAsync(cancellationToken) ?? throw new InfrastructureException("接续逻辑场次不存在。", 409);
+                    receipt.DirectoryPath = Path.Combine(logical.DirectoryPath, ".captures", descriptor.SessionId);
+                }
+                if (descriptor.LogicalSessionId is not null)
+                {
+                    await projections.RegisterRemoteCaptureUnderLibraryLockAsync(assignment, receipt, cancellationToken);
+                }
                 Directory.CreateDirectory(MediaPaths.Resolve(paths.RecordsDirectory, receipt.DirectoryPath));
                 await Sessions.InsertOneAsync(receipt, cancellationToken: cancellationToken);
                 if (target is not null)
@@ -79,8 +99,13 @@ public sealed class RecordingIngestService(IMongoContext context, IAppPaths path
             else
             {
                 RequireSessionIdentity(receipt, assignment, descriptor.SessionId);
+                var upgrading = receipt.Descriptor.LogicalSessionId is null && receipt.Descriptor.Lifecycle is null
+                    && descriptor.LogicalSessionId == receipt.Id && descriptor.Lifecycle is not null
+                    && descriptor.LogicalStartedAtUtc?.Ticks / TimeSpan.TicksPerMillisecond == receipt.Descriptor.StartedAtUtc.Ticks / TimeSpan.TicksPerMillisecond;
                 if (receipt.Descriptor.StartedAtUtc.Ticks / TimeSpan.TicksPerMillisecond != descriptor.StartedAtUtc.Ticks / TimeSpan.TicksPerMillisecond
-                    || receipt.Descriptor.LiveTime != descriptor.LiveTime)
+                    || receipt.Descriptor.LiveTime != descriptor.LiveTime
+                    || !upgrading && (receipt.Descriptor.LogicalSessionId != descriptor.LogicalSessionId
+                        || receipt.Descriptor.LogicalStartedAtUtc?.Ticks / TimeSpan.TicksPerMillisecond != descriptor.LogicalStartedAtUtc?.Ticks / TimeSpan.TicksPerMillisecond))
                 {
                     throw new InfrastructureException("录像场次固定时间身份已改变。", 409);
                 }
@@ -118,7 +143,7 @@ public sealed class RecordingIngestService(IMongoContext context, IAppPaths path
                 await Sessions.UpdateOneAsync(value => value.Id == receipt.Id && value.FinalizedAtUtc == null,
                     Builders<RecordingSessionReceipt>.Update.Set(value => value.FinalizedAtUtc, receipt.FinalizedAtUtc),
                     cancellationToken: cancellationToken);
-                await publisher.PublishAsync("session", receipt.Id, cancellationToken: cancellationToken);
+                await publisher.PublishAsync("session", RecordingSessionProjectionService.LogicalId(receipt), cancellationToken: cancellationToken);
             }
         }
         finally
@@ -543,6 +568,15 @@ public sealed class RecordingIngestService(IMongoContext context, IAppPaths path
                 StartOffsetMs = commit.StartOffsetMs, DurationMs = commit.DurationMs, CommittedBytes = commit.MediaCommittedBytes,
                 Codec = commit.Codec, IsClosed = commit.IsClosed
             };
+            if (session.Descriptor.LogicalSessionId is { } logicalId)
+            {
+                var logical = await context.Collection<BroadcastSession>("sessions").Find(value => value.Id == logicalId).FirstOrDefaultAsync(cancellationToken);
+                var started = logical?.StartedAtUtc ?? session.Descriptor.LogicalStartedAtUtc ?? session.Descriptor.StartedAtUtc;
+                librarySegment.SessionId = logicalId;
+                librarySegment.StartOffsetMs += (session.Descriptor.StartedAtUtc - started).TotalMilliseconds;
+                librarySegment.RootRelativePath = Path.Combine(session.DirectoryPath, librarySegment.RelativePath);
+                librarySegment.RootIndexRelativePath = Path.Combine(session.DirectoryPath, librarySegment.IndexRelativePath);
+            }
             await context.Collection<RecordingSegment>("segments").ReplaceOneAsync(value => value.Id == segment.Id,
                 librarySegment, new ReplaceOptions { IsUpsert = true }, cancellationToken);
             session.Published = true;
@@ -560,6 +594,14 @@ public sealed class RecordingIngestService(IMongoContext context, IAppPaths path
             return;
         }
         await RequireActiveLibraryAsync(receipt, cancellationToken);
+        if (receipt.Descriptor.LogicalSessionId is not null)
+        {
+            await projections.PublishRemoteUnderLibraryLockAsync(assignment, receipt, await IsSealedAsync(receipt, cancellationToken), cancellationToken);
+            receipt.LibraryPublished = true;
+            await Sessions.UpdateOneAsync(value => value.Id == receipt.Id,
+                Builders<RecordingSessionReceipt>.Update.Set(value => value.LibraryPublished, true), cancellationToken: cancellationToken);
+            return;
+        }
         var descriptor = receipt.Descriptor;
         var segments = await context.Collection<RecordingSegment>("segments").Find(value => value.SessionId == receipt.Id).ToListAsync(cancellationToken);
         var existing = await context.Collection<BroadcastSession>("sessions").Find(value => value.Id == receipt.Id).FirstOrDefaultAsync(cancellationToken);
@@ -616,9 +658,11 @@ public sealed class RecordingIngestService(IMongoContext context, IAppPaths path
         {
             return true;
         }
-        var session = await context.Collection<BroadcastSession>("sessions").Find(value => value.Id == receipt.Id).FirstOrDefaultAsync(cancellationToken);
+        var logicalId = RecordingSessionProjectionService.LogicalId(receipt);
+        var session = await context.Collection<BroadcastSession>("sessions").Find(value => value.Id == logicalId).FirstOrDefaultAsync(cancellationToken);
         return session is null ? receipt.LibraryPublished
-            : session.IsTrashed || session.IsHidden || !session.ProjectionReady || session.RecordingAssignmentId != receipt.AssignmentId || session.MediaRevision != 1;
+            : session.IsTrashed || session.IsHidden || !session.ProjectionReady
+              || receipt.Descriptor.LogicalSessionId is null && session.RecordingAssignmentId != receipt.AssignmentId || session.MediaRevision != 1;
     }
 
     private async Task RequireActiveLibraryAsync(RecordingSessionReceipt receipt, CancellationToken cancellationToken)

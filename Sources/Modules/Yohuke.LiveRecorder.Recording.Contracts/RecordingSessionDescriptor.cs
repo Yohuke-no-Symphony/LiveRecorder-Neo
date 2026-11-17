@@ -4,6 +4,9 @@ namespace Yohuke.LiveRecorder.Recording.Contracts;
 public sealed record RecordingSessionDescriptor
 {
     public string SessionId { get; init; } = "";
+    public string? LogicalSessionId { get; init; }
+    public DateTime? LogicalStartedAtUtc { get; init; }
+    public RecordingSessionLifecycleState? Lifecycle { get; init; }
     public long RoomId { get; init; }
     public long LiveTime { get; init; }
     public DateTime StartedAtUtc { get; init; }

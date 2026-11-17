@@ -13,14 +13,16 @@ internal sealed class FlvArchiveTargetProvider : IFlvWriterTargetProvider
     private double nextOffsetMs;
     private readonly bool collectOutputs;
     private readonly RecordingCommitSnapshotStore? snapshots;
+    private readonly TimeProvider timeProvider;
     private string? lastOutputPath;
 
-    internal FlvArchiveTargetProvider(RecordingRequest request, IProgress<MediaRecordingUpdate> progress, bool collectOutputs = true)
+    internal FlvArchiveTargetProvider(RecordingRequest request, IProgress<MediaRecordingUpdate> progress, bool collectOutputs = true, TimeProvider? timeProvider = null)
     {
         this.request = request;
         this.progress = progress;
         this.collectOutputs = collectOutputs;
         snapshots = request.CaptureCommitSnapshots ? new(request.OutputDirectory) : null;
+        this.timeProvider = timeProvider ?? TimeProvider.System;
         var started = request.StartedAtUtc == default ? DateTime.UtcNow : request.StartedAtUtc;
         var sessionStarted = request.SessionStartedAtUtc == default ? started : request.SessionStartedAtUtc;
         nextOffsetMs = Math.Max(0, (started - sessionStarted).TotalMilliseconds);
@@ -97,7 +99,8 @@ internal sealed class FlvArchiveTargetProvider : IFlvWriterTargetProvider
             Offset = current.CommittedBytes,
             TimestampMs = current.DurationMs,
             SessionOffsetMs = current.StartOffsetMs + current.DurationMs,
-            ReceivedAtUtc = DateTime.UtcNow
+            ReceivedAtUtc = timeProvider.GetUtcNow().UtcDateTime,
+            LastMediaReceivedAtUtc = current.LastMediaReceivedAtUtc
         });
         await current.IndexWriter.FlushAsync();
         PublishBoundary(current, isClosed: false);
@@ -118,7 +121,8 @@ internal sealed class FlvArchiveTargetProvider : IFlvWriterTargetProvider
             Offset = current.CommittedBytes,
             TimestampMs = current.DurationMs,
             SessionOffsetMs = current.StartOffsetMs + current.DurationMs,
-            ReceivedAtUtc = DateTime.UtcNow
+            ReceivedAtUtc = timeProvider.GetUtcNow().UtcDateTime,
+            LastMediaReceivedAtUtc = current.LastMediaReceivedAtUtc
         }, MediaJson.Options));
         current.IndexWriter.Flush();
         PublishBoundary(current, isClosed: true);
@@ -167,6 +171,7 @@ internal sealed class FlvArchiveTargetProvider : IFlvWriterTargetProvider
             DurationMs = state.DurationMs,
             CommittedBytes = state.CommittedBytes,
             IndexCommittedBytes = state.IndexCommittedBytes,
+            LastMediaReceivedAtUtc = state.LastMediaReceivedAtUtc,
             Codec = state.Codec,
             CommitSnapshot = state.CommitSnapshot
         });

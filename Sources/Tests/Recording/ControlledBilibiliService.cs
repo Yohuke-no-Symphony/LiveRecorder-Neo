@@ -7,6 +7,7 @@ namespace Yohuke.LiveRecorder.Recording.Tests;
 internal sealed class ControlledBilibiliService : IBilibiliService
 {
     internal ConcurrentDictionary<long, ControlledRoom> Rooms { get; } = new();
+    internal TimeProvider Clock { get; set; } = TimeProvider.System;
 
     public async Task<LiveRoomSnapshot> GetRoomAsync(long roomId, string? accountId = null, CancellationToken cancellationToken = default)
     {
@@ -30,7 +31,9 @@ internal sealed class ControlledBilibiliService : IBilibiliService
             while (!cancellationToken.IsCancellationRequested)
             {
                 var sequence = room.NextEvent();
-                await onEvent(new() { EventId = $"fixture:{roomId}:{sequence}", Kind = "Danmu", Command = "DANMU_MSG", ReceivedAtUtc = DateTime.UtcNow, SourceTimeUtc = DateTime.UtcNow, UserId = "42", UserName = "测试观众", Text = $"弹幕 {sequence}", RawJson = "{\"cmd\":\"DANMU_MSG\"}" }, cancellationToken);
+                var now = Clock.GetUtcNow().UtcDateTime;
+                var signal = room.TryTakeSignal(out var command);
+                await onEvent(new() { EventId = $"fixture:{roomId}:{sequence}", Kind = signal ? "LiveState" : "Danmu", Command = signal ? command! : "DANMU_MSG", ReceivedAtUtc = now, SourceTimeUtc = now, UserId = "42", UserName = "测试观众", Text = signal ? "" : $"弹幕 {sequence}", RawJson = "{\"cmd\":\"DANMU_MSG\"}" }, cancellationToken);
                 await Task.Delay(200, cancellationToken);
             }
         }

@@ -42,7 +42,7 @@ internal sealed class WorkerControlGenerationTestContext : IAsyncDisposable
             InitialConfiguration = new() { TempDirectory = fixture.Jobs.DirectoryPath, MinimumFreeBytes = 0 },
             Capabilities = new()
             {
-                ClippingVersion = 1, RecordingVersion = 1, HlsPackagingVersion = 1,
+                ClippingVersion = 1, RecordingVersion = 2, HlsPackagingVersion = 1,
                 Encoders = [new() { Encoder = "h264_nvenc", Available = true }]
             }
         }, CancellationToken.None);

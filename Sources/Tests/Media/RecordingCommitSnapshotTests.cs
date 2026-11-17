@@ -122,6 +122,81 @@ public sealed class RecordingCommitSnapshotTests
         Assert.True(File.Exists(Path.Combine(fixture.DirectoryPath, closed.PrefixRelativePath)));
     }
 
+    /// <summary>关闭和最后刷新保留源媒体接收戳，并把同一时间写入提交与索引。</summary>
+    [Fact]
+    public async Task ClosingAFilePreservesTheLastRealMediaReceiptTime()
+    {
+        using var fixture = new MediaFixture();
+        var source = await fixture.CreateSampleAsync(duration: 4);
+        using var client = new HttpClient(new RecordingHttpHandler(await File.ReadAllBytesAsync(source)));
+        var received = new DateTimeOffset(2026, 11, 17, 1, 2, 3, TimeSpan.Zero);
+        var clock = new MediaTestTimeProvider(received);
+        var recorder = new FlvMediaRecorder(client, Options.Create(new MediaToolOptions()), fixture.Settings, clock);
+        using var cancellation = new CancellationTokenSource();
+        var updates = new List<MediaRecordingUpdate>();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => recorder.RecordAsync(new()
+        {
+            StreamUrl = "https://example.invalid/live.flv",
+            OutputDirectory = fixture.DirectoryPath,
+            StartedAtUtc = received.UtcDateTime,
+            SessionStartedAtUtc = received.UtcDateTime,
+            CaptureCommitSnapshots = true
+        }, new InlineProgress<MediaRecordingUpdate>(update =>
+        {
+            updates.Add(update);
+            if (update.Kind == "Committed" && update.DurationMs > 900 && !cancellation.IsCancellationRequested)
+            {
+                clock.Now += TimeSpan.FromMinutes(5);
+                cancellation.Cancel();
+            }
+        }), cancellation.Token));
+
+        var closed = Assert.Single(updates, update => update.Kind == "Closed");
+        Assert.Equal(received.UtcDateTime, closed.LastMediaReceivedAtUtc);
+        Assert.Equal(received.UtcDateTime, closed.CommitSnapshot!.LastMediaReceivedAtUtc);
+        Assert.All(updates.Where(update => update.DurationMs > 0), update => Assert.Equal(received.UtcDateTime, update.LastMediaReceivedAtUtc));
+        var entries = (await File.ReadAllLinesAsync(Path.Combine(fixture.DirectoryPath, closed.IndexRelativePath)))
+            .Select(line => JsonSerializer.Deserialize<FlvIndexEntry>(line, new JsonSerializerOptions(JsonSerializerDefaults.Web))!).ToArray();
+        Assert.All(entries.Where(entry => entry.Kind == "Committed"), entry => Assert.Equal(received.UtcDateTime, entry.LastMediaReceivedAtUtc));
+    }
+
+    /// <summary>只有元数据的输出不产生有效媒体接收时间。</summary>
+    [Fact]
+    public async Task HeaderOnlyInputDoesNotPublishMediaActivity()
+    {
+        using var fixture = new MediaFixture();
+        var source = await fixture.CreateSampleAsync(duration: 1);
+        var bytes = await File.ReadAllBytesAsync(source);
+        var offset = 13;
+        while (offset + 15 <= bytes.Length)
+        {
+            var size = bytes[offset + 1] << 16 | bytes[offset + 2] << 8 | bytes[offset + 3];
+            var header = bytes[offset] is 8 or 9 && size > 1 && bytes[offset + 12] == 0;
+            if (bytes[offset] != 18 && !header)
+            {
+                break;
+            }
+            offset += 15 + size;
+        }
+        Assert.InRange(offset, 14, bytes.Length - 1);
+        using var client = new HttpClient(new RecordingHttpHandler(bytes[..offset]));
+        var clock = new MediaTestTimeProvider(new(2026, 11, 17, 1, 2, 3, TimeSpan.Zero));
+        var recorder = new FlvMediaRecorder(client, Options.Create(new MediaToolOptions()), fixture.Settings, clock);
+        var updates = new List<MediaRecordingUpdate>();
+
+        await recorder.RecordAsync(new()
+        {
+            StreamUrl = "https://example.invalid/live.flv",
+            OutputDirectory = fixture.DirectoryPath,
+            StartedAtUtc = clock.Now.UtcDateTime,
+            SessionStartedAtUtc = clock.Now.UtcDateTime,
+            CaptureCommitSnapshots = true
+        }, new InlineProgress<MediaRecordingUpdate>(updates.Add), CancellationToken.None);
+
+        Assert.Empty(updates);
+        Assert.False(Directory.Exists(Path.Combine(fixture.DirectoryPath, "录制提交")));
+    }
+
     /// <summary>Existing local recording does not create a spool or metadata snapshot files.</summary>
     [Fact]
     public async Task LocalRecordingKeepsSnapshotsDisabledByDefault()

@@ -32,6 +32,7 @@ internal sealed class RecordingCommitSnapshotStore(string directory)
             IndexCommittedBytes = state.IndexCommittedBytes,
             StartOffsetMs = state.StartOffsetMs,
             DurationMs = state.DurationMs,
+            LastMediaReceivedAtUtc = state.LastMediaReceivedAtUtc,
             Codec = state.Codec,
             PrefixLength = prefix.Length,
             PrefixSha256 = hash,

@@ -92,6 +92,10 @@ Linux systemd 示例：[live-recorder.service](https://github.com/Yohuke-no-Symp
 
 新录播结束后自动排队，历史录播需手动发起。原片保留，转码未完成或失败时回退原画；修改档位不会自动重转历史录像。成品保存在录像目录的 `.derived/`。
 
+## 录制场次
+
+录制场次在下播后先等待同场重连；期限内恢复或切换采集节点继续同一场。持续离线达到 `SessionGraceMinutes`，或持续无有效音视频达到 `StreamDisconnectTimeoutMinutes`，任一到期才结束。停录和节点交接只停止采集，重启不重置已经累计的等待时间。逻辑结束与归档补传完成分别判定。
+
 ## 测试
 
 从仓库根目录按改动选择测试项目：

@@ -43,7 +43,8 @@ internal sealed class RecordingFileTransfer : IDisposable
             CommitSequence = snapshot.CommitSequence, MediaCommittedBytes = snapshot.MediaCommittedBytes,
             IndexCommittedBytes = snapshot.IndexCommittedBytes, PrefixLength = snapshot.PrefixLength,
             PrefixSha256 = snapshot.PrefixSha256, StartOffsetMs = snapshot.StartOffsetMs,
-            DurationMs = snapshot.DurationMs, Codec = snapshot.Codec, IsClosed = snapshot.IsClosed
+            DurationMs = snapshot.DurationMs, LastMediaReceivedAtUtc = snapshot.LastMediaReceivedAtUtc,
+            Codec = snapshot.Codec, IsClosed = snapshot.IsClosed
         };
         var acknowledgement = await client.PostJsonResponseAsync<RecordingSegmentCommit, RecordingCommitAcknowledgement>(
             lease, endpoint + "/commit", commit, cancellationToken);

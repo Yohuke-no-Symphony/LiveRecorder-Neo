@@ -36,7 +36,10 @@ public sealed class RecordingSessionTaskService(IMongoContext context, Recording
             if (previous is not null && (previous.WorkerId != workerId || previous.AssignmentId != assignment.Id
                 || previous.Generation != assignment.Generation
                 || previous.Descriptor.StartedAtUtc.Ticks / TimeSpan.TicksPerMillisecond != item.Descriptor.StartedAtUtc.Ticks / TimeSpan.TicksPerMillisecond
-                || previous.Descriptor.LiveTime != item.Descriptor.LiveTime))
+                || previous.Descriptor.LiveTime != item.Descriptor.LiveTime
+                || (previous.Descriptor.LogicalSessionId ?? previous.Descriptor.SessionId) != (item.Descriptor.LogicalSessionId ?? item.Descriptor.SessionId)
+                || (previous.Descriptor.LogicalStartedAtUtc ?? previous.Descriptor.StartedAtUtc).Ticks / TimeSpan.TicksPerMillisecond
+                    != (item.Descriptor.LogicalStartedAtUtc ?? item.Descriptor.StartedAtUtc).Ticks / TimeSpan.TicksPerMillisecond))
             {
                 throw new InfrastructureException("录像场次进度身份已改变。", 409);
             }
@@ -66,6 +69,14 @@ public sealed class RecordingSessionTaskService(IMongoContext context, Recording
     {
         RecordingIngestPaths.RequireId(item.Descriptor.SessionId);
         var descriptor = item.Descriptor;
+        if (descriptor.LogicalSessionId is not null)
+        {
+            RecordingIngestPaths.RequireId(descriptor.LogicalSessionId);
+            if (descriptor.LogicalStartedAtUtc is not { Kind: DateTimeKind.Utc } logicalStarted || logicalStarted > descriptor.StartedAtUtc)
+            {
+                throw new InfrastructureException("逻辑场次开始时间无效。", 409);
+            }
+        }
         if (descriptor.RoomId <= 0 || descriptor.StartedAtUtc == default || descriptor.Title.Length > 1024
             || descriptor.StreamerName.Length > 256 || descriptor.CoverUrl.Length > 4096
             || descriptor.IsClosed && descriptor.EndedAtUtc is null || descriptor.EndedAtUtc < descriptor.StartedAtUtc

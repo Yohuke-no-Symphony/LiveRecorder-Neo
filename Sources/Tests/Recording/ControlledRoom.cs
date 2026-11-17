@@ -16,6 +16,7 @@ internal sealed class ControlledRoom(long roomId)
     private int streamRequests;
     private int headerOnly;
     private long events;
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> signals = new();
     internal long RoomId { get; } = roomId;
     internal string Title { get => Volatile.Read(ref title); set => Volatile.Write(ref title, value); }
     internal DateTime LiveStartedAtUtc { get => new(Interlocked.Read(ref liveTimeTicks), DateTimeKind.Utc); set => Interlocked.Exchange(ref liveTimeTicks, value.Ticks); }
@@ -91,4 +92,6 @@ internal sealed class ControlledRoom(long roomId)
     internal void OpenSubscription() => Interlocked.Increment(ref activeSubscriptions);
     internal void CloseSubscription() => Interlocked.Decrement(ref activeSubscriptions);
     internal long NextEvent() => Interlocked.Increment(ref events);
+    internal void SendSignal(string command) => signals.Enqueue(command);
+    internal bool TryTakeSignal(out string? command) => signals.TryDequeue(out command);
 }

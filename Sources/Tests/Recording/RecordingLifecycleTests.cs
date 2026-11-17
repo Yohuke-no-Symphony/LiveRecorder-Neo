@@ -67,7 +67,7 @@ public sealed class RecordingLifecycleTests
     }
 
     [RecordingFact]
-    public async Task TitleChangesKeepSessionButNewPlatformLiveTimeStartsAnother()
+    public async Task TitleAndPlatformLiveTimeChangesKeepTheLogicalSession()
     {
         await using var fixture = await RecordingFixture.CreateAsync();
         var (_, room) = await fixture.AddRoomAsync(100);
@@ -79,11 +79,11 @@ public sealed class RecordingLifecycleTests
         await RecordingFixture.WaitUntilAsync(async () => (await fixture.SegmentsAsync()).Count(x => x.IsClosed) >= 2, "changed title is recorded by second connection");
         Assert.Equal(original.Id, Assert.Single(await fixture.SessionsAsync()).Id);
         room.LiveStartedAtUtc = room.LiveStartedAtUtc.AddHours(1);
-        await RecordingFixture.WaitUntilAsync(async () => (await fixture.SessionsAsync()).Count == 2 && room.Connections >= 3, "new platform LiveTime creates another session");
+        await RecordingFixture.WaitUntilAsync(() => Task.FromResult(room.Connections >= 3), "the next connection observes the changed platform LiveTime");
         await fixture.StopSupervisorAsync();
-        var sessions = await fixture.SessionsAsync();
-        Assert.NotNull(sessions.Single(x => x.Id == original.Id).EndedAtUtc);
-        Assert.Contains(sessions, x => x.Id != original.Id && x.LiveTime == new DateTimeOffset(room.LiveStartedAtUtc).ToUnixTimeSeconds());
+        var session = Assert.Single(await fixture.SessionsAsync());
+        Assert.Equal(original.Id, session.Id);
+        Assert.Null(session.EndedAtUtc);
         await fixture.AssertCommittedFilesAsync(true);
     }
 
@@ -101,8 +101,8 @@ public sealed class RecordingLifecycleTests
         Assert.Equal(bytes, room.ReadBytes);
         Assert.False((await fixture.Context.Collection<Streamer>("streamers").Find(x => x.Id == target.Id).SingleAsync()).Enabled);
         var ended = Assert.Single(await fixture.SessionsAsync());
-        Assert.Equal("Completed", ended.State);
-        Assert.NotNull(ended.EndedAtUtc);
+        Assert.Equal("Waiting", ended.State);
+        Assert.Null(ended.EndedAtUtc);
         await fixture.AssertCommittedFilesAsync(true);
     }
 
@@ -153,17 +153,18 @@ public sealed class RecordingLifecycleTests
     }
 
     [RecordingFact]
-    public async Task RemovingMonitoringKeepsStreamerHistoryAndCompletesItsCurrentSession()
+    public async Task RemovingMonitoringKeepsStreamerHistoryAndPausesItsCurrentSession()
     {
         await using var fixture = await RecordingFixture.CreateAsync(12);
         var (target, room) = await fixture.AddRoomAsync(100);
         await fixture.StartSupervisorAsync();
         await RecordingFixture.WaitUntilAsync(async () => room.ActiveStreams == 1 && (await fixture.SegmentsAsync()).Any(x => x.DurationMs > 1000), "live source commits before monitoring is removed");
         await fixture.Context.Collection<Streamer>("streamers").UpdateOneAsync(x => x.Id == target.Id, Builders<Streamer>.Update.Set(x => x.IsMonitored, false).Set(x => x.Enabled, false));
-        await RecordingFixture.WaitUntilAsync(async () => room.ActiveStreams == 0 && room.ActiveSubscriptions == 0 && (await fixture.SessionsAsync()).All(x => x.State == "Completed"), "soft-removed monitor closes source and current session", 10);
+        await RecordingFixture.WaitUntilAsync(async () => room.ActiveStreams == 0 && room.ActiveSubscriptions == 0 && (await fixture.SessionsAsync()).All(x => x.State == "Waiting"), "soft-removed monitor closes capture and preserves its logical session", 10);
         var preserved = await fixture.Context.Collection<Streamer>("streamers").Find(x => x.Id == target.Id).SingleAsync();
         Assert.False(preserved.IsMonitored);
         Assert.Equal(target.Id, Assert.Single(await fixture.SessionsAsync()).StreamerId);
+        Assert.Null(Assert.Single(await fixture.SessionsAsync()).EndedAtUtc);
         await fixture.AssertCommittedFilesAsync(true);
     }
 }

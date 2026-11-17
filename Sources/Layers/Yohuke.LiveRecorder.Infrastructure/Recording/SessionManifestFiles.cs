@@ -23,6 +23,10 @@ internal static class SessionManifestFiles
             var current = await ReadCoreAsync(path, cancellationToken);
             manifest.Session.TranslationDanmuPatternOverride = current.Session.TranslationDanmuPatternOverride;
             manifest.Session.ConfigurationRevision = current.Session.ConfigurationRevision;
+            if (manifest.Captures.Count == 0 && current.Captures.Count > 0)
+            {
+                manifest.Captures = current.Captures;
+            }
             if (preserveRetention)
             {
                 manifest.Session.IsPermanent = current.Session.IsPermanent;

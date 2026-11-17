@@ -14,6 +14,7 @@ internal sealed class FlvOutputState
     public required StreamWriter IndexWriter { get; init; }
     public double StartOffsetMs { get; init; }
     public double DurationMs { get; set; }
+    public DateTime? LastMediaReceivedAtUtc { get; set; }
     public double LastVideoTimestampMs { get; set; } = -1;
     public double FrameDurationMs { get; set; } = 33.333333;
     public long CommittedBytes { get; set; }
