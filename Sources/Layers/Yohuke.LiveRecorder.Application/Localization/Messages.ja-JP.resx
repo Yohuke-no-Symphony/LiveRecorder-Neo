@@ -163,6 +163,8 @@
   <data name="REQUEST_FORBIDDEN" xml:space="preserve"><value>この操作を実行する権限がありません。</value></data>
   <data name="REQUEST_RATE_LIMIT" xml:space="preserve"><value>リクエストが多すぎます。しばらくしてからお試しください。</value></data>
   <data name="RECORDING_DISK_SPACE_LOW" xml:space="preserve"><value>録画先の空き容量が不足しているため、収集を一時停止しました。</value></data>
+  <data name="RECORDING_UPLOAD_FAILED" xml:space="preserve"><value>録画のアップロードが中断され、再試行を待っています。</value></data>
+  <data name="RECORDING_SOURCE_UNAVAILABLE" xml:space="preserve"><value>録画元を一時的に利用できません。再接続を待っています。</value></data>
   <data name="RECORDING_EVENT_CAPTURE_GAP" xml:space="preserve"><value>コメントの収集が中断されました：{0}</value></data>
   <data name="RECORDING_EVENT_CONNECTION_LOST" xml:space="preserve"><value>コメント接続が切断されました</value></data>
   <data name="EMAIL_VERIFICATION_SUBJECT" xml:space="preserve"><value>夜更けのレコーダー メール認証</value></data>

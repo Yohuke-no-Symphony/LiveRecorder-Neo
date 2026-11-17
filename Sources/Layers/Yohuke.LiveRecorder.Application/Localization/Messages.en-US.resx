@@ -163,6 +163,8 @@
   <data name="REQUEST_FORBIDDEN" xml:space="preserve"><value>You do not have permission to perform this action.</value></data>
   <data name="REQUEST_RATE_LIMIT" xml:space="preserve"><value>Too many requests. Try again later.</value></data>
   <data name="RECORDING_DISK_SPACE_LOW" xml:space="preserve"><value>Recording has paused because the recording volume is low on free space.</value></data>
+  <data name="RECORDING_UPLOAD_FAILED" xml:space="preserve"><value>Recording upload was interrupted and is waiting to retry.</value></data>
+  <data name="RECORDING_SOURCE_UNAVAILABLE" xml:space="preserve"><value>The recording source is temporarily unavailable. Waiting to reconnect.</value></data>
   <data name="RECORDING_EVENT_CAPTURE_GAP" xml:space="preserve"><value>Event capture was interrupted: {0}</value></data>
   <data name="RECORDING_EVENT_CONNECTION_LOST" xml:space="preserve"><value>Event connection interrupted</value></data>
   <data name="EMAIL_VERIFICATION_SUBJECT" xml:space="preserve"><value>Yohuke Live Recorder email verification</value></data>

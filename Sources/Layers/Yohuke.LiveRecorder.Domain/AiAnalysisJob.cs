@@ -6,6 +6,7 @@ public sealed class AiAnalysisJob : Entity
     public string SessionId { get; set; } = "";
     public string OwnerId { get; set; } = "";
     public string OwnerName { get; set; } = "";
+    public TaskProvenance Provenance { get; set; } = new();
     public string Purpose { get; set; } = AiJobPurposes.ANALYSIS;
     public string? LiveMarkerFileId { get; set; }
     public bool PublicationStarted { get; set; }

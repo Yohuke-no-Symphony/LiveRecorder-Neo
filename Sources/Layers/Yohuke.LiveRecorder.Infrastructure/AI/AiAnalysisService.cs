@@ -144,6 +144,7 @@ public sealed class AiAnalysisService(IMongoContext context, LibraryService libr
             var job = new AiAnalysisJob
             {
                 SessionId = sessionId, OwnerId = ownerId, OwnerName = ownerName, Purpose = purpose, ActiveKey = activeKey, Identity = identity,
+                Provenance = TaskProvenance.User(ownerId, ownerName),
                 CredentialFingerprint = AiSettingsSecrets.Fingerprint(settings.Ai),
                 Snapshot = snapshot, Settings = configuration, TokenBudget = AiAnalysisPolicy.Budget(settings.Ai, snapshot.RecordedDurationMs)
             };

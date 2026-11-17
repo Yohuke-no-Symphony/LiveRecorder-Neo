@@ -31,6 +31,7 @@ using Yohuke.LiveRecorder.Infrastructure.Playback;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
 using Yohuke.LiveRecorder.Infrastructure.Storage;
 using Yohuke.LiveRecorder.Infrastructure.Transcoding;
+using Yohuke.LiveRecorder.Infrastructure.Tasks;
 using Yohuke.LiveRecorder.Media;
 using Yohuke.LiveRecorder.Server.Bandwidth;
 using Yohuke.LiveRecorder.Server.Endpoints;
@@ -133,6 +134,7 @@ public static class ServerStartup
         builder.Services.AddSingleton<PlaybackService>();
         builder.Services.AddSingleton<RenditionPlaybackService>();
         builder.Services.AddSingleton<MediaJobService>();
+        builder.Services.AddSingleton<TaskHistoryService>();
         builder.Services.AddSingleton<AnalyticsService>();
         builder.Services.AddSingleton<AnalyticsContributionService>();
         builder.Services.AddSingleton<AnalyticsExportService>();
@@ -371,6 +373,7 @@ public static class ServerStartup
         app.MapClippingEndpoints();
         app.MapRecordingWorkerEndpoints();
         app.MapAiEndpoints();
+        app.MapTaskHistoryEndpoints();
         app.MapHub<StatusHub>("/hubs/status", options => options.CloseOnAuthenticationExpiration = true).RequireAuthorization();
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
         if (app.Environment.IsDevelopment())

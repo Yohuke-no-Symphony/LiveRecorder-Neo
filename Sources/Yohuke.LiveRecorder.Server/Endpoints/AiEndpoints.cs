@@ -17,7 +17,7 @@ public static class AiEndpoints
         api.MapGet("/sessions/{id}/ai-analysis", async (string id, HttpContext http, AiAnalysisService service, CancellationToken ct) =>
             Results.Ok(await service.GetAsync(id, Has(http, UserPermissionNames.GENERATE_ANALYTICS), ct))).RequireAuthorization(UserPermissionNames.VIEW_ANALYTICS);
         api.MapPost("/sessions/{id}/ai-analysis", async (string id, CreateAiAnalysisRequest request, HttpContext http, AiAnalysisService service, CancellationToken ct) =>
-            Results.Ok(await service.CreateAsync(id, http.User.FindFirstValue(ClaimTypes.NameIdentifier)!, request.Force, ct)))
+            Results.Ok(await service.CreateAsync(id, http.User.FindFirstValue(ClaimTypes.NameIdentifier)!, http.User.Identity?.Name ?? "", AiJobPurposes.ANALYSIS, request.Force, ct)))
             .RequireAuthorization(UserPermissionNames.VIEW_ANALYTICS, UserPermissionNames.GENERATE_ANALYTICS);
         api.MapGet("/sessions/{id}/ai-live-markers", async (string id, HttpContext http, AiAnalysisService service, CancellationToken ct) =>
             Results.Ok(await service.GetAsync(id, AiJobPurposes.LIVE_MARKERS, Has(http, UserPermissionNames.GENERATE_LIVE_MARKERS), ct)));
