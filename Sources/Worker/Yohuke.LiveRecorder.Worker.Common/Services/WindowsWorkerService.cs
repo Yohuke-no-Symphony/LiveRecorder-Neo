@@ -67,11 +67,11 @@ internal sealed class WindowsWorkerService(WorkerServiceIdentity identity)
                 failure.Data["NativeMessage"] = exception.Message;
                 throw failure;
             }
-            if (registration.Description == identity.OwnerMarker)
+            if (registration.Description != identity.OwnerMarker)
             {
-                return;
+                await SetDescriptionAsync(cancellationToken);
             }
-            await SetDescriptionAsync(cancellationToken);
+            await ApplyRecoveryAsync(cancellationToken);
             return;
         }
 
@@ -87,6 +87,7 @@ internal sealed class WindowsWorkerService(WorkerServiceIdentity identity)
             WorkerServiceProcess.RequireSuccess(result, "install the worker service");
             created = true;
             await SetDescriptionAsync(cancellationToken);
+            await ApplyRecoveryAsync(cancellationToken);
         }
         catch (Exception exception)
         {
@@ -115,6 +116,10 @@ internal sealed class WindowsWorkerService(WorkerServiceIdentity identity)
         WorkerServiceProcess.ExecuteAsync(ServiceControllerPath,
             ["description", identity.ServiceName, identity.OwnerMarker],
             "set worker service ownership", cancellationToken);
+
+    private Task ApplyRecoveryAsync(CancellationToken cancellationToken) =>
+        new WindowsWorkerRecoveryPolicy(identity.ServiceName).ApplyAsync(arguments =>
+            WorkerServiceProcess.ExecuteAsync(ServiceControllerPath, arguments, "configure worker crash recovery", cancellationToken));
 
     private async Task UninstallAsync(CancellationToken cancellationToken)
     {

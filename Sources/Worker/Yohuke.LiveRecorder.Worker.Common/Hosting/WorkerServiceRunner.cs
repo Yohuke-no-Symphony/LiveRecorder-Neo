@@ -13,6 +13,10 @@ internal static class WorkerServiceRunner
     internal static Task RunAsync(string configurationPath, WorkerServiceIdentity identity,
         Func<string, CancellationToken, Action<string>?, Task> run, CancellationToken cancellationToken)
     {
+        if (OperatingSystem.IsWindows())
+        {
+            WindowsWorkerProcessJob.AttachCurrentProcess();
+        }
         if (OperatingSystem.IsWindows() && WindowsServiceHelpers.IsWindowsService())
         {
             return RunWindowsServiceAsync(configurationPath, identity, run, cancellationToken);
