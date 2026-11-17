@@ -17,4 +17,5 @@ public sealed record TranscodeWorkerLogEntry
     public string? Stage { get; init; }
     public double? Progress { get; init; }
     public long DroppedCount { get; init; }
+    public string Source { get; init; } = "Worker";
 }

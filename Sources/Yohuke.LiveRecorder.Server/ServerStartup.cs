@@ -135,6 +135,8 @@ public static class ServerStartup
         builder.Services.AddSingleton<RenditionPlaybackService>();
         builder.Services.AddSingleton<MediaJobService>();
         builder.Services.AddSingleton<TaskHistoryService>();
+        builder.Services.AddSingleton<TaskLogService>();
+        builder.Services.AddSingleton<TaskEventLogStore>();
         builder.Services.AddSingleton<AnalyticsService>();
         builder.Services.AddSingleton<AnalyticsContributionService>();
         builder.Services.AddSingleton<AnalyticsExportService>();

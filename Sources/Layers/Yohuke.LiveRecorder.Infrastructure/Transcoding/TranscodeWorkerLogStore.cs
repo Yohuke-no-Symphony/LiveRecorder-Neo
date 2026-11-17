@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Localization;
@@ -16,6 +17,7 @@ public sealed class TranscodeWorkerLogStore(IMongoContext context, TimeProvider?
     internal const long MAX_CURSOR = 9007199254740991;
     internal const int MAX_ENTRIES = 64;
     internal const int MAX_MESSAGE_LENGTH = 2048;
+    internal const int RETENTION_DAYS = 7;
     private const string BATCH_COLLECTION = "transcodeWorkerLogBatches";
     private const string HEAD_COLLECTION = "transcodeWorkerLogHeads";
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
@@ -30,7 +32,8 @@ public sealed class TranscodeWorkerLogStore(IMongoContext context, TimeProvider?
         context.Collection<TranscodeWorkerLogHead>(HEAD_COLLECTION).WithReadPreference(ReadPreference.Primary);
 
     /// <summary>持久化完整冻结批次，发布游标确认后才返回可用于移除本地缓存的应答。</summary>
-    public async Task<WorkerLogAcknowledgement> AppendAsync(string workerId, WorkerLogBatch batch, CancellationToken cancellationToken = default)
+    public async Task<WorkerLogAcknowledgement> AppendAsync(string workerId, WorkerLogBatch batch, CancellationToken cancellationToken = default,
+        DateTime? expiresAtUtc = null)
     {
         Validate(batch);
         batch = batch with { Entries = batch.Entries.Select(entry => entry with { }).ToList() };
@@ -39,7 +42,7 @@ public sealed class TranscodeWorkerLogStore(IMongoContext context, TimeProvider?
         await gate.WaitAsync(cancellationToken);
         try
         {
-            var saved = await SaveBatchAsync(workerId, batch, cancellationToken);
+            var saved = await SaveBatchAsync(workerId, batch, expiresAtUtc, cancellationToken);
             var head = await GetOrCreateHeadAsync(workerId, cancellationToken);
             while (true)
             {
@@ -157,6 +160,77 @@ public sealed class TranscodeWorkerLogStore(IMongoContext context, TimeProvider?
         };
     }
 
+    /// <summary>仅在指定任务、执行代次和阶段内分页，保留归档节点的日志查询能力。</summary>
+    public async Task<TranscodeWorkerLogPage> ReadTaskAsync(string workerId, string jobId, int? attempt, string? stage,
+        long? after, int take = 200, CancellationToken cancellationToken = default)
+    {
+        if (after is < 0 or > MAX_CURSOR || take is < 1 or > 500 || string.IsNullOrWhiteSpace(jobId)
+            || jobId.Length > 128 || stage?.Length > 128 || attempt is <= 0)
+        {
+            throw new InfrastructureException(MessageCode.REQUEST_INVALID);
+        }
+        await EnsureIndexesAsync(cancellationToken);
+        var head = await Heads.Find(value => value.Id == workerId).FirstOrDefaultAsync(cancellationToken);
+        var committed = head?.CommittedCursor ?? 0;
+        if (after > committed)
+        {
+            throw new InfrastructureException("The task log cursor is invalid. Refresh the log view.", 409);
+        }
+        var entry = new BsonDocument("JobId", jobId);
+        var row = new BsonDocument("Entries.JobId", jobId);
+        if (attempt is { } generation)
+        {
+            entry["Attempt"] = generation;
+            row["Entries.Attempt"] = generation;
+        }
+        if (stage is { Length: > 0 })
+        {
+            entry["Stage"] = stage;
+            row["Entries.Stage"] = stage;
+        }
+        var batches = new BsonDocument
+        {
+            { "WorkerId", workerId }, { "CursorEnd", new BsonDocument { { "$gt", after ?? 0 }, { "$lte", committed } } },
+            { "ExpiresAtUtc", new BsonDocument("$gt", clock.GetUtcNow().UtcDateTime) },
+            { "Entries", new BsonDocument("$elemMatch", entry) }
+        };
+        var pipeline = new List<BsonDocument>
+        {
+            new("$match", batches),
+            new("$set", new BsonDocument("_firstCursor", new BsonDocument("$subtract", new BsonArray { "$CursorEnd", new BsonDocument("$size", "$Entries") }))),
+            new("$unwind", new BsonDocument { { "path", "$Entries" }, { "includeArrayIndex", "_entryIndex" } }),
+            new("$match", row),
+            new("$set", new BsonDocument("Cursor", new BsonDocument("$add", new BsonArray { "$_firstCursor", "$_entryIndex", 1 })))
+        };
+        if (after is { } cursor)
+        {
+            pipeline.Add(new("$match", new BsonDocument("Cursor", new BsonDocument("$gt", cursor))));
+        }
+        pipeline.Add(new("$sort", new BsonDocument("Cursor", after.HasValue ? 1 : -1)));
+        pipeline.Add(new("$limit", take + 1));
+        pipeline.Add(new("$project", new BsonDocument
+        {
+            { "_id", new BsonDocument("$concat", new BsonArray { "$_id", "-", new BsonDocument("$toString", "$_entryIndex") }) },
+            { "WorkerId", 1 }, { "StreamId", 1 }, { "Cursor", 1 }, { "ReceivedAtUtc", 1 },
+            { "Sequence", "$Entries.Sequence" }, { "TimestampUtc", "$Entries.TimestampUtc" },
+            { "Level", "$Entries.Level" }, { "Message", "$Entries.Message" },
+            { "JobId", "$Entries.JobId" }, { "Attempt", "$Entries.Attempt" },
+            { "Stage", "$Entries.Stage" }, { "Progress", "$Entries.Progress" },
+            { "Source", new BsonDocument("$ifNull", new BsonArray { "$Entries.Source", "Worker" }) }
+        }));
+        var entries = await Batches.Aggregate<TranscodeWorkerLogEntry>(pipeline).ToListAsync(cancellationToken);
+        var hasMore = after.HasValue && entries.Count > take;
+        if (entries.Count > take)
+        {
+            entries.RemoveAt(entries.Count - 1);
+        }
+        if (!after.HasValue)
+        {
+            entries.Reverse();
+        }
+        return new() { Entries = entries, NextCursor = entries.Count > 0 ? entries[^1].Cursor : committed, HasMore = hasMore };
+    }
+
     /// <summary>建立游标查询及七天过期索引，失败后允许再次初始化。</summary>
     public async Task EnsureIndexesAsync(CancellationToken cancellationToken = default)
     {
@@ -176,7 +250,9 @@ public sealed class TranscodeWorkerLogStore(IMongoContext context, TimeProvider?
                     {
                         Name = "worker_log_cursor", Unique = true,
                         PartialFilterExpression = Builders<TranscodeWorkerLogBatch>.Filter.Gt(item => item.CursorEnd, 0)
-                    })
+                    }),
+                new(Builders<TranscodeWorkerLogBatch>.IndexKeys.Ascending(item => item.WorkerId)
+                    .Ascending("Entries.JobId").Ascending(item => item.CursorEnd), new CreateIndexOptions { Name = "worker_task_log_cursor" })
             ], cancellationToken);
             indexedClient = database.Client;
             indexedDatabase = database.DatabaseNamespace.DatabaseName;
@@ -202,7 +278,8 @@ public sealed class TranscodeWorkerLogStore(IMongoContext context, TimeProvider?
                 || entry.Level is not ("Trace" or "Debug" or "Information" or "Warning" or "Error" or "Critical")
                 || string.IsNullOrEmpty(entry.Message) || entry.Message.Length > MAX_MESSAGE_LENGTH
                 || entry.JobId?.Length > 128 || entry.Attempt is <= 0 || entry.Stage?.Length > 128
-                || entry.Progress is { } progress && (!double.IsFinite(progress) || progress is < 0 or > 100))
+                || entry.Progress is { } progress && (!double.IsFinite(progress) || progress is < 0 or > 100)
+                || entry.Source is not (null or "Worker" or "ServerEvent" or "SessionSnapshot"))
             {
                 throw new InfrastructureException("The worker log entry is invalid.");
             }
@@ -234,12 +311,13 @@ public sealed class TranscodeWorkerLogStore(IMongoContext context, TimeProvider?
                 Attempt = entry.Attempt,
                 Stage = entry.Stage,
                 Progress = entry.Progress,
-                DroppedCount = index == 0 ? batch.DroppedCount : 0
+                DroppedCount = index == 0 ? batch.DroppedCount : 0,
+                Source = entry.Source ?? "Worker"
             };
         }
     }
 
-    private async Task<TranscodeWorkerLogBatch> SaveBatchAsync(string workerId, WorkerLogBatch batch, CancellationToken cancellationToken)
+    private async Task<TranscodeWorkerLogBatch> SaveBatchAsync(string workerId, WorkerLogBatch batch, DateTime? expiresAtUtc, CancellationToken cancellationToken)
     {
         var now = clock.GetUtcNow().UtcDateTime;
         var id = TranscodeAssetRegistry.Hash(workerId + ":" + batch.StreamId + ":" + batch.BatchId);
@@ -249,7 +327,7 @@ public sealed class TranscodeWorkerLogStore(IMongoContext context, TimeProvider?
             .SetOnInsert(item => item.BatchId, batch.BatchId).SetOnInsert(item => item.PayloadHash, hash)
             .SetOnInsert(item => item.DroppedCount, batch.DroppedCount).SetOnInsert(item => item.Entries, batch.Entries)
             .SetOnInsert(item => item.CursorEnd, 0).SetOnInsert(item => item.CreatedAtUtc, now)
-            .SetOnInsert(item => item.ReceivedAtUtc, now).SetOnInsert(item => item.ExpiresAtUtc, now.AddDays(7));
+            .SetOnInsert(item => item.ReceivedAtUtc, now).SetOnInsert(item => item.ExpiresAtUtc, expiresAtUtc ?? now.AddDays(RETENTION_DAYS));
         try
         {
             RequireAcknowledged(await Batches.UpdateOneAsync(item => item.Id == id, update,

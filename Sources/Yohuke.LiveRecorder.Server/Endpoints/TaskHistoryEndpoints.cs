@@ -54,6 +54,12 @@ public static class TaskHistoryEndpoints
             await tasks.DeleteAsync(kind, id, request, Viewer(http), administration, ct);
             return Results.NoContent();
         });
+        api.MapGet("/{kind}/{id}/logs", async (string kind, string id, string? stage, long? after, int? take, int? attempt,
+            HttpContext http, TaskLogService logs, CancellationToken ct) =>
+        {
+            NoStore(http);
+            return Results.Ok(await logs.ReadAsync(kind, id, stage, after, take ?? 200, Viewer(http), administration, ct, attempt));
+        });
     }
 
     private static TaskHistoryViewer Viewer(HttpContext http) => new(

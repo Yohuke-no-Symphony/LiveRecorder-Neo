@@ -1,3 +1,5 @@
+using Yohuke.LiveRecorder.Application;
+using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Clipping;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
@@ -57,8 +59,15 @@ public sealed class TranscodingCoordinator(TranscodeWorkerService workers, Trans
             : await scheduler.HeartbeatAsync(workerId, heartbeat, cancellationToken, expectedHash, connectionIsCurrent);
     }
     /// <summary>持久化独立日志批次，完成发布后返回精确确认。</summary>
-    public Task<WorkerLogAcknowledgement> AppendWorkerLogsAsync(string workerId, WorkerLogBatch batch, CancellationToken cancellationToken = default) =>
-        logs.AppendAsync(workerId, batch, cancellationToken);
+    public Task<WorkerLogAcknowledgement> AppendWorkerLogsAsync(string workerId, WorkerLogBatch batch, CancellationToken cancellationToken = default)
+    {
+        TranscodeWorkerLogStore.Validate(batch);
+        if (batch.Entries.Any(entry => entry.Source is not (null or "Worker")))
+        {
+            throw new InfrastructureException(MessageCode.REQUEST_INVALID);
+        }
+        return logs.AppendAsync(workerId, batch, cancellationToken);
+    }
     /// <summary>读取指定节点的最近日志或游标之后的增量内容。</summary>
     public Task<TranscodeWorkerLogPage> ReadWorkerLogsAsync(string workerId, long? after, int take, CancellationToken cancellationToken = default) =>
         logs.ReadAsync(workerId, after, take, cancellationToken);

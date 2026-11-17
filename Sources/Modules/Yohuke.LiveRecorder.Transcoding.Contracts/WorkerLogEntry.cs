@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Yohuke.LiveRecorder.Transcoding.Contracts;
 
 /// <summary>带有节点进程顺序和可选任务归属的运行日志。</summary>
@@ -11,4 +13,6 @@ public sealed record WorkerLogEntry
     public int? Attempt { get; set; }
     public string? Stage { get; set; }
     public double? Progress { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Source { get; set; }
 }
