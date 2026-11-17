@@ -43,4 +43,13 @@ internal sealed record WorkerServiceIdentity
         DisplayName = "Yohuke Live Recorder Recording Worker",
         OwnerMarker = "Managed by Yohuke.LiveRecorder.Recording.Worker"
     };
+
+    internal static WorkerServiceIdentity Ai { get; } = new()
+    {
+        ServiceName = "yohuke-live-recorder-ai-worker",
+        LaunchdLabel = "com.yohuke.live-recorder.ai-worker",
+        DirectoryName = "AiWorkerService",
+        DisplayName = "Yohuke Live Recorder AI Worker",
+        OwnerMarker = "Managed by Yohuke.LiveRecorder.AI.Worker"
+    };
 }

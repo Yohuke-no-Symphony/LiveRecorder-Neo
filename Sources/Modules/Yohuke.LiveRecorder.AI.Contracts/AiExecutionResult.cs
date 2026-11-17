@@ -9,4 +9,5 @@ public sealed record AiExecutionResult
     public AiExecutionState Execution { get; set; } = new();
     public AiAnalysisMemory? Memory { get; set; }
     public AiConnectionTestOutcome? ConnectionTest { get; set; }
+    public List<AiExecutionStage> Stages { get; set; } = [];
 }

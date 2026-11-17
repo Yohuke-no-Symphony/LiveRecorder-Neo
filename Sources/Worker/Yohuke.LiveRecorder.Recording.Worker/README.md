@@ -104,4 +104,4 @@ pwsh ./release-worker.ps1 -Runtime win-x64 --version 0.2.0
 pwsh ./release-worker.ps1 --all --version 0.2.0
 ```
 
-默认发布 `linux-x64`，还支持 `linux-arm64`、`win-x64`、`osx-x64` 和 `osx-arm64`。每个平台生成一个 `Artifacts/workers/<version>/workers-<version>-<runtime>.zip`，包内包含 `transcoding/`、`clip/` 和 `recording/`。录像程序、说明、配置示例和许可证位于 `recording/`，散文件保留在 `Artifacts/workers/<version>/<runtime>/recording/`。
+默认发布 `linux-x64`，还支持 `linux-arm64`、`win-x64`、`osx-x64` 和 `osx-arm64`。每个平台生成一个 `Artifacts/workers/<version>/workers-<version>-<runtime>.zip`，包内包含 `transcoding/`、`clip/`、`recording/` 和 `ai/`。录像程序、说明、配置示例和许可证位于 `recording/`，散文件保留在 `Artifacts/workers/<version>/<runtime>/recording/`。

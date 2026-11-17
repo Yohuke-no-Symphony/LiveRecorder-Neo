@@ -31,6 +31,11 @@ $workerProjects = @(
         ProjectName = 'Yohuke.LiveRecorder.Recording.Worker'
         DirectoryName = 'recording'
         ExecutableName = 'ylr-rec-worker'
+    },
+    @{
+        ProjectName = 'Yohuke.LiveRecorder.AI.Worker'
+        DirectoryName = 'ai'
+        ExecutableName = 'ylr-ai-worker'
     }
 )
 $workerVersionProject = Join-Path $PSScriptRoot "Sources/Worker/$($workerProjects[0].ProjectName)/$($workerProjects[0].ProjectName).csproj"
