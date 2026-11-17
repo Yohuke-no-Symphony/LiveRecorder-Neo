@@ -28,6 +28,22 @@ internal sealed class ClipFileTransfer : IDisposable
             throw new InvalidDataException("The clipping source range or source version is invalid.");
         }
         var length = range.EndOffset - range.StartOffset;
+        if (File.Exists(destination))
+        {
+            try
+            {
+                if (new FileInfo(destination).Length == length)
+                {
+                    await ValidateContentAsync(destination, input.RangeSha256, cancellationToken);
+                    progress?.Invoke(length);
+                    return;
+                }
+            }
+            catch (InvalidDataException)
+            {
+            }
+            File.Delete(destination);
+        }
         var partial = destination + ".partial";
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destination))!);
         var lease = Lease(assignment);
@@ -39,11 +55,12 @@ internal sealed class ClipFileTransfer : IDisposable
                 var offset = File.Exists(partial) ? new FileInfo(partial).Length : 0;
                 if (offset < 0 || offset > length)
                 {
-                    throw new InvalidDataException("The partial clipping input exceeds its assigned range.");
+                    File.Delete(partial);
+                    offset = 0;
                 }
                 if (offset == length)
                 {
-                    await ValidateContentAsync(partial, input.RangeSha256, cancellationToken);
+                    await ValidatePartialAsync(partial, input.RangeSha256, cancellationToken);
                     File.Move(partial, destination, overwrite: false);
                     progress?.Invoke(length);
                     return;
@@ -82,7 +99,7 @@ internal sealed class ClipFileTransfer : IDisposable
                     }
                     await output.FlushAsync(cancellationToken);
                 }
-                await ValidateContentAsync(partial, input.RangeSha256, cancellationToken);
+                await ValidatePartialAsync(partial, input.RangeSha256, cancellationToken);
                 File.Move(partial, destination, overwrite: false);
                 return;
             }
@@ -99,15 +116,28 @@ internal sealed class ClipFileTransfer : IDisposable
         long bytesPerSecond, CancellationToken cancellationToken, Action<long>? progress = null,
         Action<string>? log = null, Action? completing = null)
     {
-        var lease = Lease(assignment);
-        await client.UploadFileAsync(lease, outputPath, "output", manifest.Bytes, bytesPerSecond,
-            cancellationToken, progress, log);
+        await UploadOutputAsync(assignment, outputPath, manifest, bytesPerSecond, cancellationToken, progress, log);
         completing?.Invoke();
+        await CompleteAsync(assignment, manifest, cancellationToken, log);
+    }
+
+    internal Task BeginUploadAsync(ClipAssignment assignment, ClipOutputManifest manifest, CancellationToken cancellationToken) =>
+        client.PostJsonAsync(Lease(assignment), "upload-session", new WorkerUploadSession
+        {
+            ManifestFingerprint = WorkerOutputManifestFingerprint.Create(manifest)
+        }, cancellationToken);
+
+    internal Task UploadOutputAsync(ClipAssignment assignment, string outputPath, ClipOutputManifest manifest,
+        long bytesPerSecond, CancellationToken cancellationToken, Action<long>? progress = null, Action<string>? log = null) =>
+        client.UploadFileAsync(Lease(assignment), outputPath, "output", manifest.Bytes, bytesPerSecond, cancellationToken, progress, log);
+
+    internal async Task CompleteAsync(ClipAssignment assignment, ClipOutputManifest manifest, CancellationToken cancellationToken, Action<string>? log = null)
+    {
         var validationBytes = manifest.Bytes * 2d + assignment.Inputs.Where(input => !input.IsGap)
             .Sum(input => (double)(input.Range!.EndOffset - input.Range.StartOffset));
         var validationTimeout = TimeSpan.FromMilliseconds(Math.Clamp(
             (validationBytes / (1024 * 1024) + 60) * 1000, 60000, uint.MaxValue - 1d));
-        await client.PostJsonAsync(lease, "complete", manifest, cancellationToken,
+        await client.PostJsonAsync(Lease(assignment), "complete", manifest, cancellationToken,
             validationTimeout, retries: 3, log: log);
     }
 
@@ -129,6 +159,19 @@ internal sealed class ClipFileTransfer : IDisposable
         if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException("The downloaded clipping range does not match its planned source content.");
+        }
+    }
+
+    private static async Task ValidatePartialAsync(string path, string expected, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ValidateContentAsync(path, expected, cancellationToken);
+        }
+        catch (InvalidDataException)
+        {
+            File.Delete(path);
+            throw;
         }
     }
 

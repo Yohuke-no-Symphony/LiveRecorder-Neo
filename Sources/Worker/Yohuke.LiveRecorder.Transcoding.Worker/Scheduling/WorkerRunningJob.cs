@@ -12,6 +12,8 @@ internal sealed class WorkerRunningJob : IDisposable
     internal TranscodeAssignment Assignment { get; }
     internal CancellationTokenSource Cancellation { get; }
     internal Task Task { get; set; } = Task.CompletedTask;
+    internal Action? PulseStages { get; set; }
+    internal bool IsReportingOnly { get; set; }
 
     internal WorkerRunningJob(TranscodeAssignment assignment, CancellationToken cancellationToken)
     {
@@ -47,7 +49,16 @@ internal sealed class WorkerRunningJob : IDisposable
     {
         lock (sync)
         {
-            return progress with { Activity = progress.Activity is null ? null : progress.Activity with { } };
+            return progress with { Activity = progress.Activity is null ? null : progress.Activity with { },
+                Stages = progress.Stages.Select(stage => stage with { Activity = stage.Activity is null ? null : stage.Activity with { } }).ToList() };
+        }
+    }
+
+    internal void SetStages(IReadOnlyList<WorkerStageSnapshot> stages)
+    {
+        lock (sync)
+        {
+            progress.Stages = stages.ToList();
         }
     }
 

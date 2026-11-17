@@ -142,6 +142,18 @@ internal abstract class WorkerStageContext(List<WorkerStageSnapshot> stages, Act
         }
     }
 
+    internal void Pulse()
+    {
+        lock (sync)
+        {
+            if (current is not null)
+            {
+                RefreshElapsed();
+                Publish(stages.Single(value => value.Id == current.Id));
+            }
+        }
+    }
+
     private void Publish(WorkerStageSnapshot stage) => publish(current!, Clone(stage), stages.Select(Clone).ToArray());
 
     private void RefreshElapsed()

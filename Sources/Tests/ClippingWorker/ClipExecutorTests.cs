@@ -50,7 +50,8 @@ public sealed class ClipExecutorTests
                 var encoded = Encoding.Latin1.GetString(await File.ReadAllBytesAsync(files.OutputPath));
                 Assert.Contains("threads=" + encodingThreads + " ", encoded);
             }
-            Assert.Empty(Directory.EnumerateFiles(files.DirectoryPath, "*.range*"));
+            Assert.Equal(assignment.Inputs.Count, Directory.EnumerateFiles(files.DirectoryPath, "*.range").Count());
+            files.Complete();
         }
         finally
         {
@@ -77,9 +78,9 @@ public sealed class ClipExecutorTests
         Assert.Equal(2300, manifest.ActualEndMs - manifest.ActualStartMs);
     }
 
-    /// <summary>Cancellation during input transfer releases every per-attempt file.</summary>
+    /// <summary>Cancellation preserves the task workspace so a subsequent attempt can resume.</summary>
     [Fact]
-    public async Task CancelledTransferCleansWorkspace()
+    public async Task CancelledTransferPreservesWorkspace()
     {
         using var fixture = new ClipTestFixture();
         var assignment = ClipTestFixture.SmallAssignment();
@@ -101,7 +102,7 @@ public sealed class ClipExecutorTests
         {
             files.Dispose();
         }
-        Assert.False(Directory.Exists(files.DirectoryPath));
+        Assert.True(Directory.Exists(files.DirectoryPath));
     }
 
     private static ClipTestHttpHandler RangeHandler(byte[] source, Action<long>? downloaded = null)

@@ -17,7 +17,7 @@ public sealed class ClipWorkspaceTests
         Assert.True(Directory.Exists(files.DirectoryPath));
     }
 
-    /// <summary>Disposing a task removes partial downloads, rebuilt media and output while preserving other active tasks.</summary>
+    /// <summary>Confirmed completion removes task files while preserving other active tasks.</summary>
     [Fact]
     public async Task ReleasesAllTaskFilesWithoutDeletingOtherAttempt()
     {
@@ -29,6 +29,7 @@ public sealed class ClipWorkspaceTests
         await File.WriteAllBytesAsync(Path.Combine(first.DirectoryPath, "input.flv"), [2]);
         await File.WriteAllBytesAsync(first.OutputPath, [3]);
 
+        first.Complete();
         first.Dispose();
 
         Assert.False(Directory.Exists(first.DirectoryPath));
@@ -63,9 +64,9 @@ public sealed class ClipWorkspaceTests
         Assert.True(Directory.Exists(second.DirectoryPath));
     }
 
-    /// <summary>A new process owner removes orphan task files left by an interrupted process.</summary>
+    /// <summary>A new owner preserves interrupted work until its execution identity is reconciled.</summary>
     [Fact]
-    public async Task StartupSweepsOrphanTaskDirectories()
+    public async Task StartupPreservesInterruptedTaskDirectories()
     {
         using var fixture = new ClipTestFixture();
         var orphan = Path.Combine(fixture.Root, "live-recorder-clipping-worker", "worker", "jobs", "orphan-1");
@@ -73,7 +74,7 @@ public sealed class ClipWorkspaceTests
         await File.WriteAllBytesAsync(Path.Combine(orphan, "old.range.partial"), [1]);
         using var workspace = new ClipWorkspace("worker");
         using var files = workspace.Acquire(fixture.Configuration, ClipTestFixture.SmallAssignment());
-        Assert.False(Directory.Exists(orphan));
+        Assert.True(Directory.Exists(orphan));
     }
 
     /// <summary>Two processes cannot sweep or share one worker's active temporary tree.</summary>
@@ -86,5 +87,44 @@ public sealed class ClipWorkspaceTests
         using var second = new ClipWorkspace("worker");
         Assert.Throws<IOException>(() => second.Acquire(fixture.Configuration, ClipTestFixture.SmallAssignment("other")));
         Assert.True(Directory.Exists(active.DirectoryPath));
+    }
+
+    /// <summary>待认领目录不能被首个恢复任务的容量回收删除，拒绝后解除保护才可回收。</summary>
+    [Fact]
+    public void PendingRecoveryDirectoryIsPinnedUntilReconciliation()
+    {
+        using var fixture = new ClipTestFixture();
+        var configuration = fixture.Configuration;
+        var firstAssignment = ClipTestFixture.SmallAssignment("first");
+        var secondAssignment = ClipTestFixture.SmallAssignment("second");
+        ClipWorkspaceLease first;
+        ClipWorkspaceLease second;
+        using (var creating = new ClipWorkspace("worker"))
+        {
+            first = creating.Acquire(configuration, firstAssignment);
+            second = creating.Acquire(configuration, secondAssignment);
+            using (var output = File.Create(first.OutputPath))
+            {
+                output.SetLength(48L * 1024 * 1024);
+            }
+            using (var output = File.Create(second.OutputPath))
+            {
+                output.SetLength(48L * 1024 * 1024);
+            }
+            first.Dispose();
+            second.Dispose();
+        }
+        using var workspace = new ClipWorkspace("worker");
+        using var firstPin = workspace.ProtectCheckpointDirectory(first.DirectoryPath);
+        using var secondPin = workspace.ProtectCheckpointDirectory(second.DirectoryPath);
+        var limited = configuration with { TempDirectory = Path.Combine(fixture.Root, "new-root"), MaxCacheBytes = 80L * 1024 * 1024 };
+        using var otherRoot = workspace.Acquire(limited, ClipTestFixture.SmallAssignment("new-root"));
+        Assert.Throws<ClipCapacityException>(() => workspace.Acquire(limited, firstAssignment, first.DirectoryPath));
+        Assert.True(File.Exists(first.OutputPath));
+        Assert.True(File.Exists(second.OutputPath));
+        secondPin.Dispose();
+        using var resumed = workspace.Acquire(limited, firstAssignment, first.DirectoryPath);
+        Assert.True(File.Exists(first.OutputPath));
+        Assert.False(Directory.Exists(second.DirectoryPath));
     }
 }

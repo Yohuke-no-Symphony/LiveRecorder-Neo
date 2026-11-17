@@ -2,6 +2,10 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net.Sockets;
 using System.Security.Authentication;
+using System.Security.Cryptography;
+using Yohuke.LiveRecorder.Worker.Common.Stages;
+using Yohuke.LiveRecorder.Worker.Common.Storage;
+using Yohuke.LiveRecorder.Transcoding.Worker.Stages;
 using Yohuke.LiveRecorder.Transcoding.Contracts;
 using Yohuke.LiveRecorder.Transcoding.Worker.Configuration;
 using Yohuke.LiveRecorder.Transcoding.Worker.Encoding;
@@ -27,6 +31,10 @@ internal sealed class WorkerRuntime
     private readonly WorkerWorkspace workspace;
     private readonly WorkerFileTransfer transfers;
     private readonly MediaInspector inspector;
+    private readonly WorkerCheckpointStore<TranscodeAssignment, TranscodeCheckpointPayload> checkpoints;
+    private readonly Dictionary<string, WorkerCheckpointLocation<TranscodeAssignment, TranscodeCheckpointPayload>> recoveries = new(StringComparer.Ordinal);
+    private bool supportsRecovery;
+    private readonly ConcurrentDictionary<string, IDisposable> recoveryProtections = new(StringComparer.Ordinal);
 
     internal WorkerRuntime(WorkerConnectionOptions options, WorkerSettingsStore settings, Action<string>? log = null)
     {
@@ -37,15 +45,29 @@ internal sealed class WorkerRuntime
         transfers = new(options);
         inspector = new(processes);
         configurations = new(processes, configuration => admission.TryAcquireProbe(configuration));
+        checkpoints = new(settings.Path, options.WorkerId, "live-recorder-worker", Log);
     }
 
     internal async Task RunAsync(CancellationToken cancellationToken)
     {
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var sampling = cpu.RunAsync(lifetime.Token);
-        var monitoring = MonitorLeasesAsync(lifetime.Token);
+        var sampling = Task.CompletedTask;
+        var monitoring = Task.CompletedTask;
         try
         {
+            if (Path.IsPathFullyQualified(settings.Current.Configuration.TempDirectory))
+            {
+                checkpoints.RegisterRoot(settings.Current.Configuration.TempDirectory);
+            }
+            foreach (var location in checkpoints.ReadAll().Where(value => value.Checkpoint.State is "Running" or "Interrupted" or "Reporting" or "AwaitingPublication")
+                .GroupBy(value => value.Checkpoint.JobId, StringComparer.Ordinal)
+                .Select(group => group.OrderByDescending(value => value.Checkpoint.LastAccessAtUtc).First()))
+            {
+                recoveryProtections[location.Checkpoint.JobId] = workspace.ProtectCheckpointDirectory(Path.GetDirectoryName(location.Path)!, location.Checkpoint.Assignment);
+                recoveries[location.Checkpoint.JobId] = location;
+            }
+            sampling = cpu.RunAsync(lifetime.Token);
+            monitoring = MonitorLeasesAsync(lifetime.Token);
             var reconnectDelay = 1;
             while (!lifetime.IsCancellationRequested)
             {
@@ -60,6 +82,15 @@ internal sealed class WorkerRuntime
                     }, lifetime.Token);
                     await settings.SaveRemoteConfigurationAsync(welcome.Configuration, welcome.ConfigurationRevision, lifetime.Token);
                     configurations.Request(welcome.Configuration, welcome.ConfigurationRevision, lifetime.Token);
+                    supportsRecovery = welcome.RecoveryProtocolVersion >= 1;
+                    if (!supportsRecovery)
+                    {
+                        recoveries.Clear();
+                        foreach (var id in recoveryProtections.Keys)
+                        {
+                            ReleaseRecoveryProtection(id);
+                        }
+                    }
                     reconnectDelay = 1;
                     Log("Connected to the server, configuration revision " + welcome.ConfigurationRevision);
                     while (!lifetime.IsCancellationRequested)
@@ -73,6 +104,7 @@ internal sealed class WorkerRuntime
                             Capabilities = current.Capabilities,
                             Telemetry = Telemetry(current.Configuration),
                             Jobs = jobs.Values.Select(job => job.Snapshot()).ToList(),
+                            RecoveryRequests = RecoveryRequests(),
                             LogBatch = welcome.LogProtocolVersion >= 1 ? logs.GetBatch() : null
                         }, lifetime.Token);
                         logs.Acknowledge(state.LogAcknowledgement);
@@ -92,6 +124,7 @@ internal sealed class WorkerRuntime
                                 }
                             }
                         }
+                        await RecoverAsync(state.RecoveryResults, lifetime.Token);
                         foreach (var assignment in state.Assignments)
                         {
                             await StartAsync(assignment, lifetime.Token);
@@ -103,6 +136,11 @@ internal sealed class WorkerRuntime
                 {
                     lifetime.Cancel();
                     throw;
+                }
+                catch (Exception exception) when (lifetime.IsCancellationRequested && exception is IOException or SocketException
+                    or AuthenticationException or OperationCanceledException)
+                {
+                    break;
                 }
                 catch (Exception exception) when (!lifetime.IsCancellationRequested && exception is IOException or SocketException
                     or AuthenticationException or InvalidOperationException or OperationCanceledException)
@@ -120,20 +158,120 @@ internal sealed class WorkerRuntime
             {
                 job.Cancel();
             }
-            await Task.WhenAll(jobs.Values.Select(job => job.Task));
-            await configurations.StopAsync();
             try
             {
-                await Task.WhenAll(sampling, monitoring);
+                await Task.WhenAll(jobs.Values.Select(job => job.Task));
             }
-            catch (OperationCanceledException)
+            finally
             {
+                foreach (var id in recoveryProtections.Keys)
+                {
+                    ReleaseRecoveryProtection(id);
+                }
+                await configurations.StopAsync();
+                try
+                {
+                    await Task.WhenAll(sampling, monitoring);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                transfers.Dispose();
+                workspace.Dispose();
             }
-            transfers.Dispose();
         }
     }
 
-    private async Task StartAsync(TranscodeAssignment assignment, CancellationToken cancellationToken)
+    private List<WorkerJobRecoveryRequest> RecoveryRequests()
+    {
+        var result = new List<WorkerJobRecoveryRequest>();
+        var executionSlots = Math.Max(0, settings.Current.Configuration.MaxConcurrentEncodes - jobs.Values.Count(job => !job.IsReportingOnly));
+        var passive = recoveries.Values.Where(value => value.Checkpoint.PendingResult is not null
+            || value.Checkpoint.State == "AwaitingPublication" || value.Checkpoint.Payload.PublicationPending);
+        var executing = recoveries.Values.Where(value => value.Checkpoint.PendingResult is null
+            && value.Checkpoint.State != "AwaitingPublication" && !value.Checkpoint.Payload.PublicationPending).Take(executionSlots);
+        foreach (var location in passive.Concat(executing).Take(Math.Max(0, 65 - jobs.Count)))
+        {
+            var checkpoint = location.Checkpoint;
+            if (checkpoint.NextLeaseToken is null)
+            {
+                checkpoint.NextLeaseToken = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+                try
+                {
+                    WorkerCheckpointStore<TranscodeAssignment, TranscodeCheckpointPayload>.Save(location);
+                }
+                catch
+                {
+                    checkpoint.NextLeaseToken = null;
+                    throw;
+                }
+            }
+            result.Add(new()
+            {
+                JobId = checkpoint.JobId, Attempt = checkpoint.Assignment.Attempt,
+                LeaseToken = checkpoint.Assignment.LeaseToken, NextLeaseToken = checkpoint.NextLeaseToken
+            });
+        }
+        return result;
+    }
+
+    private async Task RecoverAsync(IReadOnlyList<WorkerJobRecoveryStatus> statuses, CancellationToken cancellationToken)
+    {
+        foreach (var status in statuses)
+        {
+            if (!recoveries.TryGetValue(status.JobId, out var location) || location.Checkpoint.Assignment.Attempt != status.Attempt)
+            {
+                continue;
+            }
+            var checkpoint = location.Checkpoint;
+            if (status.Disposition == "Resume")
+            {
+                checkpoint.Assignment.LeaseToken = checkpoint.NextLeaseToken!;
+                checkpoint.Assignment.LeaseSeconds = status.LeaseSeconds;
+                checkpoint.NextLeaseToken = null;
+                checkpoint.Payload.PublicationPending = status.State == "Completed" && checkpoint.Payload.Manifest is not null;
+                if (checkpoint.Payload.PublicationPending)
+                {
+                    checkpoint.PendingResult = null;
+                }
+                if (status.State == "Completed" && checkpoint.Payload.Manifest is null)
+                {
+                    checkpoint.State = "AwaitingPublication";
+                    checkpoint.PendingResult = null;
+                    WorkerCheckpointStore<TranscodeAssignment, TranscodeCheckpointPayload>.Save(location);
+                    continue;
+                }
+                WorkerCheckpointStore<TranscodeAssignment, TranscodeCheckpointPayload>.Save(location);
+                await StartAsync(checkpoint.Assignment, cancellationToken, location);
+            }
+            else if (status.Disposition == "Completed")
+            {
+                Directory.Delete(Path.GetDirectoryName(location.Path)!, recursive: true);
+            }
+            else
+            {
+                checkpoint.State = "Rejected";
+                checkpoint.NextLeaseToken = null;
+                WorkerCheckpointStore<TranscodeAssignment, TranscodeCheckpointPayload>.Save(location);
+            }
+            recoveries.Remove(status.JobId);
+            if (!jobs.ContainsKey(status.JobId))
+            {
+                ReleaseRecoveryProtection(status.JobId);
+            }
+        }
+    }
+
+    private void ReleaseRecoveryProtection(string jobId)
+    {
+        if (recoveryProtections.TryRemove(jobId, out var protection))
+        {
+            protection.Dispose();
+        }
+    }
+
+    private async Task StartAsync(TranscodeAssignment assignment, CancellationToken cancellationToken,
+        WorkerCheckpointLocation<TranscodeAssignment, TranscodeCheckpointPayload>? recovered = null)
     {
         if (jobs.TryGetValue(assignment.JobId, out var existing))
         {
@@ -144,117 +282,105 @@ internal sealed class WorkerRuntime
             existing.Cancel();
             await existing.Task;
         }
-        var job = new WorkerRunningJob(assignment, cancellationToken);
+        if (recovered is null)
+        {
+            recoveries.Remove(assignment.JobId);
+        }
+        var job = new WorkerRunningJob(assignment, cancellationToken)
+        {
+            IsReportingOnly = recovered is not null && (recovered.Checkpoint.PendingResult is not null || recovered.Checkpoint.Payload.PublicationPending)
+        };
         if (!jobs.TryAdd(assignment.JobId, job))
         {
             job.Dispose();
             return;
         }
-        job.Task = RunJobAsync(job);
+        job.Task = RunJobAsync(job, recovered);
     }
 
-    private async Task RunJobAsync(WorkerRunningJob job)
+    private async Task RunJobAsync(WorkerRunningJob job, WorkerCheckpointLocation<TranscodeAssignment, TranscodeCheckpointPayload>? recovered)
     {
         await Task.Yield();
         var token = job.Cancellation.Token;
         using var reportingCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
         var reporter = new WorkerJobReporter(job, WriteLog);
         var reporting = reporter.RunAsync(reportingCancellation.Token);
+        WorkerCheckpointLocation<TranscodeAssignment, TranscodeCheckpointPayload>? location = recovered;
         try
         {
-            var initial = configurations.Current;
-            reporter.Start("Downloading", 0, "Preparing job, profile " + job.Assignment.Profile.Name);
-            using var files = workspace.Acquire(initial.Configuration, job.Assignment, message => reporter.Message(message));
-            reporter.Message("Downloading the source file.");
-            await transfers.DownloadAsync(job.Assignment, files.SourcePath, initial.Configuration.DownloadBytesPerSecond,
-                _ => { }, token, reporter.Transfer, message => reporter.Message(message));
-            reporter.Message("Source download completed.");
-            reporter.Start("Inspecting", 10, "Inspecting source media.");
-            var source = await inspector.InspectInputAsync(initial.Configuration.FfprobePath, files.SourcePath, token,
-                message => reporter.Message(message));
-            reporter.Message(FormattableString.Invariant($"Source media inspected: {source.Width}x{source.Height}, {source.FrameRate:0.##} fps, {source.DurationMs / 1000:0.0}s, video {source.VideoBitrate} bps, audio {source.AudioBitrate} bps."));
-            _ = TranscodePlanner.Create(files.SourcePath, files.OutputDirectory, source, job.Assignment.Profile,
-                new() { Encoder = "libx264", Available = true }, 1);
-            var waiting = Stopwatch.StartNew();
-            reporter.Start("WaitingForGpu", 15, "Waiting for an available encoder or CPU fallback capacity.");
-            EncodingReservation? reservation = null;
-            WorkerRuntimeConfiguration selected;
-            while (true)
+            var configuration = configurations.Current.Revision > 0 ? configurations.Current.Configuration : settings.Current.Configuration;
+            location ??= checkpoints.Open(configuration.TempDirectory, job.Assignment.JobId, TranscodeContentIdentity.Create(job.Assignment), job.Assignment);
+            if (recovered is null)
             {
-                token.ThrowIfCancellationRequested();
-                selected = configurations.Current;
-                if (configurations.ConfigurationRejected)
-                {
-                    reporter.Stop();
-                    reporter.Message("Releasing the job because its configuration was rejected: " + configurations.Error, "Warning");
-                    await transfers.ReportResultAsync(job.Assignment, new()
-                    {
-                        State = "Queued", ErrorCode = "WorkerCapacityUnavailable", Error = configurations.Error
-                    }, token);
-                    return;
-                }
-                if (configurations.Error is null)
-                {
-                    var resources = cpu.Snapshot(selected.Configuration.CpuSampleWindowSeconds);
-                    if (!EncodingAdmission.HasPossibleCapacity(selected.Configuration, selected.Capabilities, resources)
-                        && (selected.Revision != initial.Revision || waiting.Elapsed > TimeSpan.FromSeconds(
-                            selected.Configuration.GpuWaitSeconds + selected.Configuration.CpuSampleWindowSeconds)))
-                    {
-                        reporter.Stop();
-                        reporter.Message("Releasing the job to wait for available resources.", "Warning");
-                        await transfers.ReportResultAsync(job.Assignment, new()
-                        {
-                            State = "Queued", ErrorCode = "WorkerCapacityUnavailable", Error = "Worker configuration or device capabilities changed. Releasing the job to wait for an available worker."
-                        }, token);
-                        return;
-                    }
-                    reservation = admission.TryAcquire(selected.Configuration, selected.Capabilities,
-                        resources, waiting.Elapsed);
-                }
-                if (reservation is not null)
-                {
-                    break;
-                }
-                await Task.Delay(250, token);
+                location.Checkpoint.Payload.PublicationPending = false;
+                location.Checkpoint.Payload.EncodingAttempts = 0;
             }
-            TranscodeOutputManifest manifest;
-            using (reservation)
+            if (location.Checkpoint.PendingResult is { } pending)
             {
-                manifest = await new TranscodeEncoder(processes, inspector, configurations.InvalidateEncoder)
-                    .EncodeAsync(selected.Configuration, files, source, job.Assignment.Profile, reservation, reporter, token);
+                job.IsReportingOnly = true;
+                job.SetStages(pending.Stages);
+                await ReportResultUntilConfirmedAsync(job, location, pending, reporter);
+                return;
             }
-            reporter.Start("Uploading", 85, "Output validation completed. Uploading the result.");
-            await transfers.UploadAsync(job.Assignment, files.OutputDirectory, manifest, selected.Configuration.UploadBytesPerSecond,
-                _ => { }, token, reporter.Transfer, message => reporter.Message(message),
-                () => reporter.Start("Finalizing", 99, "Upload completed. Waiting for server verification and publication."));
-            reporter.Stop();
+            if (location.Checkpoint.Payload.PublicationPending)
+            {
+                job.SetStages(location.Checkpoint.Stages);
+                reporter.Start("Finalizing", 99, "Resuming server publication from the persisted manifest.");
+                await transfers.CompleteAsync(job.Assignment, location.Checkpoint.Payload.Manifest!, token, message => reporter.Message(message));
+                location.Checkpoint.State = "Completed";
+                WorkerCheckpointStore<TranscodeAssignment, TranscodeCheckpointPayload>.Save(location);
+                Directory.Delete(Path.GetDirectoryName(location.Path)!, recursive: true);
+                return;
+            }
+            using var files = workspace.Acquire(configuration, job.Assignment, message => reporter.Message(message), Path.GetDirectoryName(location.Path));
+            ReleaseRecoveryProtection(job.Assignment.JobId);
+            var context = new TranscodeStageContext(location, files, configuration, transfers, inspector,
+                new(processes, configurations.InvalidateEncoder), job, reporter,
+                cancellation => ReserveAsync(reporter, cancellation), supportsRecovery);
+            job.PulseStages = context.Pulse;
+            await new WorkerStageRunner<TranscodeStageContext>([
+                new TranscodeDownloadStage(), new TranscodeInspectStage(), new TranscodeEncodeStage(),
+                new TranscodeValidateStage(), new TranscodeUploadStage(), new TranscodeFinalizeStage()
+            ]).RunAsync(context, token);
+            location.Checkpoint.State = "Completed";
+            context.Save();
+            files.Complete();
             reporter.Message("Completed job. The server verified and published the result.");
         }
         catch (OperationCanceledException)
         {
-            reporter.Stop();
-            reporter.Message("Stopped job.", "Warning");
+            if (location is not null)
+            {
+                location.Checkpoint.State = "Interrupted";
+                WorkerCheckpointStore<TranscodeAssignment, TranscodeCheckpointPayload>.Save(location);
+            }
+            reporter.Message("Stopped job; its completed stages were preserved.", "Warning");
         }
         catch (Exception exception)
         {
-            reporter.Stop();
             reporter.Message("Job failed: " + exception.Message, "Error");
-            try
+            var result = new WorkerJobResult
             {
-                await transfers.ReportResultAsync(job.Assignment, new()
-                {
-                    State = exception is NotSupportedException ? "Skipped" : "Failed",
-                    ErrorCode = exception is NotSupportedException ? exception.Message : "WorkerExecutionFailed",
-                    Error = exception.Message.Length > 4000 ? exception.Message[..4000] : exception.Message
-                }, token);
-            }
-            catch (Exception reportError) when (reportError is HttpRequestException or IOException or OperationCanceledException)
+                State = exception is WorkerCapacityUnavailableException ? "Queued" : exception is NotSupportedException ? "Skipped" : "Failed",
+                ErrorCode = exception is WorkerCapacityUnavailableException ? "WorkerCapacityUnavailable"
+                    : exception is NotSupportedException ? exception.Message : "WorkerExecutionFailed",
+                Error = exception.Message.Length > 4000 ? exception.Message[..4000] : exception.Message,
+                Stages = job.Snapshot().Stages
+            };
+            if (location is not null)
             {
-                reporter.Message("Unable to report the final job state. Waiting for the server to reclaim the lease: " + reportError.Message, "Warning");
+                location.Checkpoint.PendingResult = result;
+                location.Checkpoint.State = "Reporting";
+                WorkerCheckpointStore<TranscodeAssignment, TranscodeCheckpointPayload>.Save(location);
             }
+            job.IsReportingOnly = true;
+            await ReportResultUntilConfirmedAsync(job, location, result, reporter);
         }
         finally
         {
+            reporter.Stop();
+            job.PulseStages = null;
+            ReleaseRecoveryProtection(job.Assignment.JobId);
             await reportingCancellation.CancelAsync();
             try
             {
@@ -265,6 +391,88 @@ internal sealed class WorkerRuntime
             }
             jobs.TryRemove(new KeyValuePair<string, WorkerRunningJob>(job.Assignment.JobId, job));
             job.Dispose();
+        }
+    }
+
+    private async Task<(WorkerRuntimeConfiguration Configuration, EncodingReservation Reservation)> ReserveAsync(
+        WorkerJobReporter reporter, CancellationToken cancellationToken)
+    {
+        var initial = configurations.Current;
+        var waiting = Stopwatch.StartNew();
+        reporter.Message("Waiting for an available encoder or CPU fallback capacity.");
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var selected = configurations.Current;
+            if (configurations.ConfigurationRejected)
+            {
+                throw new WorkerCapacityUnavailableException(configurations.Error ?? "The worker configuration was rejected.");
+            }
+            if (configurations.Error is null)
+            {
+                var resources = cpu.Snapshot(selected.Configuration.CpuSampleWindowSeconds);
+                if (!EncodingAdmission.HasPossibleCapacity(selected.Configuration, selected.Capabilities, resources)
+                    && (selected.Revision != initial.Revision || waiting.Elapsed > TimeSpan.FromSeconds(
+                        selected.Configuration.GpuWaitSeconds + selected.Configuration.CpuSampleWindowSeconds)))
+                {
+                    throw new WorkerCapacityUnavailableException("The worker is waiting for compatible encoder capacity.");
+                }
+                var reservation = admission.TryAcquire(selected.Configuration, selected.Capabilities, resources, waiting.Elapsed);
+                if (reservation is not null)
+                {
+                    return (selected, reservation);
+                }
+            }
+            await Task.Delay(250, cancellationToken);
+        }
+    }
+
+    private async Task ReportResultUntilConfirmedAsync(WorkerRunningJob job,
+        WorkerCheckpointLocation<TranscodeAssignment, TranscodeCheckpointPayload>? location, WorkerJobResult result,
+        WorkerJobReporter reporter)
+    {
+        var token = job.Cancellation.Token;
+        var delay = 1;
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                await transfers.ReportResultAsync(job.Assignment, result, token);
+                if (location is not null)
+                {
+                    location.Checkpoint.State = result.State;
+                    location.Checkpoint.PendingResult = null;
+                    WorkerCheckpointStore<TranscodeAssignment, TranscodeCheckpointPayload>.Save(location);
+                }
+                return;
+            }
+            catch (WorkerLeaseLostException error)
+            {
+                if (location is not null)
+                {
+                    location.Checkpoint.State = "Rejected";
+                    WorkerCheckpointStore<TranscodeAssignment, TranscodeCheckpointPayload>.Save(location);
+                }
+                reporter.Message("The pending result lost its execution lease: " + error.Message, "Warning");
+                return;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception error) when (error is HttpRequestException or IOException or OperationCanceledException)
+            {
+                reporter.Message("The final state remains pending; control heartbeats will continue: " + error.Message, "Warning");
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(delay), token);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    return;
+                }
+                delay = Math.Min(30, delay * 2);
+            }
         }
     }
 
@@ -301,6 +509,7 @@ internal sealed class WorkerRuntime
         {
             foreach (var job in jobs.Values)
             {
+                job.PulseStages?.Invoke();
                 job.CheckLease();
             }
         }

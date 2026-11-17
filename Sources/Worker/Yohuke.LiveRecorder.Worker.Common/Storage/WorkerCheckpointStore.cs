@@ -19,9 +19,31 @@ internal sealed class WorkerCheckpointStore<TAssignment, TPayload>
         this.directoryName = SafeId(directoryName);
         this.log = log;
         catalogPath = Path.GetFullPath(settingsPath) + "." + directoryName + "-checkpoints.json";
-        roots = File.Exists(catalogPath)
-            ? new(WorkerJsonFileStore.Read<List<string>>(catalogPath), PathComparer)
-            : new(PathComparer);
+        roots = new(PathComparer);
+        if (File.Exists(catalogPath))
+        {
+            try
+            {
+                foreach (var candidate in WorkerJsonFileStore.Read<List<string>>(catalogPath))
+                {
+                    if (!string.IsNullOrWhiteSpace(candidate) && Path.IsPathFullyQualified(candidate)
+                        && PathComparer.Equals(Path.GetFileName(Path.TrimEndingDirectorySeparator(candidate)), workerId)
+                        && PathComparer.Equals(Path.GetFileName(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(candidate))), directoryName))
+                    {
+                        roots.Add(Path.GetFullPath(candidate));
+                    }
+                    else
+                    {
+                        log("Ignoring an invalid checkpoint root entry.");
+                    }
+                }
+            }
+            catch (Exception error) when (error is JsonException or InvalidDataException or ArgumentException)
+            {
+                log("The checkpoint root catalog is invalid; the configured root will be rediscovered: " + error.Message);
+                File.Move(catalogPath, catalogPath + ".corrupt-" + Guid.NewGuid().ToString("N"));
+            }
+        }
     }
 
     internal string RegisterRoot(string temporaryDirectory)
@@ -32,7 +54,15 @@ internal sealed class WorkerCheckpointStore<TAssignment, TPayload>
             Directory.CreateDirectory(Path.Combine(root, "jobs"));
             if (roots.Add(root))
             {
-                WorkerJsonFileStore.Write(catalogPath, roots.Order(StringComparer.Ordinal).ToArray());
+                try
+                {
+                    WorkerJsonFileStore.Write(catalogPath, roots.Order(StringComparer.Ordinal).ToArray());
+                }
+                catch
+                {
+                    roots.Remove(root);
+                    throw;
+                }
             }
         }
         return root;
@@ -61,8 +91,10 @@ internal sealed class WorkerCheckpointStore<TAssignment, TPayload>
                     {
                         var checkpoint = WorkerJsonFileStore.Read<WorkerJobCheckpoint<TAssignment, TPayload>>(path);
                         if (checkpoint.SchemaVersion != 1 || checkpoint.PipelineVersion != 1 || checkpoint.WorkerId != workerId
-                            || string.IsNullOrEmpty(checkpoint.JobId) || checkpoint.Fingerprint.Length != 64
-                            || checkpoint.Assignment is null || checkpoint.Payload is null || checkpoint.Stages is null)
+                            || string.IsNullOrEmpty(checkpoint.JobId) || checkpoint.Fingerprint is not { Length: 64 }
+                            || !checkpoint.Fingerprint.All(char.IsAsciiHexDigit)
+                            || checkpoint.Assignment is null || checkpoint.Payload is null || checkpoint.Stages is null
+                            || checkpoint.Stages.Any(stage => stage is null || string.IsNullOrWhiteSpace(stage.Id)))
                         {
                             throw new InvalidDataException("The checkpoint version or identity is unsupported.");
                         }
@@ -88,6 +120,7 @@ internal sealed class WorkerCheckpointStore<TAssignment, TPayload>
 
     internal WorkerCheckpointLocation<TAssignment, TPayload> Open(string temporaryDirectory, string jobId, string fingerprint, TAssignment assignment)
     {
+        var root = RegisterRoot(temporaryDirectory);
         var existing = ReadAll().Where(value => value.Checkpoint.JobId == jobId && value.Checkpoint.Fingerprint == fingerprint)
             .OrderByDescending(value => value.Checkpoint.LastAccessAtUtc).FirstOrDefault();
         if (existing is not null)
@@ -99,7 +132,6 @@ internal sealed class WorkerCheckpointStore<TAssignment, TPayload>
             Save(existing);
             return existing;
         }
-        var root = RegisterRoot(temporaryDirectory);
         var path = Path.Combine(root, "jobs", SafeId(jobId) + "-" + fingerprint, "checkpoint.json");
         var created = new WorkerCheckpointLocation<TAssignment, TPayload>(path, new()
         {

@@ -131,6 +131,47 @@ public sealed class WorkerRecoveryTests
         Assert.Equal(assignment.CheckpointGeneration, next.CheckpointGeneration);
     }
 
+    /// <summary>待报告的恢复仍占服务端执行名额，报告提交后才派发其它任务，确认丢失也不会重跑失败任务。</summary>
+    [Fact]
+    public async Task PendingFailureRecoveryKeepsCapacityUntilItsResultCommits()
+    {
+        await using var fixture = await ClippingTestContext.CreateAsync();
+        var (job, assignment) = await fixture.AssignAsync();
+        await fixture.Jobs.Mongo.Collection<TranscodeWorker>("transcodeWorkers").UpdateOneAsync(value => value.Id == fixture.WorkerId,
+            Builders<TranscodeWorker>.Update.Set(value => value.Configuration.MaxConcurrentEncodes, 1));
+        var pending = new MediaJob
+        {
+            OwnerId = job.OwnerId, SessionId = job.SessionId, Title = "next-job", SourceSegments = job.SourceSegments,
+            SegmentIds = job.SegmentIds, SourceRevision = job.SourceRevision, StartMs = job.StartMs, EndMs = job.EndMs
+        };
+        await fixture.Jobs.Mongo.Collection<MediaJob>("jobs").InsertOneAsync(pending);
+        pending = await fixture.Jobs.Mongo.Collection<MediaJob>("jobs").Find(value => value.Id == pending.Id).SingleAsync();
+        fixture.Preparation.Request(pending);
+        await fixture.Preparation.WaitForReadyAsync(pending).WaitAsync(TimeSpan.FromSeconds(5));
+        var request = new WorkerJobRecoveryRequest
+        {
+            JobId = job.Id, Attempt = assignment.Attempt, LeaseToken = assignment.LeaseToken, NextLeaseToken = new('d', 64)
+        };
+        var beforeReport = await fixture.Scheduler.HeartbeatAsync(fixture.WorkerId, new()
+        {
+            AppliedConfigurationRevision = fixture.Revision, Telemetry = new() { FreeBytes = long.MaxValue }, RecoveryRequests = [request]
+        }, CancellationToken.None);
+        Assert.Equal("Resume", Assert.Single(beforeReport.RecoveryResults).Disposition);
+        Assert.Empty(beforeReport.ClipAssignments);
+        await fixture.Transfers.FinishAsync(fixture.WorkerId, job.Id, assignment.Attempt, request.NextLeaseToken,
+            new() { State = "Failed", ErrorCode = "WorkerExecutionFailed" });
+        var afterLostAcknowledgement = await fixture.Scheduler.HeartbeatAsync(fixture.WorkerId, new()
+        {
+            AppliedConfigurationRevision = fixture.Revision, Telemetry = new() { FreeBytes = long.MaxValue },
+            RecoveryRequests = [request with { LeaseToken = request.NextLeaseToken, NextLeaseToken = new('e', 64) }]
+        }, CancellationToken.None);
+        Assert.Equal("Rejected", Assert.Single(afterLostAcknowledgement.RecoveryResults).Disposition);
+        Assert.Equal(pending.Id, Assert.Single(afterLostAcknowledgement.ClipAssignments).JobId);
+        var failed = await fixture.Jobs.Mongo.Collection<MediaJob>("jobs").Find(value => value.Id == job.Id).SingleAsync();
+        Assert.Equal("Failed", failed.State);
+        Assert.Equal(assignment.Attempt, failed.Attempt);
+    }
+
     /// <summary>转码过期恢复保持代次，普通重试复用检查点而强制重建创建新检查点代次。</summary>
     [Fact]
     public async Task TranscodeRecoveryAndForceKeepExecutionAndCheckpointGenerationsSeparate()

@@ -16,7 +16,7 @@ internal sealed class WorkerFileTransfer : IDisposable
 
     internal async Task DownloadAsync(TranscodeAssignment assignment, string path, long bytesPerSecond,
         Action<double> progress, CancellationToken cancellationToken,
-        Action<WorkerTransferProgress>? transferProgress = null, Action<string>? log = null)
+        Action<WorkerTransferProgress>? transferProgress = null, Action<string>? log = null, bool invalidateCached = false)
     {
         var gate = inputGates[(StringComparer.Ordinal.GetHashCode(path) & int.MaxValue) % inputGates.Length];
         var waiting = gate.WaitAsync(cancellationToken);
@@ -27,6 +27,12 @@ internal sealed class WorkerFileTransfer : IDisposable
         await waiting;
         try
         {
+            if (invalidateCached)
+            {
+                File.Delete(path);
+                File.Delete(path + ".partial");
+                File.Delete(path + ".media.json");
+            }
             log?.Invoke("Checking source length and version with the server.");
             using (var head = transfers.CreateRequest(HttpMethod.Head, Lease(assignment), "input"))
             using (var response = await transfers.SendHeadersAsync(head, cancellationToken))
@@ -146,6 +152,21 @@ internal sealed class WorkerFileTransfer : IDisposable
         long bytesPerSecond, Action<double> progress, CancellationToken cancellationToken,
         Action<WorkerTransferProgress>? transferProgress = null, Action<string>? log = null, Action? completing = null)
     {
+        await UploadArtifactsAsync(assignment, directory, manifest, bytesPerSecond, progress, cancellationToken, transferProgress, log);
+        completing?.Invoke();
+        await CompleteAsync(assignment, manifest, cancellationToken, log);
+    }
+
+    internal Task BeginUploadAsync(TranscodeAssignment assignment, TranscodeOutputManifest manifest, CancellationToken cancellationToken) =>
+        transfers.PostJsonAsync(Lease(assignment), "upload-session", new WorkerUploadSession
+        {
+            ManifestFingerprint = WorkerOutputManifestFingerprint.Create(manifest)
+        }, cancellationToken);
+
+    internal async Task UploadArtifactsAsync(TranscodeAssignment assignment, string directory, TranscodeOutputManifest manifest,
+        long bytesPerSecond, Action<double> progress, CancellationToken cancellationToken,
+        Action<WorkerTransferProgress>? transferProgress = null, Action<string>? log = null)
+    {
         var total = manifest.Files.Sum(file => file.Length);
         var completed = 0L;
         var completedFiles = 0;
@@ -165,10 +186,11 @@ internal sealed class WorkerFileTransfer : IDisposable
             progress((double)completed / total);
             transferProgress?.Invoke(new(completed, total, artifact.Name, completedFiles, manifest.Files.Count));
         }
-        completing?.Invoke();
-        await transfers.PostJsonAsync(lease, "complete", manifest, cancellationToken,
-            TimeSpan.FromSeconds(Math.Max(60, assignment.SourceLength / (8d * 1024 * 1024))), 3, log);
     }
+
+    internal Task CompleteAsync(TranscodeAssignment assignment, TranscodeOutputManifest manifest, CancellationToken cancellationToken,
+        Action<string>? log = null) => transfers.PostJsonAsync(Lease(assignment), "complete", manifest, cancellationToken,
+            TimeSpan.FromSeconds(Math.Max(60, assignment.SourceLength / (8d * 1024 * 1024))), 3, log);
 
     internal Task ReportResultAsync(TranscodeAssignment assignment, WorkerJobResult result, CancellationToken cancellationToken) =>
         transfers.PostJsonAsync(Lease(assignment), "result", result, cancellationToken);

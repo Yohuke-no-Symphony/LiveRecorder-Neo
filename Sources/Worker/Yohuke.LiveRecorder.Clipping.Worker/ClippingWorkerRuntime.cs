@@ -2,6 +2,10 @@ using System.Collections.Concurrent;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Security.Authentication;
+using System.Security.Cryptography;
+using Yohuke.LiveRecorder.Worker.Common.Stages;
+using Yohuke.LiveRecorder.Worker.Common.Storage;
+using Yohuke.LiveRecorder.Clipping.Worker.Stages;
 using Yohuke.LiveRecorder.Clipping.Contracts;
 using Yohuke.LiveRecorder.Clipping.Worker.Execution;
 using Yohuke.LiveRecorder.Clipping.Worker.Scheduling;
@@ -26,15 +30,32 @@ internal sealed class ClippingWorkerRuntime(WorkerConnectionOptions options, Wor
     private int requestedRevision = -1;
     private DateTime lastProbeUtc;
     private string? configurationError;
+    private readonly Dictionary<string, WorkerCheckpointLocation<ClipAssignment, ClipCheckpointPayload>> recoveries = new(StringComparer.Ordinal);
+    private readonly WorkerCheckpointStore<ClipAssignment, ClipCheckpointPayload> checkpoints = new(settings.Path, options.WorkerId,
+        "live-recorder-clipping-worker", message => (log ?? Console.WriteLine)(message));
+    private bool supportsRecovery;
+    private readonly ConcurrentDictionary<string, IDisposable> recoveryProtections = new(StringComparer.Ordinal);
 
     internal async Task RunAsync(CancellationToken cancellationToken)
     {
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var workspace = new ClipWorkspace(options.WorkerId, message => WriteLog(message, "Warning"));
         using var transfer = new ClipFileTransfer(options);
-        var monitoring = MonitorAsync(lifetime.Token);
+        var monitoring = Task.CompletedTask;
         try
         {
+            if (Path.IsPathFullyQualified(settings.Current.Configuration.TempDirectory))
+            {
+                checkpoints.RegisterRoot(settings.Current.Configuration.TempDirectory);
+            }
+            foreach (var location in checkpoints.ReadAll().Where(value => value.Checkpoint.State is "Running" or "Interrupted" or "Reporting" or "AwaitingPublication")
+                .GroupBy(value => value.Checkpoint.JobId, StringComparer.Ordinal)
+                .Select(group => group.OrderByDescending(value => value.Checkpoint.LastAccessAtUtc).First()))
+            {
+                recoveryProtections[location.Checkpoint.JobId] = workspace.ProtectCheckpointDirectory(Path.GetDirectoryName(location.Path)!);
+                recoveries[location.Checkpoint.JobId] = location;
+            }
+            monitoring = MonitorAsync(lifetime.Token);
             var delay = 1;
             while (!lifetime.IsCancellationRequested)
             {
@@ -46,6 +67,15 @@ internal sealed class ClippingWorkerRuntime(WorkerConnectionOptions options, Wor
                         Kind = "Clipping", WorkerId = options.WorkerId, Secret = options.Secret, Capabilities = capabilities
                     }, lifetime.Token);
                     await ApplyConfigurationAsync(welcome.Configuration, welcome.ConfigurationRevision, workspace, lifetime.Token);
+                    supportsRecovery = welcome.RecoveryProtocolVersion >= 1;
+                    if (!supportsRecovery)
+                    {
+                        recoveries.Clear();
+                        foreach (var id in recoveryProtections.Keys)
+                        {
+                            ReleaseRecoveryProtection(id);
+                        }
+                    }
                     delay = 1;
                     WriteLog("Connected to the clipping coordinator.");
                     while (!lifetime.IsCancellationRequested)
@@ -66,6 +96,7 @@ internal sealed class ClippingWorkerRuntime(WorkerConnectionOptions options, Wor
                             Capabilities = capabilities,
                             Telemetry = new() { FreeBytes = freeBytes, RunningCpu = jobs.Count },
                             Jobs = jobs.Values.Select(job => job.Snapshot()).ToList(),
+                            RecoveryRequests = RecoveryRequests(),
                             LogBatch = welcome.LogProtocolVersion >= 1 ? logs.GetBatch() : null
                         }, lifetime.Token);
                         logs.Acknowledge(state.LogAcknowledgement);
@@ -84,6 +115,7 @@ internal sealed class ClippingWorkerRuntime(WorkerConnectionOptions options, Wor
                                 }
                             }
                         }
+                        await RecoverAsync(state.RecoveryResults, workspace, transfer, lifetime.Token);
                         foreach (var assignment in state.ClipAssignments)
                         {
                             await StartAsync(assignment, workspace, transfer, lifetime.Token);
@@ -95,6 +127,11 @@ internal sealed class ClippingWorkerRuntime(WorkerConnectionOptions options, Wor
                 {
                     await lifetime.CancelAsync();
                     throw;
+                }
+                catch (Exception error) when (lifetime.IsCancellationRequested
+                    && error is IOException or SocketException or AuthenticationException or OperationCanceledException)
+                {
+                    break;
                 }
                 catch (Exception error) when (!lifetime.IsCancellationRequested
                     && error is IOException or SocketException or AuthenticationException or InvalidOperationException or OperationCanceledException)
@@ -112,13 +149,23 @@ internal sealed class ClippingWorkerRuntime(WorkerConnectionOptions options, Wor
             {
                 job.Cancel();
             }
-            await Task.WhenAll(jobs.Values.Select(job => job.Task));
             try
             {
-                await monitoring;
+                await Task.WhenAll(jobs.Values.Select(job => job.Task));
             }
-            catch (OperationCanceledException)
+            finally
             {
+                foreach (var id in recoveryProtections.Keys)
+                {
+                    ReleaseRecoveryProtection(id);
+                }
+                try
+                {
+                    await monitoring;
+                }
+                catch (OperationCanceledException)
+                {
+                }
             }
         }
     }
@@ -164,7 +211,96 @@ internal sealed class ClippingWorkerRuntime(WorkerConnectionOptions options, Wor
         }
     }
 
-    private async Task StartAsync(ClipAssignment assignment, ClipWorkspace workspace, ClipFileTransfer transfer, CancellationToken cancellationToken)
+    private List<WorkerJobRecoveryRequest> RecoveryRequests()
+    {
+        var result = new List<WorkerJobRecoveryRequest>();
+        var executionSlots = Math.Max(0, configuration.MaxConcurrentEncodes - jobs.Values.Count(job => !job.IsReportingOnly));
+        var passive = recoveries.Values.Where(value => value.Checkpoint.PendingResult is not null
+            || value.Checkpoint.State == "AwaitingPublication" || value.Checkpoint.Payload.PublicationPending);
+        var executing = recoveries.Values.Where(value => value.Checkpoint.PendingResult is null
+            && value.Checkpoint.State != "AwaitingPublication" && !value.Checkpoint.Payload.PublicationPending).Take(executionSlots);
+        foreach (var location in passive.Concat(executing).Take(Math.Max(0, 65 - jobs.Count)))
+        {
+            var checkpoint = location.Checkpoint;
+            if (checkpoint.NextLeaseToken is null)
+            {
+                checkpoint.NextLeaseToken = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+                try
+                {
+                    WorkerCheckpointStore<ClipAssignment, ClipCheckpointPayload>.Save(location);
+                }
+                catch
+                {
+                    checkpoint.NextLeaseToken = null;
+                    throw;
+                }
+            }
+            result.Add(new()
+            {
+                JobId = checkpoint.JobId, Attempt = checkpoint.Assignment.Attempt,
+                LeaseToken = checkpoint.Assignment.LeaseToken, NextLeaseToken = checkpoint.NextLeaseToken
+            });
+        }
+        return result;
+    }
+
+    private async Task RecoverAsync(IReadOnlyList<WorkerJobRecoveryStatus> statuses, ClipWorkspace workspace,
+        ClipFileTransfer transfer, CancellationToken cancellationToken)
+    {
+        foreach (var status in statuses)
+        {
+            if (!recoveries.TryGetValue(status.JobId, out var location) || location.Checkpoint.Assignment.Attempt != status.Attempt)
+            {
+                continue;
+            }
+            var checkpoint = location.Checkpoint;
+            if (status.Disposition == "Resume")
+            {
+                checkpoint.Assignment = checkpoint.Assignment with { LeaseToken = checkpoint.NextLeaseToken!, LeaseSeconds = status.LeaseSeconds };
+                checkpoint.NextLeaseToken = null;
+                checkpoint.Payload.PublicationPending = status.State == "Completed" && checkpoint.Payload.Manifest is not null;
+                if (checkpoint.Payload.PublicationPending)
+                {
+                    checkpoint.PendingResult = null;
+                }
+                if (status.State == "Completed" && checkpoint.Payload.Manifest is null)
+                {
+                    checkpoint.State = "AwaitingPublication";
+                    checkpoint.PendingResult = null;
+                    WorkerCheckpointStore<ClipAssignment, ClipCheckpointPayload>.Save(location);
+                    continue;
+                }
+                WorkerCheckpointStore<ClipAssignment, ClipCheckpointPayload>.Save(location);
+                await StartAsync(checkpoint.Assignment, workspace, transfer, cancellationToken, location);
+            }
+            else if (status.Disposition == "Completed")
+            {
+                Directory.Delete(Path.GetDirectoryName(location.Path)!, recursive: true);
+            }
+            else
+            {
+                checkpoint.State = "Rejected";
+                checkpoint.NextLeaseToken = null;
+                WorkerCheckpointStore<ClipAssignment, ClipCheckpointPayload>.Save(location);
+            }
+            recoveries.Remove(status.JobId);
+            if (!jobs.ContainsKey(status.JobId))
+            {
+                ReleaseRecoveryProtection(status.JobId);
+            }
+        }
+    }
+
+    private void ReleaseRecoveryProtection(string jobId)
+    {
+        if (recoveryProtections.TryRemove(jobId, out var protection))
+        {
+            protection.Dispose();
+        }
+    }
+
+    private async Task StartAsync(ClipAssignment assignment, ClipWorkspace workspace, ClipFileTransfer transfer,
+        CancellationToken cancellationToken, WorkerCheckpointLocation<ClipAssignment, ClipCheckpointPayload>? recovered = null)
     {
         if (jobs.TryGetValue(assignment.JobId, out var existing))
         {
@@ -175,7 +311,8 @@ internal sealed class ClippingWorkerRuntime(WorkerConnectionOptions options, Wor
             existing.Cancel();
             await existing.Task;
         }
-        if (configurationError is not null || jobs.Count >= configuration.MaxConcurrentEncodes)
+        var reportingOnly = recovered is not null && (recovered.Checkpoint.PendingResult is not null || recovered.Checkpoint.Payload.PublicationPending);
+        if (!reportingOnly && (configurationError is not null || jobs.Values.Count(job => !job.IsReportingOnly) >= configuration.MaxConcurrentEncodes))
         {
             await transfer.ReportResultAsync(assignment, new()
             {
@@ -183,83 +320,147 @@ internal sealed class ClippingWorkerRuntime(WorkerConnectionOptions options, Wor
             }, cancellationToken);
             return;
         }
-        var job = new ClipRunningJob(assignment, cancellationToken);
+        if (recovered is null)
+        {
+            recoveries.Remove(assignment.JobId);
+        }
+        var job = new ClipRunningJob(assignment, cancellationToken) { IsReportingOnly = reportingOnly };
         if (!jobs.TryAdd(assignment.JobId, job))
         {
             job.Dispose();
             return;
         }
-        job.Task = RunJobAsync(job, configuration with { }, workspace, transfer);
+        job.Task = RunJobAsync(job, configuration with { }, workspace, transfer, recovered);
     }
 
-    private async Task RunJobAsync(ClipRunningJob job, WorkerConfiguration selected, ClipWorkspace workspace, ClipFileTransfer transfer)
+    private async Task RunJobAsync(ClipRunningJob job, WorkerConfiguration selected, ClipWorkspace workspace, ClipFileTransfer transfer,
+        WorkerCheckpointLocation<ClipAssignment, ClipCheckpointPayload>? recovered)
     {
         await Task.Yield();
         var token = job.Cancellation.Token;
+        WorkerCheckpointLocation<ClipAssignment, ClipCheckpointPayload>? location = recovered;
         try
         {
-            using var files = workspace.Acquire(selected, job.Assignment);
-            job.Update("Downloading", 0);
-            WriteLog("Downloading only the assigned clipping input ranges.", job: job);
-            var manifest = await new ClipExecutor(transfer).ExecuteAsync(job.Assignment, selected, files, token,
-                (bytes, total) => job.Update("Downloading", total > 0 ? (double)bytes / total * 15 : 15,
-                    new() { BytesTransferred = bytes, TotalBytes = total }),
-                progress => job.Update("Encoding", 15 + progress * 65,
-                    new() { ProcessedDurationMs = progress * (job.Assignment.ActualEndMs - job.Assignment.ActualStartMs),
-                        TotalDurationMs = job.Assignment.ActualEndMs - job.Assignment.ActualStartMs }),
-                message => WriteLog(message, job: job));
-            job.Update("Uploading", 80);
-            WriteLog("Clip exported and validated. Uploading the MP4.", job: job);
-            await transfer.UploadAsync(job.Assignment, files.OutputPath, manifest, selected.UploadBytesPerSecond, token,
-                bytes => job.Update("Uploading", 80 + (double)bytes / manifest.Bytes * 19,
-                    new() { BytesTransferred = bytes, TotalBytes = manifest.Bytes }),
-                message => WriteLog(message, job: job),
-                () => job.Update("Finalizing", 99));
-            WriteLog("The server verified and published the clip. Cleaning the task workspace.", job: job);
-        }
-        catch (WorkerLeaseLostException error)
-        {
-            WriteLog("Clipping lease was revoked: " + error.Message, "Warning", job);
+            location ??= checkpoints.Open(selected.TempDirectory, job.Assignment.JobId, ClipContentIdentity.Create(job.Assignment), job.Assignment);
+            if (recovered is null)
+            {
+                location.Checkpoint.Payload.PublicationPending = false;
+            }
+            if (location.Checkpoint.PendingResult is { } pending)
+            {
+                job.IsReportingOnly = true;
+                job.SetStages(pending.Stages);
+                await ReportResultUntilConfirmedAsync(job, location, pending, transfer);
+                return;
+            }
+            if (location.Checkpoint.Payload.PublicationPending)
+            {
+                job.SetStages(location.Checkpoint.Stages);
+                job.Update("Finalizing", 99);
+                await transfer.CompleteAsync(job.Assignment, location.Checkpoint.Payload.Manifest!, token,
+                    message => WriteLog(message, job: job));
+                location.Checkpoint.State = "Completed";
+                WorkerCheckpointStore<ClipAssignment, ClipCheckpointPayload>.Save(location);
+                Directory.Delete(Path.GetDirectoryName(location.Path)!, recursive: true);
+                return;
+            }
+            using var files = workspace.Acquire(selected, job.Assignment, Path.GetDirectoryName(location.Path));
+            ReleaseRecoveryProtection(job.Assignment.JobId);
+            var context = new ClipStageContext(location, files, selected, transfer, job,
+                message => WriteLog(message, job: job), supportsRecovery);
+            job.PulseStages = context.Pulse;
+            await new WorkerStageRunner<ClipStageContext>([
+                new ClipDownloadStage(), new ClipPrepareStage(), new ClipExportStage(),
+                new ClipValidateStage(), new ClipUploadStage(), new ClipFinalizeStage()
+            ]).RunAsync(context, token);
+            location.Checkpoint.State = "Completed";
+            context.Save();
+            files.Complete();
+            WriteLog("The server verified and published the clip. Cleaning the completed workspace.", job: job);
         }
         catch (OperationCanceledException)
         {
-            WriteLog("Stopped clipping task. Cleaning the task workspace.", "Warning", job);
-        }
-        catch (ClipCapacityException error)
-        {
-            WriteLog("Returning the clipping task to wait for available workspace capacity.", "Warning", job);
-            try
+            if (location is not null)
             {
-                await transfer.ReportResultAsync(job.Assignment, new()
-                {
-                    State = "Queued", ErrorCode = "WorkerCapacityUnavailable", Error = error.Message
-                }, token);
+                location.Checkpoint.State = "Interrupted";
+                WorkerCheckpointStore<ClipAssignment, ClipCheckpointPayload>.Save(location);
             }
-            catch (Exception reportingError)
-            {
-                WriteLog("Unable to release the clipping task: " + reportingError.Message, "Warning", job);
-            }
+            WriteLog("Stopped clipping task; completed stages remain available for recovery.", "Warning", job);
         }
         catch (Exception error)
         {
-            WriteLog("Clipping task failed: " + error.Message, "Error", job);
-            try
+            WriteLog("Clipping task stopped: " + error.Message, "Error", job);
+            var result = new WorkerJobResult
             {
-                await transfer.ReportResultAsync(job.Assignment, new()
-                {
-                    State = "Failed", ErrorCode = "WorkerExecutionFailed",
-                    Error = error.Message.Length > 4000 ? error.Message[..4000] : error.Message
-                }, token);
-            }
-            catch (Exception reportingError)
+                State = error is ClipCapacityException ? "Queued" : "Failed",
+                ErrorCode = error is ClipCapacityException ? "WorkerCapacityUnavailable" : "WorkerExecutionFailed",
+                Error = error.Message.Length > 4000 ? error.Message[..4000] : error.Message,
+                Stages = job.Snapshot().Stages
+            };
+            if (location is not null)
             {
-                WriteLog("Unable to report the clipping result: " + reportingError.Message, "Warning", job);
+                location.Checkpoint.State = "Reporting";
+                location.Checkpoint.PendingResult = result;
+                WorkerCheckpointStore<ClipAssignment, ClipCheckpointPayload>.Save(location);
             }
+            job.IsReportingOnly = true;
+            await ReportResultUntilConfirmedAsync(job, location, result, transfer);
         }
         finally
         {
+            job.PulseStages = null;
+            ReleaseRecoveryProtection(job.Assignment.JobId);
             jobs.TryRemove(new KeyValuePair<string, ClipRunningJob>(job.Assignment.JobId, job));
             job.Dispose();
+        }
+    }
+
+    private async Task ReportResultUntilConfirmedAsync(ClipRunningJob job,
+        WorkerCheckpointLocation<ClipAssignment, ClipCheckpointPayload>? location, WorkerJobResult result,
+        ClipFileTransfer transfer)
+    {
+        var token = job.Cancellation.Token;
+        var delay = 1;
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                await transfer.ReportResultAsync(job.Assignment, result, token);
+                if (location is not null)
+                {
+                    location.Checkpoint.State = result.State;
+                    location.Checkpoint.PendingResult = null;
+                    WorkerCheckpointStore<ClipAssignment, ClipCheckpointPayload>.Save(location);
+                }
+                return;
+            }
+            catch (WorkerLeaseLostException error)
+            {
+                if (location is not null)
+                {
+                    location.Checkpoint.State = "Rejected";
+                    WorkerCheckpointStore<ClipAssignment, ClipCheckpointPayload>.Save(location);
+                }
+                WriteLog("The pending result lost its execution lease: " + error.Message, "Warning", job);
+                return;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception error) when (error is HttpRequestException or IOException or OperationCanceledException)
+            {
+                WriteLog("The final state remains pending; control heartbeats will continue: " + error.Message, "Warning", job);
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(delay), token);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    return;
+                }
+                delay = Math.Min(30, delay * 2);
+            }
         }
     }
 
@@ -271,6 +472,7 @@ internal sealed class ClippingWorkerRuntime(WorkerConnectionOptions options, Wor
         {
             foreach (var job in jobs.Values)
             {
+                job.PulseStages?.Invoke();
                 job.CheckLease();
                 if (ticks % 5 == 0)
                 {

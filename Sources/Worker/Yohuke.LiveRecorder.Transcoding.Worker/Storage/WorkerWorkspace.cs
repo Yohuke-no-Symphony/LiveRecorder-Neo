@@ -1,25 +1,66 @@
 using System.Security.Cryptography;
 using Yohuke.LiveRecorder.Transcoding.Contracts;
+using Yohuke.LiveRecorder.Transcoding.Worker.Scheduling;
+using Yohuke.LiveRecorder.Worker.Common.Storage;
 
 namespace Yohuke.LiveRecorder.Transcoding.Worker.Storage;
 
-internal sealed class WorkerWorkspace(string workerId)
+internal sealed class WorkerWorkspace(string workerId) : IDisposable
 {
     private readonly Lock sync = new();
     private readonly Dictionary<string, int> protectedPaths = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> inputReservations = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> outputReservations = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, FileStream> rootOwners = new(StringComparer.Ordinal);
 
-    internal WorkerWorkspaceLease Acquire(WorkerConfiguration configuration, TranscodeAssignment assignment, Action<string>? log = null)
+    internal void OwnCheckpointDirectory(string directory)
     {
-        var root = Path.Combine(Path.GetFullPath(configuration.TempDirectory), "live-recorder-worker", SafeJob(workerId));
-        var inputKey = Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
-            $"{assignment.AssetId}:{assignment.SourceVersion}:{assignment.SourceLength}:{assignment.SourceETag}")));
-        var input = Path.Combine(root, "inputs", inputKey);
-        var output = Path.Combine(root, "jobs", SafeJob(assignment.JobId) + "-" + assignment.Attempt);
+        var root = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetFullPath(directory))!)!;
         lock (sync)
         {
             Directory.CreateDirectory(root);
+            if (!rootOwners.ContainsKey(root))
+            {
+                rootOwners.Add(root, new(Path.Combine(root, ".worker.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));
+            }
+        }
+    }
+
+    internal IDisposable ProtectCheckpointDirectory(string directory, TranscodeAssignment assignment)
+    {
+        OwnCheckpointDirectory(directory);
+        var root = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetFullPath(directory))!)!;
+        var input = InputDirectory(root, assignment);
+        lock (sync)
+        {
+            Protect(directory);
+            Protect(input);
+        }
+        return new WorkerWorkspaceProtection(() =>
+        {
+            lock (sync)
+            {
+                Unprotect(directory);
+                Unprotect(input);
+            }
+        });
+    }
+
+    internal WorkerWorkspaceLease Acquire(WorkerConfiguration configuration, TranscodeAssignment assignment, Action<string>? log = null,
+        string? checkpointDirectory = null)
+    {
+        var root = checkpointDirectory is null
+            ? Path.Combine(Path.GetFullPath(configuration.TempDirectory), "live-recorder-worker", SafeJob(workerId))
+            : Path.GetDirectoryName(Path.GetDirectoryName(Path.GetFullPath(checkpointDirectory))!)!;
+        var input = InputDirectory(root, assignment);
+        var output = checkpointDirectory ?? Path.Combine(root, "jobs", SafeJob(assignment.JobId) + "-" + assignment.CheckpointGeneration);
+        lock (sync)
+        {
+            Directory.CreateDirectory(root);
+            if (!rootOwners.ContainsKey(root))
+            {
+                rootOwners.Add(root, new(Path.Combine(root, ".worker.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));
+            }
             var sourcePath = Path.Combine(input, "source.flv");
             if (outputReservations.ContainsKey(output))
             {
@@ -56,7 +97,7 @@ internal sealed class WorkerWorkspace(string workerId)
             }
             if (occupied + reserved + expected > configuration.MaxCacheBytes || free - diskReserved - expected < configuration.MinimumFreeBytes)
             {
-                throw new IOException("Insufficient worker cache capacity or free disk space. Adjust the cache limit or temporary directory on the server");
+                throw new WorkerCapacityUnavailableException("Insufficient worker cache capacity or free disk space. Adjust the cache limit or temporary directory on the server");
             }
             Protect(input);
             Protect(output);
@@ -65,7 +106,7 @@ internal sealed class WorkerWorkspace(string workerId)
             Directory.CreateDirectory(input);
             Directory.CreateDirectory(output);
             Directory.SetLastWriteTimeUtc(input, DateTime.UtcNow);
-            return new(sourcePath, output, () =>
+            return new(sourcePath, output, completed =>
             {
                 lock (sync)
                 {
@@ -76,7 +117,7 @@ internal sealed class WorkerWorkspace(string workerId)
                         inputReservations.Remove(input);
                     }
                     outputReservations.Remove(output);
-                    if (Directory.Exists(output))
+                    if (completed && Directory.Exists(output))
                     {
                         Directory.Delete(output, true);
                     }
@@ -85,7 +126,24 @@ internal sealed class WorkerWorkspace(string workerId)
         }
     }
 
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        lock (sync)
+        {
+            foreach (var owner in rootOwners.Values)
+            {
+                owner.Dispose();
+            }
+            rootOwners.Clear();
+        }
+    }
+
     internal static long FreeBytes(string root) => FindDrive(root).AvailableFreeSpace;
+
+    private static string InputDirectory(string root, TranscodeAssignment assignment) => Path.Combine(root, "inputs",
+        Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+            $"{assignment.AssetId}:{assignment.SourceVersion}:{assignment.SourceLength}:{assignment.SourceETag}"))));
 
     private static DriveInfo FindDrive(string root)
     {

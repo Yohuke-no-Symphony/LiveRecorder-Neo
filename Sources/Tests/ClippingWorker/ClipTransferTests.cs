@@ -172,4 +172,23 @@ public sealed class ClipTransferTests
         response.Content.Headers.ContentRange = new(100, 199, 1000);
         return response;
     }
+
+    /// <summary>超长的局部缓存只丢弃该范围，再次执行可以重新下载而非永久失败。</summary>
+    [Fact]
+    public async Task OversizedPartialRangeIsDiscardedAndDownloadedAgain()
+    {
+        using var fixture = new ClipTestFixture();
+        var assignment = ClipTestFixture.SmallAssignment();
+        var destination = Path.Combine(fixture.Root, "input.range");
+        await File.WriteAllBytesAsync(destination + ".partial", new byte[101]);
+        using var handler = new ClipTestHttpHandler((request, _) =>
+        {
+            Assert.Equal("bytes=100-199", request.Headers.Range!.ToString());
+            return Task.FromResult(Response());
+        });
+        using var transfer = new ClipFileTransfer(fixture.Connection, handler);
+        await transfer.DownloadAsync(assignment, assignment.Inputs[0], destination, 0, CancellationToken.None);
+        Assert.Equal(100, new FileInfo(destination).Length);
+        Assert.False(File.Exists(destination + ".partial"));
+    }
 }

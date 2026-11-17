@@ -1,5 +1,6 @@
 using Yohuke.LiveRecorder.Clipping.Contracts;
 using Yohuke.LiveRecorder.Transcoding.Contracts;
+using Yohuke.LiveRecorder.Worker.Common.Storage;
 
 namespace Yohuke.LiveRecorder.Clipping.Worker.Storage;
 
@@ -8,16 +9,18 @@ internal sealed class ClipWorkspace(string workerId, Action<string>? log = null)
     private readonly Lock sync = new();
     private readonly Dictionary<string, FileStream> roots = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> reservations = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> protections = new(StringComparer.Ordinal);
     private bool disposed;
 
-    internal ClipWorkspaceLease Acquire(WorkerConfiguration configuration, ClipAssignment assignment)
+    internal ClipWorkspaceLease Acquire(WorkerConfiguration configuration, ClipAssignment assignment, string? checkpointDirectory = null)
     {
         var expected = ClipWorkspacePolicy.RequiredBytes(assignment);
         lock (sync)
         {
             ObjectDisposedException.ThrowIf(disposed, this);
-            var root = OpenRoot(configuration.TempDirectory);
-            var directory = Path.Combine(root, "jobs", SafeId(assignment.JobId) + "-" + assignment.Attempt);
+            var root = checkpointDirectory is null ? OpenRoot(configuration.TempDirectory)
+                : OpenRootPath(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetFullPath(checkpointDirectory))!)!);
+            var directory = checkpointDirectory ?? Path.Combine(root, "jobs", SafeId(assignment.JobId) + "-" + assignment.CheckpointGeneration);
             if (assignment.Attempt <= 0 || reservations.ContainsKey(directory))
             {
                 throw new InvalidOperationException("The same clipping attempt cannot acquire its workspace twice.");
@@ -28,14 +31,27 @@ internal sealed class ClipWorkspace(string workerId, Action<string>? log = null)
             var drive = Drive(root);
             var driveReserved = reservations.Where(item => Drive(item.Key).Name == drive.Name)
                 .Sum(item => Math.Max(0, item.Value - Size(item.Key)));
-            if (expected > configuration.MaxCacheBytes - existing - reserved
-                || expected > drive.AvailableFreeSpace - driveReserved - configuration.MinimumFreeBytes)
+            var remaining = Math.Max(0, expected - Size(directory));
+            foreach (var candidate in Directory.EnumerateDirectories(Path.Combine(root, "jobs"))
+                .Where(path => path != directory && !reservations.ContainsKey(path) && !protections.ContainsKey(path)).OrderBy(Directory.GetLastWriteTimeUtc))
+            {
+                if (remaining <= configuration.MaxCacheBytes - existing - reserved
+                    && remaining <= drive.AvailableFreeSpace - driveReserved - configuration.MinimumFreeBytes)
+                {
+                    break;
+                }
+                var bytes = Size(candidate);
+                Cleanup(candidate);
+                existing -= bytes;
+            }
+            if (remaining > configuration.MaxCacheBytes - existing - reserved
+                || remaining > drive.AvailableFreeSpace - driveReserved - configuration.MinimumFreeBytes)
             {
                 throw new ClipCapacityException("Insufficient clipping workspace capacity or free disk space.");
             }
             Directory.CreateDirectory(directory);
             reservations.Add(directory, expected);
-            return new(directory, () => Release(directory));
+            return new(directory, completed => Release(directory, completed));
         }
     }
 
@@ -53,7 +69,42 @@ internal sealed class ClipWorkspace(string workerId, Action<string>? log = null)
         {
             throw new InvalidDataException("The clipping temporary directory must be absolute.");
         }
-        var root = Path.Combine(Path.GetFullPath(temporaryDirectory), "live-recorder-clipping-worker", SafeId(workerId));
+        return OpenRootPath(Path.Combine(Path.GetFullPath(temporaryDirectory), "live-recorder-clipping-worker", SafeId(workerId)));
+    }
+
+    internal void OwnCheckpointDirectory(string directory)
+    {
+        lock (sync)
+        {
+            _ = OpenRootPath(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetFullPath(directory))!)!);
+        }
+    }
+
+    internal IDisposable ProtectCheckpointDirectory(string directory)
+    {
+        OwnCheckpointDirectory(directory);
+        lock (sync)
+        {
+            protections[directory] = protections.GetValueOrDefault(directory) + 1;
+        }
+        return new WorkerWorkspaceProtection(() =>
+        {
+            lock (sync)
+            {
+                if (protections.GetValueOrDefault(directory) <= 1)
+                {
+                    protections.Remove(directory);
+                }
+                else
+                {
+                    protections[directory]--;
+                }
+            }
+        });
+    }
+
+    private string OpenRootPath(string root)
+    {
         if (roots.ContainsKey(root))
         {
             return root;
@@ -64,10 +115,6 @@ internal sealed class ClipWorkspace(string workerId, Action<string>? log = null)
         {
             var jobs = Path.Combine(root, "jobs");
             Directory.CreateDirectory(jobs);
-            foreach (var directory in Directory.EnumerateDirectories(jobs))
-            {
-                Cleanup(directory);
-            }
             roots.Add(root, owner);
             return root;
         }
@@ -78,11 +125,14 @@ internal sealed class ClipWorkspace(string workerId, Action<string>? log = null)
         }
     }
 
-    private void Release(string directory)
+    private void Release(string directory, bool completed)
     {
         lock (sync)
         {
-            Cleanup(directory);
+            if (completed)
+            {
+                Cleanup(directory);
+            }
             reservations.Remove(directory);
         }
     }
@@ -162,10 +212,6 @@ internal sealed class ClipWorkspace(string workerId, Action<string>? log = null)
                 return;
             }
             disposed = true;
-            foreach (var directory in reservations.Keys.ToArray())
-            {
-                Cleanup(directory);
-            }
             reservations.Clear();
             foreach (var owner in roots.Values)
             {
