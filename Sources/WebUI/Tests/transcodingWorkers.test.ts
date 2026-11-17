@@ -8,7 +8,7 @@ import StatusChip from '../src/components/common/StatusChip.vue'
 import { TranscodingAPI } from '../src/apis/TranscodingAPI'
 import { TaskHistoryAPI } from '../src/apis/TaskHistoryAPI'
 import type { TaskSummary } from '../src/models/taskHistory'
-import { defaultWorkerConfiguration, type ClippingWorker, type RecordingWorker, type TranscodingWorker, type WorkerKind } from '../src/models/transcoding'
+import { defaultWorkerConfiguration, type AiWorker, type ClippingWorker, type RecordingWorker, type TranscodingWorker, type WorkerKind } from '../src/models/transcoding'
 import { i18n } from '../src/plugins/i18n'
 
 vi.mock('../src/apis/TranscodingAPI', () => ({ TranscodingAPI: { workers: vi.fn(), createWorker: vi.fn(), updateWorker: vi.fn(), rotateWorkerKey: vi.fn(), deleteWorker: vi.fn() } }))
@@ -57,6 +57,77 @@ afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()); dispo
 
 describe('Worker管理', () =>
 {
+  it('AI节点独立创建并只显示运行任务，未混入编码设备', async () =>
+  {
+    const aiWorker: AiWorker = {
+      ...worker, id: 'ai-1', kind: 'AI', name: 'AI 节点', configuration: defaultWorkerConfiguration('AI'),
+      telemetry: { ...worker.telemetry!, runningJobs: 1 },
+    }
+    vi.mocked(TranscodingAPI.workers).mockResolvedValue([worker, aiWorker])
+    vi.mocked(TranscodingAPI.createWorker).mockResolvedValueOnce({ worker: aiWorker, secret: 'ai-key' })
+    const wrapper = await open('AI')
+
+    expect(wrapper.text()).toContain('AI Worker')
+    expect(wrapper.text()).toContain('运行任务 1')
+    expect(wrapper.text()).not.toContain('本地 Worker')
+    expect(wrapper.text()).not.toContain('h264_videotoolbox')
+    expect(wrapper.text()).not.toContain('GPU')
+    await wrapper.get('button[aria-label="添加 Worker"]').trigger('click')
+    await wrapper.get('input[aria-label="名称"]').setValue(' AI 节点 ')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(TranscodingAPI.createWorker).toHaveBeenCalledWith('AI 节点', 'AI')
+    expect(wrapper.get('input[aria-label="访问密钥"]').element).toHaveProperty('value', 'ai-key')
+  })
+
+  it('AI配置仅保存任务并发、缓存和传输限制，并过滤旧媒体字段', async () =>
+  {
+    const aiWorker: AiWorker = {
+      ...worker, kind: 'AI', configuration: { ...defaultWorkerConfiguration('AI'), tempDirectory: '/srv/ai' },
+    }
+    Object.assign(aiWorker.configuration, { ffmpegPath: 'unused', ffprobePath: 'unused', gpuConcurrency: 4, maxConcurrentEncodes: 9 })
+    vi.mocked(TranscodingAPI.workers).mockResolvedValue([aiWorker])
+    const wrapper = await open('AI')
+    await button(wrapper, '编辑 Worker').trigger('click')
+    const dialog = wrapper.get('[role="dialog"]')
+    expect(dialog.find(`input[aria-label="${i18n.global.t('shell.settings.ffmpeg')}"]`).exists()).toBe(false)
+    expect(dialog.find(`input[aria-label="${i18n.global.t('shell.settings.ffprobe')}"]`).exists()).toBe(false)
+    expect(dialog.find('input[aria-label="GPU 并发任务数"]').exists()).toBe(false)
+    expect(dialog.find('input[aria-label="CPU 并发任务数"]').exists()).toBe(false)
+    await dialog.get('input[aria-label="临时目录"]').setValue('/srv/ai-cache')
+    await dialog.get('input[aria-label="AI 并发任务数"]').setValue('3')
+    await dialog.get('input[aria-label="下载上限（MiB/s）"]').setValue('1.5')
+    await dialog.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(TranscodingAPI.updateWorker).toHaveBeenCalledWith('node-1', expect.objectContaining({
+      configuration: { tempDirectory: '/srv/ai-cache', maxConcurrentJobs: 3, maxCacheBytes: 20 * 1024 ** 3,
+        minimumFreeBytes: 2 * 1024 ** 3, downloadBytesPerSecond: 1572864, uploadBytesPerSecond: 0 },
+    }))
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('AI配置默认单任务，校验并发并随三语切换保留草稿', async () =>
+  {
+    const aiWorker: AiWorker = { ...worker, kind: 'AI', configuration: defaultWorkerConfiguration('AI') }
+    vi.mocked(TranscodingAPI.workers).mockResolvedValue([aiWorker])
+    const wrapper = await open('AI')
+    await button(wrapper, '编辑 Worker').trigger('click')
+    expect(wrapper.get('input[aria-label="AI 并发任务数"]').element).toHaveProperty('value', '1')
+    await wrapper.get('input[aria-label="AI 并发任务数"]').setValue('0')
+    await wrapper.get('form').trigger('submit')
+    expect(TranscodingAPI.updateWorker).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('请填写名称，并检查 AI 并发、缓存空间和传输上限')
+    for (const [language, concurrencyLabel] of [['en-US', 'Concurrent AI jobs'], ['ja-JP', 'AI 同時実行数']] as const)
+    {
+      i18n.global.locale.value = language
+      await flushPromises()
+      expect(wrapper.get(`input[aria-label="${concurrencyLabel}"]`).element).toHaveProperty('value', '0')
+      expect(wrapper.find(`input[aria-label="${i18n.global.t('shell.settings.ffmpeg')}"]`).exists()).toBe(false)
+    }
+  })
+
   it('全部节点一次批量读取活动任务，每卡最多3条并共用步骤详情', async () =>
   {
     vi.mocked(TranscodingAPI.workers).mockResolvedValue([worker, { ...worker, id: 'node-2', name: '节点乙' }])

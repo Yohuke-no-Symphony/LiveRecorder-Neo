@@ -4,6 +4,7 @@
     <v-tab value="Transcoding">{{ t('transcoding.title') }}</v-tab>
     <v-tab value="Clipping">{{ t('transcoding.clippingTitle') }}</v-tab>
     <v-tab value="Recording">{{ t('transcoding.recordingTitle') }}</v-tab>
+    <v-tab value="AI">{{ t('transcoding.aiTitle') }}</v-tab>
   </v-tabs>
   <TranscodingWorkersPanel :key="tab" :kind="tab" />
 </template>

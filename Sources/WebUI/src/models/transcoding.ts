@@ -4,7 +4,7 @@ export const ORIGINAL_QUALITY_ID = 'original'
 export const MIN_TRANSCODE_PRIORITY = -2147483648
 export const MAX_TRANSCODE_PRIORITY = 2147483647
 
-export type WorkerKind = 'Transcoding' | 'Clipping' | 'Recording'
+export type WorkerKind = 'Transcoding' | 'Clipping' | 'Recording' | 'AI'
 
 export interface TranscodingProfile
 {
@@ -30,13 +30,17 @@ export interface TranscodingSettings
   defaultPlaybackQualityId: string
 }
 
-export interface WorkerResourceConfiguration
+export interface WorkerStorageConfiguration
 {
   tempDirectory: string
-  maxConcurrentEncodes: number
   maxCacheBytes: number
   minimumFreeBytes: number
   uploadBytesPerSecond: number
+}
+
+export interface WorkerResourceConfiguration extends WorkerStorageConfiguration
+{
+  maxConcurrentEncodes: number
 }
 
 export interface TranscodingWorkerConfiguration extends WorkerResourceConfiguration
@@ -67,7 +71,13 @@ export interface RecordingWorkerConfiguration extends WorkerResourceConfiguratio
 {
 }
 
-export type WorkerConfiguration = TranscodingWorkerConfiguration | ClippingWorkerConfiguration | RecordingWorkerConfiguration
+export interface AiWorkerConfiguration extends WorkerStorageConfiguration
+{
+  maxConcurrentJobs: number
+  downloadBytesPerSecond: number
+}
+
+export type WorkerConfiguration = TranscodingWorkerConfiguration | ClippingWorkerConfiguration | RecordingWorkerConfiguration | AiWorkerConfiguration
 
 export interface PlaybackQuality
 {
@@ -86,7 +96,7 @@ export interface WorkerState
   isOnline?: boolean
   configurationRevision: number
   appliedConfigurationRevision: number
-  capabilities?: { operatingSystem: string; architecture: string; toolVersion: string; clippingVersion?: number; recordingVersion?: number; encoders: { encoder: string; deviceId: string | null; available: boolean; error?: string | null }[] } | null
+  capabilities?: { operatingSystem: string; architecture: string; toolVersion: string; clippingVersion?: number; recordingVersion?: number; aiExecutionVersion?: number; encoders: { encoder: string; deviceId: string | null; available: boolean; error?: string | null }[] } | null
   telemetry?: { cpuPercent: number | null; cpuThreadBudget: number; runningGpu: number; runningCpu: number; runningJobs?: number; activeRecordings?: number; pendingUploadBytes?: number; spoolBytes?: number; freeBytes: number; cpuUnavailableReason?: string | null } | null
   lastSeenAtUtc: string | null
   configurationError: string | null
@@ -110,7 +120,13 @@ export interface RecordingWorker extends WorkerState
   configuration: RecordingWorkerConfiguration
 }
 
-export type Worker = TranscodingWorker | ClippingWorker | RecordingWorker
+export interface AiWorker extends WorkerState
+{
+  kind: 'AI'
+  configuration: AiWorkerConfiguration
+}
+
+export type Worker = TranscodingWorker | ClippingWorker | RecordingWorker | AiWorker
 
 export interface RecordingWorkerAssignment
 {
@@ -246,11 +262,14 @@ export function isValidTranscodingSettings(settings: TranscodingSettings): boole
 
 export function defaultWorkerConfiguration(kind: 'Clipping'): ClippingWorkerConfiguration
 export function defaultWorkerConfiguration(kind: 'Recording'): RecordingWorkerConfiguration
+export function defaultWorkerConfiguration(kind: 'AI'): AiWorkerConfiguration
 export function defaultWorkerConfiguration(kind?: 'Transcoding'): TranscodingWorkerConfiguration
 export function defaultWorkerConfiguration(kind: WorkerKind): WorkerConfiguration
 export function defaultWorkerConfiguration(kind: WorkerKind = 'Transcoding'): WorkerConfiguration
 {
-  const resources: WorkerResourceConfiguration = { tempDirectory: '', maxConcurrentEncodes: 2, maxCacheBytes: 20 * 1024 ** 3, minimumFreeBytes: 2 * 1024 ** 3, uploadBytesPerSecond: 0 }
+  const storage: WorkerStorageConfiguration = { tempDirectory: '', maxCacheBytes: 20 * 1024 ** 3, minimumFreeBytes: 2 * 1024 ** 3, uploadBytesPerSecond: 0 }
+  if (kind === 'AI') { return { ...storage, maxConcurrentJobs: 1, downloadBytesPerSecond: 0 } }
+  const resources: WorkerResourceConfiguration = { ...storage, maxConcurrentEncodes: 2 }
   if (kind === 'Recording') { return resources }
   const media = { ...resources, ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe', downloadBytesPerSecond: 0 }
   if (kind === 'Clipping') { return { ...media, clipEncodingThreads: 2 } }
@@ -259,6 +278,17 @@ export function defaultWorkerConfiguration(kind: WorkerKind = 'Transcoding'): Wo
 
 export function normalizeWorker(worker: Worker): Worker
 {
+  if (worker.kind === 'AI')
+  {
+    return {
+      ...worker,
+      configuration: {
+        tempDirectory: worker.configuration.tempDirectory, maxConcurrentJobs: worker.configuration.maxConcurrentJobs,
+        maxCacheBytes: worker.configuration.maxCacheBytes, minimumFreeBytes: worker.configuration.minimumFreeBytes,
+        downloadBytesPerSecond: worker.configuration.downloadBytesPerSecond, uploadBytesPerSecond: worker.configuration.uploadBytesPerSecond,
+      },
+    }
+  }
   const resources: WorkerResourceConfiguration = {
     tempDirectory: worker.configuration.tempDirectory, maxConcurrentEncodes: worker.configuration.maxConcurrentEncodes,
     maxCacheBytes: worker.configuration.maxCacheBytes, minimumFreeBytes: worker.configuration.minimumFreeBytes,
@@ -289,11 +319,17 @@ export function isValidWorkerConfiguration(value: WorkerConfiguration, kind: Wor
 {
   const integer = (number: number, min: number, max = Number.MAX_SAFE_INTEGER) => Number.isSafeInteger(number) && number >= min && number <= max
   const resourcesValid = value.tempDirectory.length <= 4096
-    && integer(value.maxConcurrentEncodes, 1, 64)
     && integer(value.maxCacheBytes, 1024 ** 2) && integer(value.minimumFreeBytes, 0) && integer(value.uploadBytesPerSecond, 0)
-  if (kind === 'Recording') { return resourcesValid }
+  if (kind === 'AI')
+  {
+    return resourcesValid && 'maxConcurrentJobs' in value && integer(value.maxConcurrentJobs, 1, 64)
+      && integer(value.downloadBytesPerSecond, 0)
+  }
+  if (!('maxConcurrentEncodes' in value)) { return false }
+  const concurrencyValid = resourcesValid && integer(value.maxConcurrentEncodes, 1, 64)
+  if (kind === 'Recording') { return concurrencyValid }
   if (!('ffmpegPath' in value)) { return false }
-  const commonValid = resourcesValid && !!value.ffmpegPath.trim() && !!value.ffprobePath.trim()
+  const commonValid = concurrencyValid && !!value.ffmpegPath.trim() && !!value.ffprobePath.trim()
     && value.ffmpegPath.length <= 4096 && value.ffprobePath.length <= 4096 && integer(value.downloadBytesPerSecond, 0)
   if (kind === 'Clipping') { return commonValid && integer('clipEncodingThreads' in value ? value.clipEncodingThreads : 2, 1, 128) }
   if (!('gpuConcurrency' in value)) { return false }

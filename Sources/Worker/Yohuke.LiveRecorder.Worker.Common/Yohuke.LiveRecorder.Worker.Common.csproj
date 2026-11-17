@@ -7,9 +7,11 @@
     <InternalsVisibleTo Include="ylr-tc-worker" />
     <InternalsVisibleTo Include="ylr-clip-worker" />
     <InternalsVisibleTo Include="ylr-rec-worker" />
+    <InternalsVisibleTo Include="ylr-ai-worker" />
     <InternalsVisibleTo Include="Yohuke.LiveRecorder.Transcoding.Worker.Tests" />
     <InternalsVisibleTo Include="Yohuke.LiveRecorder.Http.Tests" />
     <InternalsVisibleTo Include="Yohuke.LiveRecorder.Clipping.Worker.Tests" />
     <InternalsVisibleTo Include="Yohuke.LiveRecorder.Recording.Worker.Tests" />
+    <InternalsVisibleTo Include="Yohuke.LiveRecorder.AI.Worker.Tests" />
   </ItemGroup>
 </Project>

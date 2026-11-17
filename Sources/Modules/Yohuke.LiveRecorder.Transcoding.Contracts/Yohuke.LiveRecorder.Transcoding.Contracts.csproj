@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <ProjectReference Include="../Yohuke.LiveRecorder.AI.Contracts/Yohuke.LiveRecorder.AI.Contracts.csproj" />
     <ProjectReference Include="../Yohuke.LiveRecorder.Clipping.Contracts/Yohuke.LiveRecorder.Clipping.Contracts.csproj" />
     <ProjectReference Include="../Yohuke.LiveRecorder.Recording.Contracts/Yohuke.LiveRecorder.Recording.Contracts.csproj" />
   </ItemGroup>

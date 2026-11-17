@@ -27,12 +27,16 @@ public sealed class TranscodeWorkerService(IMongoContext context, IAppPaths path
     public async Task<(TranscodeWorker Worker, string Secret)> CreateAsync(string name, string kind, CancellationToken cancellationToken)
     {
         ValidateName(name);
-        if (kind is not ("Transcoding" or "Clipping" or "Recording"))
+        if (kind is not ("Transcoding" or "Clipping" or "Recording" or "AI"))
         {
             throw new InfrastructureException("Worker 类型无效。");
         }
         var secret = NewSecret();
-        var worker = new TranscodeWorker { Name = name.Trim(), Kind = kind, SecretHash = SecretHash(secret) };
+        var worker = new TranscodeWorker
+        {
+            Name = name.Trim(), Kind = kind, SecretHash = SecretHash(secret),
+            Configuration = WorkerConfigurationProjection.Default(kind)
+        };
         await Workers.InsertOneAsync(worker, cancellationToken: cancellationToken);
         return (worker, secret);
     }

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Claims;
+using System.Text.Json;
 using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Application;
@@ -36,18 +37,20 @@ public static class TranscodingEndpoints
         admin.MapPut("/workers/{id}", async (string id, UpdateTranscodeWorkerRequest request, TranscodingCoordinator coordinator, WorkerConnectionStatusTracker connections, CancellationToken ct) =>
         {
             RequireName(request.Name);
+            WorkerConfiguration configuration;
             try
             {
                 var worker = (await coordinator.ListWorkersAsync(ct)).FirstOrDefault(value => value.Id == id)
                     ?? throw new InfrastructureException("Worker 不存在。", 404);
-                WorkerConfigurationPolicy.Validate(request.Configuration, worker.Kind);
+                configuration = WorkerConfigurationProjection.Read(request.Configuration, worker.Kind);
+                WorkerConfigurationPolicy.Validate(configuration, worker.Kind);
             }
-            catch (ArgumentException)
+            catch (Exception error) when (error is ArgumentException or JsonException)
             {
                 throw new InfrastructureException(MessageCode.REQUEST_INVALID);
             }
             return Results.Ok(WorkerView(await coordinator.UpdateWorkerAsync(id, request.Name.Trim(), request.Enabled,
-                request.Configuration, request.ExpectedRevision, ct), connections));
+                configuration, request.ExpectedRevision, ct), connections));
         });
         admin.MapPost("/workers/{id}/rotate-key", async (string id, TranscodingCoordinator coordinator, CancellationToken ct) =>
             Results.Ok(new { secret = await coordinator.RotateKeyAsync(id, ct) }));

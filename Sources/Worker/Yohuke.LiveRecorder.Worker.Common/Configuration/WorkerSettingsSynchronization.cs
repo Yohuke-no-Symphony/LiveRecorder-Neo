@@ -16,7 +16,7 @@ internal static class WorkerSettingsSynchronization
         }
         var sameBinding = settings.BindingHash == BindingHash(settings.Worker) && settings.ConfigurationHash is not null;
         if (sameBinding ? settings.ConfigurationHash == configurationHash
-            : configurationHash == WorkerConfigurationProjection.ComputeHash(new(), kind))
+            : configurationHash == WorkerConfigurationProjection.ComputeHash(WorkerConfigurationProjection.Default(kind), kind))
         {
             return null;
         }

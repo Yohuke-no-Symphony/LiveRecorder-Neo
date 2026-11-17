@@ -5,13 +5,11 @@ namespace Yohuke.LiveRecorder.Transcoding.Contracts;
 
 internal sealed class WorkerConfigurationJsonConverter(string kind) : JsonConverter<WorkerConfiguration>
 {
-    private static JsonSerializerOptions LegacyOptions { get; } = new() { PropertyNameCaseInsensitive = true };
-
     /// <inheritdoc />
     public override WorkerConfiguration? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        var value = JsonSerializer.Deserialize<WorkerConfiguration>(ref reader, LegacyOptions);
-        return value is null ? null : WorkerConfigurationProjection.Normalize(value, kind);
+        using var document = JsonDocument.ParseValue(ref reader);
+        return document.RootElement.ValueKind == JsonValueKind.Null ? null : WorkerConfigurationProjection.Read(document.RootElement, kind);
     }
 
     /// <inheritdoc />

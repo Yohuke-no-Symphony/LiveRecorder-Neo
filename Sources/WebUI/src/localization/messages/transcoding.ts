@@ -1,4 +1,5 @@
 export const transcodingZh = {
+  aiTitle: 'AI', aiWorkers: 'AI Worker', aiConcurrency: 'AI 并发任务数', invalidAiWorker: '请填写名称，并检查 AI 并发、缓存空间和传输上限。',
   viewAssignments: '分配情况', workerAssignments: '分配情况 · {name}', assignmentsLoading: '正在读取分配情况', assignmentsEmpty: '暂无分配的直播间', assignmentsLoadFailed: '分配情况读取失败',
   recordingTitle: '录像', recordingWorkers: '录像 Worker', recordingSpoolDirectory: '录制缓存目录', recordingSpoolGiB: '录制缓存上限（GiB）', recordingConcurrency: '同时录制房间数',
   activeRecordings: '采集中 {count} 间', pendingUpload: '待上传 {bytes}', spoolUsage: '录制缓存 {used} / {limit}',
@@ -24,6 +25,7 @@ export const transcodingZh = {
 }
 
 export const transcodingEn: Record<keyof typeof transcodingZh, string> = {
+  aiTitle: 'AI', aiWorkers: 'AI workers', aiConcurrency: 'Concurrent AI jobs', invalidAiWorker: 'Enter a name and check AI concurrency, cache space and transfer limits.',
   viewAssignments: 'Assignments', workerAssignments: 'Assignments · {name}', assignmentsLoading: 'Loading assignments', assignmentsEmpty: 'No rooms assigned', assignmentsLoadFailed: 'Unable to load assignments',
   recordingTitle: 'Recording', recordingWorkers: 'Recording workers', recordingSpoolDirectory: 'Recording cache directory', recordingSpoolGiB: 'Recording cache limit (GiB)', recordingConcurrency: 'Concurrent recording rooms',
   activeRecordings: 'Recording {count} rooms', pendingUpload: 'Pending upload {bytes}', spoolUsage: 'Recording cache {used} / {limit}',
@@ -49,6 +51,7 @@ export const transcodingEn: Record<keyof typeof transcodingZh, string> = {
 }
 
 export const transcodingJa: Record<keyof typeof transcodingZh, string> = {
+  aiTitle: 'AI', aiWorkers: 'AI Worker', aiConcurrency: 'AI 同時実行数', invalidAiWorker: '名前を入力し、AI 同時実行数、キャッシュ容量、転送上限を確認してください。',
   viewAssignments: '割り当て状況', workerAssignments: '割り当て状況 · {name}', assignmentsLoading: '割り当て状況を読み込み中', assignmentsEmpty: '割り当てられたルームはありません', assignmentsLoadFailed: '割り当て状況を読み込めませんでした',
   recordingTitle: '録画', recordingWorkers: '録画 Worker', recordingSpoolDirectory: '録画キャッシュディレクトリ', recordingSpoolGiB: '録画キャッシュ上限（GiB）', recordingConcurrency: '同時録画ルーム数',
   activeRecordings: '{count} ルームを録画中', pendingUpload: '未アップロード {bytes}', spoolUsage: '録画キャッシュ {used} / {limit}',

@@ -19,6 +19,7 @@ internal sealed class WorkerSettingsStore : IDisposable
     {
         this.kind = kind;
         serialization = WorkerConfigurationProjection.CreateJsonOptions(kind, JsonOptions);
+        Current = new() { Configuration = WorkerConfigurationProjection.Default(kind) };
         Path = System.IO.Path.GetFullPath(path);
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
         lease = new(Path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
@@ -37,11 +38,20 @@ internal sealed class WorkerSettingsStore : IDisposable
             {
                 throw new InvalidDataException("settings.json must contain valid Worker and Configuration objects and a nonnegative configuration revision.");
             }
+            if (kind == "AI")
+            {
+                stream.Position = 0;
+                using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+                var configuration = document.RootElement.EnumerateObject()
+                    .FirstOrDefault(property => property.Name.Equals(nameof(WorkerSettings.Configuration), StringComparison.OrdinalIgnoreCase)).Value;
+                settings.Configuration = configuration.ValueKind == JsonValueKind.Undefined
+                    ? WorkerConfigurationProjection.Default(kind) : WorkerConfigurationProjection.Read(configuration, kind);
+            }
             Current = WorkerSettingsSynchronization.NormalizeLoaded(settings, kind);
         }
         catch (FileNotFoundException)
         {
-            Current = new();
+            Current = new() { Configuration = WorkerConfigurationProjection.Default(kind) };
         }
     }
 

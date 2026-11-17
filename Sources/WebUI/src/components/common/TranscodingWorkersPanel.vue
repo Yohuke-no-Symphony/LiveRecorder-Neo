@@ -13,7 +13,7 @@
         <div class="text-caption muted mt-2">{{ t('transcoding.workerId') }}: {{ worker.id }} · {{ t('transcoding.lastSeen') }}: {{ worker.lastSeenAtUtc ? formatDate(worker.lastSeenAtUtc) : '—' }}</div>
         <div v-if="worker.telemetry" class="text-caption mt-2">
           <template v-if="isRecording">{{ t('transcoding.activeRecordings', { count: worker.telemetry.activeRecordings ?? worker.telemetry.runningJobs ?? worker.telemetry.runningCpu }) }} · {{ t('transcoding.pendingUpload', { bytes: formatBytes(worker.telemetry.pendingUploadBytes ?? -1) }) }}</template>
-          <template v-else-if="isClipping">{{ t('transcoding.runningJobs', { count: worker.telemetry.runningJobs ?? worker.telemetry.runningCpu + worker.telemetry.runningGpu }) }}</template>
+          <template v-else-if="isClipping || isAi">{{ t('transcoding.runningJobs', { count: worker.telemetry.runningJobs ?? worker.telemetry.runningCpu + worker.telemetry.runningGpu }) }}</template>
           <template v-else>CPU {{ worker.telemetry.cpuPercent === null ? '—' : `${Math.round(worker.telemetry.cpuPercent)}%` }} · GPU {{ worker.telemetry.runningGpu }} · CPU {{ worker.telemetry.runningCpu }}</template>
           · {{ formatBytes(worker.telemetry.freeBytes) }}
         </div>
@@ -67,7 +67,7 @@ import { TranscodingAPI } from '@/apis/TranscodingAPI'
 import { TaskHistoryAPI } from '@/apis/TaskHistoryAPI'
 import type { TaskSummary } from '@/models/taskHistory'
 import { usePolling } from '@/composables/usePolling'
-import { isValidWorkerConfiguration, normalizeWorker, type ClippingWorkerConfiguration, type RecordingWorkerConfiguration, type TranscodingWorkerConfiguration, type Worker, type WorkerKind } from '@/models/transcoding'
+import { isValidWorkerConfiguration, normalizeWorker, type AiWorkerConfiguration, type ClippingWorkerConfiguration, type RecordingWorkerConfiguration, type TranscodingWorkerConfiguration, type Worker, type WorkerKind } from '@/models/transcoding'
 import { formatBytes, formatDate } from '@/utilities/format'
 import ContentCard from './ContentCard.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -78,28 +78,34 @@ import WorkerTaskPreview from '@/components/tasks/WorkerTaskPreview.vue'
 import TaskStageDetailsDialog from '@/components/tasks/TaskStageDetailsDialog.vue'
 
 type NumericConfigurationKey<T> = { [K in keyof T]: T[K] extends number ? K : never }[keyof T]
-type NumericKey = NumericConfigurationKey<TranscodingWorkerConfiguration> | NumericConfigurationKey<ClippingWorkerConfiguration> | NumericConfigurationKey<RecordingWorkerConfiguration>
+type NumericKey = NumericConfigurationKey<TranscodingWorkerConfiguration> | NumericConfigurationKey<ClippingWorkerConfiguration> | NumericConfigurationKey<RecordingWorkerConfiguration> | NumericConfigurationKey<AiWorkerConfiguration>
 const configurationFields: { key: NumericKey; label: string; min: number; max?: number; step?: number | 'any'; unit?: number; kinds?: WorkerKind[] }[] = [
-  { key: 'maxConcurrentEncodes', label: 'totalConcurrency', min: 1, max: 64 }, { key: 'gpuConcurrency', label: 'gpuConcurrency', min: 0, max: 64, kinds: ['Transcoding'] }, { key: 'cpuConcurrency', label: 'cpuConcurrency', min: 0, max: 64, kinds: ['Transcoding'] },
+  { key: 'maxConcurrentEncodes', label: 'totalConcurrency', min: 1, max: 64, kinds: ['Transcoding', 'Clipping', 'Recording'] },
+  { key: 'maxConcurrentJobs', label: 'aiConcurrency', min: 1, max: 64, kinds: ['AI'] },
+  { key: 'gpuConcurrency', label: 'gpuConcurrency', min: 0, max: 64, kinds: ['Transcoding'] }, { key: 'cpuConcurrency', label: 'cpuConcurrency', min: 0, max: 64, kinds: ['Transcoding'] },
   { key: 'clipEncodingThreads', label: 'clipEncodingThreads', min: 1, max: 128, kinds: ['Clipping'] },
   { key: 'gpuWaitSeconds', label: 'cpuIdleSeconds', min: 0, max: 86400, kinds: ['Transcoding'] }, { key: 'cpuSampleWindowSeconds', label: 'cpuAverageSeconds', min: 5, max: 300, kinds: ['Transcoding'] }, { key: 'cpuLoadThreshold', label: 'cpuThreshold', min: 1, max: 100, step: 'any', kinds: ['Transcoding'] }, { key: 'cpuThreadFraction', label: 'cpuThreadFraction', min: .01, max: 1, step: 'any', kinds: ['Transcoding'] },
-  { key: 'maxCacheBytes', label: 'cacheGiB', min: 1 / 1024, step: 'any', unit: 1024 ** 3 }, { key: 'minimumFreeBytes', label: 'freeGiB', min: 0, step: 'any', unit: 1024 ** 3 }, { key: 'downloadBytesPerSecond', label: 'downloadMiB', min: 0, step: 'any', unit: 1024 ** 2, kinds: ['Transcoding', 'Clipping'] }, { key: 'uploadBytesPerSecond', label: 'uploadMiB', min: 0, step: 'any', unit: 1024 ** 2 },
+  { key: 'maxCacheBytes', label: 'cacheGiB', min: 1 / 1024, step: 'any', unit: 1024 ** 3 }, { key: 'minimumFreeBytes', label: 'freeGiB', min: 0, step: 'any', unit: 1024 ** 3 }, { key: 'downloadBytesPerSecond', label: 'downloadMiB', min: 0, step: 'any', unit: 1024 ** 2, kinds: ['Transcoding', 'Clipping', 'AI'] }, { key: 'uploadBytesPerSecond', label: 'uploadMiB', min: 0, step: 'any', unit: 1024 ** 2 },
 ]
 const configurationLabels: Record<WorkerKind, Partial<Record<NumericKey, string>>> = {
   Transcoding: {},
   Clipping: { maxConcurrentEncodes: 'clippingConcurrency', maxCacheBytes: 'workspaceGiB' },
   Recording: { maxConcurrentEncodes: 'recordingConcurrency', maxCacheBytes: 'recordingSpoolGiB' },
+  AI: {},
 }
 const titleKeys: Record<WorkerKind, string> = {
   Transcoding: 'transcoding.workers', Clipping: 'transcoding.clippingWorkers', Recording: 'transcoding.recordingWorkers',
+  AI: 'transcoding.aiWorkers',
 }
 const errorKeys: Record<WorkerKind, string> = {
   Transcoding: 'transcoding.invalidWorker', Clipping: 'transcoding.invalidClippingWorker', Recording: 'transcoding.invalidRecordingWorker',
+  AI: 'transcoding.invalidAiWorker',
 }
 const { t } = useI18n()
 const props = withDefaults(defineProps<{ kind?: WorkerKind }>(), { kind: 'Transcoding' })
 const isClipping = computed(() => props.kind === 'Clipping')
 const isRecording = computed(() => props.kind === 'Recording')
+const isAi = computed(() => props.kind === 'AI')
 const isTranscoding = computed(() => props.kind === 'Transcoding')
 const titleKey = computed(() => titleKeys[props.kind])
 const numericFields = computed(() => configurationFields.filter(field => !field.kinds || field.kinds.includes(props.kind))
@@ -116,11 +122,15 @@ const editError = ref('')
 const createOpen = ref(false)
 const newName = ref('')
 const draft = ref<Worker>()
-const mediaConfiguration = computed(() => draft.value?.kind === 'Recording' ? undefined : draft.value?.configuration)
+const mediaConfiguration = computed(() =>
+{
+  const value = draft.value
+  return value && (value.kind === undefined || value.kind === 'Transcoding' || value.kind === 'Clipping') ? value.configuration : undefined
+})
 const transcodingConfiguration = computed(() =>
 {
   const value = draft.value
-  return value && value.kind !== 'Clipping' && value.kind !== 'Recording' ? value.configuration : undefined
+  return value && (value.kind === undefined || value.kind === 'Transcoding') ? value.configuration : undefined
 })
 const secret = ref<{ workerId: string; value: string }>()
 const deleteTarget = ref<Worker>()

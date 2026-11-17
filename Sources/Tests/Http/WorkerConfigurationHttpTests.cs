@@ -15,7 +15,7 @@ public sealed class WorkerConfigurationHttpTests
         await using var fixture = await HttpServerFixture.CreateAsync();
         await fixture.InstallAsync();
         await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
-        var kinds = new[] { "Transcoding", "Clipping", "Recording" };
+        var kinds = new[] { "Transcoding", "Clipping", "Recording", "AI" };
         foreach (var kind in kinds)
         {
             using var created = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/transcoding/workers", new { name = kind, kind });
@@ -24,6 +24,14 @@ public sealed class WorkerConfigurationHttpTests
             AssertShape(kind, worker["configuration"]!.AsObject());
             var configuration = worker["configuration"]!.DeepClone().AsObject();
             configuration["uploadBytesPerSecond"] = 1048576;
+            if (kind == "AI")
+            {
+                Assert.Equal(1, configuration["maxConcurrentJobs"]!.GetValue<int>());
+                configuration["maxConcurrentJobs"] = 3;
+                configuration["maxConcurrentEncodes"] = 19;
+                configuration["ffmpegPath"] = "unused-old-tool";
+                configuration["ffprobePath"] = "unused-old-tool";
+            }
             if (kind != "Transcoding")
             {
                 configuration["gpuConcurrency"] = 47;
@@ -46,13 +54,17 @@ public sealed class WorkerConfigurationHttpTests
             var saved = (await updated.Content.ReadFromJsonAsync<JsonObject>())!;
             AssertShape(kind, saved["configuration"]!.AsObject());
             Assert.Equal(1048576, saved["configuration"]!["uploadBytesPerSecond"]!.GetValue<long>());
+            if (kind == "AI")
+            {
+                Assert.Equal(3, saved["configuration"]!["maxConcurrentJobs"]!.GetValue<int>());
+            }
             if (kind == "Clipping")
             {
                 Assert.Equal(3, saved["configuration"]!["clipEncodingThreads"]!.GetValue<int>());
             }
         }
         var listed = (await fixture.Admin.Client.GetFromJsonAsync<JsonArray>("/api/transcoding/workers"))!;
-        Assert.Equal(3, listed.Count);
+        Assert.Equal(4, listed.Count);
         foreach (var row in listed)
         {
             AssertShape(row!["kind"]!.GetValue<string>(), row["configuration"]!.AsObject());
@@ -89,6 +101,7 @@ public sealed class WorkerConfigurationHttpTests
             "Clipping" => ["ffmpegPath", "ffprobePath", "tempDirectory", "maxConcurrentEncodes", "clipEncodingThreads",
                 "maxCacheBytes", "minimumFreeBytes", "downloadBytesPerSecond", "uploadBytesPerSecond"],
             "Recording" => ["tempDirectory", "maxConcurrentEncodes", "maxCacheBytes", "minimumFreeBytes", "uploadBytesPerSecond"],
+            "AI" => ["tempDirectory", "maxConcurrentJobs", "maxCacheBytes", "minimumFreeBytes", "downloadBytesPerSecond", "uploadBytesPerSecond"],
             _ => throw new ArgumentOutOfRangeException(nameof(kind))
         };
         Assert.Equal(expected.Order(StringComparer.Ordinal), configuration.Select(pair => pair.Key).Order(StringComparer.Ordinal));

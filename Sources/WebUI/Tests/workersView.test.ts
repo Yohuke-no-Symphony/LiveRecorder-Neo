@@ -9,7 +9,7 @@ import { VBtn } from 'vuetify/components/VBtn'
 import { MediaAPI } from '../src/apis/MediaAPI'
 import { TranscodingAPI } from '../src/apis/TranscodingAPI'
 import { TaskHistoryAPI } from '../src/apis/TaskHistoryAPI'
-import { defaultWorkerConfiguration, type ClippingWorker, type RecordingWorker, type TranscodingWorker, type Worker } from '../src/models/transcoding'
+import { defaultWorkerConfiguration, type AiWorker, type ClippingWorker, type RecordingWorker, type TranscodingWorker, type Worker } from '../src/models/transcoding'
 import { i18n } from '../src/plugins/i18n'
 import WorkersView from '../src/views/WorkersView.vue'
 
@@ -30,6 +30,7 @@ const mounted: VueWrapper[] = []
 let transcoding: TranscodingWorker
 let clipping: ClippingWorker
 let recording: RecordingWorker
+let ai: AiWorker
 let pinia: Pinia
 
 async function open(): Promise<VueWrapper>
@@ -62,7 +63,8 @@ beforeEach(() =>
   transcoding = { id: 'transcoding-1', kind: 'Transcoding', name: '转码节点甲', enabled: true, configuration: defaultWorkerConfiguration(), configurationRevision: 1, appliedConfigurationRevision: 1, lastSeenAtUtc: null, configurationError: null }
   clipping = { ...transcoding, id: 'clipping-1', kind: 'Clipping', name: '切片节点乙', configuration: defaultWorkerConfiguration('Clipping') }
   recording = { ...transcoding, id: 'recording-1', kind: 'Recording', name: '录像节点丙', configuration: defaultWorkerConfiguration('Recording') }
-  vi.mocked(TranscodingAPI.workers).mockResolvedValue([transcoding, clipping, recording])
+  ai = { ...transcoding, id: 'ai-1', kind: 'AI', name: 'AI节点丁', configuration: defaultWorkerConfiguration('AI') }
+  vi.mocked(TranscodingAPI.workers).mockResolvedValue([transcoding, clipping, recording, ai])
   vi.mocked(TaskHistoryAPI.active).mockResolvedValue({})
 })
 
@@ -82,7 +84,7 @@ describe('独立Worker管理页', () =>
   {
     const wrapper = await open()
     expect(wrapper.get('h1').text()).toBe('Worker')
-    expect(wrapper.findAll('[role="tab"]').map(tab => tab.text())).toEqual(['转码', '切片', '录像'])
+    expect(wrapper.findAll('[role="tab"]').map(tab => tab.text())).toEqual(['转码', '切片', '录像', 'AI'])
     expect(wrapper.text()).toContain('转码节点甲')
     expect(wrapper.text()).not.toContain('切片节点乙')
     expect(TranscodingAPI.workers).toHaveBeenCalledTimes(1)
@@ -140,9 +142,9 @@ describe('独立Worker管理页', () =>
   {
     const wrapper = await open()
     for (const [language, title, tabs] of [
-      ['zh-CN', 'Worker', ['转码', '切片', '录像']],
-      ['en-US', 'Workers', ['Transcoding', 'Clipping', 'Recording']],
-      ['ja-JP', 'Worker', ['トランスコード', '切り抜き', '録画']],
+      ['zh-CN', 'Worker', ['转码', '切片', '录像', 'AI']],
+      ['en-US', 'Workers', ['Transcoding', 'Clipping', 'Recording', 'AI']],
+      ['ja-JP', 'Worker', ['トランスコード', '切り抜き', '録画', 'AI']],
     ] as const)
     {
       i18n.global.locale.value = language
@@ -151,5 +153,19 @@ describe('独立Worker管理页', () =>
       expect(wrapper.findAll('[role="tab"]').map(tab => tab.text())).toEqual(tabs)
       expect(wrapper.text()).toContain('转码节点甲')
     }
+  })
+
+  it('AI分类仅显示AI节点并取消前一类型的在途请求', async () =>
+  {
+    const wrapper = await open()
+    const request = vi.mocked(TranscodingAPI.workers).mock.calls.at(-1)![0]!
+    await selectTab(wrapper, 'AI')
+    expect(request.aborted).toBe(true)
+    expect(wrapper.text()).toContain('AI节点丁')
+    expect(wrapper.text()).not.toContain('转码节点甲')
+    expect(wrapper.text()).not.toContain('切片节点乙')
+    expect(wrapper.text()).not.toContain('录像节点丙')
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(TranscodingAPI.workers).toHaveBeenCalledTimes(3)
   })
 })
