@@ -14,13 +14,14 @@ public sealed class TaskEventLogStore(TranscodeWorkerLogStore logs, ILogger<Task
         DateTime timestampUtc, string? eventId = null, string source = "ServerEvent", CancellationToken cancellationToken = default)
     {
         var identity = eventId ?? Guid.NewGuid().ToString("N");
+        var timestamp = new DateTime(timestampUtc.Ticks / TimeSpan.TicksPerMillisecond * TimeSpan.TicksPerMillisecond, DateTimeKind.Utc);
         var batch = new WorkerLogBatch
         {
             StreamId = TranscodeAssetRegistry.Hash(workerId + ":task-event:" + identity)[..32],
             BatchId = TranscodeAssetRegistry.Hash(workerId + ":task-event-batch:" + identity)[..32],
             Entries = [new()
             {
-                Sequence = 1, TimestampUtc = DateTime.SpecifyKind(timestampUtc, DateTimeKind.Utc), JobId = sessionId,
+                Sequence = 1, TimestampUtc = timestamp, JobId = sessionId,
                 Stage = stage, Level = level, Message = message.Length > 2048 ? message[..2048] : message, Source = source
             }]
         };
@@ -29,18 +30,18 @@ public sealed class TaskEventLogStore(TranscodeWorkerLogStore logs, ILogger<Task
         try
         {
             await logs.AppendAsync(workerId, batch, timeout.Token,
-                source == "SessionSnapshot" ? timestampUtc.AddDays(TranscodeWorkerLogStore.RETENTION_DAYS) : null);
+                source == "SessionSnapshot" ? timestamp.AddDays(TranscodeWorkerLogStore.RETENTION_DAYS) : null);
         }
         catch (OperationCanceledException)
         {
             if (!cancellationToken.IsCancellationRequested)
             {
-                logger.LogWarning("Task log persistence timed out for recording session {SessionId}.", sessionId);
+                logger.LogWarning("Task log persistence timed out for recording session {SessionId}", sessionId);
             }
         }
-        catch (Exception error) when (error is MongoException or InfrastructureException)
+        catch (Exception error) when (error is MongoException or InfrastructureException or TimeoutException)
         {
-            logger.LogWarning(error, "Task log persistence will be retried from recording metadata for session {SessionId}.", sessionId);
+            logger.LogWarning(error, "Task log persistence will be retried from recording metadata for session {SessionId}", sessionId);
         }
     }
 }

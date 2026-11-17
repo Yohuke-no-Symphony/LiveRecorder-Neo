@@ -15,6 +15,8 @@ using Yohuke.LiveRecorder.Infrastructure.Library;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
 using Yohuke.LiveRecorder.Infrastructure.Storage;
+using Yohuke.LiveRecorder.Infrastructure.Tasks;
+using Yohuke.LiveRecorder.Infrastructure.Transcoding;
 using Yohuke.LiveRecorder.Media;
 using Xunit;
 
@@ -42,6 +44,7 @@ internal sealed class RecordingFixture : IAsyncDisposable
     internal LibraryService Library { get; private set; } = null!;
     internal SessionGroupingService Grouping { get; private set; } = null!;
     internal MediaJobService Jobs { get; private set; } = null!;
+    internal TranscodeWorkerLogStore Logs { get; private set; } = null!;
     internal long SampleBytes { get; private set; }
     internal TimeProvider Clock { get; private init; } = TimeProvider.System;
 
@@ -72,6 +75,7 @@ internal sealed class RecordingFixture : IAsyncDisposable
             fixture.Library = new(fixture.Context, fixture.Clock);
             fixture.Grouping = new(fixture.Context, fixture.Library, fixture.Settings, fixture.Publisher, fixture.Paths);
             fixture.Jobs = new(fixture.Context, fixture.Library, fixture.Publisher, fixture.Paths);
+            fixture.Logs = new(fixture.Context, fixture.Clock);
             return fixture;
         }
         catch
@@ -90,10 +94,11 @@ internal sealed class RecordingFixture : IAsyncDisposable
         return (target, room);
     }
 
-    internal async Task StartSupervisorAsync(IMediaRecorder? mediaRecorder = null)
+    internal async Task StartSupervisorAsync(IMediaRecorder? mediaRecorder = null, TaskEventLogStore? taskLogs = null)
     {
         Assert.Null(supervisor);
-        supervisor = new(Context, Bootstrap, Settings, Bilibili, mediaRecorder ?? Recorder, Publisher, NullLogger<RecordingSupervisor>.Instance, Grouping, new(Context, Settings, Paths), Paths, Clock);
+        supervisor = new(Context, Bootstrap, Settings, Bilibili, mediaRecorder ?? Recorder, Publisher, NullLogger<RecordingSupervisor>.Instance, Grouping,
+            new(Context, Settings, Paths), Paths, Clock, taskLogs: taskLogs ?? new(Logs, NullLogger<TaskEventLogStore>.Instance));
         await supervisor.StartAsync(CancellationToken.None);
     }
 
@@ -223,6 +228,7 @@ internal sealed class RecordingFixture : IAsyncDisposable
         {
             client?.Dispose();
             Processes?.Dispose();
+            Logs?.Dispose();
             if (DatabaseName.StartsWith("recording_tests_", StringComparison.Ordinal) && DatabaseName.Length == 48)
             {
                 await new MongoClient(ConnectionString).DropDatabaseAsync(DatabaseName);

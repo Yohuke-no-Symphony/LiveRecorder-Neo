@@ -76,7 +76,7 @@ public sealed class TaskLogService(TaskHistoryService history, TranscodeWorkerLo
         {
             return;
         }
-        var timeout = code == MessageCode.RECORDING_STREAM_TIMEOUT.ToString();
+        var timeout = code == nameof(MessageCode.RECORDING_STREAM_TIMEOUT);
         var message = timeout
             ? "Archived session snapshot: recording ended after the configured interval without valid media; room monitoring continued."
                 + (session.ErrorArguments.Count > 0 ? " Interval (minutes): " + session.ErrorArguments[0] + "." : "")

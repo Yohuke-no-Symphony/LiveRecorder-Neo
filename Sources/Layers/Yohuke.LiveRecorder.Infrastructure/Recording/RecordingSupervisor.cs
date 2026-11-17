@@ -15,11 +15,12 @@ using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Infrastructure.Library;
 using Yohuke.LiveRecorder.Infrastructure.Storage;
 using Yohuke.LiveRecorder.Infrastructure.Transcoding;
+using Yohuke.LiveRecorder.Infrastructure.Tasks;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Recording;
 
 /// <summary>并行维护启用的直播间，数据库和派生任务不进入采集热路径。</summary>
-public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore bootstrap, ISettingsStore settingsStore, IBilibiliService bilibili, IMediaRecorder recorder, IStatusPublisher publisher, ILogger<RecordingSupervisor> logger, SessionGroupingService grouping, SessionSegmentTrashService segmentTrash, IAppPaths paths, TimeProvider? timeProvider = null, RecordingOwnershipService? ownership = null, RecordingHandoffService? handoff = null) : BackgroundService
+public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore bootstrap, ISettingsStore settingsStore, IBilibiliService bilibili, IMediaRecorder recorder, IStatusPublisher publisher, ILogger<RecordingSupervisor> logger, SessionGroupingService grouping, SessionSegmentTrashService segmentTrash, IAppPaths paths, TimeProvider? timeProvider = null, RecordingOwnershipService? ownership = null, RecordingHandoffService? handoff = null, TaskEventLogStore? taskLogs = null) : BackgroundService
 {
     private readonly Dictionary<string, RecordingWorkerHandle> workers = new();
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
@@ -281,6 +282,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                             }
                             await UpdateSessionStateAsync(activeSession, "Recording", cancellationToken);
                             await UpdateTargetAsync(activeTarget, room, "Recording", null, cancellationToken);
+                            await WriteTaskLogAsync(activeSession, "Capturing", "Information", "Valid media is being captured in the broadcast archive.", cancellationToken);
                             if ((activeTarget.RecordDanmu ?? settings.RecordDanmu) && activeEvents is null)
                             {
                                 activeEvents = new(activeSession, activeTarget, directory, CaptureEventsAsync, activity.Token);
@@ -334,6 +336,9 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                     }
                     if (session is not null && sessionPublished)
                     {
+                        await WriteTaskLogAsync(session, "Capturing", "Information",
+                            "The configured interval without valid media elapsed; the broadcast archive will close and room monitoring will continue. Interval (minutes): "
+                            + timeoutMinutes.ToString(CultureInfo.InvariantCulture) + ".", cancellationToken);
                         await CloseSessionAsync(session, session.LastMediaAtUtc, cancellationToken);
                     }
                     else if (session is not null)
@@ -353,6 +358,11 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                 }
                 catch (Exception error)
                 {
+                    if (session is not null && sessionPublished)
+                    {
+                        await WriteTaskLogAsync(session, "Capturing", "Warning",
+                            "Recording will retry; committed media remains in the broadcast archive (" + error.GetType().Name + "). " + error.Message, cancellationToken);
+                    }
                     if (target is not null)
                     {
                         SetRecordingError(target, session, error);
@@ -565,6 +575,8 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                     TextCode = MessageCode.RECORDING_EVENT_CONNECTION_LOST.ToString()
                 }, cancellationToken);
                 logger.LogWarning("直播间 {RoomId} 弹幕将重连：{Message}", target.RoomId, error.Message);
+                await WriteTaskLogAsync(session, "Capturing", "Warning",
+                    "The event connection will reconnect; committed events remain in the broadcast archive (" + error.GetType().Name + "). " + error.Message, cancellationToken);
             }
             await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
         }
@@ -603,6 +615,8 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         await context.Collection<BroadcastSession>("sessions").ReplaceOneAsync(x => x.Id == session.Id, session, new ReplaceOptions { IsUpsert = true }, cancellationToken);
         await TrySaveTargetAsync(target, cancellationToken);
         await publisher.PublishAsync("session", session.Id, cancellationToken: cancellationToken);
+        await WriteTaskLogAsync(session, "Capturing", "Information", "The local broadcast archive was published after receiving valid media.",
+            cancellationToken, "recording-start:" + session.Id, session.StartedAtUtc);
     }
 
     private async Task CloseSessionAsync(BroadcastSession session, DateTime end, CancellationToken cancellationToken)
@@ -610,6 +624,17 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         session.EndedAtUtc = end < session.LastMediaAtUtc ? session.LastMediaAtUtc : end;
         session.State = "Completed";
         await SaveSessionStateAsync(session, cancellationToken);
+        await WriteTaskLogAsync(session, "Capturing", "Information", "The local broadcast archive is closed; committed media has been preserved.",
+            cancellationToken, "recording-close:" + session.Id + ":" + session.EndedAtUtc.Value.Ticks / TimeSpan.TicksPerMillisecond, session.EndedAtUtc);
+        await WriteTaskLogAsync(session, "Uploading", "Information", "The broadcast archive is stored on the main server; no worker upload is required.",
+            cancellationToken, "recording-local-archive:" + session.Id + ":" + session.EndedAtUtc.Value.Ticks / TimeSpan.TicksPerMillisecond, session.EndedAtUtc);
+    }
+
+    private Task WriteTaskLogAsync(BroadcastSession session, string stage, string level, string message, CancellationToken cancellationToken,
+        string? eventId = null, DateTime? timestampUtc = null)
+    {
+        return taskLogs?.WriteRecordingAsync("local", session.Id, stage, level, message, timestampUtc ?? clock.GetUtcNow().UtcDateTime,
+            eventId, cancellationToken: cancellationToken) ?? Task.CompletedTask;
     }
 
     private async Task UpdateSessionStateAsync(BroadcastSession session, string state, CancellationToken cancellationToken)
