@@ -20,7 +20,7 @@ namespace Yohuke.LiveRecorder.Http.Tests;
 /// <summary>验证两个真实录像节点交接后保持逻辑场次及可播放的独立物理归档。</summary>
 public sealed class RecordingWorkerHandoffHttpTests
 {
-    /// <summary>不同节点和缓存目录继续同一场直播，第二来源可通过 HTTP 播放并完整解码。</summary>
+    /// <summary>每个节点封口后上传，交接仍保留同一逻辑场次及可播放的独立媒体和弹幕归档。</summary>
     [MongoHttpFact]
     public async Task DifferentWorkersContinueOneLogicalSessionAndPlayTheSecondCapture()
     {
@@ -64,17 +64,18 @@ public sealed class RecordingWorkerHandoffHttpTests
         {
             var target = new Streamer { RoomId = 1901101, Name = "跨节点接续主播", RecordDanmu = true };
             await fixture.Context.Collection<Streamer>("streamers").InsertOneAsync(target, cancellationToken: timeout.Token);
-            BroadcastSession? original = null;
+            RecordingSessionTaskSnapshot? firstCapture = null;
             await WaitUntilAsync(async () =>
             {
-                original = await fixture.Context.Collection<BroadcastSession>("sessions")
-                    .Find(value => value.StreamerId == target.Id).FirstOrDefaultAsync(timeout.Token);
-                return original is not null && await fixture.Context.Collection<RecordingSegment>("segments")
-                    .Find(value => value.SessionId == original.Id && value.DurationMs > 2000 && !value.IsClosed).AnyAsync(timeout.Token);
+                firstCapture = await fixture.Context.Collection<RecordingSessionTaskSnapshot>("recordingSessionTasks")
+                    .Find(value => value.TargetId == target.Id && value.WorkerId == first.Id
+                        && value.CaptureState == "Recording" && value.CapturedDurationMs > 2000)
+                    .FirstOrDefaultAsync(timeout.Token);
+                return firstCapture is not null;
             }, runningFirst, logs, timeout.Token);
-            var logicalId = original!.Id;
-            var firstBinding = await fixture.Context.Collection<RecordingCaptureBinding>("recordingCaptureBindings")
-                .Find(value => value.LogicalSessionId == logicalId).SingleAsync(timeout.Token);
+            var logicalId = firstCapture!.Descriptor.LogicalSessionId ?? firstCapture.Id;
+            await Task.Delay(TimeSpan.FromSeconds(2), timeout.Token);
+            await AssertCaptureQueuedAsync(fixture, firstCapture, firstSettings, timeout.Token);
             var node = await fixture.Context.Collection<TranscodeWorker>("transcodeWorkers").Find(value => value.Id == first.Id).SingleAsync(timeout.Token);
             using (var disabled = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/transcoding/workers/" + first.Id,
                 new { name = node.Name, enabled = false, configuration = node.Configuration, expectedRevision = node.ConfigurationRevision }))
@@ -85,11 +86,19 @@ public sealed class RecordingWorkerHandoffHttpTests
             {
                 var owner = await fixture.Context.Collection<RecordingOwnership>("recordingOwnerships")
                     .Find(value => value.RoomId == target.RoomId).SingleAsync(timeout.Token);
-                var session = await fixture.Context.Collection<BroadcastSession>("sessions").Find(value => value.Id == logicalId).SingleAsync(timeout.Token);
-                return owner.State == "Released" && session.EndedAtUtc is null && session.State == "Waiting"
+                var session = await fixture.Context.Collection<BroadcastSession>("sessions")
+                    .Find(value => value.Id == logicalId).FirstOrDefaultAsync(timeout.Token);
+                return owner.State == "Released" && session is { EndedAtUtc: null, State: "Waiting" }
                     && await fixture.Context.Collection<RecordingCaptureBinding>("recordingCaptureBindings")
-                        .Find(value => value.Id == firstBinding.Id && value.IsClosed).AnyAsync(timeout.Token);
+                        .Find(value => value.Id == firstCapture.Id && value.IsClosed).AnyAsync(timeout.Token)
+                    && await fixture.Context.Collection<RecordingSessionReceipt>("recordingSessions")
+                        .Find(value => value.Id == firstCapture.Id && value.FinalizedAtUtc != null).AnyAsync(timeout.Token);
             }, runningFirst, logs, timeout.Token);
+            var original = await fixture.Context.Collection<BroadcastSession>("sessions")
+                .Find(value => value.Id == logicalId).SingleAsync(timeout.Token);
+            var firstBinding = await fixture.Context.Collection<RecordingCaptureBinding>("recordingCaptureBindings")
+                .Find(value => value.Id == firstCapture.Id).SingleAsync(timeout.Token);
+            Assert.False(Directory.Exists(CaptureDirectory(firstSettings, firstCapture.Id)));
             Assert.True((await fixture.Context.Collection<Streamer>("streamers").Find(value => value.Id == target.Id).SingleAsync(timeout.Token)).Enabled);
             var firstSegments = await fixture.Context.Collection<RecordingSegment>("segments")
                 .Find(value => value.SessionId == logicalId && value.AttemptId == firstBinding.AssignmentId).ToListAsync(timeout.Token);
@@ -102,31 +111,48 @@ public sealed class RecordingWorkerHandoffHttpTests
             var secondSource = new RecordingRuntimeTestSource();
             runningSecond = new RecordingWorkerRuntime(second.Options, secondSettings, value => logs.Enqueue("B: " + value), () => secondSource,
                 _ => new FlvMediaRecorder(secondSourceClient, Options.Create(new MediaToolOptions()), new RecordingRuntimeTestSettings())).RunAsync(secondLifetime.Token);
-            RecordingCaptureBinding? secondBinding = null;
-            RecordingSegment? secondSegment = null;
-            var playbackOffset = 0d;
+            RecordingSessionTaskSnapshot? secondCapture = null;
             await WaitUntilAsync(async () =>
             {
-                secondBinding = await fixture.Context.Collection<RecordingCaptureBinding>("recordingCaptureBindings")
-                    .Find(value => value.LogicalSessionId == logicalId && value.Id != firstBinding.Id).FirstOrDefaultAsync(timeout.Token);
-                if (secondBinding is null)
-                {
-                    return false;
-                }
-                secondSegment = await fixture.Context.Collection<RecordingSegment>("segments")
-                    .Find(value => value.SessionId == logicalId && value.AttemptId == secondBinding.AssignmentId && value.DurationMs > 2000)
+                secondCapture = await fixture.Context.Collection<RecordingSessionTaskSnapshot>("recordingSessionTasks")
+                    .Find(value => value.TargetId == target.Id && value.WorkerId == second.Id
+                        && value.CaptureState == "Recording" && value.CapturedDurationMs > firstEnd + 2000)
                     .FirstOrDefaultAsync(timeout.Token);
-                if (secondSegment is null)
-                {
-                    return false;
-                }
-                playbackOffset = Math.Max(secondSegment.StartOffsetMs + 500, firstEnd + 500);
-                return secondSegment.StartOffsetMs + secondSegment.DurationMs > playbackOffset + 500;
+                return secondCapture is not null;
             }, runningSecond, logs, timeout.Token);
-            Assert.NotEqual(firstBinding.Id, secondBinding!.Id);
+            Assert.Equal(logicalId, secondCapture!.Descriptor.LogicalSessionId);
+            await Task.Delay(TimeSpan.FromSeconds(2), timeout.Token);
+            await AssertCaptureQueuedAsync(fixture, secondCapture, secondSettings, timeout.Token);
+            Assert.Single(await fixture.Context.Collection<RecordingCaptureBinding>("recordingCaptureBindings")
+                .Find(value => value.LogicalSessionId == logicalId).ToListAsync(timeout.Token));
+            var secondNode = await fixture.Context.Collection<TranscodeWorker>("transcodeWorkers")
+                .Find(value => value.Id == second.Id).SingleAsync(timeout.Token);
+            using (var disabled = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/transcoding/workers/" + second.Id,
+                new { name = secondNode.Name, enabled = false, configuration = secondNode.Configuration,
+                    expectedRevision = secondNode.ConfigurationRevision }))
+            {
+                Assert.Equal(HttpStatusCode.OK, disabled.StatusCode);
+            }
+            await WaitUntilAsync(async () =>
+                await fixture.Context.Collection<RecordingSessionReceipt>("recordingSessions")
+                    .Find(value => value.Id == secondCapture.Id && value.Descriptor.IsClosed && value.FinalizedAtUtc != null)
+                    .AnyAsync(timeout.Token)
+                && await fixture.Context.Collection<RecordingOwnership>("recordingOwnerships")
+                    .Find(value => value.RoomId == target.RoomId && value.State == "Released").AnyAsync(timeout.Token),
+                runningSecond, logs, timeout.Token);
+            var secondBinding = await fixture.Context.Collection<RecordingCaptureBinding>("recordingCaptureBindings")
+                .Find(value => value.Id == secondCapture.Id && value.IsClosed).SingleAsync(timeout.Token);
+            var secondSegment = await fixture.Context.Collection<RecordingSegment>("segments")
+                .Find(value => value.SessionId == logicalId && value.AttemptId == secondBinding.AssignmentId && value.DurationMs > 2000)
+                .SortBy(value => value.StartOffsetMs).FirstAsync(timeout.Token);
+            var playbackOffset = Math.Max(secondSegment.StartOffsetMs + 500, firstEnd + 500);
+            Assert.True(secondSegment.StartOffsetMs + secondSegment.DurationMs > playbackOffset + 500);
+            Assert.True(secondSegment.IsClosed);
+            Assert.False(Directory.Exists(CaptureDirectory(secondSettings, secondCapture.Id)));
+            Assert.NotEqual(firstBinding.Id, secondBinding.Id);
             Assert.NotEqual(firstBinding.AssignmentId, secondBinding.AssignmentId);
             Assert.Equal(Path.Combine(original.DirectoryPath, ".captures", secondBinding.Id), secondBinding.DirectoryPath);
-            Assert.StartsWith(secondBinding.DirectoryPath + Path.DirectorySeparatorChar, secondSegment!.RootRelativePath);
+            Assert.StartsWith(secondBinding.DirectoryPath + Path.DirectorySeparatorChar, secondSegment.RootRelativePath);
             Assert.True(File.Exists(Path.Combine(fixture.StoragePath, secondSegment.RootRelativePath!)));
             var sessions = await fixture.Context.Collection<BroadcastSession>("sessions").Find(value => value.StreamerId == target.Id).ToListAsync(timeout.Token);
             var continued = Assert.Single(sessions);
@@ -160,6 +186,30 @@ public sealed class RecordingWorkerHandoffHttpTests
             }
         }
     }
+
+    private static async Task AssertCaptureQueuedAsync(HttpServerFixture fixture, RecordingSessionTaskSnapshot capture,
+        WorkerSettingsStore settings, CancellationToken cancellationToken)
+    {
+        var snapshot = await fixture.Context.Collection<RecordingSessionTaskSnapshot>("recordingSessionTasks")
+            .Find(value => value.Id == capture.Id).SingleAsync(cancellationToken);
+        Assert.False(snapshot.Descriptor.IsClosed);
+        Assert.Equal("Recording", snapshot.CaptureState);
+        Assert.Equal("Queued", snapshot.UploadState);
+        Assert.Equal(0, snapshot.AcknowledgedArchiveBytes);
+        Assert.Null(snapshot.CurrentTransfer);
+        Assert.False(await fixture.Context.Collection<RecordingSessionReceipt>("recordingSessions")
+            .Find(value => value.Id == capture.Id).AnyAsync(cancellationToken));
+        Assert.False(await fixture.Context.Collection<RecordingSegmentReceipt>("recordingSegments")
+            .Find(value => value.SessionId == capture.Id).AnyAsync(cancellationToken));
+        var directory = CaptureDirectory(settings, capture.Id);
+        Assert.True(File.Exists(Path.Combine(directory, "session.json")));
+        Assert.True(Directory.EnumerateFiles(directory, "*.flv", SearchOption.AllDirectories).Any());
+        Assert.False(File.Exists(Path.Combine(directory, "uploaded.json")));
+    }
+
+    private static string CaptureDirectory(WorkerSettingsStore settings, string sessionId) =>
+        Path.Combine(settings.Current.Configuration.TempDirectory, "live-recorder-recording-worker", settings.Current.Worker.WorkerId,
+            "sessions", sessionId);
 
     private static async Task<(string Id, WorkerConnectionOptions Options, WorkerSettingsStore Settings)> RegisterAsync(
         HttpServerFixture fixture, int controlPort, string name)

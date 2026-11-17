@@ -20,9 +20,9 @@ namespace Yohuke.LiveRecorder.Http.Tests;
 /// <summary>Verifies that a real recording runtime uploads playable media through the shared control service.</summary>
 public sealed class RecordingWorkerRuntimeHttpTests
 {
-    /// <summary>The node uploads media, index and events over HTTP while its source remains open.</summary>
+    /// <summary>The node keeps an open broadcast local, then uploads playable media, index and events after capture ends.</summary>
     [MongoHttpFact]
-    public Task UploadedRecordingPlaysBeforeCaptureStops() => RunAsync(tls: false);
+    public Task RecordingUploadsOnlyAfterCaptureStops() => RunAsync(tls: false);
 
     /// <summary>The same recording flow supports pinned TLS control and HTTPS transfers.</summary>
     [MongoHttpFact]
@@ -32,9 +32,9 @@ public sealed class RecordingWorkerRuntimeHttpTests
     [MongoHttpFact]
     public Task WorkerRestartResumesTheExistingSession() => RunAsync(tls: false, restartWorker: true);
 
-    /// <summary>One node captures and uploads two independent rooms within its configured capacity.</summary>
+    /// <summary>One room uploads after stopping while another room keeps recording within the same node.</summary>
     [MongoHttpFact]
-    public Task OneWorkerRecordsTwoRoomsConcurrently() => RunAsync(tls: false, roomCount: 2);
+    public Task OneWorkerUploadsAClosedRoomWhileAnotherRoomKeepsRecording() => RunAsync(tls: false, roomCount: 2);
 
     /// <summary>Running after editing a valid local recording setting synchronizes it before applying server state.</summary>
     [MongoHttpFact]
@@ -53,7 +53,7 @@ public sealed class RecordingWorkerRuntimeHttpTests
         await fixture.InstallAsync();
         await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
         await fixture.App.Services.GetServices<IHostedService>().OfType<RecordingSupervisor>().Single().StopAsync(CancellationToken.None);
-        var sample = await PlaybackHttpMediaFixture.SeedRecordingAsync(fixture, 20);
+        var sample = await PlaybackHttpMediaFixture.SeedRecordingAsync(fixture, 40);
         var sourceSegment = await fixture.Context.Collection<RecordingSegment>("segments").Find(value => value.SessionId == sample.Id).SingleAsync();
         var bytes = await File.ReadAllBytesAsync(Path.Combine(fixture.StoragePath, sample.DirectoryPath, sourceSegment.RelativePath));
         using var handler = new RecordingLiveTestHttpHandler(bytes, TimeSpan.FromMilliseconds(50));
@@ -89,21 +89,9 @@ public sealed class RecordingWorkerRuntimeHttpTests
         {
             var target = new Streamer { RoomId = 1901002, Name = "Worker HTTP 测试", RecordDanmu = true };
             await fixture.Context.Collection<Streamer>("streamers").InsertOneAsync(target, cancellationToken: timeout.Token);
-            RecordingSegment? segment = null;
-            BroadcastSession? session = null;
-            await WaitUntilAsync(async () =>
-            {
-                session = await fixture.Context.Collection<BroadcastSession>("sessions").Find(value => value.StreamerId == target.Id).FirstOrDefaultAsync(timeout.Token);
-                if (session is null)
-                {
-                    return false;
-                }
-                segment = await fixture.Context.Collection<RecordingSegment>("segments").Find(value => value.SessionId == session.Id && value.DurationMs > 1000).FirstOrDefaultAsync(timeout.Token);
-                return segment is { IsClosed: false };
-            }, running, logs, timeout.Token);
-            var committedBeforeRestart = segment!.CommittedBytes;
-            var totalBeforeRestart = (await fixture.Context.Collection<BroadcastSession>("sessions")
-                .Find(value => value.Id == session!.Id).SingleAsync(timeout.Token)).TotalBytes;
+            var captured = await WaitForCaptureAsync(fixture, target.Id, workerId, running, logs, timeout.Token);
+            await Task.Delay(TimeSpan.FromSeconds(2), timeout.Token);
+            await AssertCaptureQueuedAsync(fixture, captured, configuration.TempDirectory, workerId, timeout.Token);
             var ownerBeforeRestart = await fixture.Context.Collection<RecordingOwnership>("recordingOwnerships")
                 .Find(value => value.RoomId == target.RoomId).SingleAsync(timeout.Token);
             Assert.Equal("Worker", ownerBeforeRestart.OwnerKind);
@@ -113,23 +101,27 @@ public sealed class RecordingWorkerRuntimeHttpTests
             await Task.Delay(TimeSpan.FromSeconds(3), timeout.Token);
             Assert.False(running.IsCompleted, string.Join('\n', logs));
             Assert.True(handler.ReadBytes > readBeforeRestart, "Capture stopped while the server was unavailable.\n" + string.Join('\n', logs));
+            var serverRestartedAtUtc = DateTime.UtcNow;
             await fixture.RestartAsync();
             Assert.Equal(options.ApiBaseUrl, fixture.Address.AbsoluteUri);
-            await WaitUntilAsync(async () =>
-            {
-                var resumed = await fixture.Context.Collection<BroadcastSession>("sessions").Find(value => value.Id == session!.Id).SingleAsync(timeout.Token);
-                return resumed.TotalBytes > totalBeforeRestart;
-            }, running, logs, timeout.Token);
-            var retainedSegment = await fixture.Context.Collection<RecordingSegment>("segments")
-                .Find(value => value.Id == segment.Id).SingleAsync(timeout.Token);
-            Assert.True(retainedSegment.CommittedBytes >= committedBeforeRestart);
+            var resumed = await WaitForCaptureAsync(fixture, target.Id, workerId, running, logs, timeout.Token,
+                captured.CapturedDurationMs + 1000, serverRestartedAtUtc);
+            Assert.Equal(captured.Id, resumed.Id);
+            await AssertCaptureQueuedAsync(fixture, resumed, configuration.TempDirectory, workerId, timeout.Token);
             var ownerAfterRestart = await fixture.Context.Collection<RecordingOwnership>("recordingOwnerships")
                 .Find(value => value.RoomId == target.RoomId).SingleAsync(timeout.Token);
             Assert.Equal(ownerBeforeRestart.AssignmentId, ownerAfterRestart.AssignmentId);
             Assert.Equal(ownerBeforeRestart.Generation, ownerAfterRestart.Generation);
             Assert.Equal(workerId, ownerAfterRestart.OwnerId);
-            var sessions = await fixture.Context.Collection<BroadcastSession>("sessions").Find(value => value.StreamerId == target.Id).ToListAsync(timeout.Token);
-            Assert.Equal(session!.Id, Assert.Single(sessions).Id);
+
+            await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+            await StopTargetAsync(fixture, target);
+            var archived = await WaitForArchiveAsync(fixture, resumed, configuration.TempDirectory, workerId,
+                running, logs, timeout.Token);
+            Assert.Equal(captured.Id, archived.Id);
+            Assert.Single(await fixture.Context.Collection<BroadcastSession>("sessions")
+                .Find(value => value.StreamerId == target.Id).ToListAsync(timeout.Token));
+            Assert.True(archived.TotalBytes > 0);
         }
         finally
         {
@@ -165,10 +157,10 @@ public sealed class RecordingWorkerRuntimeHttpTests
         {
             Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
         }
-        var sampleSession = await PlaybackHttpMediaFixture.SeedRecordingAsync(fixture, 8);
+        var sampleSession = await PlaybackHttpMediaFixture.SeedRecordingAsync(fixture, 40);
         var sampleSegment = await fixture.Context.Collection<RecordingSegment>("segments").Find(segment => segment.SessionId == sampleSession.Id).SingleAsync();
         var bytes = await File.ReadAllBytesAsync(Path.Combine(fixture.StoragePath, sampleSession.DirectoryPath, sampleSegment.RelativePath));
-        using var streamHandler = new RecordingLiveTestHttpHandler(bytes, TimeSpan.FromMilliseconds(5));
+        using var streamHandler = new RecordingLiveTestHttpHandler(bytes, TimeSpan.FromMilliseconds(50));
         using var sourceClient = new HttpClient(streamHandler, disposeHandler: false);
         using var created = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/transcoding/workers", new { name = "Actual recording runtime", kind = "Recording" });
         Assert.Equal(HttpStatusCode.OK, created.StatusCode);
@@ -221,20 +213,17 @@ public sealed class RecordingWorkerRuntimeHttpTests
             }).ToArray();
             var target = targets[0];
             await fixture.Context.Collection<Streamer>("streamers").InsertManyAsync(targets, cancellationToken: timeout.Token);
-            BroadcastSession? session = null;
-            RecordingSegment? segment = null;
-            await WaitUntilAsync(async () =>
+            var captures = new List<RecordingSessionTaskSnapshot>();
+            foreach (var selectedTarget in targets)
             {
-                session = await fixture.Context.Collection<BroadcastSession>("sessions").Find(value => value.StreamerId == target.Id).FirstOrDefaultAsync(timeout.Token);
-                if (session is null)
-                {
-                    return false;
-                }
-                segment = await fixture.Context.Collection<RecordingSegment>("segments").Find(value => value.SessionId == session.Id && value.DurationMs > 2000).FirstOrDefaultAsync(timeout.Token);
-                return segment is { IsClosed: false };
-            }, running, logs, timeout.Token);
-            Assert.Null(session!.EndedAtUtc);
-            Assert.False(segment!.IsClosed);
+                captures.Add(await WaitForCaptureAsync(fixture, selectedTarget.Id, id, running, logs, timeout.Token));
+            }
+            await Task.Delay(TimeSpan.FromSeconds(2), timeout.Token);
+            foreach (var capture in captures)
+            {
+                await AssertCaptureQueuedAsync(fixture, capture, configuration.TempDirectory, id, timeout.Token);
+            }
+            var captured = captures[0];
             if (localOverride)
             {
                 var saved = await fixture.Context.Collection<TranscodeWorker>("transcodeWorkers")
@@ -242,33 +231,14 @@ public sealed class RecordingWorkerRuntimeHttpTests
                 Assert.Equal(1024 * 1024, saved.Configuration.UploadBytesPerSecond);
                 Assert.Equal(3, saved.ConfigurationRevision);
             }
-            Assert.InRange(segment.CommittedBytes, 13, new FileInfo(Path.Combine(fixture.StoragePath, session.DirectoryPath, segment.RelativePath)).Length);
-            using var playbackResponse = await fixture.Admin.SendAsync(HttpMethod.Post, $"/api/sessions/{session.Id}/playback", new { offsetMs = segment.StartOffsetMs + 500 });
-            Assert.Equal(HttpStatusCode.OK, playbackResponse.StatusCode);
-            var playback = (await playbackResponse.Content.ReadFromJsonAsync<PlaybackResponse>())!;
-            await PlaybackHttpMediaFixture.DownloadAndDecodeAsync(fixture, playback);
-            var eventsPath = Path.Combine(fixture.StoragePath, session.DirectoryPath, "弹幕", "事件.jsonl");
-            await WaitUntilAsync(async () => File.Exists(eventsPath) && (await File.ReadAllTextAsync(eventsPath, timeout.Token)).Contains("录像 Worker 弹幕", StringComparison.Ordinal), running, logs, timeout.Token);
-            if (roomCount > 1)
-            {
-                foreach (var parallelTarget in targets.Skip(1))
-                {
-                    await WaitUntilAsync(async () =>
-                    {
-                        var parallelSession = await fixture.Context.Collection<BroadcastSession>("sessions")
-                            .Find(value => value.StreamerId == parallelTarget.Id && value.EndedAtUtc == null).FirstOrDefaultAsync(timeout.Token);
-                        return parallelSession is not null && parallelSession.Id != session.Id
-                            && await fixture.Context.Collection<RecordingSegment>("segments")
-                                .Find(value => value.SessionId == parallelSession.Id && value.DurationMs > 2000 && !value.IsClosed)
-                                .AnyAsync(timeout.Token);
-                    }, running, logs, timeout.Token);
-                }
-                await WaitUntilAsync(async () => await fixture.Context.Collection<TranscodeWorker>("transcodeWorkers")
-                    .Find(value => value.Id == id && value.Telemetry.ActiveRecordings == roomCount).AnyAsync(timeout.Token), running, logs, timeout.Token);
-            }
+            await WaitUntilAsync(async () => await fixture.Context.Collection<TranscodeWorker>("transcodeWorkers")
+                .Find(value => value.Id == id && value.Telemetry.ActiveRecordings == roomCount).AnyAsync(timeout.Token),
+                running, logs, timeout.Token);
             if (restartWorker)
             {
-                var previousSegmentId = segment.Id;
+                var directory = Path.Combine(configuration.TempDirectory, "live-recorder-recording-worker", id,
+                    "sessions", captured.Id, "录制提交");
+                var previousSegments = Directory.EnumerateDirectories(directory).Select(Path.GetFileName).ToHashSet(StringComparer.Ordinal);
                 await lifetime.CancelAsync();
                 try
                 {
@@ -279,27 +249,58 @@ public sealed class RecordingWorkerRuntimeHttpTests
                 }
                 lifetime.Dispose();
                 lifetime = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+                var workerRestartedAtUtc = DateTime.UtcNow;
                 running = StartWorker();
-                await WaitUntilAsync(async () => await fixture.Context.Collection<RecordingSegment>("segments")
-                    .Find(value => value.SessionId == session.Id && value.Id != previousSegmentId && value.DurationMs > 1000)
-                    .AnyAsync(timeout.Token), running, logs, timeout.Token);
-                Assert.Single(await fixture.Context.Collection<BroadcastSession>("sessions").Find(value => value.StreamerId == target.Id).ToListAsync(timeout.Token));
+                var resumed = await WaitForCaptureAsync(fixture, target.Id, id, running, logs, timeout.Token,
+                    captured.CapturedDurationMs + 1000, workerRestartedAtUtc);
+                Assert.Equal(captured.Id, resumed.Id);
+                await WaitUntilAsync(() => Task.FromResult(Directory.EnumerateDirectories(directory)
+                    .Any(value => !previousSegments.Contains(Path.GetFileName(value)))), running, logs, timeout.Token);
+                Assert.Contains(Directory.EnumerateDirectories(directory), value => !previousSegments.Contains(Path.GetFileName(value)));
+                await AssertCaptureQueuedAsync(fixture, resumed, configuration.TempDirectory, id, timeout.Token);
             }
-            var targetIds = targets.Select(value => value.Id).ToArray();
-            await fixture.Context.Collection<Streamer>("streamers").UpdateManyAsync(value => targetIds.Contains(value.Id),
-                Builders<Streamer>.Update.Set(value => value.Enabled, false), cancellationToken: timeout.Token);
-            await WaitUntilAsync(async () =>
+
+            await StopTargetAsync(fixture, target);
+            var archived = await WaitForArchiveAsync(fixture, captured, configuration.TempDirectory, id,
+                running, logs, timeout.Token);
+            Assert.Null(archived.EndedAtUtc);
+            Assert.Equal("Waiting", archived.State);
+            var segments = await fixture.Context.Collection<RecordingSegment>("segments")
+                .Find(value => value.SessionId == archived.Id).SortBy(value => value.StartOffsetMs).ToListAsync(timeout.Token);
+            Assert.NotEmpty(segments);
+            Assert.All(segments, value => Assert.True(value.IsClosed));
+            if (restartWorker)
             {
-                var latest = await fixture.Context.Collection<BroadcastSession>("sessions").Find(value => value.Id == session.Id).SingleAsync(timeout.Token);
-                var pausedCount = await fixture.Context.Collection<BroadcastSession>("sessions")
-                    .CountDocumentsAsync(value => targetIds.Contains(value.StreamerId) && value.EndedAtUtc == null && value.State == "Waiting",
-                        cancellationToken: timeout.Token);
-                var roomIds = targets.Select(value => value.RoomId).ToArray();
-                var releasedCount = await fixture.Context.Collection<RecordingOwnership>("recordingOwnerships")
-                    .CountDocumentsAsync(value => roomIds.Contains(value.RoomId) && value.State == "Released", cancellationToken: timeout.Token);
-                return latest.EndedAtUtc is null && pausedCount == roomCount && releasedCount == roomCount
-                    && !Directory.EnumerateFiles(configuration.TempDirectory, "*.flv", SearchOption.AllDirectories).Any();
-            }, running, logs, timeout.Token);
+                Assert.True(segments.Count >= 2);
+            }
+            if (roomCount > 1)
+            {
+                var readingBefore = streamHandler.ReadBytes;
+                foreach (var capture in captures.Skip(1))
+                {
+                    var stillRecording = await WaitForCaptureAsync(fixture, capture.TargetId, id, running, logs, timeout.Token);
+                    Assert.Equal(capture.Id, stillRecording.Id);
+                    await AssertCaptureQueuedAsync(fixture, stillRecording, configuration.TempDirectory, id, timeout.Token);
+                }
+                await WaitUntilAsync(() => Task.FromResult(streamHandler.ReadBytes > readingBefore), running, logs, timeout.Token);
+                await WaitUntilAsync(async () => await fixture.Context.Collection<TranscodeWorker>("transcodeWorkers")
+                    .Find(value => value.Id == id && value.Telemetry.ActiveRecordings == roomCount - 1).AnyAsync(timeout.Token),
+                    running, logs, timeout.Token);
+            }
+            using var playbackResponse = await fixture.Admin.SendAsync(HttpMethod.Post, $"/api/sessions/{archived.Id}/playback",
+                new { offsetMs = segments[0].StartOffsetMs + 500 });
+            Assert.Equal(HttpStatusCode.OK, playbackResponse.StatusCode);
+            var playback = (await playbackResponse.Content.ReadFromJsonAsync<PlaybackResponse>())!;
+            await PlaybackHttpMediaFixture.DownloadAndDecodeAsync(fixture, playback);
+            var eventsPath = Path.Combine(fixture.StoragePath, archived.DirectoryPath, "弹幕", "事件.jsonl");
+            Assert.Contains("录像 Worker 弹幕", await File.ReadAllTextAsync(eventsPath, timeout.Token), StringComparison.Ordinal);
+            foreach (var selectedTarget in targets.Skip(1))
+            {
+                await StopTargetAsync(fixture, selectedTarget);
+                var capture = captures.Single(value => value.TargetId == selectedTarget.Id);
+                await WaitForArchiveAsync(fixture, capture, configuration.TempDirectory, id, running, logs, timeout.Token);
+            }
+            Assert.False(Directory.EnumerateFiles(configuration.TempDirectory, "*.flv", SearchOption.AllDirectories).Any());
         }
         finally
         {
@@ -316,6 +317,70 @@ public sealed class RecordingWorkerRuntimeHttpTests
                 lifetime.Dispose();
             }
         }
+    }
+
+    private static async Task<RecordingSessionTaskSnapshot> WaitForCaptureAsync(HttpServerFixture fixture, string targetId,
+        string workerId, Task runtime, ConcurrentQueue<string> logs, CancellationToken cancellationToken,
+        double minimumDurationMs = 2000, DateTime reportedAfterUtc = default)
+    {
+        RecordingSessionTaskSnapshot? snapshot = null;
+        await WaitUntilAsync(async () =>
+        {
+            snapshot = await fixture.Context.Collection<RecordingSessionTaskSnapshot>("recordingSessionTasks")
+                .Find(value => value.TargetId == targetId && value.WorkerId == workerId
+                    && value.CaptureState == "Recording" && value.CapturedDurationMs > minimumDurationMs
+                    && !value.Descriptor.IsClosed && value.LastReportedAtUtc >= reportedAfterUtc)
+                .SortByDescending(value => value.Descriptor.StartedAtUtc).FirstOrDefaultAsync(cancellationToken);
+            return snapshot is not null;
+        }, runtime, logs, cancellationToken);
+        return snapshot!;
+    }
+
+    private static async Task AssertCaptureQueuedAsync(HttpServerFixture fixture, RecordingSessionTaskSnapshot capture,
+        string temporaryDirectory, string workerId, CancellationToken cancellationToken)
+    {
+        var current = await fixture.Context.Collection<RecordingSessionTaskSnapshot>("recordingSessionTasks")
+            .Find(value => value.Id == capture.Id).SingleAsync(cancellationToken);
+        Assert.False(current.Descriptor.IsClosed);
+        Assert.Equal("Recording", current.CaptureState);
+        Assert.Equal("Queued", current.UploadState);
+        Assert.True(current.CommittedArchiveBytes > 0);
+        Assert.Equal(0, current.AcknowledgedArchiveBytes);
+        Assert.Null(current.CurrentTransfer);
+        Assert.False(await fixture.Context.Collection<RecordingSessionReceipt>("recordingSessions")
+            .Find(value => value.Id == capture.Id).AnyAsync(cancellationToken));
+        Assert.False(await fixture.Context.Collection<RecordingSegmentReceipt>("recordingSegments")
+            .Find(value => value.SessionId == capture.Id).AnyAsync(cancellationToken));
+        var directory = Path.Combine(temporaryDirectory, "live-recorder-recording-worker", workerId, "sessions", capture.Id);
+        Assert.True(File.Exists(Path.Combine(directory, "session.json")));
+        Assert.True(Directory.EnumerateFiles(directory, "*.flv", SearchOption.AllDirectories).Any());
+        Assert.False(File.Exists(Path.Combine(directory, "uploaded.json")));
+    }
+
+    private static async Task StopTargetAsync(HttpServerFixture fixture, Streamer target)
+    {
+        target.Enabled = false;
+        using var response = await fixture.Admin.SendAsync(HttpMethod.Put, "/api/streamers/" + target.Id, target);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    private static async Task<BroadcastSession> WaitForArchiveAsync(HttpServerFixture fixture, RecordingSessionTaskSnapshot capture,
+        string temporaryDirectory, string workerId, Task runtime, ConcurrentQueue<string> logs, CancellationToken cancellationToken)
+    {
+        await WaitUntilAsync(async () =>
+        {
+            var finalized = await fixture.Context.Collection<RecordingSessionReceipt>("recordingSessions")
+                .Find(value => value.Id == capture.Id && value.Descriptor.IsClosed && value.FinalizedAtUtc != null)
+                .AnyAsync(cancellationToken);
+            var released = await fixture.Context.Collection<RecordingOwnership>("recordingOwnerships")
+                .Find(value => value.RoomId == capture.Descriptor.RoomId && value.State == "Released").AnyAsync(cancellationToken);
+            return finalized && released;
+        }, runtime, logs, cancellationToken);
+        var directory = Path.Combine(temporaryDirectory, "live-recorder-recording-worker", workerId, "sessions", capture.Id);
+        Assert.False(Directory.Exists(directory));
+        var logicalId = capture.Descriptor.LogicalSessionId ?? capture.Id;
+        return await fixture.Context.Collection<BroadcastSession>("sessions")
+            .Find(value => value.Id == logicalId).SingleAsync(cancellationToken);
     }
 
     private static async Task WaitUntilAsync(Func<Task<bool>> predicate, Task runtime, ConcurrentQueue<string> logs, CancellationToken cancellationToken)

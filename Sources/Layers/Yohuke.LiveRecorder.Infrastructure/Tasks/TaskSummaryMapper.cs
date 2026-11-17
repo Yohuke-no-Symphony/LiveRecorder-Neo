@@ -187,7 +187,8 @@ internal static class TaskSummaryMapper
             },
             new()
             {
-                Id = "Uploading", State = completed ? "Completed" : skipped ? "Skipped" : "Running",
+                Id = "Uploading", State = completed ? "Completed" : skipped ? "Skipped"
+                    : uploadState is "Queued" or "CaughtUp" ? "Waiting" : "Running",
                 Progress = completed ? 100 : captured is > 0 && acknowledged is { } count ? Math.Clamp(count / captured.Value * 100, 0, 100) : null,
                 Substate = completed ? "Completed" : uploadState,
                 FinishedAtUtc = completed ? Date(row, "FinishedAtUtc") : null,

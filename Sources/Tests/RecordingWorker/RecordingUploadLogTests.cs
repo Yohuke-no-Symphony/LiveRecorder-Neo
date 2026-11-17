@@ -63,15 +63,17 @@ public sealed class RecordingUploadLogTests
         }
     }
 
-    /// <summary>Repeated live-session polling produces no duplicate upload or acknowledgement logs.</summary>
-    [Fact]
-    public async Task AcknowledgedLiveCommitsDoNotGeneratePollingLogs()
+    /// <summary>A broadcast retains its local media until the entire session closes, including already closed segments.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BroadcastUploadsOnlyAfterItsSessionCloses(bool segmentClosed)
     {
         using var fixture = new RecordingWorkerFixture();
         using var spool = fixture.Spool();
         spool.SaveAssignment(fixture.Assignment, fixture.DirectoryPath);
         var session = fixture.Session(spool);
-        await WriteMediaAsync(session.DirectoryPath, false);
+        await WriteMediaAsync(session.DirectoryPath, segmentClosed);
         using var handler = new RecordingUploadLogTestHandler();
         using var transfer = new RecordingFileTransfer(new() { ApiBaseUrl = "https://test.invalid", WorkerId = "worker", Secret = "secret" }, handler);
         var entries = new ConcurrentQueue<WorkerLogEntry>();
@@ -80,12 +82,139 @@ public sealed class RecordingUploadLogTests
         var upload = uploader.RunAsync(cancellation.Token);
         try
         {
-            await WaitAsync(() => handler.Registrations >= 3);
+            await Task.Delay(1100);
+
+            Assert.Equal(0, handler.Registrations);
+            Assert.Equal(0, handler.SegmentCommits);
+            Assert.Equal(0, handler.EventCommits);
+            Assert.Empty(entries);
+            Assert.True(File.Exists(Path.Combine(session.DirectoryPath, "video.flv")));
+            Assert.False(File.Exists(Path.Combine(session.DirectoryPath, "uploaded.json")));
+
+            await WriteMediaAsync(session.DirectoryPath, true);
+            spool.CloseSession(session.DirectoryPath, DateTime.UtcNow);
+            await WaitAsync(() => !Directory.Exists(session.DirectoryPath));
+
+            Assert.Equal(2, handler.Registrations);
+            Assert.Equal(1, handler.SegmentCommits);
+            Assert.Equal(1, handler.EventCommits);
+            Assert.All(entries, AssertSessionLog);
+        }
+        finally
+        {
+            await cancellation.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => upload);
+        }
+    }
+
+    /// <summary>A completed broadcast drains while another broadcast continues capturing into its own local files.</summary>
+    [Fact]
+    public async Task ClosedBroadcastUploadsWhileAnotherBroadcastRemainsOpen()
+    {
+        using var fixture = new RecordingWorkerFixture();
+        using var spool = fixture.Spool();
+        spool.SaveAssignment(fixture.Assignment, fixture.DirectoryPath);
+        var active = spool.CreateSession(fixture.Assignment, new()
+        {
+            SessionId = "active-session", RoomId = fixture.Assignment.RoomId, StartedAtUtc = DateTime.UtcNow
+        }, fixture.DirectoryPath);
+        await WriteMediaAsync(active.DirectoryPath, true);
+        var closed = fixture.Session(spool);
+        await WriteMediaAsync(closed.DirectoryPath, true);
+        spool.CloseSession(closed.DirectoryPath, DateTime.UtcNow);
+        using var handler = new RecordingUploadLogTestHandler();
+        using var transfer = new RecordingFileTransfer(new() { ApiBaseUrl = "https://test.invalid", WorkerId = "worker", Secret = "secret" }, handler);
+        var entries = new ConcurrentQueue<WorkerLogEntry>();
+        var configuration = fixture.Configuration;
+        using var cancellation = new CancellationTokenSource();
+        var upload = new RecordingSpoolUploader(spool, transfer, () => configuration, _ => false, entries.Enqueue)
+            .RunAsync(cancellation.Token);
+        try
+        {
+            await WaitAsync(() => !Directory.Exists(closed.DirectoryPath));
+            await Task.Delay(1100);
+
+            Assert.Equal(2, handler.Registrations);
+            Assert.Equal(1, handler.SegmentCommits);
+            Assert.Equal(1, handler.EventCommits);
+            Assert.True(File.Exists(Path.Combine(active.DirectoryPath, "video.flv")));
+            Assert.False(File.Exists(Path.Combine(active.DirectoryPath, "uploaded.json")));
+            Assert.All(entries, AssertSessionLog);
+        }
+        finally
+        {
+            await cancellation.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => upload);
+        }
+    }
+
+    /// <summary>Recovery seals an interrupted segment while its broadcast still waits for the session's final closure.</summary>
+    [Fact]
+    public async Task RecoveredBroadcastWaitsForFinalClosureBeforeUploading()
+    {
+        using var fixture = new RecordingWorkerFixture();
+        string directory;
+        using (var spool = fixture.Spool())
+        {
+            spool.SaveAssignment(fixture.Assignment, fixture.DirectoryPath);
+            directory = fixture.Session(spool).DirectoryPath;
+            await WriteMediaAsync(directory, false);
+        }
+        using var recovered = fixture.Spool();
+        await recovered.RecoverAsync(CancellationToken.None);
+        Assert.True(Assert.Single(recovered.Commits(directory)).IsClosed);
+        Assert.False(Assert.Single(recovered.Sessions()).State.Descriptor.IsClosed);
+        using var handler = new RecordingUploadLogTestHandler();
+        using var transfer = new RecordingFileTransfer(new() { ApiBaseUrl = "https://test.invalid", WorkerId = "worker", Secret = "secret" }, handler);
+        var entries = new ConcurrentQueue<WorkerLogEntry>();
+        var configuration = fixture.Configuration;
+        using var cancellation = new CancellationTokenSource();
+        var upload = new RecordingSpoolUploader(recovered, transfer, () => configuration, _ => false, entries.Enqueue)
+            .RunAsync(cancellation.Token);
+        try
+        {
+            await Task.Delay(1100);
+
+            Assert.Equal(0, handler.Registrations);
+            Assert.True(File.Exists(Path.Combine(directory, "video.flv")));
+
+            recovered.CloseSession(directory, DateTime.UtcNow);
+            await WaitAsync(() => !Directory.Exists(directory));
 
             Assert.Equal(1, handler.SegmentCommits);
-            Assert.Equal(2, entries.Count);
+            Assert.Equal(1, handler.EventCommits);
             Assert.All(entries, AssertSessionLog);
-            Assert.True(Directory.Exists(session.DirectoryPath));
+        }
+        finally
+        {
+            await cancellation.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => upload);
+        }
+    }
+
+    /// <summary>Closed sessions without committed video remain local drafts through the deferred upload scan.</summary>
+    [Fact]
+    public async Task ClosedEmptyBroadcastIsRetainedAsADraft()
+    {
+        using var fixture = new RecordingWorkerFixture();
+        using var spool = fixture.Spool();
+        spool.SaveAssignment(fixture.Assignment, fixture.DirectoryPath);
+        var session = fixture.Session(spool);
+        spool.CloseSession(session.DirectoryPath, DateTime.UtcNow);
+        using var handler = new RecordingUploadLogTestHandler();
+        using var transfer = new RecordingFileTransfer(new() { ApiBaseUrl = "https://test.invalid", WorkerId = "worker", Secret = "secret" }, handler);
+        var configuration = fixture.Configuration;
+        using var cancellation = new CancellationTokenSource();
+        var upload = new RecordingSpoolUploader(spool, transfer, () => configuration, _ => false, _ => { })
+            .RunAsync(cancellation.Token);
+        try
+        {
+            await WaitAsync(() => spool.Sessions().Count == 0);
+
+            var draft = Assert.Single(spool.Sessions(includeDrafts: true));
+            Assert.Equal("session", draft.State.Descriptor.SessionId);
+            Assert.Equal("drafts", Path.GetFileName(Path.GetDirectoryName(draft.DirectoryPath)));
+            Assert.Equal(0, handler.Registrations);
         }
         finally
         {
@@ -102,7 +231,8 @@ public sealed class RecordingUploadLogTests
         using var spool = fixture.Spool();
         spool.SaveAssignment(fixture.Assignment, fixture.DirectoryPath);
         var session = fixture.Session(spool);
-        await WriteMediaAsync(session.DirectoryPath, false);
+        await WriteMediaAsync(session.DirectoryPath, true);
+        spool.CloseSession(session.DirectoryPath, DateTime.UtcNow);
         using var handler = new RecordingUploadLogTestHandler { RejectRegistration = true };
         using var transfer = new RecordingFileTransfer(new() { ApiBaseUrl = "https://test.invalid", WorkerId = "worker", Secret = "secret" }, handler);
         var entries = new ConcurrentQueue<WorkerLogEntry>();

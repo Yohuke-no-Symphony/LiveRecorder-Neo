@@ -81,7 +81,7 @@ public sealed class TaskHistoryHttpTests
         var recording = Assert.Single(all.Items, value => value.Id == "recording");
         Assert.Equal("Running", recording.State);
         Assert.Null(recording.Stages[0].Progress);
-        Assert.Equal("Running", recording.Stages[1].State);
+        Assert.Equal("Waiting", recording.Stages[1].State);
         Assert.Equal("CaughtUp", recording.Stages[1].Substate);
         Assert.Equal(100, recording.Stages[1].Progress);
     }
@@ -177,6 +177,9 @@ public sealed class TaskHistoryHttpTests
         });
         var before = Assert.Single((await fixture.Admin.Client.GetFromJsonAsync<TaskHistoryPage>("/api/admin/worker-tasks"))!.Items);
         Assert.False(before.CanViewResults);
+        Assert.Equal("Running", before.Stages[0].State);
+        Assert.Equal("Waiting", before.Stages[1].State);
+        Assert.Equal("Queued", before.Stages[1].Substate);
         await fixture.Context.Collection<RecordingSessionReceipt>("recordingSessions").InsertOneAsync(new()
         {
             Id = descriptor.SessionId, Descriptor = descriptor, Published = true

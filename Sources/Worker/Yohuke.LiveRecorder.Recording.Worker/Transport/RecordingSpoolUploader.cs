@@ -16,7 +16,7 @@ internal sealed class RecordingSpoolUploader(RecordingSpool spool, RecordingFile
             {
                 try
                 {
-                    foreach (var session in spool.Sessions(assignment.Assignment.AssignmentId))
+                    foreach (var session in spool.Sessions(assignment.Assignment.AssignmentId).Where(value => value.State.Descriptor.IsClosed))
                     {
                         var sessionId = session.State.Descriptor.SessionId;
                         progress?.Uploading(sessionId);
