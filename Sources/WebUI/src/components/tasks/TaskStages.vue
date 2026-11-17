@@ -29,15 +29,46 @@ const emit = defineEmits<{ select: [id: string] }>()
 const { t, te } = useI18n()
 const stageStateLabel = (state: string) => te(`taskHistory.stageStates.${state}`) ? t(`taskHistory.stageStates.${state}`) : state
 const stageLabel = (stage: TaskStage) => `${taskStageLabel(stage.id, props.taskType)} · ${stageStateLabel(stage.state)} · ${taskStageProgress(stage)}`
-const stageColor = (state: string) => ({ Failed: 'error', Interrupted: 'warning', Completed: 'success', Succeeded: 'success', Running: 'primary' }[state] ?? 'secondary')
-const stageClass = (state: string) => ({ Completed: 'stage-success', Succeeded: 'stage-success', Running: 'stage-running', Failed: 'stage-error', Interrupted: 'stage-warning', Cancelled: 'stage-muted', Skipped: 'stage-muted' }[state] ?? 'stage-pending')
-const stageIcon = (state: string) => ({ Completed: 'mdi-check', Succeeded: 'mdi-check', Running: 'mdi-play', Failed: 'mdi-close', Interrupted: 'mdi-pause', Cancelled: 'mdi-cancel', Skipped: 'mdi-minus' }[state] ?? 'mdi-circle-small')
+const stageColor = (state: string) => ({
+  Waiting: 'warning',
+  Pending: 'warning',
+  Queued: 'warning',
+  Failed: 'error',
+  Interrupted: 'warning',
+  Completed: 'success',
+  Succeeded: 'success',
+  Running: 'primary',
+}[state] ?? 'secondary')
+const stageClass = (state: string) => ({
+  Waiting: 'stage-warning',
+  Pending: 'stage-warning',
+  Queued: 'stage-warning',
+  Completed: 'stage-success',
+  Succeeded: 'stage-success',
+  Running: 'stage-running',
+  Failed: 'stage-error',
+  Interrupted: 'stage-warning',
+  Cancelled: 'stage-muted',
+  Skipped: 'stage-muted',
+}[state] ?? 'stage-pending')
+const stageIcon = (state: string) => ({
+  Waiting: 'mdi-timer-outline',
+  Pending: 'mdi-timer-outline',
+  Queued: 'mdi-timer-outline',
+  Completed: 'mdi-check',
+  Succeeded: 'mdi-check',
+  Running: 'mdi-play',
+  Failed: 'mdi-close',
+  Interrupted: 'mdi-pause',
+  Cancelled: 'mdi-cancel',
+  Skipped: 'mdi-minus',
+}[state] ?? 'mdi-circle-small')
 </script>
 
 <style scoped>
 .task-stage-overview { min-width: 0; }
-.task-stages { display: flex; align-items: center; flex-wrap: wrap; list-style: none; margin: 0; padding: 0; gap: 0; }
-.task-stage-item { display: flex; align-items: center; }
+.task-stages { display: flex; align-items: center; flex-wrap: nowrap; overflow-x: auto; list-style: none; margin: 0; padding: 5px; gap: 0; }
+.task-stage-item { display: flex; align-items: center; flex: 0 0 auto; }
 .task-stage-item + .task-stage-item::before { content: ''; width: 12px; height: 2px; background: rgba(var(--v-theme-on-surface), .16); }
 .task-stage-button { appearance: none; position: relative; z-index: 1; display: grid; place-items: center; flex: 0 0 auto; width: 30px; height: 30px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; box-shadow: none; outline: none; color: inherit; font: inherit; cursor: pointer; }
 .task-stage-button:focus-visible .task-stage { outline: 2px solid rgb(var(--v-theme-primary)); outline-offset: 3px; }

@@ -92,7 +92,7 @@ function duration(task: TaskSummary): string
 .task-table :deep(th:first-child) { width: 170px; }
 .task-table :deep(th:nth-child(2)) { width: 32%; }
 .task-table :deep(th:nth-child(3)) { width: 150px; }
-.task-table :deep(th:nth-child(4)) { width: 235px; }
+.task-table :deep(th:last-child) { width: 120px; }
 .task-table :deep(td) { padding: 12px 16px !important; vertical-align: middle; }
 .task-title { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 a.task-title:hover { color: rgb(var(--v-theme-primary)); }

@@ -6,6 +6,7 @@ import { defineComponent, h, nextTick } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import JobsView from '../src/views/JobsView.vue'
 import WorkerTasksView from '../src/views/WorkerTasksView.vue'
+import StatusChip from '../src/components/common/StatusChip.vue'
 import { useAuthStore } from '../src/stores/auth'
 import type { TaskPage, TaskSummary } from '../src/models/taskHistory'
 import type { UserProfile } from '../src/models/auth'
@@ -83,6 +84,20 @@ describe('统一任务表格', () =>
     expect(row.text()).toContain('00:01:00')
     expect(row.text()).not.toContain('83.5 FPS')
     expect(row.text()).not.toContain('900')
+  })
+
+  it.each(['Waiting', 'Pending', 'Queued'])('等待状态 %s 的任务标签和步骤节点使用黄色及 timer 图标', async state =>
+  {
+    api.list.mockResolvedValue(page([task({ state, stages: [{ id: 'Encoding', state, progress: null, metrics: [] }] })]))
+    const wrapper = await open()
+    const row = wrapper.get('[data-job-id="clip"]')
+    const status = row.getComponent(StatusChip)
+    expect(status.attributes('color')).toBe('warning')
+    expect(status.attributes('prepend-icon')).toBe('mdi-timer-outline')
+    const stage = row.get('[data-stage-id="Encoding"]')
+    expect(stage.get('.task-stage').classes()).toContain('stage-warning')
+    expect(stage.get('v-progress-circular-stub').attributes('color')).toBe('warning')
+    expect(stage.get('v-icon-stub').attributes('icon')).toBe('mdi-timer-outline')
   })
 
   it('点击Stage才展示真实指标，切片Encoding显示导出并提供进度条', async () =>
