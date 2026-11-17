@@ -25,7 +25,7 @@ const input = defineComponent({ props: ['modelValue', 'label'], emits: ['update:
 const dialog = defineComponent({ props: ['modelValue', 'persistent'], setup: (props, { slots }) => () => props.modelValue ? h('div', { role: 'dialog' }, slots.default?.()) : null })
 const table = defineComponent({ setup: (_, { slots }) => () => h('table', slots.default?.()) })
 const tooltip = defineComponent({ props: ['text'], setup: (props, { slots }) => () => h('span', { 'data-tooltip': props.text }, slots.activator?.({ props: {} })) })
-const stubs = { VBtn: button, VCard: card, ContentCard: card, VTable: table, VChip: container, VAvatar: container, VImg: true, VSelect: select, VTextField: input, VDialog: dialog, VProgressLinear: true, VAlert: container, VIcon: true, VTooltip: tooltip }
+const stubs = { VBtn: button, VCard: card, ContentCard: card, VTable: table, VChip: container, VAvatar: container, VImg: true, VSelect: select, VTextField: input, VDialog: dialog, VProgressLinear: true, VProgressCircular: true, VAlert: container, VIcon: true, VTooltip: tooltip }
 const mounted: VueWrapper[] = []
 let pinia: Pinia
 function viewer(role: 'Admin' | 'User' = 'User'): UserProfile { return { id: 'viewer', email: 'viewer@example.test', displayName: '观众', role, status: 'Active', permissions: ['recordings.view', 'clips.create', 'recordings.download', 'analytics.view'] } }
@@ -98,18 +98,22 @@ describe('统一任务表格', () =>
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 
-  it('列表显示当前步骤名称和阶段进度，弹窗通过带名称的阶段图切换', async () =>
+  it('列表仅显示带圆环进度和tooltip的阶段图，弹窗在图下显示名称并支持切换', async () =>
   {
     const wrapper = await open()
     const row = wrapper.get('[data-job-id="clip"]')
-    expect(row.get('.current-stage-heading').text()).toContain('导出')
-    expect(row.get('.current-stage-heading').text()).toContain('31%')
-    expect(row.get('.current-stage-heading').text()).not.toContain('30%')
+    expect(row.find('.stage-node-name').exists()).toBe(false)
+    expect(row.find('.current-stages').exists()).toBe(false)
+    expect(row.find('v-progress-linear-stub').exists()).toBe(false)
+    expect(row.get('[data-stage-id="Encoding"] v-progress-circular-stub').attributes('model-value')).toBe('31')
+    expect(row.get('[data-stage-id="Encoding"]').attributes('aria-label')).toContain('导出 · 运行中 · 31%')
+    expect(row.get('[data-stage-id="Encoding"]').element.parentElement?.getAttribute('data-tooltip')).toContain('导出 · 运行中 · 31%')
     await row.get('[data-stage-id="Encoding"]').trigger('click')
     const modal = wrapper.get('[role="dialog"]')
     expect(modal.get('[data-stage-id="Encoding"]').attributes('aria-pressed')).toBe('true')
     expect(modal.get('[data-stage-id="Downloading"]').text()).toContain('下载')
-    expect(modal.get('[data-stage-id="Downloading"]').text()).toContain('100%')
+    expect(modal.get('[data-stage-id="Downloading"] .stage-node-name').text()).toBe('下载')
+    expect(modal.get('[data-stage-id="Downloading"] v-progress-circular-stub').attributes('model-value')).toBe('100')
     await modal.get('[data-stage-id="Downloading"]').trigger('click')
     expect(modal.get('h2').text()).toBe('下载')
     expect(modal.get('[data-stage-id="Downloading"]').attributes('aria-pressed')).toBe('true')

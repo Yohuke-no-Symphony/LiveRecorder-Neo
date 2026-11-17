@@ -21,7 +21,7 @@ const stubs = {
   VTextField: field, VTextarea: field, VSelect: field,
   VSwitch: { props: ['modelValue', 'label', 'disabled'], emits: ['update:modelValue'], template: '<input type="checkbox" :aria-label="label" :checked="modelValue" :disabled="disabled" @change="$emit(\'update:modelValue\', $event.target.checked)" />' },
   VDialog: { props: ['modelValue'], template: '<div v-if="modelValue" role="dialog"><slot /></div>' },
-  VAlert: { template: '<div role="alert"><slot /></div>' }, VSpacer: true, VIcon: true, VProgressLinear: true, VChip: { template: '<span><slot /></span>' },
+  VAlert: { template: '<div role="alert"><slot /></div>' }, VSpacer: true, VIcon: true, VProgressLinear: true, VProgressCircular: true, VChip: { template: '<span><slot /></span>' },
 }
 const mounted: VueWrapper[] = []
 let worker: TranscodingWorker

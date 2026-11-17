@@ -22,7 +22,7 @@ const stubs = {
   ContentCard: { props: ['title'], template: '<section><h2>{{ title }}</h2><slot name="header-actions" /><slot /><slot name="actions" /></section>' },
   VTooltip: { template: '<slot name="activator" :props="{}" />' },
   VDialog: { props: ['modelValue'], template: '<div v-if="modelValue"><slot /></div>' },
-  VAlert: container, VSpacer: true, VIcon: true, VProgressLinear: true, StatusChip: true,
+  VAlert: container, VSpacer: true, VIcon: true, VProgressLinear: true, VProgressCircular: true, StatusChip: true,
   VChip: container, VTextField: true, VTextarea: true, VSwitch: true, VSelect: true,
   ConfirmDialog: true, TranscodingLogDialog: true,
 }
