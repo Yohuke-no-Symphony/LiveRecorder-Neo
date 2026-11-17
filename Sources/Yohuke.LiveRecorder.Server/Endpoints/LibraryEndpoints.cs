@@ -192,7 +192,8 @@ public static class LibraryEndpoints
             {
                 RequirePermission(http, UserPermissionNames.CREATE_CLIPS);
             }
-            var job = await jobs.CreateAsync(request, Owner(http), http.User.IsInRole("Admin"), ct);
+            var job = await jobs.CreateAsync(request, Owner(http), http.User.IsInRole("Admin"), ct,
+                TaskProvenance.User(Owner(http), http.User.Identity?.Name ?? ""));
             return Results.Accepted("/api/jobs/" + job.Id, job);
         });
         api.MapGet("/jobs/{id}", async (string id, HttpContext http, IMongoContext context, CancellationToken ct) => Results.Ok(LocalizedState.ForResponse(await GetJobAsync(id, http, context, ct))));

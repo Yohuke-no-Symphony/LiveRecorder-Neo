@@ -6,4 +6,5 @@ public sealed record WorkerJobResult
     public string State { get; set; } = "Failed";
     public string? ErrorCode { get; set; }
     public string? Error { get; set; }
+    public List<WorkerStageSnapshot> Stages { get; set; } = [];
 }

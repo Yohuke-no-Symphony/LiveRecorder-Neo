@@ -5,6 +5,7 @@ public sealed record ClipAssignment
 {
     public string JobId { get; init; } = "";
     public int Attempt { get; init; }
+    public int CheckpointGeneration { get; init; }
     public string LeaseToken { get; init; } = "";
     public int LeaseSeconds { get; init; } = 90;
     public string Mode { get; init; } = "Exact";

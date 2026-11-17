@@ -26,7 +26,7 @@ public sealed class TranscodingCoordinator(TranscodeWorkerService workers, Trans
     public Task<bool> AuthenticateAsync(string workerId, string secret, CancellationToken cancellationToken = default) => workers.AuthenticateAsync(workerId, secret, cancellationToken);
     /// <summary>完成控制连接握手。</summary>
     public async Task<WorkerWelcome> ConnectAsync(WorkerHello hello, CancellationToken cancellationToken = default) =>
-        (await workers.ConnectAsync(hello, cancellationToken)) with { LogProtocolVersion = 1 };
+        (await workers.ConnectAsync(hello, cancellationToken)) with { LogProtocolVersion = 1, RecoveryProtocolVersion = 1 };
     /// <summary>Registers a replacement control connection atomically with heartbeat generation checks.</summary>
     public Task<Guid> RegisterControlConnectionAsync(string workerId, string secret, Func<Guid> register,
         CancellationToken cancellationToken = default) => workers.RegisterControlConnectionAsync(workerId, secret, register, cancellationToken);
@@ -65,13 +65,17 @@ public sealed class TranscodingCoordinator(TranscodeWorkerService workers, Trans
     /// <summary>读取近期转码任务。</summary>
     public Task<IReadOnlyList<TranscodeJob>> ListJobsAsync(string? sessionId, CancellationToken cancellationToken = default) => scheduler.ListAsync(sessionId, cancellationToken);
     /// <summary>为结束场次补齐选中的档位。</summary>
-    public Task<int> QueueSessionsAsync(IReadOnlyCollection<string> sessionIds, IReadOnlyCollection<string>? qualityIds, bool force, CancellationToken cancellationToken = default) => scheduler.QueueAsync(sessionIds, qualityIds, force, cancellationToken);
+    public Task<int> QueueSessionsAsync(IReadOnlyCollection<string> sessionIds, IReadOnlyCollection<string>? qualityIds, bool force, CancellationToken cancellationToken = default,
+        TaskProvenance? provenance = null) => scheduler.QueueAsync(sessionIds, qualityIds, force, cancellationToken, provenance: provenance);
     /// <summary>取消执行权。</summary>
     public Task CancelJobAsync(string id, CancellationToken cancellationToken = default) => scheduler.CancelAsync(id, cancellationToken);
     /// <summary>重试有效输入版本的任务。</summary>
     public Task RetryJobAsync(string id, CancellationToken cancellationToken = default) => scheduler.RetryAsync(id, cancellationToken);
     /// <summary>授权读取当前输入版本。</summary>
     public Task<TranscodeInput> GetInputAsync(string workerId, string jobId, int attempt, string leaseToken, CancellationToken cancellationToken = default) => transfers.GetInputAsync(workerId, jobId, attempt, leaseToken, cancellationToken);
+    /// <summary>以成品清单指纹开始或恢复当前执行代次的上传。</summary>
+    public Task BeginUploadAsync(string workerId, string jobId, int attempt, string leaseToken, WorkerUploadSession session,
+        CancellationToken cancellationToken = default) => transfers.BeginUploadAsync(workerId, jobId, attempt, leaseToken, session, cancellationToken);
     /// <summary>查询当前上传文件的已提交长度。</summary>
     public Task<long> GetUploadOffsetAsync(string workerId, string jobId, int attempt, string leaseToken, string fileName, long length, CancellationToken cancellationToken = default) => transfers.GetUploadOffsetAsync(workerId, jobId, attempt, leaseToken, fileName, length, cancellationToken);
     /// <summary>提交有界数据块。</summary>

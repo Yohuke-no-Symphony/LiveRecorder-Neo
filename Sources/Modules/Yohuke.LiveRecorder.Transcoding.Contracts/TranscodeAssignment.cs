@@ -5,6 +5,7 @@ public sealed record TranscodeAssignment
 {
     public string JobId { get; set; } = "";
     public int Attempt { get; set; }
+    public int CheckpointGeneration { get; set; }
     public string LeaseToken { get; set; } = "";
     public int LeaseSeconds { get; set; } = 90;
     public string AssetId { get; set; } = "";

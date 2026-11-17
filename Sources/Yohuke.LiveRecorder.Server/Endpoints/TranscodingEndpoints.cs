@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Claims;
 using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Application;
@@ -57,14 +58,15 @@ public static class TranscodingEndpoints
         });
         admin.MapGet("/jobs", async (string? sessionId, TranscodingCoordinator coordinator, CancellationToken ct) =>
             Results.Ok(await coordinator.ListJobsAsync(sessionId, ct)));
-        admin.MapPost("/jobs", async (QueueTranscodeRequest request, TranscodingCoordinator coordinator, CancellationToken ct) =>
+        admin.MapPost("/jobs", async (QueueTranscodeRequest request, HttpContext http, TranscodingCoordinator coordinator, CancellationToken ct) =>
         {
             if (request.SessionIds is not { Count: > 0 and <= 200 }
                 || request.SessionIds.Any(string.IsNullOrWhiteSpace) || request.QualityIds?.Count > 32)
             {
                 throw new InfrastructureException(MessageCode.REQUEST_INVALID);
             }
-            return Results.Ok(new { queued = await coordinator.QueueSessionsAsync(request.SessionIds, request.QualityIds, request.Force, ct) });
+            return Results.Ok(new { queued = await coordinator.QueueSessionsAsync(request.SessionIds, request.QualityIds, request.Force, ct,
+                TaskProvenance.User(http.User.FindFirstValue(ClaimTypes.NameIdentifier)!, http.User.Identity?.Name ?? "")) });
         });
         admin.MapPost("/jobs/{id}/cancel", async (string id, TranscodingCoordinator coordinator, CancellationToken ct) =>
         {
@@ -96,6 +98,12 @@ public static class TranscodingEndpoints
                     await coordinator.GetInputAsync(workerId, id, attempt, lease, token);
                 });
             });
+        worker.MapPost("/{id}/upload-session", async (string id, WorkerUploadSession session, HttpContext http,
+            TranscodingCoordinator coordinator, CancellationToken ct) =>
+        {
+            await coordinator.BeginUploadAsync(WorkerId(http), id, Attempt(http), Lease(http), session, ct);
+            return Results.NoContent();
+        });
         worker.MapMethods("/{id}/artifacts/{fileName}", [HttpMethods.Head],
             async (string id, string fileName, HttpContext http, TranscodingCoordinator coordinator, CancellationToken ct) =>
             {

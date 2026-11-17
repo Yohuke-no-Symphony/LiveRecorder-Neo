@@ -87,6 +87,10 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
             return null;
         }
         await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, candidate.Id, cancellationToken);
+        if (clipping is not null && await clipping.HasPreferredCapacityAsync(candidate, cancellationToken))
+        {
+            return null;
+        }
         return await jobs.FindOneAndUpdateAsync(pending & Builders<MediaJob>.Filter.Eq(value => value.Id, candidate.Id),
             Builders<MediaJob>.Update.Set(value => value.State, "Running").Set(value => value.LeaseOwner, workerId)
                 .Set(value => value.LeaseUntilUtc, now.AddSeconds(90)).Set(value => value.RemoteWorkerId, null)

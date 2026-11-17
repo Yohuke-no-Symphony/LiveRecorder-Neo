@@ -16,7 +16,8 @@ namespace Yohuke.LiveRecorder.Infrastructure.Jobs;
 public sealed class MediaJobService(IMongoContext context, LibraryService library, IStatusPublisher publisher, IAppPaths paths)
 {
     /// <summary>创建不会随浏览器断开而取消的作业。</summary>
-    public async Task<MediaJob> CreateAsync(CreateMediaJobRequest request, string ownerId, bool isAdmin, CancellationToken cancellationToken = default)
+    public async Task<MediaJob> CreateAsync(CreateMediaJobRequest request, string ownerId, bool isAdmin, CancellationToken cancellationToken = default,
+        TaskProvenance? provenance = null)
     {
         await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
         if (request.Kind is not ("Clip" or "Repair" or "Merge") || request.Mode is not ("Exact" or "Fast"))
@@ -70,6 +71,7 @@ public sealed class MediaJobService(IMongoContext context, LibraryService librar
         var job = new MediaJob
         {
             OwnerId = ownerId,
+            Provenance = provenance ?? TaskProvenance.User(ownerId, ""),
             SessionId = request.SessionId,
             Kind = request.Kind,
             Title = string.IsNullOrWhiteSpace(request.Title) ? detail.Session.Title : request.Title.Trim(),
@@ -145,6 +147,7 @@ public sealed class MediaJobService(IMongoContext context, LibraryService librar
             var updated = await context.Collection<MediaJob>("jobs").UpdateOneAsync(x => x.Id == current.Id && x.Attempt == current.Attempt && (x.State == "Failed" || x.State == "Cancelled"),
                 Builders<MediaJob>.Update.Set(x => x.State, "Queued").Set(x => x.Error, null).Set(x => x.ErrorCode, null).Set(x => x.ErrorArguments, []).Set(x => x.Progress, 0).Set(x => x.CancelRequested, false)
                     .Set(x => x.FinishedAtUtc, null).Set(x => x.LeaseOwner, null).Set(x => x.LeaseUntilUtc, null)
+                    .Set(x => x.ResumeWorkerId, current.RemoteWorkerId ?? current.ResumeWorkerId)
                     .Set(x => x.MutationKey, current.Kind == "Repair" ? current.SessionId : null), cancellationToken: cancellationToken);
             if (updated.MatchedCount == 0)
             {

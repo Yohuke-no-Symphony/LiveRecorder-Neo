@@ -24,7 +24,8 @@ public sealed class TranscodeJobScheduler(IMongoContext context, ISettingsStore 
 
     /// <summary>为指定场次的已关闭物理分段建立档位任务，重复调用不会重复转码。</summary>
     public async Task<int> QueueAsync(IReadOnlyCollection<string> sessionIds, IReadOnlyCollection<string>? qualityIds,
-        bool force, CancellationToken cancellationToken, bool allowHidden = false, IReadOnlyCollection<string>? assetIds = null)
+        bool force, CancellationToken cancellationToken, bool allowHidden = false, IReadOnlyCollection<string>? assetIds = null,
+        TaskProvenance? provenance = null)
     {
         if (sessionIds.Count is 0 or > 200)
         {
@@ -66,7 +67,8 @@ public sealed class TranscodeJobScheduler(IMongoContext context, ISettingsStore 
                         RecipeHash = recipe,
                         Profile = JsonSerializer.Deserialize<TranscodeProfile>(JsonSerializer.Serialize(profile))!,
                         ProfileName = profile.Name,
-                        Force = force
+                        Force = force, Provenance = provenance ?? TaskProvenance.Automatic(),
+                        Stages = WorkerStageSnapshotPolicy.Create("Transcoding")
                     };
                     try
                     {
@@ -78,7 +80,10 @@ public sealed class TranscodeJobScheduler(IMongoContext context, ISettingsStore 
                         if (force)
                         {
                             var changed = await Jobs.UpdateOneAsync(x => x.Id == jobId && x.State != "Running" && x.State != "Publishing" && x.State != "Queued",
-                                Reset().Set(x => x.Force, true).Set(x => x.SessionId, id).Set(x => x.Title, detail.Session.Title), cancellationToken: cancellationToken);
+                                Reset().Set(x => x.Force, true).Set(x => x.SessionId, id).Set(x => x.Title, detail.Session.Title)
+                                    .Set(x => x.Provenance, provenance ?? TaskProvenance.Automatic()).Inc(x => x.CheckpointGeneration, 1)
+                                    .Set(x => x.ResumeWorkerId, null).Set(x => x.Stages, WorkerStageSnapshotPolicy.Create("Transcoding")),
+                                cancellationToken: cancellationToken);
                             count += (int)changed.ModifiedCount;
                         }
                     }
@@ -113,7 +118,7 @@ public sealed class TranscodeJobScheduler(IMongoContext context, ISettingsStore 
             throw new InfrastructureException("任务源文件已被移除或替换，请按当前录像重新创建转码任务。", 410);
         }
         var changed = await Jobs.UpdateOneAsync(x => x.Id == id && (x.State == "Failed" || x.State == "Cancelled" || x.State == "Skipped"),
-            Reset(), cancellationToken: cancellationToken);
+            Reset().Set(x => x.ResumeWorkerId, job.WorkerId ?? job.ResumeWorkerId), cancellationToken: cancellationToken);
         if (changed.MatchedCount == 0)
         {
             throw new InfrastructureException("当前转码任务不能重试。", 409);
@@ -143,6 +148,10 @@ public sealed class TranscodeJobScheduler(IMongoContext context, ISettingsStore 
         await context.Collection<TranscodeWorker>("transcodeWorkers").UpdateOneAsync(x => x.Id == workerId && x.Enabled,
             update, cancellationToken: cancellationToken);
         var state = new WorkerState { Configuration = worker.Configuration, ConfigurationRevision = worker.ConfigurationRevision };
+        foreach (var recovery in heartbeat.RecoveryRequests.Take(65))
+        {
+            state.RecoveryResults.Add(await leases.RecoverAsync(workerId, recovery, paths, cancellationToken));
+        }
         foreach (var progress in heartbeat.Jobs.Take(65))
         {
             var accepted = false;
@@ -150,17 +159,24 @@ public sealed class TranscodeJobScheduler(IMongoContext context, ISettingsStore 
             {
                 await leases.RequireAsync(workerId, progress.JobId, progress.Attempt, progress.LeaseToken, cancellationToken);
                 var stage = TranscodeJobProgressPolicy.NormalizeStage(progress.Stage);
-                var changed = await Jobs.UpdateOneAsync(TranscodeLeaseService.Fence(workerId, progress.JobId, progress.Attempt, progress.LeaseToken),
-                    Builders<TranscodeJob>.Update.Set(x => x.LeaseUntilUtc, DateTime.UtcNow.AddSeconds(90))
+                var progressUpdate = Builders<TranscodeJob>.Update.Set(x => x.LeaseUntilUtc, DateTime.UtcNow.AddSeconds(90))
                         .Set(x => x.Progress, double.IsFinite(progress.Progress) ? Math.Clamp(progress.Progress, 0, 99.9) : 0)
                         .Set(x => x.Stage, stage)
                         .Set(x => x.Activity, TranscodeJobProgressPolicy.NormalizeActivity(stage, progress.Activity))
                         .Set(x => x.LastProgressAtUtc, DateTime.UtcNow)
-                        .Set(x => x.Encoder, progress.Encoder), cancellationToken: cancellationToken);
-                accepted = changed.ModifiedCount > 0;
+                        .Set(x => x.Encoder, progress.Encoder);
+                var stages = WorkerStageSnapshotPolicy.Normalize("Transcoding", progress.Stages);
+                if (stages.Count > 0)
+                {
+                    progressUpdate = progressUpdate.Set(x => x.Stages, stages);
+                }
+                var changed = await Jobs.UpdateOneAsync(TranscodeLeaseService.Fence(workerId, progress.JobId, progress.Attempt, progress.LeaseToken),
+                    progressUpdate, cancellationToken: cancellationToken);
+                accepted = changed.MatchedCount > 0;
             }
             catch (InfrastructureException exception) when (exception.StatusCode is 409 or 410)
             {
+                accepted = await leases.IsFinalizingAsync(workerId, progress.JobId, progress.Attempt, progress.LeaseToken, cancellationToken);
             }
             state.Leases.Add(new() { JobId = progress.JobId, Attempt = progress.Attempt, Accepted = accepted });
         }
@@ -189,6 +205,16 @@ public sealed class TranscodeJobScheduler(IMongoContext context, ISettingsStore 
         var filter = Builders<TranscodeJob>.Filter;
         var pending = filter.Where(x => !x.CancelRequested && (x.State == "Queued"
             || ((x.State == "Running" || x.State == "Publishing") && (x.LeaseUntilUtc == null || x.LeaseUntilUtc < expiredBefore))));
+        var preferred = await PreferredWorkersWithCapacityAsync(workerId, cancellationToken);
+        foreach (var candidate in preferred)
+        {
+            var reserved = filter.Eq(value => value.ResumeWorkerId, candidate.Id);
+            if (candidate.Capabilities.HlsPackagingVersion < 1)
+            {
+                reserved &= DefaultPackagingFilter();
+            }
+            pending &= filter.Not(reserved);
+        }
         var defaultPackaging = DefaultPackagingFilter();
         if (worker.Capabilities.HlsPackagingVersion < 1)
         {
@@ -231,8 +257,9 @@ public sealed class TranscodeJobScheduler(IMongoContext context, ISettingsStore 
             .Set(x => x.Progress, 0).Set(x => x.Activity, null).Set(x => x.LastProgressAtUtc, null)
             .Set(x => x.Encoder, null)
             .Set(x => x.WorkerId, workerId).Set(x => x.LeaseTokenHash, TranscodeWorkerService.SecretHash(token))
+            .Set(x => x.ResumeWorkerId, workerId)
             .Set(x => x.LeaseUntilUtc, now.AddSeconds(90)).Inc(x => x.Attempt, 1);
-        var job = await ClaimByPriorityAsync(settings, pending, updateLease, cancellationToken);
+        var job = await ClaimByPriorityAsync(settings, pending, updateLease, workerId, cancellationToken);
         if (job is null)
         {
             return state;
@@ -242,7 +269,7 @@ public sealed class TranscodeJobScheduler(IMongoContext context, ISettingsStore 
             var asset = await assets.RequireActiveAsync(job.AssetId, job.SourceVersion, cancellationToken);
             state.Assignments.Add(new()
             {
-                JobId = job.Id, Attempt = job.Attempt, LeaseToken = token,
+                JobId = job.Id, Attempt = job.Attempt, CheckpointGeneration = job.CheckpointGeneration, LeaseToken = token,
                 AssetId = asset.Id, SourceVersion = asset.SourceVersion, RecipeHash = job.RecipeHash,
                 SourceLength = asset.CommittedBytes, SourceDurationMs = asset.DurationMs,
                 SourceETag = "\"" + asset.SourceVersion + "\"", SourceFileName = Path.GetFileName(asset.SourceRelativePath), Profile = job.Profile
@@ -260,7 +287,7 @@ public sealed class TranscodeJobScheduler(IMongoContext context, ISettingsStore 
     private IMongoCollection<TranscodeJob> Jobs => context.Collection<TranscodeJob>("transcodeJobs");
 
     private async Task<TranscodeJob?> ClaimByPriorityAsync(TranscodingSettings settings, FilterDefinition<TranscodeJob> pending,
-        UpdateDefinition<TranscodeJob> update, CancellationToken cancellationToken)
+        UpdateDefinition<TranscodeJob> update, string workerId, CancellationToken cancellationToken)
     {
         var groups = settings.Profiles.GroupBy(x => x.Priority)
             .ToDictionary(group => group.Key, group => group.Select(x => x.Id).ToArray());
@@ -275,13 +302,51 @@ public sealed class TranscodeJobScheduler(IMongoContext context, ISettingsStore 
             var profileFilter = priority == 0
                 ? Builders<TranscodeJob>.Filter.Nin(x => x.Profile.Id, prioritizedIds)
                 : Builders<TranscodeJob>.Filter.In(x => x.Profile.Id, groups[priority]);
-            var job = await Jobs.FindOneAndUpdateAsync(pending & profileFilter, update, options, cancellationToken);
+            var job = await Jobs.FindOneAndUpdateAsync(pending & profileFilter & Builders<TranscodeJob>.Filter.Eq(value => value.ResumeWorkerId, workerId),
+                update, options, cancellationToken)
+                ?? await Jobs.FindOneAndUpdateAsync(pending & profileFilter, update, options, cancellationToken);
             if (job is not null)
             {
                 return job;
             }
         }
         return null;
+    }
+
+    private async Task<IReadOnlyList<TranscodeWorker>> PreferredWorkersWithCapacityAsync(string currentWorkerId, CancellationToken cancellationToken)
+    {
+        var recent = DateTime.UtcNow.AddSeconds(-10);
+        var candidates = await context.Collection<TranscodeWorker>("transcodeWorkers")
+            .Find(value => value.Id != currentWorkerId && value.Enabled && value.Kind == "Transcoding" && value.LastSeenAtUtc > recent
+                && value.ConfigurationError == null && value.AppliedConfigurationRevision == value.ConfigurationRevision).ToListAsync(cancellationToken);
+        var available = new List<TranscodeWorker>();
+        foreach (var candidate in candidates)
+        {
+            var configuration = candidate.Configuration;
+            var gpu = configuration.GpuConcurrency > 0 && candidate.Telemetry.RunningGpu < configuration.GpuConcurrency
+                && candidate.Capabilities.Encoders.Any(encoder => encoder.Available && encoder.Encoder != "libx264"
+                    && (configuration.PreferredEncoder == "auto" || configuration.PreferredEncoder == encoder.Encoder)
+                    && (configuration.DeviceId == null || configuration.DeviceId == encoder.DeviceId));
+            var cpu = configuration.CpuFallbackMode != "Disabled" && configuration.CpuConcurrency > candidate.Telemetry.RunningCpu
+                && candidate.Telemetry.CpuThreadBudget > 0 && candidate.Telemetry.CpuUnavailableReason == null
+                && candidate.Telemetry.CpuPercent < configuration.CpuLoadThreshold
+                && candidate.Capabilities.Encoders.Any(encoder => encoder.Available && encoder.Encoder == "libx264");
+            if (string.IsNullOrWhiteSpace(configuration.TempDirectory) || candidate.Telemetry.FreeBytes < configuration.MinimumFreeBytes
+                || !gpu && !cpu || candidate.Telemetry.RunningGpu + candidate.Telemetry.RunningCpu >= configuration.MaxConcurrentEncodes)
+            {
+                continue;
+            }
+            var active = await Jobs.CountDocumentsAsync(job => job.WorkerId == candidate.Id && (job.State == "Running" || job.State == "Publishing")
+                && job.LeaseUntilUtc > DateTime.UtcNow, cancellationToken: cancellationToken);
+            var preparing = await Jobs.CountDocumentsAsync(job => job.WorkerId == candidate.Id && job.State == "Running"
+                && job.Stage != "Encoding" && job.Stage != "Uploading" && job.Stage != "Validating" && job.Stage != "Finalizing"
+                && job.LeaseUntilUtc > DateTime.UtcNow, cancellationToken: cancellationToken);
+            if (active < configuration.MaxConcurrentEncodes + 1 && preparing == 0)
+            {
+                available.Add(candidate);
+            }
+        }
+        return available;
     }
 
     private static FilterDefinition<TranscodeJob> DefaultPackagingFilter()

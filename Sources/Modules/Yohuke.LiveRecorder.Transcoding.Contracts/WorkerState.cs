@@ -12,5 +12,6 @@ public sealed record WorkerState
     public List<ClipAssignment> ClipAssignments { get; set; } = [];
     public List<RecordingLease> RecordingAssignments { get; set; } = [];
     public List<WorkerLeaseStatus> Leases { get; set; } = [];
+    public List<WorkerJobRecoveryStatus> RecoveryResults { get; set; } = [];
     public WorkerLogAcknowledgement? LogAcknowledgement { get; set; }
 }

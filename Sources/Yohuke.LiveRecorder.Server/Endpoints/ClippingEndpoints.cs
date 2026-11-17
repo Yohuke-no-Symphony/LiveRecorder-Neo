@@ -35,6 +35,12 @@ public static class ClippingEndpoints
                     await transfers.GetInputAsync(workerId, id, attempt, lease, inputId, token);
                 });
             });
+        worker.MapPost("/{id}/upload-session", async (string id, WorkerUploadSession session, HttpContext http,
+            ClipTransferService transfers, CancellationToken ct) =>
+        {
+            await transfers.BeginUploadAsync(WorkerId(http), id, Attempt(http), Lease(http), session, ct);
+            return Results.NoContent();
+        });
         worker.MapMethods("/{id}/output", [HttpMethods.Head],
             async (string id, HttpContext http, ClipTransferService transfers, CancellationToken ct) =>
             {

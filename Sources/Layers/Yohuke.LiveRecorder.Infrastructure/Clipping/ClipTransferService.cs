@@ -22,7 +22,45 @@ public sealed class ClipTransferService(IMongoContext context, ClipLeaseService 
     ISettingsStore settingsStore, IMediaProcessor processor, ClipPublicationService publication, IStatusPublisher publisher) : IDisposable
 {
     private const int MAX_CHUNK_BYTES = 8 * 1024 * 1024;
-    private readonly SemaphoreSlim[] gates = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
+
+    /// <summary>为不可变成品建立上传会话，重建时仅清理尚未发布的本代次暂存。</summary>
+    public async Task BeginUploadAsync(string workerId, string jobId, int attempt, string token,
+        WorkerUploadSession session, CancellationToken cancellationToken = default)
+    {
+        if (session.ManifestFingerprint is not { Length: 64 } || !session.ManifestFingerprint.All(char.IsAsciiHexDigit))
+        {
+            throw new InfrastructureException("上传成品指纹无效。");
+        }
+        var gate = Gate(jobId);
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, jobId, cancellationToken);
+            var job = await leases.RequireAsync(workerId, jobId, attempt, token, cancellationToken);
+            var directory = Staging(job);
+            var marker = Path.Combine(directory, "upload-session.json");
+            var fingerprint = session.ManifestFingerprint.ToLowerInvariant();
+            if (File.Exists(marker) && await File.ReadAllTextAsync(marker, cancellationToken) == fingerprint)
+            {
+                return;
+            }
+            if (job.State == "Publishing")
+            {
+                throw new InfrastructureException("已开始发布的成品不能重置上传。", 409);
+            }
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, true);
+            }
+            Directory.CreateDirectory(directory);
+            await PrivateFiles.WriteAllTextAsync(marker, fingerprint, cancellationToken);
+            await leases.RequireAsync(workerId, jobId, attempt, token, cancellationToken);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
 
     /// <summary>Reauthorizes a single planned input without exposing unrelated bytes from its source file.</summary>
     public async Task<ClipInput> GetInputAsync(string workerId, string jobId, int attempt, string token, string inputId,
@@ -45,6 +83,7 @@ public sealed class ClipTransferService(IMongoContext context, ClipLeaseService 
         await gate.WaitAsync(cancellationToken);
         try
         {
+            await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, jobId, cancellationToken);
             var job = await leases.RequireAsync(workerId, jobId, attempt, token, cancellationToken);
             var output = await UploadPathAsync(job, length, cancellationToken);
             return File.Exists(output) ? new FileInfo(output).Length : 0;
@@ -63,6 +102,7 @@ public sealed class ClipTransferService(IMongoContext context, ClipLeaseService 
         await gate.WaitAsync(cancellationToken);
         try
         {
+            await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, jobId, cancellationToken);
             var job = await leases.RequireAsync(workerId, jobId, attempt, token, cancellationToken);
             var settings = await settingsStore.GetAsync(cancellationToken);
             if (new DriveInfo(paths.RecordsDirectory).AvailableFreeSpace - MAX_CHUNK_BYTES <= StorageService.MediaThreshold(settings))
@@ -133,6 +173,7 @@ public sealed class ClipTransferService(IMongoContext context, ClipLeaseService 
                 return;
             }
             var job = await leases.RequireAsync(workerId, jobId, attempt, token, cancellationToken);
+            await TranscodeTransferService.RequireManifestAsync(Staging(job), WorkerOutputManifestFingerprint.Create(manifest), cancellationToken);
             var assignment = job.RemoteAssignment ?? throw new InfrastructureException("切片计划不存在。", 409);
             if (Math.Abs(manifest.ActualStartMs - assignment.ActualStartMs) > 0.1
                 || Math.Abs(manifest.ActualEndMs - assignment.ActualEndMs) > 0.1)
@@ -203,6 +244,7 @@ public sealed class ClipTransferService(IMongoContext context, ClipLeaseService 
                 throw new InfrastructureException("切片发布租约已失效。", 409);
             }
             await publication.ActivateAsync(job, cancellationToken);
+            await SaveCompletedStagesAsync(job, cancellationToken);
             await publisher.PublishAsync("job", job.Id, job.OwnerId, cancellationToken);
             Cleanup(job);
         }
@@ -227,13 +269,18 @@ public sealed class ClipTransferService(IMongoContext context, ClipLeaseService 
         {
             await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, jobId, cancellationToken);
             var job = await leases.RequireAsync(workerId, jobId, attempt, token, cancellationToken);
+            var update = Builders<MediaJob>.Update.Set(value => value.State, result.State)
+                .Set(value => value.Error, result.State == "Failed" ? result.Error : null)
+                .Set(value => value.ErrorCode, result.State == "Failed" ? result.ErrorCode : null)
+                .Set(value => value.LeaseOwner, null).Set(value => value.LeaseUntilUtc, null).Set(value => value.RemoteLeaseTokenHash, null)
+                .Set(value => value.FinishedAtUtc, result.State == "Failed" ? DateTime.UtcNow : null);
+            var stages = WorkerStageSnapshotPolicy.Normalize("Clipping", result.Stages);
+            if (stages.Count > 0)
+            {
+                update = update.Set(value => value.Stages, stages);
+            }
             var changed = await Jobs.UpdateOneAsync(ClipLeaseService.Fence(workerId, jobId, attempt, token),
-                Builders<MediaJob>.Update.Set(value => value.State, result.State)
-                    .Set(value => value.Error, result.State == "Failed" ? result.Error : null)
-                    .Set(value => value.ErrorCode, result.State == "Failed" ? result.ErrorCode : null)
-                    .Set(value => value.LeaseOwner, null).Set(value => value.LeaseUntilUtc, null).Set(value => value.RemoteLeaseTokenHash, null)
-                    .Set(value => value.FinishedAtUtc, result.State == "Failed" ? DateTime.UtcNow : null),
-                cancellationToken: cancellationToken);
+                update, cancellationToken: cancellationToken);
             if (changed.MatchedCount > 0)
             {
                 await publisher.PublishAsync("job", job.Id, job.OwnerId, cancellationToken);
@@ -271,6 +318,7 @@ public sealed class ClipTransferService(IMongoContext context, ClipLeaseService 
             throw new InfrastructureException("切片完成确认与已发布成品不符。", 409);
         }
         await publication.ActivateAsync(job, cancellationToken);
+        await SaveCompletedStagesAsync(job, cancellationToken);
         Cleanup(job);
         return true;
     }
@@ -311,7 +359,12 @@ public sealed class ClipTransferService(IMongoContext context, ClipLeaseService 
         }
     }
 
-    private SemaphoreSlim Gate(string jobId) => gates[(int)(Convert.ToUInt32(TranscodeAssetRegistry.Hash(jobId)[..8], 16) % (uint)gates.Length)];
+    private Task SaveCompletedStagesAsync(MediaJob job, CancellationToken cancellationToken) =>
+        Jobs.UpdateOneAsync(value => value.Id == job.Id && value.Attempt == job.Attempt && value.State == "Completed",
+            Builders<MediaJob>.Update.Set(value => value.Stages, WorkerStageSnapshotPolicy.Complete("Clipping", job.Stages)),
+            cancellationToken: cancellationToken);
+
+    private SemaphoreSlim Gate(string jobId) => WorkerTransferLocks.Gate("Clipping", jobId);
 
     private static void ValidateManifest(ClipOutputManifest manifest)
     {
@@ -326,9 +379,5 @@ public sealed class ClipTransferService(IMongoContext context, ClipLeaseService 
     /// <summary>Releases upload serialization gates when the application shuts down.</summary>
     public void Dispose()
     {
-        foreach (var gate in gates)
-        {
-            gate.Dispose();
-        }
     }
 }

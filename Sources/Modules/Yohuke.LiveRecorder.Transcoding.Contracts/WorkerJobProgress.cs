@@ -10,4 +10,5 @@ public sealed record WorkerJobProgress
     public double Progress { get; set; }
     public string? Encoder { get; set; }
     public WorkerJobActivity? Activity { get; set; }
+    public List<WorkerStageSnapshot> Stages { get; set; } = [];
 }

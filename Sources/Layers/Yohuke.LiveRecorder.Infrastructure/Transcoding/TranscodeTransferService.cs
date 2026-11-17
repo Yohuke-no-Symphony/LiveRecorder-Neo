@@ -9,6 +9,7 @@ using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Library;
+using Yohuke.LiveRecorder.Infrastructure.Jobs;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Infrastructure.Storage;
 using Yohuke.LiveRecorder.Transcoding.Contracts;
@@ -20,7 +21,45 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
     TranscodeAssetRegistry assets, IAppPaths paths, ISettingsStore settingsStore, ITranscodeMediaInspector inspector) : IDisposable
 {
     private const int MAX_CHUNK_BYTES = 8 * 1024 * 1024;
-    private readonly SemaphoreSlim[] gates = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
+
+    /// <summary>将续传断点绑定到成品指纹，重建产物只重置尚未发布的本代次暂存。</summary>
+    public async Task BeginUploadAsync(string workerId, string jobId, int attempt, string leaseToken,
+        WorkerUploadSession session, CancellationToken cancellationToken)
+    {
+        if (session.ManifestFingerprint is not { Length: 64 } || !session.ManifestFingerprint.All(char.IsAsciiHexDigit))
+        {
+            throw new InfrastructureException("上传成品指纹无效。");
+        }
+        var gate = Gate(jobId);
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, "transcoding-" + jobId, cancellationToken);
+            var job = await leases.RequireAsync(workerId, jobId, attempt, leaseToken, cancellationToken);
+            var directory = Staging(job);
+            var marker = Path.Combine(directory, "upload-session.json");
+            var fingerprint = session.ManifestFingerprint.ToLowerInvariant();
+            if (File.Exists(marker) && await File.ReadAllTextAsync(marker, cancellationToken) == fingerprint)
+            {
+                return;
+            }
+            if (job.State == "Publishing" || job.PublicationDirectory is not null)
+            {
+                throw new InfrastructureException("已开始发布的成品不能重置上传。", 409);
+            }
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, true);
+            }
+            Directory.CreateDirectory(directory);
+            await PrivateFiles.WriteAllTextAsync(marker, fingerprint, cancellationToken);
+            await leases.RequireAsync(workerId, jobId, attempt, leaseToken, cancellationToken);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
 
     /// <summary>在每次范围下载前验证当前执行权和已提交输入版本。</summary>
     public async Task<TranscodeInput> GetInputAsync(string workerId, string jobId, int attempt, string leaseToken,
@@ -41,6 +80,8 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
         await gate.WaitAsync(cancellationToken);
         try
         {
+            await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, "transcoding-" + jobId, cancellationToken);
+            job = await leases.RequireAsync(workerId, jobId, attempt, leaseToken, cancellationToken);
             var path = await UploadPathAsync(job, fileName, length, cancellationToken);
             return File.Exists(path) ? new FileInfo(path).Length : 0;
         }
@@ -65,6 +106,7 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
         await gate.WaitAsync(cancellationToken);
         try
         {
+            await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, "transcoding-" + jobId, cancellationToken);
             await leases.RequireAsync(workerId, jobId, attempt, leaseToken, cancellationToken);
             var path = await UploadPathAsync(job, fileName, length, cancellationToken);
             await using var output = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None,
@@ -124,11 +166,13 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
         await gate.WaitAsync(cancellationToken);
         try
         {
+            await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, "transcoding-" + jobId, cancellationToken);
             if (await ResumeCompletedAsync(workerId, jobId, attempt, leaseToken, cancellationToken))
             {
                 return;
             }
             var job = await leases.RequireAsync(workerId, jobId, attempt, leaseToken, cancellationToken);
+            await RequireManifestAsync(Staging(job), WorkerOutputManifestFingerprint.Create(manifest), cancellationToken);
             var asset = await assets.RequireActiveAsync(job.AssetId, job.SourceVersion, cancellationToken);
             var relative = Path.Combine(".derived", asset.Id, asset.SourceVersion, job.RecipeHash, job.Id + "-" + attempt.ToString(CultureInfo.InvariantCulture));
             var destination = MediaPaths.Resolve(paths.RecordsDirectory, relative);
@@ -222,18 +266,33 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
     public async Task FinishAsync(string workerId, string jobId, int attempt, string leaseToken,
         WorkerJobResult result, CancellationToken cancellationToken)
     {
-        await leases.RequireAsync(workerId, jobId, attempt, leaseToken, cancellationToken);
         if (result.State is not ("Failed" or "Skipped" or "Queued"))
         {
             throw new InfrastructureException("转码任务终态无效。");
         }
-        var update = result.State == "Queued" ? TranscodeJobScheduler.Reset()
-            : Builders<TranscodeJob>.Update.Set(x => x.State, result.State).Set(x => x.Stage, result.State)
-                .Set(x => x.LeaseTokenHash, null).Set(x => x.LeaseUntilUtc, null).Set(x => x.FinishedAtUtc, DateTime.UtcNow);
-        await context.Collection<TranscodeJob>("transcodeJobs").UpdateOneAsync(
-            TranscodeLeaseService.Fence(workerId, jobId, attempt, leaseToken),
-            update.Set(x => x.Error, Limit(result.Error, 2048)).Set(x => x.ErrorCode, Limit(result.ErrorCode, 100)),
-            cancellationToken: cancellationToken);
+        var gate = Gate(jobId);
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, "transcoding-" + jobId, cancellationToken);
+            await leases.RequireAsync(workerId, jobId, attempt, leaseToken, cancellationToken);
+            var update = result.State == "Queued" ? TranscodeJobScheduler.Reset()
+                : Builders<TranscodeJob>.Update.Set(x => x.State, result.State).Set(x => x.Stage, result.State)
+                    .Set(x => x.LeaseTokenHash, null).Set(x => x.LeaseUntilUtc, null).Set(x => x.FinishedAtUtc, DateTime.UtcNow);
+            var stages = WorkerStageSnapshotPolicy.Normalize("Transcoding", result.Stages);
+            if (stages.Count > 0)
+            {
+                update = update.Set(x => x.Stages, stages);
+            }
+            await context.Collection<TranscodeJob>("transcodeJobs").UpdateOneAsync(
+                TranscodeLeaseService.Fence(workerId, jobId, attempt, leaseToken),
+                update.Set(x => x.Error, Limit(result.Error, 2048)).Set(x => x.ErrorCode, Limit(result.ErrorCode, 100)),
+                cancellationToken: cancellationToken);
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     private async Task<bool> ResumeCompletedAsync(string workerId, string jobId, int attempt, string leaseToken,
@@ -280,9 +339,23 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
         return true;
     }
 
-    private Task MarkPublishedAsync(string jobId, int attempt, CancellationToken cancellationToken) =>
-        context.Collection<TranscodeJob>("transcodeJobs").UpdateOneAsync(x => x.Id == jobId && x.Attempt == attempt && x.State == "Completed",
-            Builders<TranscodeJob>.Update.Set(x => x.PublicationReady, true).Set(x => x.PublicationDirectory, null), cancellationToken: cancellationToken);
+    private async Task MarkPublishedAsync(string jobId, int attempt, CancellationToken cancellationToken)
+    {
+        var jobs = context.Collection<TranscodeJob>("transcodeJobs");
+        var job = await jobs.Find(value => value.Id == jobId && value.Attempt == attempt && value.State == "Completed").FirstAsync(cancellationToken);
+        await jobs.UpdateOneAsync(value => value.Id == jobId && value.Attempt == attempt && value.State == "Completed",
+            Builders<TranscodeJob>.Update.Set(value => value.PublicationReady, true).Set(value => value.PublicationDirectory, null)
+                .Set(value => value.Stages, WorkerStageSnapshotPolicy.Complete("Transcoding", job.Stages)), cancellationToken: cancellationToken);
+    }
+
+    internal static async Task RequireManifestAsync(string directory, string fingerprint, CancellationToken cancellationToken)
+    {
+        var marker = Path.Combine(directory, "upload-session.json");
+        if (File.Exists(marker) && await File.ReadAllTextAsync(marker, cancellationToken) != fingerprint)
+        {
+            throw new InfrastructureException("完成清单与当前上传会话不符。", 409);
+        }
+    }
 
     private async Task RemoveUnpublishedDirectoryAsync(string relative, CancellationToken cancellationToken)
     {
@@ -321,7 +394,7 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
     private string Staging(TranscodeJob job) => MediaPaths.Resolve(paths.RecordsDirectory,
         Path.Combine(".work", "transcoding", job.Id, job.Attempt.ToString(CultureInfo.InvariantCulture)));
 
-    private SemaphoreSlim Gate(string jobId) => gates[(int)(Convert.ToUInt32(TranscodeAssetRegistry.Hash(jobId)[..8], 16) % (uint)gates.Length)];
+    private SemaphoreSlim Gate(string jobId) => WorkerTransferLocks.Gate("Transcoding", jobId);
 
     private static void ValidateUpload(string fileName, long length, TranscodeProfile profile)
     {
@@ -391,9 +464,5 @@ public sealed class TranscodeTransferService(IMongoContext context, TranscodeLea
     /// <summary>停止传输服务后释放同步资源。</summary>
     public void Dispose()
     {
-        foreach (var gate in gates)
-        {
-            gate.Dispose();
-        }
     }
 }

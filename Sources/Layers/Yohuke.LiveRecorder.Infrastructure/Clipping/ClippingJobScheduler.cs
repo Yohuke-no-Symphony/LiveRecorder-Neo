@@ -40,16 +40,25 @@ public sealed class ClippingJobScheduler(IMongoContext context, TranscodeWorkerS
         worker.AppliedConfigurationRevision = heartbeat.AppliedConfigurationRevision;
         worker.ConfigurationError = heartbeat.ConfigurationError;
         var state = new WorkerState { Configuration = worker.Configuration, ConfigurationRevision = worker.ConfigurationRevision };
+        foreach (var recovery in heartbeat.RecoveryRequests.Take(65))
+        {
+            state.RecoveryResults.Add(await leases.RecoverAsync(workerId, recovery, paths, cancellationToken));
+        }
         foreach (var progress in heartbeat.Jobs.Take(65))
         {
             var accepted = false;
             try
             {
                 var activeJob = await leases.RequireAsync(workerId, progress.JobId, progress.Attempt, progress.LeaseToken, cancellationToken);
+                var progressUpdate = Builders<MediaJob>.Update.Set(value => value.LeaseUntilUtc, DateTime.UtcNow.AddSeconds(90))
+                    .Set(value => value.Progress, double.IsFinite(progress.Progress) ? Math.Clamp(progress.Progress, 0, 99.9) : 0);
+                var stages = WorkerStageSnapshotPolicy.Normalize("Clipping", progress.Stages);
+                if (stages.Count > 0)
+                {
+                    progressUpdate = progressUpdate.Set(value => value.Stages, stages);
+                }
                 var changed = await Jobs.UpdateOneAsync(ClipLeaseService.Fence(workerId, progress.JobId, progress.Attempt, progress.LeaseToken),
-                    Builders<MediaJob>.Update.Set(value => value.LeaseUntilUtc, DateTime.UtcNow.AddSeconds(90))
-                        .Max(value => value.Progress, double.IsFinite(progress.Progress) ? Math.Clamp(progress.Progress, 0, 99.9) : 0),
-                    cancellationToken: cancellationToken);
+                    progressUpdate, cancellationToken: cancellationToken);
                 accepted = changed.MatchedCount > 0;
                 if (accepted)
                 {
@@ -58,6 +67,7 @@ public sealed class ClippingJobScheduler(IMongoContext context, TranscodeWorkerS
             }
             catch (InfrastructureException error) when (error.StatusCode is 409 or 410)
             {
+                accepted = await leases.IsFinalizingAsync(workerId, progress.JobId, progress.Attempt, progress.LeaseToken, cancellationToken);
             }
             state.Leases.Add(new() { JobId = progress.JobId, Attempt = progress.Attempt, Accepted = accepted });
         }
@@ -65,7 +75,7 @@ public sealed class ClippingJobScheduler(IMongoContext context, TranscodeWorkerS
         {
             return state;
         }
-        foreach (var candidate in await PendingAsync(cancellationToken))
+        foreach (var candidate in (await PendingAsync(cancellationToken)).OrderByDescending(job => job.ResumeWorkerId == workerId))
         {
             if (HasCompletedOutput(candidate))
             {
@@ -77,6 +87,10 @@ public sealed class ClippingJobScheduler(IMongoContext context, TranscodeWorkerS
                 continue;
             }
             if (!CanAssign(worker, plan!.Assignment, state))
+            {
+                continue;
+            }
+            if (candidate.ResumeWorkerId != workerId && await HasPreferredCapacityAsync(candidate, cancellationToken))
             {
                 continue;
             }
@@ -92,12 +106,13 @@ public sealed class ClippingJobScheduler(IMongoContext context, TranscodeWorkerS
                 continue;
             }
             var token = TranscodeWorkerService.NewSecret();
-            var assignment = plan.Assignment with { Attempt = candidate.Attempt + 1 };
+            var assignment = plan.Assignment with { Attempt = candidate.Attempt + 1, CheckpointGeneration = candidate.CheckpointGeneration };
             await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, candidate.Id, cancellationToken);
             var job = await Jobs.FindOneAndUpdateAsync(PendingFilter() & Builders<MediaJob>.Filter.Eq(value => value.Id, candidate.Id)
                     & Builders<MediaJob>.Filter.Eq(value => value.Attempt, candidate.Attempt),
                 Builders<MediaJob>.Update.Set(value => value.State, "Running").Set(value => value.Progress, 0)
                     .Set(value => value.LeaseOwner, workerId).Set(value => value.RemoteWorkerId, workerId)
+                    .Set(value => value.ResumeWorkerId, workerId)
                     .Set(value => value.RemoteLeaseTokenHash, TranscodeWorkerService.SecretHash(token))
                     .Set(value => value.RemoteAssignment, assignment).Set(value => value.RemoteSources, plan.Sources)
                     .Set(value => value.RemoteOutputSha256, null).Set(value => value.LeaseUntilUtc, DateTime.UtcNow.AddSeconds(90))
@@ -151,6 +166,28 @@ public sealed class ClippingJobScheduler(IMongoContext context, TranscodeWorkerS
 
     private IMongoCollection<MediaJob> Jobs => context.Collection<MediaJob>("jobs");
 
+    /// <summary>在全部认领路径中保护在线且有容量的原节点，失去条件时立即允许其他执行者接管。</summary>
+    public async Task<bool> HasPreferredCapacityAsync(MediaJob job, CancellationToken cancellationToken)
+    {
+        if (job.ResumeWorkerId is not { Length: > 0 } preferredId)
+        {
+            return false;
+        }
+        var recent = DateTime.UtcNow.AddSeconds(-10);
+        var worker = await context.Collection<TranscodeWorker>("transcodeWorkers")
+            .Find(value => value.Id == preferredId && value.Enabled && value.LastSeenAtUtc > recent).FirstOrDefaultAsync(cancellationToken);
+        if (worker is null || !IsConfigured(worker) || await ActiveCountAsync(preferredId, cancellationToken) >= worker.Configuration.MaxConcurrentEncodes)
+        {
+            return false;
+        }
+        var assignment = job.RemoteAssignment;
+        if (assignment is null && preparation.TryGetReady(job, out var plan))
+        {
+            assignment = plan!.Assignment;
+        }
+        return assignment is not null && CanAssign(worker, assignment);
+    }
+
     private async Task<long> ActiveCountAsync(string workerId, CancellationToken cancellationToken) =>
         await Jobs.CountDocumentsAsync(value => value.RemoteWorkerId == workerId && (value.State == "Running" || value.State == "Publishing")
             && value.LeaseUntilUtc > DateTime.UtcNow, cancellationToken: cancellationToken);
@@ -195,6 +232,7 @@ public sealed class ClippingJobScheduler(IMongoContext context, TranscodeWorkerS
         var response = new WorkerState
         {
             Configuration = worker.Configuration, ConfigurationRevision = worker.ConfigurationRevision,
+            RecoveryResults = currentState?.RecoveryResults ?? [],
             Leases = currentState?.Leases ?? Enumerable.Range(0, 65).Select(_ => new WorkerLeaseStatus
             {
                 JobId = new('0', 128), Attempt = int.MaxValue

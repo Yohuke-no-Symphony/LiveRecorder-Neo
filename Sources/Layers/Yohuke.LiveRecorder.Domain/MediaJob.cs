@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Yohuke.LiveRecorder.Clipping.Contracts;
+using Yohuke.LiveRecorder.Transcoding.Contracts;
 
 namespace Yohuke.LiveRecorder.Domain;
 
@@ -7,6 +8,7 @@ namespace Yohuke.LiveRecorder.Domain;
 public sealed class MediaJob : Entity
 {
     public string OwnerId { get; set; } = "";
+    public TaskProvenance Provenance { get; set; } = new();
     public string Kind { get; set; } = "Clip";
     public string SessionId { get; set; } = "";
     public string Title { get; set; } = "";
@@ -19,6 +21,9 @@ public sealed class MediaJob : Entity
     public string? MutationKey { get; set; }
     public string State { get; set; } = "Queued";
     public double Progress { get; set; }
+    public List<WorkerStageSnapshot> Stages { get; set; } = [];
+    public int CheckpointGeneration { get; set; }
+    public string? ResumeWorkerId { get; set; }
     public string? Error { get; set; }
     public string? ErrorCode { get; set; }
     public List<string> ErrorArguments { get; set; } = [];

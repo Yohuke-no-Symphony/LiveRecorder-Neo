@@ -7,6 +7,7 @@ using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Library;
+using Yohuke.LiveRecorder.Infrastructure.Jobs;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
 
@@ -99,54 +100,65 @@ public sealed class TranscodeMaintenanceService(IMongoContext context, IBootstra
             .SortBy(x => x.FinishedAtUtc).Limit(100).ToListAsync(cancellationToken);
         foreach (var job in incomplete)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var relative = Path.Combine(".derived", job.AssetId, job.SourceVersion, job.RecipeHash,
-                job.Id + "-" + job.Attempt.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            var path = MediaPaths.Resolve(paths.RecordsDirectory, Path.Combine(relative, "completed.json"));
-            if (!File.Exists(path))
-            {
-                continue;
-            }
-            await using var stream = File.OpenRead(path);
-            var rendition = await JsonSerializer.DeserializeAsync<PlaybackRendition>(stream, JsonFiles.Options, cancellationToken);
-            if (rendition is null || rendition.Id != job.Id + "-" + job.Attempt.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                || rendition.JobId != job.Id || rendition.Attempt != job.Attempt || rendition.AssetId != job.AssetId
-                || rendition.SourceVersion != job.SourceVersion || rendition.RecipeHash != job.RecipeHash
-                || rendition.RelativeDirectory != relative)
-            {
-                continue;
-            }
-            await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
-            var completed = await context.Collection<TranscodeJob>("transcodeJobs").Find(x => x.Id == rendition.JobId
-                && x.Attempt == rendition.Attempt && x.State == "Completed" && !x.CancelRequested
-                && x.AssetId == rendition.AssetId && x.SourceVersion == rendition.SourceVersion && x.RecipeHash == rendition.RecipeHash).AnyAsync(cancellationToken);
-            if (!completed)
-            {
-                continue;
-            }
+            var gate = WorkerTransferLocks.Gate("Transcoding", job.Id);
+            await gate.WaitAsync(cancellationToken);
             try
             {
-                await assets.RequireActiveAsync(rendition.AssetId, rendition.SourceVersion, cancellationToken);
+                await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, "transcoding-" + job.Id, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                var relative = Path.Combine(".derived", job.AssetId, job.SourceVersion, job.RecipeHash,
+                    job.Id + "-" + job.Attempt.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                var path = MediaPaths.Resolve(paths.RecordsDirectory, Path.Combine(relative, "completed.json"));
+                if (!File.Exists(path))
+                {
+                    continue;
+                }
+                await using var stream = File.OpenRead(path);
+                var rendition = await JsonSerializer.DeserializeAsync<PlaybackRendition>(stream, JsonFiles.Options, cancellationToken);
+                if (rendition is null || rendition.Id != job.Id + "-" + job.Attempt.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    || rendition.JobId != job.Id || rendition.Attempt != job.Attempt || rendition.AssetId != job.AssetId
+                    || rendition.SourceVersion != job.SourceVersion || rendition.RecipeHash != job.RecipeHash
+                    || rendition.RelativeDirectory != relative)
+                {
+                    continue;
+                }
+                await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
+                var completed = await context.Collection<TranscodeJob>("transcodeJobs").Find(x => x.Id == rendition.JobId
+                    && x.Attempt == rendition.Attempt && x.State == "Completed" && !x.CancelRequested
+                    && x.AssetId == rendition.AssetId && x.SourceVersion == rendition.SourceVersion && x.RecipeHash == rendition.RecipeHash).AnyAsync(cancellationToken);
+                if (!completed)
+                {
+                    continue;
+                }
+                try
+                {
+                    await assets.RequireActiveAsync(rendition.AssetId, rendition.SourceVersion, cancellationToken);
+                }
+                catch (InvalidOperationException)
+                {
+                    continue;
+                }
+                var directory = MediaPaths.Resolve(paths.RecordsDirectory, rendition.RelativeDirectory);
+                foreach (var artifact in rendition.Artifacts)
+                {
+                    TranscodeArtifactPolicy.ValidateName(artifact.Name);
+                }
+                if (Path.GetFullPath(Path.Combine(directory, "completed.json")) != Path.GetFullPath(path)
+                    || rendition.Artifacts.Any(x => !File.Exists(Path.Combine(directory, x.Name))
+                        || new FileInfo(Path.Combine(directory, x.Name)).Length != x.Length
+                        || new FileInfo(Path.Combine(directory, x.Name)).LastWriteTimeUtc.Ticks != x.WriteTicks))
+                {
+                    continue;
+                }
+                await new TranscodeRenditionStore(context).PublishAsync(rendition, cancellationToken);
+                await context.Collection<TranscodeJob>("transcodeJobs").UpdateOneAsync(x => x.Id == job.Id && x.Attempt == job.Attempt && x.State == "Completed",
+                    Builders<TranscodeJob>.Update.Set(x => x.PublicationReady, true).Set(x => x.PublicationDirectory, null)
+                        .Set(x => x.Stages, WorkerStageSnapshotPolicy.Complete("Transcoding", job.Stages)), cancellationToken: cancellationToken);
             }
-            catch (InvalidOperationException)
+            finally
             {
-                continue;
+                gate.Release();
             }
-            var directory = MediaPaths.Resolve(paths.RecordsDirectory, rendition.RelativeDirectory);
-            foreach (var artifact in rendition.Artifacts)
-            {
-                TranscodeArtifactPolicy.ValidateName(artifact.Name);
-            }
-            if (Path.GetFullPath(Path.Combine(directory, "completed.json")) != Path.GetFullPath(path)
-                || rendition.Artifacts.Any(x => !File.Exists(Path.Combine(directory, x.Name))
-                    || new FileInfo(Path.Combine(directory, x.Name)).Length != x.Length
-                    || new FileInfo(Path.Combine(directory, x.Name)).LastWriteTimeUtc.Ticks != x.WriteTicks))
-            {
-                continue;
-            }
-            await new TranscodeRenditionStore(context).PublishAsync(rendition, cancellationToken);
-            await context.Collection<TranscodeJob>("transcodeJobs").UpdateOneAsync(x => x.Id == job.Id && x.Attempt == job.Attempt && x.State == "Completed",
-                Builders<TranscodeJob>.Update.Set(x => x.PublicationReady, true).Set(x => x.PublicationDirectory, null), cancellationToken: cancellationToken);
         }
     }
 
@@ -156,31 +168,41 @@ public sealed class TranscodeMaintenanceService(IMongoContext context, IBootstra
         var candidates = await jobs.Find(x => x.PublicationDirectory != null && x.State != "Completed").Limit(100).ToListAsync(cancellationToken);
         foreach (var candidate in candidates)
         {
-            await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
-            var job = await jobs.Find(x => x.Id == candidate.Id && x.PublicationDirectory == candidate.PublicationDirectory).FirstOrDefaultAsync(cancellationToken);
-            if (job is null || job.State == "Completed")
+            var gate = WorkerTransferLocks.Gate("Transcoding", candidate.Id);
+            await gate.WaitAsync(cancellationToken);
+            try
             {
-                continue;
-            }
-            var current = Path.Combine(".derived", job.AssetId, job.SourceVersion, job.RecipeHash,
-                job.Id + "-" + job.Attempt.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            if (job.PublicationDirectory == current && job.State == "Publishing" && job.LeaseUntilUtc > DateTime.UtcNow && !job.CancelRequested)
-            {
-                continue;
-            }
-            if (!await context.Collection<PlaybackRendition>("playbackRenditions")
-                .Find(x => x.RelativeDirectory == job.PublicationDirectory).AnyAsync(cancellationToken))
-            {
-                var directory = MediaPaths.Resolve(paths.RecordsDirectory, job.PublicationDirectory!);
-                if (Directory.Exists(directory))
+                await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, "transcoding-" + candidate.Id, cancellationToken);
+                await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
+                var job = await jobs.Find(x => x.Id == candidate.Id && x.PublicationDirectory == candidate.PublicationDirectory).FirstOrDefaultAsync(cancellationToken);
+                if (job is null || job.State == "Completed")
                 {
-                    Directory.Delete(directory, true);
+                    continue;
                 }
-                var id = Path.GetFileName(directory);
-                await context.Collection<PlaybackRenditionFile>("renditionFiles").DeleteManyAsync(x => x.RenditionId == id, cancellationToken);
+                var current = Path.Combine(".derived", job.AssetId, job.SourceVersion, job.RecipeHash,
+                    job.Id + "-" + job.Attempt.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                if (job.PublicationDirectory == current && job.State == "Publishing" && job.LeaseUntilUtc > DateTime.UtcNow && !job.CancelRequested)
+                {
+                    continue;
+                }
+                if (!await context.Collection<PlaybackRendition>("playbackRenditions")
+                    .Find(x => x.RelativeDirectory == job.PublicationDirectory).AnyAsync(cancellationToken))
+                {
+                    var directory = MediaPaths.Resolve(paths.RecordsDirectory, job.PublicationDirectory!);
+                    if (Directory.Exists(directory))
+                    {
+                        Directory.Delete(directory, true);
+                    }
+                    var id = Path.GetFileName(directory);
+                    await context.Collection<PlaybackRenditionFile>("renditionFiles").DeleteManyAsync(x => x.RenditionId == id, cancellationToken);
+                }
+                await jobs.UpdateOneAsync(x => x.Id == job.Id && x.PublicationDirectory == job.PublicationDirectory,
+                    Builders<TranscodeJob>.Update.Set(x => x.PublicationDirectory, null), cancellationToken: cancellationToken);
             }
-            await jobs.UpdateOneAsync(x => x.Id == job.Id && x.PublicationDirectory == job.PublicationDirectory,
-                Builders<TranscodeJob>.Update.Set(x => x.PublicationDirectory, null), cancellationToken: cancellationToken);
+            finally
+            {
+                gate.Release();
+            }
         }
     }
 
@@ -246,20 +268,30 @@ public sealed class TranscodeMaintenanceService(IMongoContext context, IBootstra
         }
         foreach (var directory in Directory.EnumerateDirectories(root))
         {
-            var id = Path.GetFileName(directory);
-            var job = await context.Collection<TranscodeJob>("transcodeJobs").Find(x => x.Id == id).FirstOrDefaultAsync(cancellationToken);
-            foreach (var attempt in Directory.EnumerateDirectories(directory))
+            var gate = WorkerTransferLocks.Gate("Transcoding", Path.GetFileName(directory));
+            await gate.WaitAsync(cancellationToken);
+            try
             {
-                var current = job is not null && Path.GetFileName(attempt) == job.Attempt.ToString()
-                    && job.State is "Running" or "Publishing" && job.LeaseUntilUtc > DateTime.UtcNow;
-                if (!current && Directory.GetLastWriteTimeUtc(attempt) < DateTime.UtcNow.AddMinutes(-10))
+                await using var executionLock = await MediaJobExecutionLock.AcquireAsync(paths, "transcoding-" + Path.GetFileName(directory), cancellationToken);
+                var id = Path.GetFileName(directory);
+                var job = await context.Collection<TranscodeJob>("transcodeJobs").Find(x => x.Id == id).FirstOrDefaultAsync(cancellationToken);
+                foreach (var attempt in Directory.EnumerateDirectories(directory))
                 {
-                    Directory.Delete(attempt, true);
+                    var current = job is not null && Path.GetFileName(attempt) == job.Attempt.ToString()
+                        && job.State is "Running" or "Publishing" && job.LeaseUntilUtc > DateTime.UtcNow;
+                    if (!current && Directory.GetLastWriteTimeUtc(attempt) < DateTime.UtcNow.AddMinutes(-10))
+                    {
+                        Directory.Delete(attempt, true);
+                    }
+                }
+                if (!Directory.EnumerateFileSystemEntries(directory).Any())
+                {
+                    Directory.Delete(directory);
                 }
             }
-            if (!Directory.EnumerateFileSystemEntries(directory).Any())
+            finally
             {
-                Directory.Delete(directory);
+                gate.Release();
             }
         }
     }

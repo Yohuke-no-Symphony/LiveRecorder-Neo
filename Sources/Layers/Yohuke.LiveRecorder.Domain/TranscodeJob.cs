@@ -15,6 +15,10 @@ public sealed class TranscodeJob : Entity
     public TranscodeProfile Profile { get; set; } = new();
     public string State { get; set; } = "Queued";
     public string Stage { get; set; } = "WaitingForWorker";
+    public List<WorkerStageSnapshot> Stages { get; set; } = [];
+    public int CheckpointGeneration { get; set; }
+    public string? ResumeWorkerId { get; set; }
+    public TaskProvenance Provenance { get; set; } = new();
     public double Progress { get; set; }
     public WorkerJobActivity? Activity { get; set; }
     public DateTime? LastProgressAtUtc { get; set; }
