@@ -460,7 +460,7 @@ describe('消息播放与阅读稳定性', () =>
     expect(wrapper.text()).toContain('正在阅读')
     expect(wrapper.text()).not.toContain('后来消息')
     expect(scrollToIndex).not.toHaveBeenCalled()
-    await wrapper.get('.feed-heading v-btn-stub').trigger('click')
+    await wrapper.get('.feed-follow').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('后来消息')
     expect(scrollToIndex).toHaveBeenCalledExactlyOnceWith(1, 'end')
@@ -485,7 +485,7 @@ describe('消息播放与阅读稳定性', () =>
     expect(wrapper.text()).toContain('保留的旧消息')
     expect(wrapper.text()).not.toContain('新窗口消息')
     expect(scrollToIndex).not.toHaveBeenCalled()
-    await wrapper.get('.feed-heading v-btn-stub').trigger('click')
+    await wrapper.get('.feed-follow').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('保留的旧消息')
     expect(wrapper.text()).toContain('新窗口消息')
@@ -500,7 +500,7 @@ describe('消息播放与阅读稳定性', () =>
     const element = wrapper.get('.event-scroll').element
     Object.defineProperties(element, { scrollHeight: { value: 2000 }, clientHeight: { value: 500 }, scrollTop: { value: 100, writable: true } })
     await wrapper.get('.event-scroll').trigger('scroll')
-    expect(wrapper.get('.feed-heading v-btn-stub').attributes('color')).toBe('primary')
+    expect(wrapper.get('.feed-follow').attributes('color')).toBe('primary')
   })
 
   it('经过隐藏协议消息的时间点时不重建可见列表', async () =>
@@ -556,14 +556,14 @@ describe('消息播放与阅读稳定性', () =>
     eventsRequest.mockResolvedValue({ items: [event({ text: '暂停保留' })], nextCursor: null })
     const wrapper = mountFeed()
     await flushPromises()
-    await wrapper.get('.feed-heading v-btn-stub').trigger('click')
+    await wrapper.get('.feed-follow').trigger('click')
     const element = wrapper.get('.event-scroll').element
     Object.defineProperties(element, { scrollHeight: { value: 1000 }, clientHeight: { value: 500 }, scrollTop: { value: 500, writable: true } })
     await wrapper.get('.event-scroll').trigger('scroll')
-    expect(wrapper.get('.feed-heading v-btn-stub').attributes('color')).toBe('secondary')
+    expect(wrapper.get('.feed-follow').attributes('color')).toBe('secondary')
     await wrapper.get('.event-scroll').trigger('wheel', { deltaY: 100 })
     await wrapper.get('.event-scroll').trigger('scroll')
-    expect(wrapper.get('.feed-heading v-btn-stub').attributes('color')).toBe('primary')
+    expect(wrapper.get('.feed-follow').attributes('color')).toBe('primary')
   })
 
   it('显式导航只在本地恢复跟随，普通位置回退不解除暂停', async () =>
@@ -574,12 +574,12 @@ describe('消息播放与阅读稳定性', () =>
     await wrapper.get('.event-scroll').trigger('wheel', { deltaY: -200 })
     await wrapper.setProps({ offsetMs: 1990 })
     await flushPromises()
-    expect(wrapper.get('.feed-heading v-btn-stub').attributes('color')).toBe('secondary')
+    expect(wrapper.get('.feed-follow').attributes('color')).toBe('secondary')
     expect(eventsRequest).toHaveBeenCalledTimes(1)
     await wrapper.setProps({ offsetMs: 2200, navigationRevision: 1 })
     await flushPromises()
     expect(eventsRequest).toHaveBeenCalledTimes(1)
-    expect(wrapper.get('.feed-heading v-btn-stub').attributes('color')).toBe('primary')
+    expect(wrapper.get('.feed-follow').attributes('color')).toBe('primary')
     expect(wrapper.text()).toContain('同区间新消息')
   })
 
@@ -593,7 +593,7 @@ describe('消息播放与阅读稳定性', () =>
     await wrapper.setProps({ offsetMs: 360000, navigationRevision: 1 })
     await flushPromises()
     expect(eventsRequest).toHaveBeenCalledTimes(1)
-    expect(wrapper.get('.feed-heading v-btn-stub').attributes('color')).toBe('primary')
+    expect(wrapper.get('.feed-follow').attributes('color')).toBe('primary')
     expect(wrapper.text()).toContain('暂停中的旧消息')
     expect(wrapper.text()).toContain('导航目标消息')
     expect(scrollToIndex).toHaveBeenLastCalledWith(1, 'end')
