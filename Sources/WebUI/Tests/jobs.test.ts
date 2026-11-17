@@ -111,8 +111,11 @@ describe('统一任务表格', () =>
     await row.get('[data-stage-id="Encoding"]').trigger('click')
     const modal = wrapper.get('[role="dialog"]')
     expect(modal.get('[data-stage-id="Encoding"]').attributes('aria-pressed')).toBe('true')
-    expect(modal.get('[data-stage-id="Downloading"]').text()).toContain('下载')
-    expect(modal.get('[data-stage-id="Downloading"] .stage-node-name').text()).toBe('下载')
+    const downloadNode = modal.get('[data-stage-id="Downloading"]')
+    expect(downloadNode.text()).not.toContain('下载')
+    const downloadName = modal.findAll('.stage-node-name').find(value => value.text() === '下载')!
+    await downloadName.trigger('click')
+    expect(modal.get('h2').text()).toBe('导出')
     expect(modal.get('[data-stage-id="Downloading"] v-progress-circular-stub').attributes('model-value')).toBe('100')
     await modal.get('[data-stage-id="Downloading"]').trigger('click')
     expect(modal.get('h2').text()).toBe('下载')
