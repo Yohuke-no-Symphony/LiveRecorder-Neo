@@ -17,7 +17,8 @@ using Yohuke.LiveRecorder.Transcoding.Worker.Transport;
 
 namespace Yohuke.LiveRecorder.AI.Worker;
 
-internal sealed class AiWorkerRuntime(WorkerConnectionOptions options, WorkerSettingsStore settings, Action<string>? log = null)
+internal sealed class AiWorkerRuntime(WorkerConnectionOptions options, WorkerSettingsStore settings, Action<string>? log = null,
+    Func<HttpMessageHandler>? apiHandlerFactory = null, Func<HttpMessageHandler>? providerHandlerFactory = null)
 {
     private readonly Action<string> log = log ?? Console.WriteLine;
     private readonly ConcurrentDictionary<string, AiRunningJob> jobs = new(StringComparer.Ordinal);
@@ -36,7 +37,7 @@ internal sealed class AiWorkerRuntime(WorkerConnectionOptions options, WorkerSet
     {
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var workspace = new AiWorkspace(settings.Path, options.WorkerId, message => WriteLog(message, "Warning"));
-        using var transfer = new AiExecutionTransport(options, uploadLimit: () => configuration.UploadBytesPerSecond);
+        using var transfer = new AiExecutionTransport(options, apiHandlerFactory?.Invoke(), () => configuration.UploadBytesPerSecond);
         if (Path.IsPathFullyQualified(settings.Current.Configuration.TempDirectory))
         {
             workspace.RegisterRoot(settings.Current.Configuration.TempDirectory);
@@ -294,7 +295,11 @@ internal sealed class AiWorkerRuntime(WorkerConnectionOptions options, WorkerSet
                 store.Update(value =>
                 {
                     value.Execution = specification.Execution;
-                    value.Memory = specification.Memory ?? new();
+                    value.Memory = specification.Memory ?? new()
+                    {
+                        JobId = specification.Execution.JobId,
+                        SessionId = specification.Execution.SessionId
+                    };
                     value.Input = specification.Input;
                     value.Sequence = specification.CheckpointSequence;
                 });
@@ -342,10 +347,13 @@ internal sealed class AiWorkerRuntime(WorkerConnectionOptions options, WorkerSet
             {
                 job = checkpoint.PrepareRecovery(specification);
             }
-            using var http = new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, ConnectTimeout = TimeSpan.FromSeconds(15) })
-            {
-                Timeout = Timeout.InfiniteTimeSpan
-            };
+            using var http = new HttpClient(providerHandlerFactory?.Invoke()
+                ?? new SocketsHttpHandler
+                {
+                    AllowAutoRedirect = false,
+                    ConnectTimeout = TimeSpan.FromSeconds(15)
+                });
+            http.Timeout = Timeout.InfiniteTimeSpan;
             var client = new JournaledAiChatClient(new OpenAiCompatibleChatClient(http), store, running.Lease,
                 () => workspace.EnsureSpace(limits, 0));
             running.Stage = "Analyzing";

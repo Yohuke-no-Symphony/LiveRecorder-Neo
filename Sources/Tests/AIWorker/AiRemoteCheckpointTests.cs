@@ -1,7 +1,5 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Xunit;
-using Yohuke.LiveRecorder.AI.Contracts;
 using Yohuke.LiveRecorder.AI.Worker.Execution;
 using Yohuke.LiveRecorder.AI.Worker.Storage;
 using Yohuke.LiveRecorder.Application.AI;
@@ -153,18 +151,40 @@ public sealed class AiRemoteCheckpointTests : IDisposable
         var lease = new AiExecutionLease();
         var transfer = new AiTestTransport { FailResultCount = 1 };
         var checkpoint = new AiRemoteCheckpoint(store, lease, transfer);
-        var job = new AiAnalysisJob { Id = "job", State = "Partial", Result = new() { Overview = "saved" } };
+        var job = new AiAnalysisJob
+        {
+            Id = "job",
+            SessionId = "session",
+            State = "Partial",
+            Result = new() { Overview = "saved" }
+        };
+        store.Update(value => value.Memory = new()
+        {
+            JobId = job.Id,
+            SessionId = job.SessionId,
+            Version = 7,
+            ConversationJson = "[{\"role\":\"user\",\"content\":\"retained\"}]"
+        });
 
         await Assert.ThrowsAsync<AiExecutionPausedException>(() => checkpoint.CompleteAsync(job, null, default));
-        Assert.NotNull(new AiCheckpointStore(directory, store.Read().Assignment).Read().PendingResult);
+        var retained = Assert.IsType<AiAnalysisMemory>(new AiCheckpointStore(directory, store.Read().Assignment).Read().PendingResult?.Memory);
+        Assert.Equal(job.Id, retained.JobId);
+        Assert.Equal(job.SessionId, retained.SessionId);
+        Assert.Equal(7, retained.Version);
         lease.Renew(90);
         await Assert.ThrowsAsync<IOException>(() => checkpoint.CompleteAsync(job, null, default));
         job.Result.Overview = "later mutation";
+        store.Update(value =>
+        {
+            value.Memory.Version++;
+            value.Memory.ConversationJson = "[]";
+        });
         await checkpoint.CompleteAsync(job, null, default);
 
         Assert.Equal(2, transfer.Results.Count);
         Assert.Equal(JsonSerializer.Serialize(transfer.Results[0]), JsonSerializer.Serialize(transfer.Results[1]));
         Assert.Equal("saved", transfer.Results[1].Execution.Result.Overview);
+        Assert.Equal(JsonSerializer.Serialize(retained), JsonSerializer.Serialize(transfer.Results[1].Memory));
         Assert.Equal("Completed", store.Read().State);
     }
 

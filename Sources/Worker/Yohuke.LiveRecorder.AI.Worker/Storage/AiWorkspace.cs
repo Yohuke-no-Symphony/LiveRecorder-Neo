@@ -75,13 +75,13 @@ internal sealed class AiWorkspace
                     }
                     try
                     {
-                        var state = WorkerJsonFileStore.Read<AiWorkerCheckpoint>(path);
-                        if (state.State is not ("Completed" or "Rejected"))
+                        var state = ReadCheckpoint(path);
+                        if (state is not null && state.State is not ("Completed" or "Rejected"))
                         {
                             result.Add(new(directory, state.Assignment));
                         }
                     }
-                    catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException)
+                    catch (Exception error) when (error is IOException or InvalidDataException or JsonException or UnauthorizedAccessException)
                     {
                         log("An unreadable AI checkpoint was preserved for inspection (" + error.GetType().Name + ").");
                     }
@@ -106,7 +106,7 @@ internal sealed class AiWorkspace
                     return;
                 }
                 var path = Path.Combine(directory.FullName, "checkpoint.json");
-                if (File.Exists(path) && WorkerJsonFileStore.Read<AiWorkerCheckpoint>(path).State is "Completed" or "Rejected")
+                if (File.Exists(path) && ReadCheckpoint(path) is { State: "Completed" or "Rejected" })
                 {
                     var length = Size(directory);
                     directory.Delete(true);
@@ -123,6 +123,19 @@ internal sealed class AiWorkspace
     internal static long FreeBytes(string directory) => new DriveInfo(Path.GetPathRoot(Path.GetFullPath(directory))!).AvailableFreeSpace;
 
     internal static string SourcePath(string directory, string sourceId) => Path.Combine(directory, "inputs", Hash(sourceId) + ".jsonl");
+
+    private AiWorkerCheckpoint? ReadCheckpoint(string path)
+    {
+        try
+        {
+            return WorkerJsonFileStore.Read<AiWorkerCheckpoint>(path);
+        }
+        catch (Exception error) when (error is IOException or InvalidDataException or JsonException or UnauthorizedAccessException)
+        {
+            log("An unreadable AI checkpoint was preserved for inspection (" + error.GetType().Name + ").");
+            return null;
+        }
+    }
 
     private static long Size(DirectoryInfo directory) => directory.EnumerateFiles("*", SearchOption.AllDirectories).Sum(file => file.Length);
     private static string Hash(string value) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
