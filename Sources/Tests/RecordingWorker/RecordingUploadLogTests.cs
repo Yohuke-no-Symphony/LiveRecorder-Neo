@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Net;
 using System.Security.Cryptography;
 using Yohuke.LiveRecorder.Application.Media;
 using Yohuke.LiveRecorder.Domain;
@@ -119,6 +120,52 @@ public sealed class RecordingUploadLogTests
             Assert.Null(node.Stage);
             Assert.Equal("Warning", node.Level);
             Assert.True(Directory.Exists(session.DirectoryPath));
+            Assert.False(File.Exists(Path.Combine(session.DirectoryPath, "uploaded.json")));
+        }
+        finally
+        {
+            await cancellation.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => upload);
+        }
+    }
+
+    /// <summary>Rejected media commits retain the server failure details and keep unacknowledged files available for retry.</summary>
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest)]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    [InlineData(HttpStatusCode.InsufficientStorage)]
+    public async Task RejectedMediaCommitLogsServerDetailsAndRetainsSpool(HttpStatusCode status)
+    {
+        using var fixture = new RecordingWorkerFixture();
+        using var spool = fixture.Spool();
+        spool.SaveAssignment(fixture.Assignment, fixture.DirectoryPath);
+        var session = fixture.Session(spool);
+        await WriteMediaAsync(session.DirectoryPath, true);
+        spool.CloseSession(session.DirectoryPath, DateTime.UtcNow);
+        using var handler = new RecordingUploadLogTestHandler { RejectedSegmentCommitStatus = status };
+        using var transfer = new RecordingFileTransfer(new() { ApiBaseUrl = "https://test.invalid", WorkerId = "worker", Secret = "secret" }, handler);
+        var entries = new ConcurrentQueue<WorkerLogEntry>();
+        using var cancellation = new CancellationTokenSource();
+        var configuration = fixture.Configuration;
+        var uploader = new RecordingSpoolUploader(spool, transfer, () => configuration, _ => false, entries.Enqueue);
+        var upload = uploader.RunAsync(cancellation.Token);
+        try
+        {
+            await WaitAsync(() => entries.Any(value => value.JobId is null));
+
+            var warning = Assert.Single(entries, value => value is { JobId: "session", Level: "Warning" });
+            AssertSessionLog(warning);
+            var nodeWarning = Assert.Single(entries, value => value.JobId is null);
+            Assert.All(new[] { warning, nodeWarning }, value =>
+            {
+                Assert.Contains("HttpRequestException", value.Message, StringComparison.Ordinal);
+                Assert.Contains("POST /api/worker/recording/targets/assignment/sessions/session/segments/segment/commit", value.Message, StringComparison.Ordinal);
+                Assert.Contains(FormattableString.Invariant($"status {(int)status}"), value.Message, StringComparison.Ordinal);
+                Assert.Contains("The recording segment commit was rejected.", value.Message, StringComparison.Ordinal);
+            });
+            Assert.True(Directory.Exists(session.DirectoryPath));
+            Assert.True(File.Exists(Path.Combine(session.DirectoryPath, "video.flv")));
+            Assert.True(File.Exists(Path.Combine(session.DirectoryPath, "video.index.jsonl")));
             Assert.False(File.Exists(Path.Combine(session.DirectoryPath, "uploaded.json")));
         }
         finally

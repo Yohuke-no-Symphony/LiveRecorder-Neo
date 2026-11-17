@@ -33,7 +33,8 @@ internal sealed class RecordingSpoolUploader(RecordingSpool spool, RecordingFile
                         catch (Exception error) when (!cancellationToken.IsCancellationRequested)
                         {
                             progress?.Failed(sessionId);
-                            WriteUploadLog(sessionId, "Recording upload will retry; committed data remain in the spool (" + error.GetType().Name + ").", "Warning");
+                            WriteUploadLog(sessionId,
+                                $"Recording upload will retry. Committed data remain in the spool ({error.GetType().Name}). {error.Message}", "Warning");
                             throw;
                         }
                     }
@@ -48,7 +49,7 @@ internal sealed class RecordingSpoolUploader(RecordingSpool spool, RecordingFile
                 }
                 catch (Exception error) when (!cancellationToken.IsCancellationRequested)
                 {
-                    WriteNodeLog("Recording upload remains queued in the persistent spool (" + error.GetType().Name + ").", "Warning");
+                    WriteNodeLog($"Recording upload remains queued in the persistent spool ({error.GetType().Name}). {error.Message}", "Warning");
                 }
             }
             await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);

@@ -13,6 +13,7 @@ internal sealed class RecordingUploadLogTestHandler : HttpMessageHandler
     private int eventCommits;
 
     internal bool RejectRegistration { get; init; }
+    internal HttpStatusCode? RejectedSegmentCommitStatus { get; init; }
     internal int Registrations => Volatile.Read(ref registrations);
     internal int SegmentCommits => Volatile.Read(ref segmentCommits);
     internal int EventCommits => Volatile.Read(ref eventCommits);
@@ -55,6 +56,13 @@ internal sealed class RecordingUploadLogTestHandler : HttpMessageHandler
             var commit = await request.Content!.ReadFromJsonAsync<RecordingSegmentCommit>(WorkerProtocol.JsonOptions, cancellationToken)
                 ?? throw new InvalidDataException("Missing media commit.");
             Interlocked.Increment(ref segmentCommits);
+            if (RejectedSegmentCommitStatus is { } status)
+            {
+                return new(status)
+                {
+                    Content = JsonContent.Create(new { detail = "The recording segment commit was rejected." })
+                };
+            }
             return new(HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(new RecordingCommitAcknowledgement

@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using MongoDB.Driver;
 using Xunit;
 using Yohuke.LiveRecorder.Application;
@@ -26,6 +27,104 @@ public sealed class RecordingIngestTests
         Assert.Equal(commit.MediaCommittedBytes, segment.CommittedBytes);
         Assert.False(segment.IsClosed);
         Assert.Null((await fixture.Fixture.Mongo.Collection<BroadcastSession>("sessions").Find(_ => true).SingleAsync()).EndedAtUtc);
+    }
+
+    /// <summary>Historical Windows indexes and LF or mixed-line-ending indexes preserve their exact byte watermarks.</summary>
+    [Theory]
+    [InlineData("\n", "\n")]
+    [InlineData("\r\n", "\r\n")]
+    [InlineData("\r\n", "\n")]
+    public async Task IndexLineEndingsPreserveCommittedByteBoundaries(string firstEnding, string secondEnding)
+    {
+        await using var fixture = await RecordingIngestTestContext.CreateAsync();
+        var lineEndings = new[] { firstEnding, secondEnding };
+        var commit = await fixture.UploadAsync(false, indexContent: length => string.Concat(lineEndings.Select(ending =>
+            $"{{\"kind\":\"Committed\",\"offset\":{length},\"timestampMs\":1000}}{ending}")));
+
+        var acknowledgement = await fixture.CommitAsync(commit);
+
+        Assert.Equal(commit.IndexCommittedBytes, acknowledgement.IndexCommittedBytes);
+        Assert.Equal(commit.MediaCommittedBytes, acknowledgement.MediaCommittedBytes);
+        Assert.Equal(acknowledgement, await fixture.CommitAsync(commit));
+    }
+
+    /// <summary>A Windows newline split across stream buffers is counted as two committed bytes.</summary>
+    [Fact]
+    public async Task WindowsIndexNewlineAcrossReadBuffersIsAccepted()
+    {
+        await using var fixture = await RecordingIngestTestContext.CreateAsync();
+        var commit = await fixture.UploadAsync(false, indexContent: length =>
+        {
+            var line = $"{{\"kind\":\"Committed\",\"offset\":{length},\"timestampMs\":1000}}";
+            return line.PadRight(65535) + "\r\n";
+        });
+
+        var acknowledgement = await fixture.CommitAsync(commit);
+
+        Assert.Equal(65537, acknowledgement.IndexCommittedBytes);
+    }
+
+    /// <summary>A committed index prefix is validated independently of a later uncommitted malformed tail.</summary>
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public async Task UncommittedIndexTailDoesNotChangeTheAcceptedPrefix(string lineEnding)
+    {
+        await using var fixture = await RecordingIngestTestContext.CreateAsync();
+        var commit = await fixture.UploadAsync(false, indexContent: length =>
+            $"{{\"kind\":\"Committed\",\"offset\":{length},\"timestampMs\":1000}}{lineEnding}");
+        var tail = Encoding.UTF8.GetBytes("uncommitted invalid JSON");
+        await using var input = new MemoryStream(tail);
+        await fixture.Ingest.UploadAsync(fixture.WorkerId, fixture.Lease.AssignmentId, fixture.Lease.Generation,
+            fixture.Lease.Token, fixture.Session.SessionId, commit.SegmentId, "index", null,
+            commit.IndexCommittedBytes, commit.IndexCommittedBytes + tail.Length, input, CancellationToken.None);
+
+        var acknowledgement = await fixture.CommitAsync(commit);
+
+        Assert.Equal(commit.IndexCommittedBytes, acknowledgement.IndexCommittedBytes);
+        var session = await fixture.Fixture.Mongo.Collection<RecordingSessionReceipt>("recordingSessions")
+            .Find(value => value.Id == fixture.Session.SessionId).SingleAsync();
+        var publishedIndex = Path.Combine(fixture.Fixture.Root, session.DirectoryPath, "录像", commit.SegmentId + ".index.jsonl");
+        Assert.Equal(commit.IndexCommittedBytes, new FileInfo(publishedIndex).Length);
+    }
+
+    /// <summary>Partial JSON and boundaries splitting a Windows newline cannot publish an incomplete index.</summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(8)]
+    public async Task IndexCommitRequiresACompleteLineBoundary(int missingBytes)
+    {
+        await using var fixture = await RecordingIngestTestContext.CreateAsync();
+        var commit = await fixture.UploadAsync(false, indexContent: length =>
+            $"{{\"kind\":\"Committed\",\"offset\":{length},\"timestampMs\":1000}}\r\n");
+
+        var error = await Assert.ThrowsAsync<InfrastructureException>(() =>
+            fixture.CommitAsync(commit with { IndexCommittedBytes = commit.IndexCommittedBytes - missingBytes }));
+
+        Assert.Equal(422, error.StatusCode);
+        var receipt = await fixture.Fixture.Mongo.Collection<RecordingSegmentReceipt>("recordingSegments")
+            .Find(value => value.Id == commit.SegmentId).SingleAsync();
+        Assert.Null(receipt.Commit);
+    }
+
+    /// <summary>Supporting Windows line endings preserves media-offset and final-duration validation.</summary>
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(0, 2)]
+    public async Task WindowsIndexStillRejectsInconsistentMediaWatermarks(long byteDifference, double durationDifference)
+    {
+        await using var fixture = await RecordingIngestTestContext.CreateAsync();
+        var commit = await fixture.UploadAsync(false, indexContent: length =>
+            $"{{\"kind\":\"Committed\",\"offset\":{length},\"timestampMs\":1000}}\r\n");
+
+        var error = await Assert.ThrowsAsync<InfrastructureException>(() => fixture.CommitAsync(commit with
+        {
+            MediaCommittedBytes = commit.MediaCommittedBytes + byteDifference,
+            DurationMs = commit.DurationMs + durationDifference
+        }));
+
+        Assert.Equal(422, error.StatusCode);
     }
 
     /// <summary>A persisted commit interrupted before initial library publication is recovered before returning an acknowledgement.</summary>

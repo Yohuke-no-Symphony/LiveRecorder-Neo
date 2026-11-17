@@ -67,12 +67,14 @@ internal sealed class RecordingIngestTestContext : IAsyncDisposable
         AppliedConfigurationRevision = Revision, Telemetry = new() { FreeBytes = long.MaxValue }
     }, CancellationToken.None);
 
-    internal async Task<RecordingSegmentCommit> UploadAsync(bool closed, string? segmentId = null, byte marker = 1)
+    internal async Task<RecordingSegmentCommit> UploadAsync(bool closed, string? segmentId = null, byte marker = 1,
+        Func<long, string>? indexContent = null)
     {
         segmentId ??= Guid.NewGuid().ToString("N");
         var prefix = Prefix(marker);
         var media = prefix.Concat(new byte[21]).ToArray();
-        var index = Encoding.UTF8.GetBytes($"{{\"kind\":\"Committed\",\"offset\":{media.Length},\"timestampMs\":1000}}\n");
+        var index = Encoding.UTF8.GetBytes(indexContent?.Invoke(media.Length)
+            ?? $"{{\"kind\":\"Committed\",\"offset\":{media.Length},\"timestampMs\":1000}}\n");
         var hash = Convert.ToHexString(SHA256.HashData(prefix)).ToLowerInvariant();
         foreach (var artifact in new[] { ("media", (string?)null, media), ("index", (string?)null, index), ("prefix", hash, prefix) })
         {
