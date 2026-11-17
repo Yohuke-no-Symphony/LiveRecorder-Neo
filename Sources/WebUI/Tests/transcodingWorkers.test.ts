@@ -5,10 +5,13 @@ import { defineComponent, h } from 'vue'
 import TranscodingWorkersPanel from '../src/components/common/TranscodingWorkersPanel.vue'
 import StatusChip from '../src/components/common/StatusChip.vue'
 import { TranscodingAPI } from '../src/apis/TranscodingAPI'
+import { TaskHistoryAPI } from '../src/apis/TaskHistoryAPI'
+import type { TaskSummary } from '../src/models/taskHistory'
 import { defaultWorkerConfiguration, type ClippingWorker, type RecordingWorker, type TranscodingWorker, type WorkerKind } from '../src/models/transcoding'
 import { i18n } from '../src/plugins/i18n'
 
 vi.mock('../src/apis/TranscodingAPI', () => ({ TranscodingAPI: { workers: vi.fn(), createWorker: vi.fn(), updateWorker: vi.fn(), rotateWorkerKey: vi.fn(), deleteWorker: vi.fn() } }))
+vi.mock('../src/apis/TaskHistoryAPI', () => ({ TaskHistoryAPI: { active: vi.fn(), detail: vi.fn() } }))
 const field = defineComponent({ props: ['modelValue', 'label', 'disabled', 'readonly'], emits: ['update:modelValue'], setup: (props, { emit }) => () => h('input', { value: props.modelValue, 'aria-label': props.label, disabled: props.disabled, readonly: props.readonly, onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value) }) })
 const stubs = {
   ContentCard: { props: ['title'], template: '<section><h2>{{ title }}</h2><slot name="header-actions" /><slot /><slot name="actions" /></section>' },
@@ -42,6 +45,7 @@ beforeEach(() =>
   i18n.global.locale.value = 'zh-CN'
   worker = { id: 'node-1', name: '本地 Worker', enabled: true, configuration: defaultWorkerConfiguration(), configurationRevision: 4, appliedConfigurationRevision: 3, configurationError: null, capabilities: { operatingSystem: 'Darwin', architecture: 'Arm64', toolVersion: '7', encoders: [{ encoder: 'h264_videotoolbox', deviceId: null, available: true }] }, telemetry: { cpuPercent: null, cpuThreadBudget: 4, runningGpu: 1, runningCpu: 0, freeBytes: 1024 ** 3 }, lastSeenAtUtc: new Date().toISOString() }
   vi.mocked(TranscodingAPI.workers).mockResolvedValue([worker])
+  vi.mocked(TaskHistoryAPI.active).mockResolvedValue({})
   vi.mocked(TranscodingAPI.createWorker).mockResolvedValue({ worker, secret: 'one-time-key' })
   vi.mocked(TranscodingAPI.updateWorker).mockResolvedValue(worker)
   vi.mocked(TranscodingAPI.rotateWorkerKey).mockResolvedValue({ secret: 'rotated-key' })
@@ -50,6 +54,38 @@ afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()); docum
 
 describe('Worker管理', () =>
 {
+  it('全部节点一次批量读取活动任务，每卡最多3条并共用步骤详情', async () =>
+  {
+    vi.mocked(TranscodingAPI.workers).mockResolvedValue([worker, { ...worker, id: 'node-2', name: '节点乙' }])
+    const task = (id: string): TaskSummary => ({ id, kind: 'transcode', type: 'Transcode', sessionId: 'session', title: `转码${id}`, state: 'Running', origin: 'Automatic', progress: 20, attempt: 1, createdAtUtc: '2026-11-17T00:00:00Z', cancelRequested: false, canCancel: true, canRetry: false, canDelete: false, canViewResults: true, outputCount: 0, stages: [{ id: 'Encoding', state: 'Running', progress: 20, metrics: [{ key: 'framesPerSecond', value: 80, unit: 'fps' }] }] })
+    vi.mocked(TaskHistoryAPI.active).mockResolvedValue({ 'node-1': [task('1'), task('2'), task('3'), task('4')], 'node-2': [task('5')] })
+
+    const wrapper = await open()
+
+    expect(TaskHistoryAPI.active).toHaveBeenCalledTimes(1)
+    expect(TaskHistoryAPI.active).toHaveBeenCalledWith(['node-1', 'node-2'], expect.any(AbortSignal))
+    expect(wrapper.findAll('.worker-row')[0]!.findAll('[data-task-id]')).toHaveLength(3)
+    expect(wrapper.findAll('.worker-row')[1]!.findAll('[data-task-id]')).toHaveLength(1)
+    expect(wrapper.get('a[href="/admin/worker-tasks?workerId=node-1&state=active"]').text()).toContain('查看全部')
+    expect(wrapper.text()).not.toContain('80 FPS')
+    await wrapper.get('[data-task-id="1"] [data-stage-id="Encoding"]').trigger('click')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('80 FPS')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('编码')
+  })
+
+  it('卸载面板取消批量任务请求，迟到的活动任务不会重新显示', async () =>
+  {
+    let resolve!: (value: Record<string, TaskSummary[]>) => void
+    vi.mocked(TaskHistoryAPI.active).mockReturnValueOnce(new Promise(done => { resolve = done }))
+    const wrapper = await open()
+    const signal = vi.mocked(TaskHistoryAPI.active).mock.calls[0]![1]!
+    wrapper.unmount()
+    expect(signal.aborted).toBe(true)
+    resolve({ 'node-1': [] })
+    await flushPromises()
+    expect(TaskHistoryAPI.active).toHaveBeenCalledTimes(1)
+  })
+
   it('三类节点独立采用主站在线值，停止一个节点与客户端时钟不会改变其他节点状态', async () =>
   {
     const transcodingWorker = { ...worker, isOnline: true, lastSeenAtUtc: '2000-01-01T00:00:00Z' }

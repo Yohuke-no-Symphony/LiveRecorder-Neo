@@ -1,5 +1,5 @@
 <template>
-  <v-dialog v-model="opened" max-width="440" :aria-label="title">
+  <v-dialog v-model="opened" max-width="440" :persistent="busy" :aria-label="title">
     <ContentCard :title="title">
       <div v-if="message || error" class="d-flex flex-column ga-4">
         <p v-if="message">{{ message }}</p>

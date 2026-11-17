@@ -2,6 +2,7 @@ import type { MessageSchema } from '@/localization/types'
 
 export const shellZh = {
   nav: {
+    workerTasks: 'Worker 任务',
     management: '管理', library: '录播库', clips: '我的切片', jobs: '后台任务', analytics: '直播分析', trash: '回收站',
     targets: '录制管理', accounts: 'B站账号', users: '用户与邀请', settings: '设置', storage: '磁盘', workers: 'Worker', account: '账户设置',
     playRecording: '播放录播', streamerRecordings: '主播录播', toggleTheme: '切换主题', userMenu: '用户菜单', logout: '退出登录', logoutFailed: '退出失败',
@@ -90,6 +91,7 @@ export const shellZh = {
 
 export const shellEn: MessageSchema<typeof shellZh> = {
   nav: {
+    workerTasks: 'Worker tasks',
     management: 'Management', library: 'Recording library', clips: 'My clips', jobs: 'Background jobs', analytics: 'Stream analytics', trash: 'Trash',
     targets: 'Recording management', accounts: 'Bilibili accounts', users: 'Users and invitations', settings: 'Settings', storage: 'Disk', workers: 'Workers', account: 'Account settings',
     playRecording: 'Play recording', streamerRecordings: 'Streamer recordings', toggleTheme: 'Switch theme', userMenu: 'User menu', logout: 'Sign out', logoutFailed: 'Unable to sign out',
@@ -178,6 +180,7 @@ export const shellEn: MessageSchema<typeof shellZh> = {
 
 export const shellJa: MessageSchema<typeof shellZh> = {
   nav: {
+    workerTasks: 'Worker タスク',
     management: '管理', library: '録画ライブラリ', clips: '自分のクリップ', jobs: 'バックグラウンドタスク', analytics: '配信分析', trash: 'ゴミ箱',
     targets: '録画管理', accounts: 'Bilibili アカウント', users: 'ユーザーと招待', settings: '設定', storage: 'ディスク', workers: 'Worker', account: 'アカウント設定',
     playRecording: '録画の再生', streamerRecordings: '配信者の録画', toggleTheme: 'テーマを切り替え', userMenu: 'ユーザーメニュー', logout: 'ログアウト', logoutFailed: 'ログアウトできませんでした',

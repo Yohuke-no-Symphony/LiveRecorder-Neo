@@ -5,467 +5,288 @@ import { createPinia, disposePinia, setActivePinia, type Pinia } from 'pinia'
 import { defineComponent, h, nextTick } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import JobsView from '../src/views/JobsView.vue'
+import WorkerTasksView from '../src/views/WorkerTasksView.vue'
 import { useAuthStore } from '../src/stores/auth'
-import type { AiAnalysisJob } from '../src/models/aiAnalysis'
-import type { MediaJob } from '../src/models/media'
+import type { TaskPage, TaskSummary } from '../src/models/taskHistory'
 import type { UserProfile } from '../src/models/auth'
 import { i18n } from '../src/plugins/i18n'
 
-const { transcodeJobs, cancelTranscode, retryTranscode, mediaJobs, aiJobs, cancelMedia, retryMedia, cancelAi, downloadJobOutput } = vi.hoisted(() => ({ transcodeJobs: vi.fn(), cancelTranscode: vi.fn(), retryTranscode: vi.fn(), mediaJobs: vi.fn(), aiJobs: vi.fn(), cancelMedia: vi.fn(), retryMedia: vi.fn(), cancelAi: vi.fn(), downloadJobOutput: vi.fn() }))
-vi.mock('../src/apis/TranscodingAPI', () => ({ TranscodingAPI: { jobs: transcodeJobs, cancelJob: cancelTranscode, retryJob: retryTranscode } }))
-vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { jobs: mediaJobs, cancelJob: cancelMedia, retryJob: retryMedia, downloadJobOutput } }))
-vi.mock('../src/apis/AiAnalysisAPI', () => ({ AiAnalysisAPI: { jobs: aiJobs, cancel: cancelAi } }))
-const card = defineComponent({ props: ['title'], setup: (props, { slots }) => () => h('section', [props.title ? h('h2', props.title) : null, slots.default?.(), slots.actions?.()]) })
+const api = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn(), filters: vi.fn(), previewClear: vi.fn(), clearCompleted: vi.fn(), dismiss: vi.fn(), cancelMedia: vi.fn(), retryMedia: vi.fn(), cancelAi: vi.fn(), cancelTranscode: vi.fn(), retryTranscode: vi.fn(), download: vi.fn() }))
+vi.mock('../src/apis/TaskHistoryAPI', () => ({ TaskHistoryAPI: api }))
+vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { cancelJob: api.cancelMedia, retryJob: api.retryMedia, downloadJobOutput: api.download } }))
+vi.mock('../src/apis/AiAnalysisAPI', () => ({ AiAnalysisAPI: { cancel: api.cancelAi } }))
+vi.mock('../src/apis/TranscodingAPI', () => ({ TranscodingAPI: { cancelJob: api.cancelTranscode, retryJob: api.retryTranscode } }))
+const container = defineComponent({ setup: (_, { slots }) => () => h('div', slots.default?.()) })
+const card = defineComponent({ props: ['title'], setup: (props, { slots }) => () => h('section', [props.title ? h('h2', props.title) : null, slots.default?.(), slots.actions?.(), slots['header-actions']?.()]) })
 const button = defineComponent({ props: ['disabled', 'loading', 'href'], emits: ['click'], setup: (props, { slots, emit }) => () => h(props.href ? 'a' : 'button', { href: props.href, disabled: props.disabled || props.loading, onClick: () => emit('click') }, slots.default?.()) })
-const group = defineComponent({ props: ['modelValue'], emits: ['update:modelValue'], setup: (props, { emit }) => () => h('select', { 'aria-label': '任务筛选', value: props.modelValue, onChange: (event: Event) => emit('update:modelValue', (event.target as HTMLSelectElement).value) }, ['all', 'active', 'failed'].map(value => h('option', { value }, value))) })
-const dialog = defineComponent({ props: ['modelValue'], setup: (props, { slots }) => () => props.modelValue ? h('div', { role: 'dialog' }, slots.default?.()) : null })
+const select = defineComponent({ props: ['modelValue', 'label', 'items'], emits: ['update:modelValue'], setup: (props, { emit }) => () => h('select', { value: props.modelValue, 'aria-label': props.label, onChange: (event: Event) => emit('update:modelValue', (event.target as HTMLSelectElement).value) }, (props.items as { value: string; title: string }[]).map(item => h('option', { value: item.value }, item.title))) })
+const input = defineComponent({ props: ['modelValue', 'label'], emits: ['update:modelValue'], setup: (props, { emit }) => () => h('input', { value: props.modelValue, 'aria-label': props.label, onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value) }) })
+const dialog = defineComponent({ props: ['modelValue', 'persistent'], setup: (props, { slots }) => () => props.modelValue ? h('div', { role: 'dialog' }, slots.default?.()) : null })
 const table = defineComponent({ setup: (_, { slots }) => () => h('table', slots.default?.()) })
 const tooltip = defineComponent({ props: ['text'], setup: (props, { slots }) => () => h('span', { 'data-tooltip': props.text }, slots.activator?.({ props: {} })) })
-const stubs = { VBtn: button, VCard: card, ContentCard: card, VTable: table, VChip: card, VChipGroup: group, VDialog: dialog, VProgressLinear: true, VAlert: card, VIcon: true, VTooltip: tooltip }
+const stubs = { VBtn: button, VCard: card, ContentCard: card, VTable: table, VChip: container, VAvatar: container, VImg: true, VSelect: select, VTextField: input, VDialog: dialog, VProgressLinear: true, VAlert: container, VIcon: true, VTooltip: tooltip }
 const mounted: VueWrapper[] = []
 let pinia: Pinia
-
-function viewer(permissions = ['recordings.view', 'analytics.view', 'analytics.generate']): UserProfile
+function viewer(role: 'Admin' | 'User' = 'User'): UserProfile { return { id: 'viewer', email: 'viewer@example.test', displayName: '观众', role, status: 'Active', permissions: ['recordings.view', 'clips.create', 'recordings.download', 'analytics.view'] } }
+function task(overrides: Partial<TaskSummary> = {}): TaskSummary
 {
-  return { id: 'viewer', email: 'viewer@example.test', displayName: '观众', role: 'User', status: 'Active', permissions }
+  return { id: 'clip', kind: 'media', type: 'Clip', sessionId: 'session/id', title: '我的切片', state: 'Running', origin: 'User', initiatorUserId: 'viewer', initiatorName: '观众', initiatorAvatarUrl: '/avatars/user.png', workerId: 'worker', workerName: '节点甲', workerOnline: true, mode: 'Fast', progress: 30, attempt: 1, createdAtUtc: '2026-11-17T00:00:00Z', cancelRequested: false, canCancel: true, canRetry: false, canDelete: false, canViewResults: true, outputCount: 0, stages: [{ id: 'Downloading', state: 'Completed', progress: 100, metrics: [] }, { id: 'Encoding', state: 'Running', progress: 31, metrics: [{ key: 'framesPerSecond', value: 83.5, unit: 'fps' }, { key: 'promptTokens', value: 900, unit: 'number' }] }], ...overrides }
 }
-function media(id = 'media', state = 'Running'): MediaJob
+const page = (items: TaskSummary[], nextCursor: string | null = null, total = items.length): TaskPage => ({ items, nextCursor, total })
+function deferred<T>() { let resolve!: (value: T) => void; let reject!: (error: Error) => void; const promise = new Promise<T>((accept, fail) => { resolve = accept; reject = fail }); return { promise, resolve, reject } }
+async function open(administration = false, query = '')
 {
-  return { id, createdAtUtc: '2026-11-14T00:01:00Z', ownerId: 'viewer', kind: 'Clip', sessionId: 'session', title: '我的切片任务', mode: 'Fast', startMs: 0, endMs: 60000, segmentIds: [], outputRelativePaths: [], state, progress: 30, attempt: 0, cancelRequested: false }
-}
-function ai(id = 'ai', state: AiAnalysisJob['state'] = 'Running'): AiAnalysisJob
-{
-  return { id, sessionId: 'shared/session', title: '全局录像复盘', cancelRequested: false, state, progress: 45, phase: 'Analyzing', totalSegments: 4, completedSegments: 1, currentSegment: 2, currentSegmentStartMs: 15000, currentSegmentEndMs: 30000, contextCompactions: 2, promptTokens: 100, completionTokens: 20, estimatedTokens: 5, tokenBudget: 1000000, modelRequests: 3, toolCalls: 4, errorCode: null, createdAtUtc: '2026-11-14T00:02:00Z', finishedAtUtc: null }
-}
-function deferred<T>()
-{
-  let resolve!: (value: T) => void
-  let reject!: (reason: Error) => void
-  const promise = new Promise<T>((accept, fail) => { resolve = accept; reject = fail })
-  return { promise, resolve, reject }
-}
-async function mountView()
-{
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/jobs', component: card }, { path: '/sessions/:id', component: card }, { path: '/analytics', component: card }] })
-  await router.push('/jobs')
-  const wrapper = mount(JobsView, { global: { plugins: [pinia, i18n, router], stubs } })
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/jobs', component: container }, { path: '/admin/worker-tasks', component: container }] })
+  await router.push(`${administration ? '/admin/worker-tasks' : '/jobs'}${query}`)
+  const wrapper = mount(administration ? WorkerTasksView : JobsView, { global: { plugins: [pinia, i18n, router], stubs } })
   mounted.push(wrapper)
   await flushPromises()
   return wrapper
 }
-function findButton(wrapper: Pick<DOMWrapper<Element>, 'findAll'>, label: string)
+function findButton(wrapper: Pick<DOMWrapper<Element>, 'findAll'> | VueWrapper, label: string)
 {
   const result = wrapper.findAll('button').find(item => item.attributes('aria-label') === label || item.text() === label)
-  if (!result)
-  {
-    throw new Error(`Missing button: ${label}`)
-  }
+  if (!result) { throw new Error(`Missing button ${label}`) }
   return result
 }
 beforeEach(() =>
 {
   vi.resetAllMocks()
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-11-17T00:01:00Z'))
   vi.stubGlobal('localStorage', { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() })
-  pinia = createPinia()
-  setActivePinia(pinia)
+  pinia = createPinia(); setActivePinia(pinia)
   useAuthStore().user = viewer()
   i18n.global.locale.value = 'zh-CN'
-  transcodeJobs.mockResolvedValue([])
-  cancelTranscode.mockResolvedValue(undefined)
-  retryTranscode.mockResolvedValue(undefined)
-  mediaJobs.mockResolvedValue([media()])
-  aiJobs.mockResolvedValue([ai()])
-  cancelMedia.mockResolvedValue(undefined)
-  retryMedia.mockResolvedValue(undefined)
-  cancelAi.mockResolvedValue(undefined)
-  downloadJobOutput.mockImplementation((id: string, index: number) => `/api/jobs/${id}/outputs/${index}`)
+  api.list.mockResolvedValue(page([task()]))
+  api.filters.mockResolvedValue({ initiators: [{ id: 'creator', name: '创建者乙' }], workers: [{ id: 'worker', name: '节点甲' }] })
+  api.previewClear.mockResolvedValue({ count: 77, completedBeforeUtc: '2026-11-17T00:00:59Z' })
+  api.clearCompleted.mockResolvedValue({ removed: 77 })
+  api.download.mockImplementation((id, index) => `/api/jobs/${id}/outputs/${index}`)
 })
-afterEach(() =>
-{
-  mounted.splice(0).forEach(wrapper => wrapper.unmount())
-  disposePinia(pinia)
-  vi.useRealTimers()
-  vi.unstubAllGlobals()
-})
+afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()); disposePinia(pinia); vi.useRealTimers(); vi.unstubAllGlobals(); i18n.global.locale.value = 'zh-CN' })
 
-describe('后台任务操作按钮', () =>
+describe('统一任务表格', () =>
 {
-  it('刷新与各类任务操作使用统一图标按钮，并由 Tooltip 提供操作说明', async () =>
+  it('个人页默认全部并仅调用统一的权限分页接口，表格保留创建人和紧凑badge', async () =>
   {
-    useAuthStore().user = { ...viewer(), role: 'Admin' }
-    mediaJobs.mockResolvedValue([
-      media('running'), media('failed', 'Failed'),
-      { ...media('repair', 'Completed'), kind: 'Repair', outputRelativePaths: ['first.mp4', 'second.mp4'] },
-      { ...media('merge', 'Completed'), kind: 'Merge', outputRelativePaths: ['first.mp4', 'second.mp4'] },
-    ])
-    aiJobs.mockResolvedValue([ai('analysis'), { ...ai('markers'), purpose: 'LiveMarkers' }])
-    transcodeJobs.mockResolvedValue([
-      { id: 'encoding', sessionId: 'session', title: '转码中', profileName: '720p', state: 'Running', stage: 'Encoding', progress: 50, createdAtUtc: '2026-11-14T00:03:00Z' },
-      { id: 'failed-transcode', sessionId: 'session', title: '转码失败', profileName: '720p', state: 'Failed', stage: 'Failed', progress: 0, createdAtUtc: '2026-11-14T00:03:00Z' },
-    ])
-    const wrapper = await mountView()
-    const actions = wrapper.findAll('.job-action-button')
-    expect(actions).toHaveLength(13)
-    for (const action of actions)
-    {
-      expect(action.attributes('icon')).toMatch(/^mdi-/)
-      expect(action.attributes('variant')).toBe('text')
-      expect(action.attributes('size')).toBe('small')
-      expect(action.text()).toBe('')
-      expect(action.element.parentElement?.getAttribute('data-tooltip')).toBe(action.attributes('aria-label'))
-    }
-    expect(wrapper.get('[data-job-id="analysis"] a[aria-label="查看分析"]').attributes('icon')).toBe('mdi-chart-box-outline')
-    expect(wrapper.get('[data-job-id="markers"] a[aria-label="查看直播记录"]').attributes('icon')).toBe('mdi-format-list-bulleted')
-    expect(wrapper.get('[data-job-id="repair"] .job-actions').find('a').exists()).toBe(false)
+    const wrapper = await open()
+    expect(api.list).toHaveBeenCalledWith('personal', expect.objectContaining({ state: 'all', limit: 50 }), expect.any(AbortSignal))
+    expect(api.filters).not.toHaveBeenCalled()
+    expect(wrapper.get('h1').text()).toBe('后台任务')
+    const row = wrapper.get('[data-job-id="clip"]')
+    expect(row.text()).toContain('观众')
+    expect(row.text()).toContain('节点甲')
+    expect(row.text()).toContain('00:01:00')
+    expect(row.text()).not.toContain('83.5 FPS')
+    expect(row.text()).not.toContain('900')
+  })
+
+  it('点击Stage才展示真实指标，切片Encoding显示导出并提供进度条', async () =>
+  {
+    const wrapper = await open()
+    await wrapper.get('[data-stage-id="Encoding"]').trigger('click')
+    const modal = wrapper.get('[role="dialog"]')
+    expect(modal.get('h2').text()).toBe('导出')
+    expect(modal.text()).toContain('83.5 FPS')
+    expect(modal.text()).toContain('900')
+    expect(modal.find('v-progress-linear-stub').exists()).toBe(true)
+    await findButton(modal, '关闭').trigger('click')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('服务器cursor控制上下页，改变筛选重置cursor而非本地截取', async () =>
+  {
+    api.list.mockResolvedValueOnce(page([task()], 'next-token', 123)).mockResolvedValueOnce(page([task({ id: 'page2', title: '下一页任务' })], null, 123)).mockResolvedValue(page([task({ id: 'filtered' })], null, 7))
+    const wrapper = await open()
+    await findButton(wrapper, '下一页').trigger('click'); await flushPromises()
+    expect(api.list.mock.calls.at(-1)![1].cursor).toBe('next-token')
+    expect(wrapper.find('[data-job-id="page2"]').exists()).toBe(true)
+    expect(wrapper.find('[data-job-id="clip"]').exists()).toBe(false)
+    await wrapper.get('select[aria-label="状态"]').setValue('active'); await flushPromises()
+    expect(api.list.mock.calls.at(-1)![1]).toEqual(expect.objectContaining({ state: 'active', cursor: undefined }))
+    expect(findButton(wrapper, '上一页').attributes('disabled')).toBeDefined()
+  })
+
+  it('搜索防抖300ms，并将查询交给服务器', async () =>
+  {
+    const wrapper = await open()
+    const calls = api.list.mock.calls.length
+    await wrapper.get('input[aria-label="搜索任务"]').setValue('  录播  ')
+    await vi.advanceTimersByTimeAsync(299)
+    expect(api.list).toHaveBeenCalledTimes(calls)
+    await vi.advanceTimersByTimeAsync(1); await flushPromises()
+    expect(api.list.mock.calls.at(-1)![1].search).toBe('录播')
+  })
+
+  it('管理员从统一接口读取并提供来源、Worker和创建人筛选及系统标记', async () =>
+  {
+    useAuthStore().user = viewer('Admin')
+    api.list.mockResolvedValue(page([task({ origin: 'Automatic', initiatorName: null, initiatorUserId: null })]))
+    const wrapper = await open(true, '?workerId=worker')
+    expect(api.filters).toHaveBeenCalledTimes(1)
+    expect(api.list.mock.calls[0]![0]).toBe('administration')
+    expect(api.list.mock.calls[0]![1].workerId).toBe('worker')
+    expect(wrapper.text()).toContain('系统')
+    expect(wrapper.get('select[aria-label="创建人"]').text()).toContain('创建者乙')
+    await wrapper.get('select[aria-label="来源"]').setValue('Automatic'); await flushPromises()
+    await wrapper.get('select[aria-label="创建人"]').setValue('creator'); await flushPromises()
+    expect(api.list.mock.calls.at(-1)![1]).toEqual(expect.objectContaining({ origin: 'Automatic', initiatorUserId: 'creator' }))
+  })
+
+  it('管理员个人页可筛选自己创建的转码修复合并，录像仅在管理页出现', async () =>
+  {
+    useAuthStore().user = viewer('Admin')
+    const wrapper = await open()
+    const types = wrapper.get('select[aria-label="类型"]')
+    expect(types.text()).toContain('转码')
+    expect(types.text()).toContain('修复')
+    expect(types.text()).toContain('合并')
+    expect(types.find('option[value="Recording"]').exists()).toBe(false)
+    await types.setValue('Merge'); await flushPromises()
+    expect(api.list.mock.calls.at(-1)![0]).toBe('personal')
+    expect(api.list.mock.calls.at(-1)![1].type).toBe('Merge')
+  })
+
+  it('Worker卡片链接的状态和节点query作为初始服务端筛选', async () =>
+  {
+    useAuthStore().user = viewer('Admin')
+    const wrapper = await open(true, '?workerId=worker&state=active')
+    expect(api.list.mock.calls[0]![1]).toEqual(expect.objectContaining({ state: 'active', workerId: 'worker', limit: 50 }))
+    expect((wrapper.get('select[aria-label="状态"]').element as HTMLSelectElement).value).toBe('active')
+  })
+
+  it('取消和重试使用各类型接口，权限标志为false时不暴露操作', async () =>
+  {
+    api.list.mockResolvedValue(page([task(), task({ id: 'transcode', kind: 'transcode', type: 'Transcode', state: 'Failed', canCancel: false, canRetry: true }), task({ id: 'read-only', canCancel: false, canRetry: false })]))
+    const wrapper = await open()
+    await findButton(wrapper.get('[data-job-id="clip"]'), '取消').trigger('click'); await flushPromises()
+    expect(api.cancelMedia).toHaveBeenCalledWith('clip')
+    await findButton(wrapper.get('[data-job-id="transcode"]'), '重试').trigger('click'); await flushPromises()
+    expect(api.retryTranscode).toHaveBeenCalledWith('transcode')
+    expect(wrapper.get('[data-job-id="read-only"]').findAll('button.job-action-button')).toHaveLength(0)
+  })
+
+  it('删除记录必须确认，取消确认不调用接口，成功请求保留attempt终态凭据', async () =>
+  {
+    const completed = task({ state: 'Completed', canCancel: false, canDelete: true, finishedAtUtc: '2026-11-17T00:00:59Z' })
+    api.list.mockResolvedValue(page([completed]))
+    const wrapper = await open()
+    await findButton(wrapper.get('[data-job-id="clip"]'), '删除记录').trigger('click')
+    expect(api.dismiss).not.toHaveBeenCalled()
+    await findButton(wrapper.get('[role="dialog"]'), '取消').trigger('click')
+    expect(api.dismiss).not.toHaveBeenCalled()
+    await findButton(wrapper.get('[data-job-id="clip"]'), '删除记录').trigger('click')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('已生成的录像和文件会保留')
+    await findButton(wrapper.get('[role="dialog"]'), '删除记录').trigger('click'); await flushPromises()
+    expect(api.dismiss).toHaveBeenCalledWith('personal', expect.objectContaining({ attempt: 1, finishedAtUtc: completed.finishedAtUtc }))
+  })
+
+  it('删除失败仅在确认框显示一次错误，重试期间禁止关闭和重复确认', async () =>
+  {
+    api.list.mockResolvedValue(page([task({ state: 'Completed', canDelete: true, canCancel: false, finishedAtUtc: '2026-11-17T00:00:59Z' })]))
+    api.dismiss.mockRejectedValueOnce(new Error('记录状态已变化'))
+    const wrapper = await open()
+    await findButton(wrapper.get('[data-job-id="clip"]'), '删除记录').trigger('click')
+    await findButton(wrapper.get('[role="dialog"]'), '删除记录').trigger('click'); await flushPromises()
+    expect(wrapper.text().match(/记录状态已变化/g)).toHaveLength(1)
+    const pending = deferred<void>()
+    api.dismiss.mockReturnValueOnce(pending.promise)
+    await findButton(wrapper.get('[role="dialog"]'), '删除记录').trigger('click')
+    const activeDialog = wrapper.findAllComponents(dialog).find(component => component.props('modelValue'))!
+    expect(activeDialog.props('persistent')).toBe(true)
+    expect(findButton(wrapper.get('[role="dialog"]'), '取消').attributes('disabled')).toBeDefined()
+    pending.resolve(); await flushPromises()
+  })
+
+  it('清空使用全部分页预览数量，并冻结筛选和完成时间截止点', async () =>
+  {
+    const wrapper = await open()
+    await wrapper.get('select[aria-label="类型"]').setValue('Clip'); await flushPromises()
+    await findButton(wrapper, '清空已完成').trigger('click'); await flushPromises()
+    expect(api.clearCompleted).not.toHaveBeenCalled()
+    const modal = wrapper.get('[role="dialog"]')
+    expect(modal.text()).toContain('77')
+    expect(modal.text()).toContain('全部分页')
+    await wrapper.get('select[aria-label="类型"]').setValue('Analysis'); await flushPromises()
+    await findButton(modal, '清空已完成').trigger('click'); await flushPromises()
+    expect(api.clearCompleted).toHaveBeenCalledWith('personal', expect.objectContaining({ type: 'Clip' }), '2026-11-17T00:00:59Z')
+  })
+
+  it('预览没有已完成项时给出结果而不出现确认或发送删除', async () =>
+  {
+    api.previewClear.mockResolvedValue({ count: 0, completedBeforeUtc: '2026-11-17T00:00:59Z' })
+    const wrapper = await open()
+    await findButton(wrapper, '清空已完成').trigger('click'); await flushPromises()
+    expect(wrapper.text()).toContain('没有可清空')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(api.clearCompleted).not.toHaveBeenCalled()
+  })
+
+  it('并行刷新只采纳新请求，旧响应和权限撤销不恢复管理员数据或模态框', async () =>
+  {
+    useAuthStore().user = viewer('Admin')
+    const wrapper = await open(true)
+    await wrapper.get('[data-stage-id="Encoding"]').trigger('click')
+    const pending = deferred<TaskPage>()
+    api.list.mockReturnValueOnce(pending.promise)
+    await findButton(wrapper, '刷新').trigger('click')
+    const signal = api.list.mock.calls.at(-1)![2] as AbortSignal
+    useAuthStore().user = viewer()
+    await nextTick()
+    expect(signal.aborted).toBe(true)
+    expect(wrapper.find('[data-job-id="clip"]').exists()).toBe(false)
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    pending.resolve(page([task({ title: '不应重新出现的管理员任务' })])); await flushPromises()
+    expect(wrapper.text()).not.toContain('不应重新出现')
+  })
+
+  it('关闭Stage后，轮询中迟到的详情响应不能重开modal', async () =>
+  {
+    const wrapper = await open()
+    await wrapper.get('[data-stage-id="Encoding"]').trigger('click')
+    const pending = deferred<TaskSummary>()
+    api.list.mockResolvedValue(page([task({ id: 'other' })]))
+    api.detail.mockReturnValueOnce(pending.promise)
+    await findButton(wrapper, '刷新').trigger('click'); await flushPromises()
+    await findButton(wrapper.get('[role="dialog"]'), '关闭').trigger('click')
+    pending.resolve(task()); await flushPromises()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('保留Merge多文件下载和AI结果链接，错误只进入详情', async () =>
+  {
+    api.list.mockResolvedValue(page([task({ id: 'merge', type: 'Merge', state: 'Completed', canCancel: false, outputCount: 2 }), task({ id: 'ai', kind: 'ai', type: 'Analysis', error: '详情错误' })]))
+    const wrapper = await open()
     expect(wrapper.get('a[aria-label="下载文件 1"]').attributes('href')).toBe('/api/jobs/merge/outputs/0')
     expect(wrapper.get('a[aria-label="下载文件 2"]').attributes('href')).toBe('/api/jobs/merge/outputs/1')
-  })
-})
-
-describe('后台任务中的 AI 分析', () =>
-{
-  it('只有录像观看权限也读取全局直播记录任务，并过滤无权查看的话题任务', async () =>
-  {
-    useAuthStore().user = viewer(['recordings.view'])
-    aiJobs.mockResolvedValue([ai('analysis'), { ...ai('markers', 'Completed'), purpose: 'LiveMarkers', liveMarkerFileId: 'file /1' }])
-    const wrapper = await mountView()
-    expect(aiJobs).toHaveBeenCalledTimes(1)
-    expect(wrapper.find('[data-job-id="analysis"]').exists()).toBe(false)
-    const row = wrapper.get('[data-job-id="markers"]')
-    expect(row.text()).toContain('生成直播记录')
-    expect(row.find('button[aria-label="取消"]').exists()).toBe(false)
-    const link = row.get('a[aria-label="查看直播记录"]')
-    const url = new URL(link.attributes('href')!, 'https://recorder.test')
-    expect(url.pathname).toBe('/sessions/shared%2Fsession')
-    expect(url.searchParams.get('panel')).toBe('markers')
-    expect(url.searchParams.get('liveMarkerFileId')).toBe('file /1')
-    expect(link.attributes('target')).toBe('_blank')
-    await findButton(row, '直播记录生成详情').trigger('click')
-    expect(wrapper.get('[role="dialog"]').text()).toContain('直播记录生成详情')
+    expect(wrapper.get('a[aria-label="查看分析"]').attributes('href')).toBe('/analytics?sessionId=session%2Fid')
+    expect(wrapper.text()).not.toContain('详情错误')
   })
 
-  it.each([
-    ['analytics.generate', 'analysis', 'markers'],
-    ['live-markers.generate', 'markers', 'analysis'],
-  ])('权限 %s 仅能取消对应目的作业', async (permission, allowed, denied) =>
+  it('三语动态更新步骤、筛选与已打开的详情标题', async () =>
   {
-    useAuthStore().user = viewer(['recordings.view', 'analytics.view', permission])
-    aiJobs.mockResolvedValue([ai('analysis'), { ...ai('markers'), purpose: 'LiveMarkers' }])
-    const wrapper = await mountView()
-    expect(wrapper.get(`[data-job-id="${denied}"]`).find('button[aria-label="取消"]').exists()).toBe(false)
-    await findButton(wrapper.get(`[data-job-id="${allowed}"]`), '取消').trigger('click')
-    await flushPromises()
-    expect(cancelAi).toHaveBeenCalledWith(allowed)
-    expect(cancelMedia).not.toHaveBeenCalled()
-  })
-
-  it('直播记录发布中禁用行内和详情取消', async () =>
-  {
-    useAuthStore().user = viewer(['recordings.view', 'live-markers.generate'])
-    aiJobs.mockResolvedValue([{ ...ai('publishing'), purpose: 'LiveMarkers', phase: 'Publishing' }])
-    const wrapper = await mountView()
-    const row = wrapper.get('[data-job-id="publishing"]')
-    expect(findButton(row, '取消').attributes('disabled')).toBeDefined()
-    await findButton(row, '直播记录生成详情').trigger('click')
-    const details = wrapper.get('[role="dialog"]')
-    expect(details.text()).toContain('发布中')
-    expect(findButton(details, '取消生成').attributes('disabled')).toBeDefined()
-    expect(cancelAi).not.toHaveBeenCalled()
-  })
-
-  it('合并全局 AI 和媒体作业并按时间排序，详情外不显示 token 用量', async () =>
-  {
-    mediaJobs.mockResolvedValue([media('same-id')])
-    aiJobs.mockResolvedValue([ai('same-id')])
-    const wrapper = await mountView()
-    const rows = wrapper.findAll('tbody tr')
-    expect(rows).toHaveLength(2)
-    expect(rows[0]!.attributes('data-job-kind')).toBe('ai')
-    expect(rows[0]!.text()).toContain('全局录像复盘')
-    expect(rows[0]!.text()).toContain('AI话题分析')
-    expect(rows[0]!.text()).toContain('45%')
-    expect(rows[1]!.text()).toContain('我的切片任务')
-    expect(wrapper.text()).not.toContain('Token')
-    const resultLink = rows[0]!.get('a[aria-label="查看分析"]')
-    expect(resultLink.attributes('href')).toBe('/analytics?sessionId=shared/session')
-    expect(resultLink.attributes('target')).toBe('_blank')
-    expect(resultLink.attributes('rel')).toContain('noopener')
-    await findButton(rows[0]!, '分析详情').trigger('click')
-    const details = wrapper.get('[role="dialog"]')
-    expect(details.text()).toContain('Token 用量 125 · 参考 1,000,000')
-    expect(details.text()).toContain('上下文压缩 2')
-    expect(details.text()).toContain('全局录像复盘')
-    expect(aiJobs).toHaveBeenCalledTimes(1)
-  })
-
-  it.each([['analytics.view'], []])('权限 %j 不请求 AI 接口，仍正常加载媒体作业', async (...permissions) =>
-  {
-    useAuthStore().user = viewer(permissions)
-    const wrapper = await mountView()
-    expect(aiJobs).not.toHaveBeenCalled()
-    expect(mediaJobs).toHaveBeenCalledTimes(1)
-    expect(wrapper.findAll('tbody tr')).toHaveLength(1)
-    expect(wrapper.text()).toContain('我的切片任务')
-  })
-
-  it('进行中与未完成筛选包含 AI 分段任务及取消、中断和部分结果', async () =>
-  {
-    mediaJobs.mockResolvedValue([])
-    aiJobs.mockResolvedValue(['Queued', 'Running', 'Completed', 'Partial', 'Failed', 'Interrupted', 'Cancelled'].map(state => ai(state, state as AiAnalysisJob['state'])))
-    const wrapper = await mountView()
-    await wrapper.get('select').setValue('active')
-    expect(wrapper.findAll('tbody tr').map(row => row.attributes('data-job-id'))).toEqual(['Queued', 'Running'])
-    await wrapper.get('select').setValue('failed')
-    expect(wrapper.findAll('tbody tr').map(row => row.attributes('data-job-id'))).toEqual(['Partial', 'Failed', 'Interrupted', 'Cancelled'])
-    expect(wrapper.text()).toContain('部分完成')
-  })
-
-  it('普通查看者能查看全局详情但不能取消 AI，且不会出现媒体重试入口', async () =>
-  {
-    useAuthStore().user = viewer(['recordings.view', 'analytics.view'])
-    aiJobs.mockResolvedValue([ai(), ai('failed', 'Failed')])
-    const wrapper = await mountView()
-    for (const row of wrapper.findAll('[data-job-kind="ai"]'))
+    const wrapper = await open()
+    await wrapper.get('[data-stage-id="Encoding"]').trigger('click')
+    for (const [locale, title] of [['en-US', 'Exporting'], ['ja-JP', '書き出し'], ['zh-CN', '导出']] as const)
     {
-      expect(row.find('button[aria-label="取消"]').exists()).toBe(false)
-      expect(row.find('button[aria-label="重试"]').exists()).toBe(false)
+      i18n.global.locale.value = locale; await nextTick()
+      expect(wrapper.get('[role="dialog"] h2').text()).toBe(title)
+      expect(wrapper.text()).not.toContain('taskHistory.')
     }
-    await findButton(wrapper.get('[data-job-id="ai"]'), '分析详情').trigger('click')
-    expect(wrapper.get('[role="dialog"]').text()).not.toContain('取消分析')
-    expect(cancelAi).not.toHaveBeenCalled()
-    expect(retryMedia).not.toHaveBeenCalled()
   })
 
-  it('AI 取消使用独立接口，取消请求发出后禁用重复取消', async () =>
+  it('录像上传追平仍保持运行状态，点击节点说明采集继续而非整场完成', async () =>
   {
-    const wrapper = await mountView()
-    aiJobs.mockResolvedValue([{ ...ai(), cancelRequested: true }])
-    await findButton(wrapper.get('[data-job-kind="ai"]'), '取消').trigger('click')
-    await flushPromises()
-    expect(cancelAi).toHaveBeenCalledWith('ai')
-    expect(cancelMedia).not.toHaveBeenCalled()
-    const cancelling = findButton(wrapper.get('[data-job-kind="ai"]'), '取消中')
-    expect(cancelling.attributes('disabled')).toBeDefined()
-    expect(cancelling.element.parentElement?.getAttribute('data-tooltip')).toBe('取消中')
-    await findButton(wrapper.get('[data-job-kind="ai"]'), '分析详情').trigger('click')
-    expect(findButton(wrapper.get('[role="dialog"]'), '取消中').attributes('disabled')).toBeDefined()
-  })
-
-  it('AI 接口失败时媒体作业仍可用，刷新可恢复 AI 列表', async () =>
-  {
-    aiJobs.mockRejectedValueOnce(new Error('AI 列表暂不可用'))
-    const wrapper = await mountView()
-    expect(wrapper.text()).toContain('我的切片任务')
-    expect(wrapper.text()).toContain('AI 列表暂不可用')
-    await findButton(wrapper, '刷新').trigger('click')
-    await flushPromises()
-    expect(wrapper.text()).toContain('全局录像复盘')
-    expect(wrapper.text()).not.toContain('AI 列表暂不可用')
-  })
-
-  it('AI 列表响应缓慢时先显示媒体作业，离开页面会取消等待中的读取', async () =>
-  {
-    const pending = deferred<AiAnalysisJob[]>()
-    aiJobs.mockReturnValueOnce(pending.promise)
-    const wrapper = await mountView()
-    expect(wrapper.text()).toContain('我的切片任务')
-    const signal = aiJobs.mock.calls[0]![0] as AbortSignal
-    wrapper.unmount()
-    expect(signal.aborted).toBe(true)
-    pending.resolve([ai()])
-    await flushPromises()
-    expect(aiJobs).toHaveBeenCalledTimes(1)
-  })
-
-  it('权限撤销会立即关闭详情并清空 AI 行，恢复权限后丢弃撤销前迟到响应', async () =>
-  {
-    const auth = useAuthStore()
-    const wrapper = await mountView()
-    await findButton(wrapper.get('[data-job-kind="ai"]'), '分析详情').trigger('click')
-    const pending = deferred<AiAnalysisJob[]>()
-    aiJobs.mockReturnValueOnce(pending.promise)
-    await findButton(wrapper, '刷新').trigger('click')
-    const signal = aiJobs.mock.calls.at(-1)![0] as AbortSignal
-    auth.user = viewer(['recordings.view'])
-    await nextTick()
-    expect(wrapper.find('[data-job-kind="ai"]').exists()).toBe(false)
-    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
-    expect(signal.aborted).toBe(true)
-    await flushPromises()
-    aiJobs.mockResolvedValue([{ ...ai('fresh'), title: '恢复权限后的列表' }])
-    auth.user = viewer()
-    await flushPromises()
-    pending.resolve([{ ...ai('stale'), title: '撤销前的旧列表' }])
-    await flushPromises()
-    expect(wrapper.text()).toContain('恢复权限后的列表')
-    expect(wrapper.text()).not.toContain('撤销前的旧列表')
-    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
-  })
-
-  it('手动刷新与轮询重叠时只采纳最新请求结果', async () =>
-  {
-    vi.useFakeTimers()
-    const wrapper = await mountView()
-    const pending = deferred<AiAnalysisJob[]>()
-    aiJobs.mockReturnValueOnce(pending.promise).mockResolvedValue([{ ...ai('new'), title: '最新任务' }])
-    await findButton(wrapper, '刷新').trigger('click')
-    await vi.advanceTimersByTimeAsync(4000)
-    await flushPromises()
-    pending.resolve([{ ...ai('old'), title: '旧任务响应' }])
-    await flushPromises()
-    expect(wrapper.text()).toContain('最新任务')
-    expect(wrapper.text()).not.toContain('旧任务响应')
-  })
-
-  it('身份切换后旧取消错误不覆盖新用户任务', async () =>
-  {
-    const auth = useAuthStore()
-    const wrapper = await mountView()
-    const pending = deferred<void>()
-    cancelAi.mockReturnValueOnce(pending.promise)
-    await findButton(wrapper.get('[data-job-kind="ai"]'), '取消').trigger('click')
-    auth.user = { ...viewer(), id: 'other-viewer' }
-    await flushPromises()
-    const reads = aiJobs.mock.calls.length
-    pending.reject(new Error('旧用户取消失败'))
-    await flushPromises()
-    expect(wrapper.text()).not.toContain('旧用户取消失败')
-    expect(aiJobs).toHaveBeenCalledTimes(reads)
-  })
-
-  it('保留媒体作业的重试和下载行为，AI 历史详情对应选中作业', async () =>
-  {
-    useAuthStore().user = { ...viewer(), role: 'Admin' }
-    mediaJobs.mockResolvedValue([
-      { ...media('repair', 'Completed'), kind: 'Repair', outputRelativePaths: ['file.mp4'] },
-      { ...media('merge', 'Completed'), kind: 'Merge', outputRelativePaths: ['file.mp4'] },
-      media('clip', 'Failed'),
-    ])
-    aiJobs.mockResolvedValue([ai('new', 'Completed'), { ...ai('old', 'Failed'), createdAtUtc: '2026-11-14T00:00:00Z', promptTokens: 900, completionTokens: 0, estimatedTokens: 0, error: '历史任务错误' }])
-    const wrapper = await mountView()
-    expect(wrapper.get('[data-job-id="repair"] .job-actions').find('a').exists()).toBe(false)
-    expect(wrapper.get('[data-job-id="merge"] a[href="/api/jobs/merge/outputs/0"]').attributes('aria-label')).toBe('下载文件')
-    await findButton(wrapper.get('[data-job-id="clip"]'), '重试').trigger('click')
-    await flushPromises()
-    expect(retryMedia).toHaveBeenCalledWith('clip')
-    await findButton(wrapper.get('[data-job-id="old"]'), '分析详情').trigger('click')
-    expect(wrapper.get('[role="dialog"]').text()).toContain('Token 用量 900')
-    expect(wrapper.get('[role="dialog"]').text()).toContain('历史任务错误')
-    expect(wrapper.get('[data-job-id="old"]').text()).not.toContain('历史任务错误')
-  })
-})
-
-
-describe('后台转码任务', () =>
-{
-  it('下载显示阶段完成量、速率和剩余时间，并区分整体进度', async () =>
-  {
-    useAuthStore().user = { ...viewer(), role: 'Admin' }
-    transcodeJobs.mockResolvedValue([{ id: 'download', sessionId: 'session', title: '正在下载的录像', profileName: '720p', state: 'Running', stage: 'Downloading', progress: 6, workerId: 'worker', activity: { bytesTransferred: 60 * 1024 ** 2, totalBytes: 100 * 1024 ** 2, bytesPerSecond: 8 * 1024 ** 2, estimatedSecondsRemaining: 5, currentFile: 'source.flv' }, lastProgressAtUtc: '2026-11-15T12:17:42Z', createdAtUtc: '2026-11-15T12:00:00Z' }])
-    const wrapper = await mountView()
-    const row = wrapper.get('[data-job-id="download"]')
-    expect(row.text()).toContain('6% 总进度')
-    expect(row.text()).toContain('阶段进度 60%')
-    expect(row.text()).toContain('60 MB / 100 MB')
-    expect(row.text()).toContain('8 MB/s')
-    expect(row.text()).toContain('预计剩余 00:00:05')
-    expect(row.text()).toContain('source.flv')
-    expect(row.text()).toContain('最近上报')
-    expect(row.text()).toMatch(/\d{1,2}:\d{2}:42/)
-  })
-
-  it('转码展示媒体时长、帧率、倍率和编码器，完成后隐藏即时速率', async () =>
-  {
-    useAuthStore().user = { ...viewer(), role: 'Admin' }
-    const job = { id: 'encoding', sessionId: 'session', title: '正在转码的录像', profileName: '720p', state: 'Running', stage: 'Encoding', progress: 34.5, encoder: 'h264_videotoolbox', activity: { processedDurationMs: 180000, totalDurationMs: 600000, framesPerSecond: 83.5, speed: 2.4, estimatedSecondsRemaining: 175 }, createdAtUtc: '2026-11-15T12:00:00Z' }
-    transcodeJobs.mockResolvedValue([job])
-    const wrapper = await mountView()
-    const row = wrapper.get('[data-job-id="encoding"]')
-    expect(row.text()).toContain('阶段进度 30%')
-    expect(row.text()).toContain('00:03:00 / 00:10:00')
-    expect(row.text()).toContain('83.5 FPS')
-    expect(row.text()).toContain('2.4×')
-    expect(row.text()).toContain('预计剩余 00:02:55')
-    expect(row.text()).toContain('编码器 h264_videotoolbox')
-    transcodeJobs.mockResolvedValue([{ ...job, state: 'Completed', stage: 'Completed', progress: 100 }])
-    await findButton(wrapper, '刷新').trigger('click')
-    await flushPromises()
-    expect(row.text()).toContain('100% 总进度')
-    expect(row.text()).not.toContain('FPS')
-    expect(row.text()).not.toContain('预计剩余')
-  })
-
-  it('上传显示文件数量与当前文件，等待发布时清除阶段指标', async () =>
-  {
-    useAuthStore().user = { ...viewer(), role: 'Admin' }
-    const job = { id: 'uploading', sessionId: 'session', title: '正在上传的录像', profileName: '720p', state: 'Running', stage: 'Uploading', progress: 92, activity: { bytesTransferred: 50 * 1024 ** 2, totalBytes: 100 * 1024 ** 2, filesCompleted: 125, filesTotal: 602, currentFile: 'chunk_00125.m4s' }, createdAtUtc: '2026-11-15T12:00:00Z' }
-    transcodeJobs.mockResolvedValue([job])
-    const wrapper = await mountView()
-    const row = wrapper.get('[data-job-id="uploading"]')
-    expect(row.text()).toContain('阶段进度 50%')
-    expect(row.text()).toContain('文件 125 / 602')
-    expect(row.text()).toContain('chunk_00125.m4s')
-    transcodeJobs.mockResolvedValue([{ ...job, stage: 'Finalizing', progress: 99 }])
-    await findButton(wrapper, '刷新').trigger('click')
-    await flushPromises()
-    expect(row.text()).toContain('等待发布')
-    expect(row.text()).not.toContain('阶段进度')
-    expect(row.text()).not.toContain('50 MB')
-    expect(row.text()).not.toContain('chunk_00125.m4s')
-  })
-
-  it('旧节点缺少指标时显示原有进度，新阶段随网页语言更新', async () =>
-  {
-    useAuthStore().user = { ...viewer(), role: 'Admin' }
-    transcodeJobs.mockResolvedValue([{ id: 'legacy', sessionId: 'session', title: '旧节点录像', profileName: '720p', state: 'Running', stage: 'Inspecting', progress: 10, createdAtUtc: '2026-11-15T12:00:00Z' }])
-    const wrapper = await mountView()
-    const row = wrapper.get('[data-job-id="legacy"]')
-    expect(row.text()).toContain('检查原片')
-    expect(row.text()).toContain('10% 总进度')
-    expect(row.text()).not.toContain('阶段进度')
-    expect(row.text()).not.toContain('undefined')
-    i18n.global.locale.value = 'en-US'
-    await nextTick()
-    expect(row.text()).toContain('Inspecting input')
-    expect(row.text()).toContain('10% overall')
-    i18n.global.locale.value = 'ja-JP'
-    await nextTick()
-    expect(row.text()).toContain('入力を確認中')
-    expect(row.text()).toContain('全体 10%')
-  })
-
-  it('仅管理员读取转码作业，与其他作业同ID也各自显示，取消走独立接口', async () =>
-  {
-    useAuthStore().user = { ...viewer(), role: 'Admin' }
-    transcodeJobs.mockResolvedValue([{ id: 'media', sessionId: 'session', title: '转码录播', profileName: '720p', state: 'Running', stage: 'Encoding', progress: 50, workerId: 'worker', createdAtUtc: '2026-11-14T00:03:00Z' }])
-    const wrapper = await mountView()
-    expect(transcodeJobs).toHaveBeenCalledTimes(1)
-    const row = wrapper.get('[data-job-kind="transcode"]')
-    expect(row.text()).toContain('720p')
-    expect(row.text()).toContain('编码中')
-    await findButton(row, '取消').trigger('click')
-    await flushPromises()
-    expect(cancelTranscode).toHaveBeenCalledWith('media')
-    expect(cancelMedia).not.toHaveBeenCalled()
-    expect(wrapper.find('[data-job-kind="media"]').exists()).toBe(true)
-  })
-
-  it('降为普通用户后清除转码作业并忽略已发出的过期响应', async () =>
-  {
-    useAuthStore().user = { ...viewer(), role: 'Admin' }
-    const pending = deferred<unknown[]>()
-    transcodeJobs.mockReturnValueOnce(pending.promise)
-    const wrapper = await mountView()
-    useAuthStore().user = viewer()
-    pending.resolve([{ id: 'private', sessionId: 'secret', title: '管理员转码', profileName: '720p', state: 'Queued', stage: 'WaitingForWorker', progress: 0, createdAtUtc: '2026-11-14T00:03:00Z' }])
-    await flushPromises()
-    expect(wrapper.find('[data-job-kind="transcode"]').exists()).toBe(false)
-    expect(transcodeJobs).toHaveBeenCalledTimes(1)
-  })
-
-  it('普通用户不请求管理员转码接口', async () =>
-  {
-    await mountView()
-    expect(transcodeJobs).not.toHaveBeenCalled()
+    useAuthStore().user = viewer('Admin')
+    api.list.mockResolvedValue(page([task({ kind: 'recording', type: 'Recording', origin: 'Automatic', stages: [
+      { id: 'Capturing', state: 'Running', progress: null, metrics: [] },
+      { id: 'Uploading', state: 'Running', progress: 100, substate: 'CaughtUp', metrics: [{ key: 'acknowledgedBytes', value: 1024, unit: 'bytes' }] },
+    ] })]))
+    const wrapper = await open(true)
+    expect(wrapper.get('[data-stage-id="Uploading"]').attributes('data-stage-state')).toBe('Running')
+    await wrapper.get('[data-stage-id="Uploading"]').trigger('click')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('已同步，采集继续')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('1 KB')
   })
 })

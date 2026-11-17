@@ -1,0 +1,52 @@
+import type { MessageSchema } from '@/localization/types'
+
+export const taskHistoryZh = {
+  personalTitle: '后台任务', administrationTitle: 'Worker 任务', refresh: '刷新', all: '全部', status: '状态', task: '任务', creator: '创建人', type: '类型', origin: '来源', worker: 'Worker', actions: '操作', search: '搜索任务',
+  count: '共 {count} 项任务', empty: '没有匹配的任务', loading: '正在加载任务…', pagination: '任务分页', previous: '上一页', next: '下一页', page: '第 {page} 页', stagesLabel: '步骤', waitingStages: '等待开始',
+  stageProgress: '步骤进度', startedAt: '开始时间', finishedAt: '完成时间', duration: '耗时', workerOffline: '节点离线，显示最后上报数据', localWorker: '主站本机', unknownCreator: '未知用户', systemCreator: '系统', legacyCreator: '历史任务',
+  cancel: '取消', cancelling: '取消中', retry: '重试', delete: '删除记录', viewAnalysis: '查看分析', viewMarkers: '查看直播记录', download: '下载文件', downloadNumbered: '下载文件 {number}', activeTasks: '活动任务', noActiveTasks: '暂无活动任务', viewAll: '查看全部',
+  deleteTitle: '删除任务记录', deleteMessage: '删除“{title}”的历史记录？已生成的录像和文件会保留。', clearCompleted: '清空已完成', clearTitle: '清空已完成记录', clearMessage: '清空当前筛选全部分页中的 {count} 项已完成记录？预览后新完成的任务及已生成文件会保留。', noCompleted: '当前筛选没有可清空的已完成记录', allFilters: '全部任务',
+  states: { all: '全部状态', active: '进行中', Completed: '已完成', failed: '未完成', Cancelled: '已取消', Skipped: '已跳过' },
+  origins: { User: '用户', Automatic: '自动', Legacy: '历史' }, modes: { Fast: '快速', Exact: '精确' },
+  types: { Clip: '切片', Analysis: 'AI 话题分析', LiveMarkers: '直播记录生成', Transcode: '转码', Repair: '修复', Merge: '合并', Recording: '录像' },
+  stages: { Downloading: '下载', Inspecting: '检查原片', Preparing: '准备输入', Encoding: '编码', Exporting: '导出', Validating: '校验', Uploading: '上传', Finalizing: '确认完成', Capturing: '采集', Processing: '处理', Analyzing: '分析', Planning: '规划', Publishing: '发布', Queued: '排队' },
+  stageStates: { Waiting: '等待', Pending: '等待', Queued: '排队', Running: '运行中', Completed: '已完成', Succeeded: '已完成', Failed: '失败', Interrupted: '已中断', Cancelled: '已取消', Skipped: '已跳过', Partial: '部分完成' },
+  substates: { Queued: '等待上传', Uploading: '上传中', CaughtUp: '已同步，采集继续', Retrying: '等待重试', Finalizing: '等待主站确认归档', Completed: '归档完成', Skipped: '无有效媒体', Recording: '录像中', Monitoring: '监控中', StorageFull: '缓存空间不足', Paused: '已暂停', Draining: '排空补传', Closed: '采集结束', NoMedia: '无有效媒体' },
+  metrics: { bytesTransferred: '当前已传输', totalBytes: '传输总量', transferRate: '传输速率', processedDuration: '已处理时长', totalDuration: '媒体时长', framesPerSecond: '编码帧率', speed: '编码倍率', estimatedRemaining: '预计剩余', filesCompleted: '已传文件数', filesTotal: '文件总数', currentFile: '当前文件', encoder: '编码器', capturedDuration: '已采集时长', capturedBytes: '已采集数据', acknowledgedBytes: '主站已确认', lastCaptured: '最近采集', promptTokens: '输入 Token', completionTokens: '输出 Token', modelRequests: '模型请求', toolCalls: '工具调用', completedSegments: '已完成分段', totalSegments: '分段总数' },
+  artifacts: { media: '视频', index: '视频索引', prefix: '视频头', events: '弹幕事件', 'event-index': '弹幕索引' },
+  errors: { RecordingUploadFailed: '录像上传失败，正在等待重试。', RecordingSourceUnavailable: '录制源暂不可用，正在重新连接。', RecordingStorageFull: '录制缓存空间不足。' },
+}
+
+export const taskHistoryEn: MessageSchema<typeof taskHistoryZh> = {
+  personalTitle: 'Background jobs', administrationTitle: 'Worker tasks', refresh: 'Refresh', all: 'All', status: 'Status', task: 'Task', creator: 'Created by', type: 'Type', origin: 'Origin', worker: 'Worker', actions: 'Actions', search: 'Search tasks',
+  count: '{count} tasks', empty: 'No matching tasks', loading: 'Loading tasks…', pagination: 'Task pagination', previous: 'Previous', next: 'Next', page: 'Page {page}', stagesLabel: 'Stages', waitingStages: 'Waiting to start',
+  stageProgress: 'Stage progress', startedAt: 'Started', finishedAt: 'Finished', duration: 'Duration', workerOffline: 'Worker offline; showing its last report', localWorker: 'Main server', unknownCreator: 'Unknown user', systemCreator: 'System', legacyCreator: 'Legacy task',
+  cancel: 'Cancel', cancelling: 'Cancelling', retry: 'Retry', delete: 'Delete record', viewAnalysis: 'View analysis', viewMarkers: 'View live markers', download: 'Download file', downloadNumbered: 'Download file {number}', activeTasks: 'Active tasks', noActiveTasks: 'No active tasks', viewAll: 'View all',
+  deleteTitle: 'Delete task record', deleteMessage: 'Delete the history record for “{title}”? Generated recordings and files will remain.', clearCompleted: 'Clear completed', clearTitle: 'Clear completed records', clearMessage: 'Clear {count} completed records across every page of this filter? Tasks completed after the preview and generated files will remain.', noCompleted: 'No completed records to clear in this filter', allFilters: 'All tasks',
+  states: { all: 'All statuses', active: 'Active', Completed: 'Completed', failed: 'Unfinished', Cancelled: 'Cancelled', Skipped: 'Skipped' },
+  origins: { User: 'User', Automatic: 'Automatic', Legacy: 'Legacy' }, modes: { Fast: 'Fast', Exact: 'Exact' },
+  types: { Clip: 'Clip', Analysis: 'AI topic analysis', LiveMarkers: 'Live marker generation', Transcode: 'Transcode', Repair: 'Repair', Merge: 'Merge', Recording: 'Recording' },
+  stages: { Downloading: 'Downloading', Inspecting: 'Inspecting input', Preparing: 'Preparing input', Encoding: 'Encoding', Exporting: 'Exporting', Validating: 'Validating', Uploading: 'Uploading', Finalizing: 'Finalizing', Capturing: 'Capturing', Processing: 'Processing', Analyzing: 'Analyzing', Planning: 'Planning', Publishing: 'Publishing', Queued: 'Queued' },
+  stageStates: { Waiting: 'Waiting', Pending: 'Pending', Queued: 'Queued', Running: 'Running', Completed: 'Completed', Succeeded: 'Completed', Failed: 'Failed', Interrupted: 'Interrupted', Cancelled: 'Cancelled', Skipped: 'Skipped', Partial: 'Partial' },
+  substates: { Queued: 'Waiting to upload', Uploading: 'Uploading', CaughtUp: 'Synced; capture continues', Retrying: 'Waiting to retry', Finalizing: 'Waiting for archive confirmation', Completed: 'Archive complete', Skipped: 'No valid media', Recording: 'Recording', Monitoring: 'Monitoring', StorageFull: 'Capture cache full', Paused: 'Paused', Draining: 'Draining uploads', Closed: 'Capture ended', NoMedia: 'No valid media' },
+  metrics: { bytesTransferred: 'Currently transferred', totalBytes: 'Transfer size', transferRate: 'Transfer rate', processedDuration: 'Processed duration', totalDuration: 'Media duration', framesPerSecond: 'Encoding frame rate', speed: 'Encoding speed', estimatedRemaining: 'Estimated remaining', filesCompleted: 'Files transferred', filesTotal: 'Total files', currentFile: 'Current file', encoder: 'Encoder', capturedDuration: 'Captured duration', capturedBytes: 'Captured data', acknowledgedBytes: 'Confirmed by server', lastCaptured: 'Last captured', promptTokens: 'Input tokens', completionTokens: 'Output tokens', modelRequests: 'Model requests', toolCalls: 'Tool calls', completedSegments: 'Completed segments', totalSegments: 'Total segments' },
+  artifacts: { media: 'Video', index: 'Video index', prefix: 'Video header', events: 'Chat events', 'event-index': 'Chat index' },
+  errors: { RecordingUploadFailed: 'Recording upload failed and will retry.', RecordingSourceUnavailable: 'Recording source is unavailable; reconnecting.', RecordingStorageFull: 'Recording cache is full.' },
+}
+
+export const taskHistoryJa: MessageSchema<typeof taskHistoryZh> = {
+  personalTitle: 'バックグラウンドタスク', administrationTitle: 'Worker タスク', refresh: '更新', all: 'すべて', status: '状態', task: 'タスク', creator: '作成者', type: '種類', origin: '作成元', worker: 'Worker', actions: '操作', search: 'タスクを検索',
+  count: '{count} 件のタスク', empty: '一致するタスクはありません', loading: 'タスクを読み込み中…', pagination: 'タスクのページ', previous: '前へ', next: '次へ', page: '{page} ページ', stagesLabel: 'ステージ', waitingStages: '開始待ち',
+  stageProgress: 'ステージの進捗', startedAt: '開始日時', finishedAt: '完了日時', duration: '所要時間', workerOffline: 'Worker はオフラインです。最後の報告を表示しています', localWorker: 'メインサーバー', unknownCreator: '不明なユーザー', systemCreator: 'システム', legacyCreator: '過去のタスク',
+  cancel: 'キャンセル', cancelling: 'キャンセル中', retry: '再試行', delete: '記録を削除', viewAnalysis: '分析を表示', viewMarkers: '配信記録を表示', download: 'ファイルをダウンロード', downloadNumbered: 'ファイル {number} をダウンロード', activeTasks: '実行中のタスク', noActiveTasks: '実行中のタスクはありません', viewAll: 'すべて表示',
+  deleteTitle: 'タスク記録を削除', deleteMessage: '「{title}」の履歴を削除しますか？生成済みの録画とファイルは保持されます。', clearCompleted: '完了済みをクリア', clearTitle: '完了済み記録をクリア', clearMessage: '現在の絞り込みに一致する全ページの完了済み記録 {count} 件を削除しますか？プレビュー後に完了したタスクと生成済みファイルは保持されます。', noCompleted: '削除できる完了済み記録はありません', allFilters: 'すべてのタスク',
+  states: { all: 'すべての状態', active: '実行中', Completed: '完了', failed: '未完了', Cancelled: 'キャンセル済み', Skipped: 'スキップ済み' },
+  origins: { User: 'ユーザー', Automatic: '自動', Legacy: '過去' }, modes: { Fast: '高速', Exact: '精密' },
+  types: { Clip: '切り抜き', Analysis: 'AI 話題分析', LiveMarkers: '配信記録の生成', Transcode: 'トランスコード', Repair: '修復', Merge: '結合', Recording: '録画' },
+  stages: { Downloading: 'ダウンロード', Inspecting: '入力を確認', Preparing: '入力を準備', Encoding: 'エンコード', Exporting: '書き出し', Validating: '検証', Uploading: 'アップロード', Finalizing: '完了を確認', Capturing: '収録', Processing: '処理', Analyzing: '分析', Planning: '計画', Publishing: '公開', Queued: '待機中' },
+  stageStates: { Waiting: '待機', Pending: '待機', Queued: '待機中', Running: '実行中', Completed: '完了', Succeeded: '完了', Failed: '失敗', Interrupted: '中断', Cancelled: 'キャンセル済み', Skipped: 'スキップ済み', Partial: '一部完了' },
+  substates: { Queued: 'アップロード待ち', Uploading: 'アップロード中', CaughtUp: '同期済み・収録を継続', Retrying: '再試行待ち', Finalizing: 'アーカイブの確認待ち', Completed: '保存完了', Skipped: '有効な動画なし', Recording: '録画中', Monitoring: '監視中', StorageFull: '収録キャッシュ不足', Paused: '一時停止', Draining: '未送信データを転送中', Closed: '収録終了', NoMedia: '有効な動画なし' },
+  metrics: { bytesTransferred: '転送済み', totalBytes: '転送サイズ', transferRate: '転送速度', processedDuration: '処理済み時間', totalDuration: '動画の長さ', framesPerSecond: 'エンコード FPS', speed: 'エンコード速度', estimatedRemaining: '推定残り時間', filesCompleted: '転送済みファイル', filesTotal: 'ファイル総数', currentFile: '現在のファイル', encoder: 'エンコーダー', capturedDuration: '収録済み時間', capturedBytes: '収録済みデータ', acknowledgedBytes: 'サーバー確認済み', lastCaptured: '最終収録', promptTokens: '入力トークン', completionTokens: '出力トークン', modelRequests: 'モデルへの要求', toolCalls: 'ツール呼び出し', completedSegments: '完了セグメント', totalSegments: 'セグメント総数' },
+  artifacts: { media: '動画', index: '動画インデックス', prefix: '動画ヘッダー', events: 'コメント', 'event-index': 'コメントインデックス' },
+  errors: { RecordingUploadFailed: '録画の転送に失敗しました。再試行します。', RecordingSourceUnavailable: '録画ソースに再接続中です。', RecordingStorageFull: '録画キャッシュが不足しています。' },
+}

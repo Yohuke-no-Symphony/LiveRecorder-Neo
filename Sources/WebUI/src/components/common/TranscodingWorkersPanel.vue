@@ -5,6 +5,7 @@
       <v-btn icon="mdi-refresh" variant="text" :loading="loading" :aria-label="t('transcoding.refresh')" @click="refresh" />
     </template>
     <v-alert v-if="loadError || (error && !createOpen)" type="error" class="mb-4">{{ loadError || error }}</v-alert>
+    <v-alert v-if="taskLoadError" type="warning" density="compact" class="mb-4">{{ taskLoadError }}</v-alert>
     <p v-if="!workers.length && !loading" class="muted">{{ t('transcoding.noWorkers') }}</p>
     <div class="worker-list">
       <article v-for="worker in workers" :key="worker.id" class="worker-row">
@@ -21,6 +22,7 @@
         <v-alert v-if="worker.configurationError" type="error" density="compact" class="mt-3">{{ worker.configurationError }}</v-alert>
         <p v-else-if="worker.configurationRevision !== worker.appliedConfigurationRevision" class="text-caption text-warning mt-2">{{ t('transcoding.configurationPending') }}</p>
         <p v-if="isTranscoding && worker.telemetry?.cpuUnavailableReason" class="text-caption muted mt-2">{{ worker.telemetry.cpuUnavailableReason }}</p>
+        <WorkerTaskPreview :worker-id="worker.id" :tasks="activeTasks[worker.id] ?? []" @stage="openTaskStage" />
       </article>
     </div>
     <v-dialog :model-value="createOpen" max-width="480" :persistent="busy" :aria-label="t('transcoding.addWorker')" @update:model-value="!$event && !busy && (createOpen = false)">
@@ -53,6 +55,7 @@
     <ConfirmDialog :model-value="!!rotateTarget" :title="t('transcoding.rotateKey')" :message="t('transcoding.rotateKeyConfirm')" :action-label="t('transcoding.rotateKey')" :busy="busy" :error="error" @update:model-value="!$event && !busy && (rotateTarget = undefined)" @confirm="rotate" />
     <TranscodingLogDialog v-if="logWorker" :worker="logWorker" @close="logWorker = undefined" />
     <RecordingWorkerAssignmentsDialog v-if="assignmentWorker" :worker="assignmentWorker" @close="assignmentWorker = undefined" />
+    <TaskStageDetailsDialog :task="selectedTask" :stage-id="selectedStageId" @close="selectedTask = undefined" />
   </ContentCard>
 </template>
 
@@ -61,6 +64,8 @@ import { computed, onBeforeUnmount, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { bandwidthInputBytes } from '@/models/bandwidth'
 import { TranscodingAPI } from '@/apis/TranscodingAPI'
+import { TaskHistoryAPI } from '@/apis/TaskHistoryAPI'
+import type { TaskSummary } from '@/models/taskHistory'
 import { usePolling } from '@/composables/usePolling'
 import { isValidWorkerConfiguration, normalizeWorker, type ClippingWorkerConfiguration, type RecordingWorkerConfiguration, type TranscodingWorkerConfiguration, type Worker, type WorkerKind } from '@/models/transcoding'
 import { formatBytes, formatDate } from '@/utilities/format'
@@ -69,6 +74,8 @@ import ConfirmDialog from './ConfirmDialog.vue'
 import StatusChip from './StatusChip.vue'
 import TranscodingLogDialog from './TranscodingLogDialog.vue'
 import RecordingWorkerAssignmentsDialog from './RecordingWorkerAssignmentsDialog.vue'
+import WorkerTaskPreview from '@/components/tasks/WorkerTaskPreview.vue'
+import TaskStageDetailsDialog from '@/components/tasks/TaskStageDetailsDialog.vue'
 
 type NumericConfigurationKey<T> = { [K in keyof T]: T[K] extends number ? K : never }[keyof T]
 type NumericKey = NumericConfigurationKey<TranscodingWorkerConfiguration> | NumericConfigurationKey<ClippingWorkerConfiguration> | NumericConfigurationKey<RecordingWorkerConfiguration>
@@ -120,6 +127,10 @@ const deleteTarget = ref<Worker>()
 const rotateTarget = ref<Worker>()
 const logWorker = ref<Worker>()
 const assignmentWorker = ref<{ id: string; name: string }>()
+const activeTasks = ref<Record<string, TaskSummary[]>>({})
+const taskLoadError = ref('')
+const selectedTask = ref<TaskSummary>()
+const selectedStageId = ref('')
 let disposed = false
 let requestRevision = 0
 let controller: AbortController | undefined
@@ -131,10 +142,37 @@ async function refresh(): Promise<void>
   controller?.abort()
   controller = new AbortController()
   loading.value = true
-  try { const result = await TranscodingAPI.workers(controller.signal); if (!disposed && revision === requestRevision) { allWorkers.value = result; loadError.value = '' } }
+  try
+  {
+    const result = await TranscodingAPI.workers(controller.signal)
+    if (disposed || revision !== requestRevision) { return }
+    allWorkers.value = result
+    loadError.value = ''
+    const ids = workers.value.map(worker => worker.id)
+    if (!ids.length) { activeTasks.value = {}; taskLoadError.value = ''; return }
+    try
+    {
+      const tasks = await TaskHistoryAPI.active(ids, controller.signal)
+      if (disposed || revision !== requestRevision) { return }
+      activeTasks.value = tasks
+      taskLoadError.value = ''
+      if (selectedTask.value)
+      {
+        const target = selectedTask.value
+        const selected = Object.values(tasks).flat().find(task => task.kind === target.kind && task.id === target.id)
+          ?? await TaskHistoryAPI.detail('administration', target, controller.signal)
+        if (!disposed && revision === requestRevision && selectedTask.value?.id === target.id && selectedTask.value.kind === target.kind)
+        {
+          selectedTask.value = selected
+        }
+      }
+    }
+    catch (value) { if (!disposed && revision === requestRevision) { taskLoadError.value = message(value) } }
+  }
   catch (value) { if (!disposed && revision === requestRevision) { loadError.value = message(value) } }
   finally { if (!disposed && revision === requestRevision) { loading.value = false } }
 }
+function openTaskStage(task: TaskSummary, id: string): void { selectedTask.value = task; selectedStageId.value = id }
 async function act(action: () => Promise<void>, editing = false): Promise<void>
 {
   if (busy.value || disposed) { return }
@@ -184,7 +222,7 @@ async function rotate(): Promise<void>
   if (value) { await act(async () => { const result = await TranscodingAPI.rotateWorkerKey(value.id); if (!disposed) { secret.value = { workerId: value.id, value: result.secret }; rotateTarget.value = undefined } }) }
 }
 usePolling(refresh, 5000)
-onBeforeUnmount(() => { disposed = true; requestRevision++; controller?.abort(); secret.value = undefined })
+onBeforeUnmount(() => { disposed = true; requestRevision++; controller?.abort(); secret.value = undefined; selectedTask.value = undefined })
 </script>
 
 <style scoped>

@@ -1,4 +1,5 @@
 import { createI18n } from 'vue-i18n'
+import { taskHistoryZh, taskHistoryEn, taskHistoryJa } from '@/localization/messages/taskHistory'
 import { en, ja, zhHans } from 'vuetify/locale'
 import { DEFAULT_LANGUAGE } from '@/localization/languages'
 import { coreZh, coreEn, coreJa } from '@/localization/messages/core'
@@ -22,8 +23,8 @@ export const i18n = createI18n({
   locale: DEFAULT_LANGUAGE as string,
   fallbackLocale: DEFAULT_LANGUAGE,
   messages: {
-    'zh-CN': { transcoding: transcodingZh, analyticsExport: analyticsExportZh, contributions: contributionsZh, bandwidthSettings: bandwidthSettingsZh, accountManagement: accountManagementZh, passwordReset: passwordResetZh, aiSettings: aiSettingsZh, replay: replayZh, core: coreZh, views: viewsZh, components: componentsZh, shell: shellZh, liveMarkers: liveMarkersZh, translations: translationsZh, $vuetify: zhHans },
-    'en-US': { transcoding: transcodingEn, analyticsExport: analyticsExportEn, contributions: contributionsEn, bandwidthSettings: bandwidthSettingsEn, accountManagement: accountManagementEn, passwordReset: passwordResetEn, aiSettings: aiSettingsEn, replay: replayEn, core: coreEn, views: viewsEn, components: componentsEn, shell: shellEn, liveMarkers: liveMarkersEn, translations: translationsEn, $vuetify: en },
-    'ja-JP': { transcoding: transcodingJa, analyticsExport: analyticsExportJa, contributions: contributionsJa, bandwidthSettings: bandwidthSettingsJa, accountManagement: accountManagementJa, passwordReset: passwordResetJa, aiSettings: aiSettingsJa, replay: replayJa, core: coreJa, views: viewsJa, components: componentsJa, shell: shellJa, liveMarkers: liveMarkersJa, translations: translationsJa, $vuetify: ja },
+    'zh-CN': { taskHistory: taskHistoryZh, transcoding: transcodingZh, analyticsExport: analyticsExportZh, contributions: contributionsZh, bandwidthSettings: bandwidthSettingsZh, accountManagement: accountManagementZh, passwordReset: passwordResetZh, aiSettings: aiSettingsZh, replay: replayZh, core: coreZh, views: viewsZh, components: componentsZh, shell: shellZh, liveMarkers: liveMarkersZh, translations: translationsZh, $vuetify: zhHans },
+    'en-US': { taskHistory: taskHistoryEn, transcoding: transcodingEn, analyticsExport: analyticsExportEn, contributions: contributionsEn, bandwidthSettings: bandwidthSettingsEn, accountManagement: accountManagementEn, passwordReset: passwordResetEn, aiSettings: aiSettingsEn, replay: replayEn, core: coreEn, views: viewsEn, components: componentsEn, shell: shellEn, liveMarkers: liveMarkersEn, translations: translationsEn, $vuetify: en },
+    'ja-JP': { taskHistory: taskHistoryJa, transcoding: transcodingJa, analyticsExport: analyticsExportJa, contributions: contributionsJa, bandwidthSettings: bandwidthSettingsJa, accountManagement: accountManagementJa, passwordReset: passwordResetJa, aiSettings: aiSettingsJa, replay: replayJa, core: coreJa, views: viewsJa, components: componentsJa, shell: shellJa, liveMarkers: liveMarkersJa, translations: translationsJa, $vuetify: ja },
   },
 })

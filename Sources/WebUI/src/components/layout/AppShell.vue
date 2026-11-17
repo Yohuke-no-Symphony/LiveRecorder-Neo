@@ -63,6 +63,7 @@ const adminLinks = computed(() => [
   { to: '/admin/users', title: t('shell.nav.users'), icon: 'mdi-account-group-outline' },
   { to: '/admin/storage', title: t('shell.nav.storage'), icon: 'mdi-harddisk' },
   { to: '/admin/workers', title: t('shell.nav.workers'), icon: 'mdi-server-network' },
+  { to: '/admin/worker-tasks', title: t('shell.nav.workerTasks'), icon: 'mdi-format-list-checks' },
   { to: '/admin/settings', title: t('shell.nav.settings'), icon: 'mdi-cog-outline' },
 ])
 const breadcrumbs = computed(() =>

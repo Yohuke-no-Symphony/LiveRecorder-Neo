@@ -7,12 +7,14 @@ import { VTab, VTabs } from 'vuetify/components/VTabs'
 import { VBtn } from 'vuetify/components/VBtn'
 import { MediaAPI } from '../src/apis/MediaAPI'
 import { TranscodingAPI } from '../src/apis/TranscodingAPI'
+import { TaskHistoryAPI } from '../src/apis/TaskHistoryAPI'
 import { defaultWorkerConfiguration, type ClippingWorker, type RecordingWorker, type TranscodingWorker, type Worker } from '../src/models/transcoding'
 import { i18n } from '../src/plugins/i18n'
 import WorkersView from '../src/views/WorkersView.vue'
 
 vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { settings: vi.fn(), updateSettings: vi.fn() } }))
 vi.mock('../src/apis/TranscodingAPI', () => ({ TranscodingAPI: { workers: vi.fn() } }))
+vi.mock('../src/apis/TaskHistoryAPI', () => ({ TaskHistoryAPI: { active: vi.fn(), detail: vi.fn() } }))
 
 const container = { template: '<div><slot /></div>' }
 const stubs = {
@@ -58,6 +60,7 @@ beforeEach(() =>
   clipping = { ...transcoding, id: 'clipping-1', kind: 'Clipping', name: '切片节点乙', configuration: defaultWorkerConfiguration('Clipping') }
   recording = { ...transcoding, id: 'recording-1', kind: 'Recording', name: '录像节点丙', configuration: defaultWorkerConfiguration('Recording') }
   vi.mocked(TranscodingAPI.workers).mockResolvedValue([transcoding, clipping, recording])
+  vi.mocked(TaskHistoryAPI.active).mockResolvedValue({})
 })
 
 afterEach(() =>
