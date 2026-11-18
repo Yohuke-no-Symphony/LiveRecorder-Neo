@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Yohuke.LiveRecorder.Domain;
 
 /// <summary>用户可在保留期内查看和下载的媒体产物。</summary>
@@ -15,4 +17,7 @@ public sealed class Clip : Entity
     public bool IsTrashed { get; set; }
     public int PublicationAttempt { get; set; }
     public bool PublicationPending { get; set; }
+
+    [JsonIgnore]
+    public string? ShareToken { get; set; }
 }

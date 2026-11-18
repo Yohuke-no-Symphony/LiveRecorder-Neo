@@ -9,6 +9,17 @@ import type { SessionEventSnapshot } from '@/models/sessionEventSnapshot'
 import type { ServerPaths, ServerSettings } from '@/models/settings'
 import type { CacheCleanupOptions, CacheCleanupResult, StorageUsageReport } from '@/models/storage'
 import type { PlaybackLoadOptions } from '@/models/playbackLoadOptions'
+import type { ClipShareLink, SharedClip } from '@/models/clipShare'
+
+function clipSharePath(id: string): string
+{
+  return `clips/${encodeURIComponent(id)}/share`
+}
+
+function sharedClipPath(id: string, token: string): string
+{
+  return `${clipSharePath(id)}/${encodeURIComponent(token)}`
+}
 
 export const MediaAPI = {
   streamers: () => request<Streamer[]>('streamers'),
@@ -43,6 +54,11 @@ export const MediaAPI = {
   deleteClip: (id: string) => remove(`clips/${encodeURIComponent(id)}`),
   downloadClip: (id: string) => getServerUrl(`/api/clips/${encodeURIComponent(id)}/download`),
   previewClip: (id: string) => getServerUrl(`/api/clips/${encodeURIComponent(id)}/media`),
+  clipShare: (id: string) => request<ClipShareLink>(clipSharePath(id)),
+  createClipShare: (id: string) => request<ClipShareLink>(clipSharePath(id), { method: 'PUT' }),
+  revokeClipShare: (id: string, token: string) => remove(sharedClipPath(id, token)),
+  sharedClip: (id: string, token: string) => request<SharedClip>(sharedClipPath(id, token)),
+  downloadSharedClip: (id: string, token: string) => getServerUrl(`/api/${sharedClipPath(id, token)}/download`),
   trash: () => request<TrashEntry[]>('trash'),
   restoreTrash: (id: string) => post<void>(`trash/${encodeURIComponent(id)}/restore`),
   purgeTrash: (id: string) => remove(`trash/${encodeURIComponent(id)}`),

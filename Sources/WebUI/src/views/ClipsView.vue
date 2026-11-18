@@ -2,11 +2,12 @@
   <PageHeader :title="auth.isAdmin ? t('views.common.clips') : t('views.clips.mine')"><v-btn variant="outlined" to="/jobs" prepend-icon="mdi-progress-clock">{{ t('views.common.jobs') }}</v-btn></PageHeader>
   <v-alert v-if="error" type="error" class="mb-6">{{ error }}</v-alert>
   <div v-if="clips.length" class="media-grid">
-    <ClipCard v-for="clip in clips" :key="clip.id" :clip="clip" @preview="preview(clip)" @trash="selected = clip" />
+    <ClipCard v-for="clip in clips" :key="clip.id" :clip="clip" @preview="preview(clip)" @share="sharingClip = clip" @trash="selected = clip" />
   </div>
   <EmptyState v-else-if="!busy" :title="t('views.clips.empty')" icon="mdi-content-cut"><v-btn color="primary" to="/">{{ t('views.clips.browse') }}</v-btn></EmptyState>
   <ConfirmDialog :model-value="!!selected" :title="t('views.clips.trashConfirm')" :message="selected?.title" :action-label="t('views.common.moveToTrash')" :busy="busy" :error="error" @update:model-value="!$event && (selected = undefined)" @confirm="deleteClip" />
   <ClipPreviewDialog v-model="previewOpen" :clip="previewedClip" />
+  <ClipShareDialog v-if="sharingClip" :clip="sharingClip" :model-value="true" @update:model-value="!$event && (sharingClip = undefined)" />
 </template>
 
 <script setup lang="ts">
@@ -18,6 +19,7 @@ import { useAction } from '@/composables/useAction'
 import { usePolling } from '@/composables/usePolling'
 import type { Clip } from '@/models/media'
 import ClipCard from '@/components/clips/ClipCard.vue'
+import ClipShareDialog from '@/components/clips/ClipShareDialog.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -30,6 +32,7 @@ const clips = ref<Clip[]>([])
 const selected = ref<Clip>()
 const previewedClip = ref<Clip>()
 const previewOpen = ref(false)
+const sharingClip = ref<Clip>()
 const { busy, error, run } = useAction()
 async function load(): Promise<void>
 {

@@ -39,6 +39,11 @@
               </v-tooltip>
             </div>
             <div class="session-actions">
+              <v-tooltip :text="t('sharing.copyPlayback')" location="top">
+                <template #activator="{ props: tooltipProps }">
+                  <v-btn v-bind="tooltipProps" icon="mdi-link-variant" size="40" variant="tonal" :aria-label="t('sharing.copyPlayback')" :disabled="!canCopyPlaybackLink" :loading="copyingPlaybackLink" @click="copyPlaybackLink" />
+                </template>
+              </v-tooltip>
               <v-tooltip v-if="auth.canViewAnalytics" :text="t('views.analytics.title')" location="top">
                 <template #activator="{ props: tooltipProps }">
                   <v-btn v-bind="tooltipProps" icon="mdi-chart-timeline-variant" size="40" variant="tonal" :aria-label="t('views.analytics.title')" :to="{ path: '/analytics', query: { sessionId: detail.session.id } }" />
@@ -125,6 +130,14 @@
     <SessionGroupDialog v-if="groupOpen && auth.canManageRecordings && isFinished" v-model="groupOpen" :session="detail.session" @grouped="router.replace(`/sessions/${$event.id}`)" />
     <SessionSplitDialog v-if="splitOpen && auth.canManageRecordings && isFinished" v-model="splitOpen" :session-id="id" :segments="detail.segments" @split="router.replace(`/streamers/${detail.session.streamerId}`)" />
     <v-dialog v-model="maintenanceOpen" max-width="580" :aria-label="maintenanceKind === 'Repair' ? t('views.session.repair') : t('views.session.merge')"><ContentCard :title="maintenanceKind === 'Repair' ? t('views.session.repair') : t('views.session.merge')"><div class="maintenance-segments"><v-checkbox v-for="(segment, index) in detail.segments.filter(item => item.isClosed)" :key="segment.id" v-model="selectedSegments" :value="segment.id" :label="t('views.session.segmentDescription', { number: String(index + 1).padStart(2, '0'), start: formatDuration(segment.startOffsetMs, true), size: formatBytes(segment.committedBytes) })" /></div><v-alert v-if="maintenanceError" type="error" class="mt-4">{{ maintenanceError }}</v-alert><template #actions><v-btn variant="text" @click="maintenanceOpen = false">{{ t('views.common.cancel') }}</v-btn><v-btn color="primary" :loading="maintenanceBusy" :disabled="!selectedSegments.length" @click="createMaintenance">{{ t('views.session.createJob') }}</v-btn></template></ContentCard></v-dialog>
+    <v-dialog v-model="manualPlaybackLinkOpen" max-width="520" :aria-label="t('sharing.copyPlayback')">
+      <ContentCard :title="t('sharing.copyPlayback')">
+        <ShareLinkField :link="manualPlaybackLink" />
+        <p class="text-body-2">{{ t('sharing.manualCopy') }}</p>
+        <template #actions><v-btn variant="text" @click="manualPlaybackLinkOpen = false">{{ t('views.common.close') }}</v-btn></template>
+      </ContentCard>
+    </v-dialog>
+    <v-snackbar v-model="playbackLinkCopied" color="surface-variant">{{ t('sharing.copied') }}</v-snackbar>
     <v-snackbar v-model="jobCreated" color="surface-variant">{{ t('views.session.jobCreated') }}<template #actions><v-btn color="primary" to="/jobs">{{ t('views.session.view') }}</v-btn></template></v-snackbar>
     <v-snackbar v-model="segmentTrashed" color="surface-variant">{{ t('views.session.segmentTrashed') }}<template #actions><v-btn color="primary" to="/trash">{{ t('views.trash.title') }}</v-btn></template></v-snackbar>
   </v-defaults-provider>
@@ -132,7 +145,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { computed, mergeProps, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, mergeProps, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MediaAPI } from '@/apis/MediaAPI'
 import { useAuthStore } from '@/stores/auth'
@@ -149,6 +162,7 @@ import { clampOffset } from '@/utilities/timeline'
 import { removeSessionSegment, sessionMediaChanged } from '@/utilities/sessionSegments'
 import { resolveClipRange } from '@/utilities/clipSelection'
 import { formatBytes, formatDate, formatDuration, formatNumber } from '@/utilities/format'
+import { absoluteShareLink, copyShareLink } from '@/utilities/shareLinks'
 import TranscodeDialog from '@/components/library/TranscodeDialog.vue'
 import MediaPlayer from '@/components/player/MediaPlayer.vue'
 import SessionPlaybackSidebar from '@/components/player/SessionPlaybackSidebar.vue'
@@ -159,6 +173,7 @@ import SessionBookmarkList from '@/components/player/SessionBookmarkList.vue'
 import SessionBookmarkDialog from '@/components/player/SessionBookmarkDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import ContentCard from '@/components/common/ContentCard.vue'
+import ShareLinkField from '@/components/common/ShareLinkField.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import SessionExpiry from '@/components/library/SessionExpiry.vue'
 import SessionGroupDialog from '@/components/library/SessionGroupDialog.vue'
@@ -176,7 +191,13 @@ const streamers = ref<Streamer[]>([])
 const streamer = computed(() => streamers.value.find(item => item.id === detail.value?.session.streamerId))
 const offsetMs = ref(0)
 const feedNavigationRevision = ref(0)
-const initialOffset = Math.max(0, Number(route.query.at) || 0)
+const requestedOffset = computed(() => parsePlaybackOffset(route.query.at))
+const initialOffset = computed(() =>
+{
+  const offset = requestedOffset.value ?? 0
+  const duration = detail.value?.durationMs ?? 0
+  return offset >= duration ? Math.max(0, duration - 1) : offset
+})
 const requestedMarkerFileId = computed(() => typeof route.query.liveMarkerFileId === 'string' && route.query.liveMarkerFileId ? route.query.liveMarkerFileId : undefined)
 const player = ref<InstanceType<typeof MediaPlayer>>()
 const playbackLayout = ref<HTMLElement>()
@@ -191,6 +212,11 @@ const playbackOverlayDefaults = computed(() =>
 })
 const clipOpen = ref(false)
 const downloadOpen = ref(false)
+const copyingPlaybackLink = ref(false)
+const playbackLinkCopied = ref(false)
+const manualPlaybackLink = ref('')
+const manualPlaybackLinkOpen = ref(false)
+const canCopyPlaybackLink = computed(() => (detail.value?.durationMs ?? 0) > 0 && Number.isFinite(offsetMs.value))
 const transcodeOpen = ref(false)
 const configurationOpen = ref(false)
 const cancelPermanentOpen = ref(false)
@@ -233,6 +259,10 @@ const segmentDeletionUnavailable = computed(() =>
 const loadWindow = (value: number, options?: PlaybackLoadOptions) => MediaAPI.playback(id, value, options)
 let detailRequest = 0
 let disposed = false
+watch(requestedOffset, offset =>
+{
+  if (offset !== undefined && route.params.id === id) { void player.value?.seek(offset) }
+})
 usePolling(async () => { if (!segmentDeleting.value && !retentionBusy.value) { await refreshSession() } }, 10000)
 onBeforeUnmount(() => { disposed = true; detailRequest++ })
 onMounted(async () =>
@@ -242,6 +272,28 @@ onMounted(async () =>
     streamers.value = await MediaAPI.streamers()
   })
 })
+function parsePlaybackOffset(value: unknown): number | undefined
+{
+  if (typeof value !== 'string' || !value.trim()) { return undefined }
+  const offset = Number(value)
+  return Number.isFinite(offset) && offset >= 0 ? offset : undefined
+}
+async function copyPlaybackLink(): Promise<void>
+{
+  if (!canCopyPlaybackLink.value || copyingPlaybackLink.value) { return }
+  const path = router.resolve({ path: `/sessions/${encodeURIComponent(id)}`, query: { at: Math.floor(offsetMs.value) } }).href
+  const link = absoluteShareLink(path)
+  copyingPlaybackLink.value = true
+  const copied = await copyShareLink(link)
+  copyingPlaybackLink.value = false
+  if (disposed) { return }
+  playbackLinkCopied.value = copied
+  if (!copied)
+  {
+    manualPlaybackLink.value = link
+    manualPlaybackLinkOpen.value = true
+  }
+}
 async function refreshSession(): Promise<void>
 {
   if (disposed) { return }
@@ -411,7 +463,7 @@ async function createMaintenance(): Promise<void>
 .session-details { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; }
 .session-info { display: flex; flex: 1 1 360px; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-width: 0; }
 .session-info-item { display: inline-flex; align-items: center; gap: 6px; color: rgba(var(--v-theme-on-surface), .65); font-size: .75rem; line-height: 1.5; white-space: nowrap; }
-.session-actions { display: flex; flex-shrink: 0; align-items: center; gap: 8px; margin-left: auto; }
+.session-actions { display: flex; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; margin-left: auto; max-width: 100%; }
 .session-segments :deep(.v-expansion-panels) { border-radius: inherit; }
 .session-segments-title { min-height: 56px; padding: var(--ui-card-header-padding) var(--ui-card-padding); font-size: var(--ui-card-title-size); font-weight: 600; line-height: 1.5; }
 .session-segments :deep(.v-expansion-panel-text__wrapper) { padding: 0 var(--ui-card-padding) 4px; }

@@ -14,6 +14,11 @@ public static class MongoSerialization
             mapping.AutoMap();
             mapping.SetIgnoreExtraElements(true);
         });
+        BsonClassMap.RegisterClassMap<Clip>(mapping =>
+        {
+            mapping.AutoMap();
+            mapping.MapMember(clip => clip.ShareToken).SetIgnoreIfNull(true);
+        });
     }
 
     /// <summary>触发线程安全的进程级序列化初始化。</summary>

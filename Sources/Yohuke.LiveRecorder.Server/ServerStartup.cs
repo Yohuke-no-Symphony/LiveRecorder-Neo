@@ -107,6 +107,7 @@ public static class ServerStartup
         builder.Services.AddHostedService(provider => provider.GetRequiredService<MediaBandwidthScheduler>());
         builder.Services.AddSingleton<EventArchiveReader>();
         builder.Services.AddSingleton<LibraryService>();
+        builder.Services.AddSingleton<ClipShareService>();
         builder.Services.AddSingleton<SessionBookmarkService>();
         builder.Services.AddSingleton<LiveMarkerFileStore>();
         builder.Services.AddSingleton<LiveMarkerYamlParser>();
@@ -359,6 +360,7 @@ public static class ServerStartup
         app.MapIdentityEndpoints(developmentOrigins);
         app.MapBilibiliEndpoints();
         app.MapLibraryEndpoints();
+        app.MapClipShareEndpoints();
         app.MapPlaybackEventSnapshotEndpoints();
         app.MapStorageCacheEndpoints();
         app.MapAnalyticsExportEndpoints();

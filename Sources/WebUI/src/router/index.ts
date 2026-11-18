@@ -16,6 +16,7 @@ const router = createRouter({
     { path: '/streamers/:id', component: () => import('@/views/StreamerView.vue'), meta: { permissions: [PERMISSIONS.viewRecordings], breadcrumbs: [{ titleKey: 'shell.nav.library', to: '/' }, { titleKey: 'shell.nav.streamerRecordings' }] } },
     { path: '/sessions/:id', component: () => import('@/views/SessionView.vue'), meta: { permissions: [PERMISSIONS.viewRecordings], breadcrumbs: [{ titleKey: 'shell.nav.library', to: '/' }, { titleKey: 'shell.nav.playRecording' }] } },
     { path: '/clips', component: () => import('@/views/ClipsView.vue'), meta: { breadcrumbs: [{ titleKey: 'shell.nav.clips' }] } },
+    { path: '/shares/clips/:id/:token', name: 'shared-clip', component: () => import('@/views/ClipShareView.vue'), meta: { permissions: [PERMISSIONS.viewRecordings], breadcrumbs: [{ titleKey: 'shell.nav.sharedClip' }] } },
     { path: '/jobs', component: () => import('@/views/JobsView.vue'), meta: { breadcrumbs: [{ titleKey: 'shell.nav.jobs' }] } },
     { path: '/trash', component: () => import('@/views/TrashView.vue'), meta: { breadcrumbs: [{ titleKey: 'shell.nav.trash' }] } },
     { path: '/analytics', component: () => import('@/views/AnalyticsView.vue'), meta: { permissions: [PERMISSIONS.viewRecordings, PERMISSIONS.viewAnalytics], breadcrumbs: [{ titleKey: 'shell.nav.analytics' }] } },

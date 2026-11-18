@@ -1,0 +1,49 @@
+using System.Security.Claims;
+using Yohuke.LiveRecorder.Application.Auth;
+using Yohuke.LiveRecorder.Infrastructure.Files;
+using Yohuke.LiveRecorder.Infrastructure.Library;
+using Yohuke.LiveRecorder.Server.Bandwidth;
+using Yohuke.LiveRecorder.Server.Contracts;
+
+namespace Yohuke.LiveRecorder.Server.Endpoints;
+
+/// <summary>切片分享的所有者管理和接收者访问接口。</summary>
+public static class ClipShareEndpoints
+{
+    /// <summary>注册管理分享链接以及凭令牌查看和下载切片的接口。</summary>
+    public static IEndpointRouteBuilder MapClipShareEndpoints(this IEndpointRouteBuilder endpoints)
+    {
+        var sharing = endpoints.MapGroup("/api/clips/{id}/share").RequireAuthorization();
+        sharing.AddEndpointFilter(async (context, next) =>
+        {
+            context.HttpContext.Response.Headers.CacheControl = "private, no-store";
+            return await next(context);
+        });
+        sharing.MapGet("", async (string id, HttpContext http, ClipShareService service, CancellationToken ct) =>
+            Results.Ok(new ClipShareLinkResponse(await service.GetTokenAsync(id, Owner(http), http.User.IsInRole("Admin"), ct))));
+        sharing.MapPut("", async (string id, HttpContext http, ClipShareService service, CancellationToken ct) =>
+            Results.Ok(new ClipShareLinkResponse(await service.CreateAsync(id, Owner(http), http.User.IsInRole("Admin"), ct))))
+            .RequireAuthorization(UserPermissionNames.VIEW_RECORDINGS);
+        sharing.MapDelete("/{token}", async (string id, string token, HttpContext http, ClipShareService service, CancellationToken ct) =>
+        {
+            await service.RevokeAsync(id, token, Owner(http), http.User.IsInRole("Admin"), ct);
+            return Results.NoContent();
+        });
+
+        var viewing = sharing.MapGroup("/{token}").RequireAuthorization(UserPermissionNames.VIEW_RECORDINGS);
+        viewing.MapGet("", async (string id, string token, ClipShareService service, CancellationToken ct) =>
+        {
+            var (clip, _) = await service.GetSharedAsync(id, token, ct);
+            return Results.Ok(new SharedClipResponse(clip.Title, clip.EndMs - clip.StartMs, clip.Bytes, clip.ExpiresAtUtc));
+        });
+        viewing.MapGet("/download", async (string id, string token, ClipShareService service, CancellationToken ct) =>
+        {
+            var (clip, path) = await service.GetSharedAsync(id, token, ct);
+            return new MediaFileResult(path, "video/mp4", MediaTrafficKind.Download, MediaPaths.SafeName(clip.Title) + ".mp4");
+        }).RequireAuthorization(UserPermissionNames.DOWNLOAD_RECORDINGS);
+
+        return endpoints;
+    }
+
+    private static string Owner(HttpContext http) => http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+}

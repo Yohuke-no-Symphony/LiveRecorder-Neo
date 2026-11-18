@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mount } from '@vue/test-utils'
 import { createPinia, disposePinia, setActivePinia, type Pinia } from 'pinia'
+import { PERMISSIONS } from '../src/models/auth'
+import { i18n } from '../src/plugins/i18n'
 import router from '../src/router'
 import { useAuthStore } from '../src/stores/auth'
+import LoginView from '../src/views/LoginView.vue'
 
 let pinia: Pinia
 
@@ -48,5 +52,51 @@ describe('录像权限路由边界', () =>
     useAuthStore().user!.permissions = ['recordings.view']
     await router.push('/')
     expect(router.currentRoute.value.path).toBe('/')
+  })
+})
+
+describe('分享链接路由边界', () =>
+{
+  const links = ['/shares/clips/clip-1/test-link_token', '/sessions/recording-1?at=123456']
+
+  it.each(links)('未登录访问 %s 后，登录回到含原参数的链接', async link =>
+  {
+    await router.replace('/account')
+    const auth = useAuthStore()
+    const viewer = { ...auth.user!, permissions: [PERMISSIONS.viewRecordings] }
+    auth.user = null
+    await router.push(link)
+    expect(router.currentRoute.value.path).toBe('/login')
+    expect(router.currentRoute.value.query.returnTo).toBe(link)
+
+    vi.spyOn(auth, 'login').mockImplementation(async () => { auth.user = viewer })
+    const wrapper = mount(LoginView, {
+      global: {
+        plugins: [pinia, router, i18n],
+        stubs: { AppBrand: true, VCard: { template: '<div><slot /></div>' }, VTextField: true, VBtn: true, VIcon: true },
+      },
+    })
+    try
+    {
+      await wrapper.get('form').trigger('submit')
+      await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe(link))
+    }
+    finally
+    {
+      wrapper.unmount()
+    }
+  })
+
+  it.each(links)('访问 %s 需要查看权限，下载权限独立', async link =>
+  {
+    await router.replace('/account')
+    const auth = useAuthStore()
+    auth.user!.permissions = [PERMISSIONS.downloadRecordings]
+    await router.push(link)
+    expect(router.currentRoute.value.path).toBe('/account')
+
+    auth.user!.permissions = [PERMISSIONS.viewRecordings]
+    await router.push(link)
+    expect(router.currentRoute.value.fullPath).toBe(link)
   })
 })
