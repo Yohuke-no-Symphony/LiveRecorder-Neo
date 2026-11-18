@@ -12,6 +12,8 @@ namespace Yohuke.LiveRecorder.Infrastructure.Tasks;
 
 internal static class TaskSummaryMapper
 {
+    private const int RECORDING_INTERRUPTION_GRACE_SECONDS = 30;
+
     internal static BackgroundTaskSummary From(BsonDocument row, TaskHistoryViewer viewer, WorkerConnectionStatusTracker connections)
     {
         var data = row.GetValue("Data", new BsonDocument()).AsBsonDocument;
@@ -19,6 +21,7 @@ internal static class TaskSummaryMapper
         var type = Text(row, "Type") ?? "";
         var state = Text(row, "State") ?? "Queued";
         var worker = Text(row, "WorkerId");
+        var updatedAt = Date(data, "LastUpdatedAtUtc");
         var active = state is "Queued" or "Running" or "Publishing";
         var terminal = IsTerminal(state);
         var mayOperate = viewer.IsAdmin || Text(row, "InitiatorUserId") == viewer.UserId;
@@ -60,13 +63,16 @@ internal static class TaskSummaryMapper
             LiveMarkerFileId = Text(data, "LiveMarkerFileId"),
             Progress = state == "Completed" ? 100 : Math.Clamp(Number(row, "Progress") ?? 0, 0, 99.9),
             Attempt = (int)(Number(row, "Attempt") ?? 0), CreatedAtUtc = Date(row, "CreatedAtUtc") ?? DateTime.UnixEpoch,
-            FinishedAtUtc = Date(row, "FinishedAtUtc"), LastUpdatedAtUtc = Date(data, "LastUpdatedAtUtc"),
+            FinishedAtUtc = Date(row, "FinishedAtUtc"), LastUpdatedAtUtc = updatedAt,
             Error = error, CancelRequested = Bool(data, "CancelRequested"),
             CanCancel = active && kind != "recording" && mayOperate && permission && !Bool(data, "CancelRequested")
                 && Text(data, "RawState") != "Completed"
                 && !(kind == "ai" && state == "Publishing"),
             CanRetry = mayOperate && permission && (kind == "transcode" ? state is "Failed" or "Cancelled" or "Skipped"
                 : kind == "media" && state is "Failed" or "Cancelled"),
+            CanInterruptRecording = viewer.IsAdmin && kind == "recording" && state == "Running"
+                && !string.IsNullOrWhiteSpace(worker) && worker != "local" && Bool(data, "InterruptibleSnapshot")
+                && updatedAt is { } reported && reported > DateTime.UnixEpoch && reported <= DateTime.UtcNow.AddSeconds(-RECORDING_INTERRUPTION_GRACE_SECONDS),
             CanDelete = terminal && mayOperate,
             CanViewResults = kind == "recording" ? Bool(data, "Playable") && viewer.Has(PermissionIds.VIEW_RECORDINGS)
                 : viewer.Has(PermissionIds.VIEW_RECORDINGS),
@@ -182,9 +188,12 @@ internal static class TaskSummaryMapper
 
     private static IReadOnlyList<TaskStageSummary> RecordingStages(BsonDocument row, BsonDocument data)
     {
-        var completed = Text(row, "State") == "Completed";
-        var skipped = Text(row, "State") == "Skipped";
+        var state = Text(row, "State");
+        var completed = state == "Completed";
+        var skipped = state == "Skipped";
+        var interrupted = state == "Interrupted";
         var closed = completed || Bool(data, "IsClosed");
+        var finishedAt = Date(row, "FinishedAtUtc");
         var captured = Number(data, "CommittedArchiveBytes");
         var acknowledged = Number(data, "AcknowledgedArchiveBytes");
         var capture = new List<TaskMetric>();
@@ -197,7 +206,7 @@ internal static class TaskSummaryMapper
         var upload = new List<TaskMetric>();
         Add(upload, "acknowledgedBytes", acknowledged, "bytes");
         Add(upload, "capturedBytes", captured, "bytes");
-        if (data.GetValue("CurrentTransfer", BsonNull.Value) is BsonDocument transfer)
+        if (!interrupted && data.GetValue("CurrentTransfer", BsonNull.Value) is BsonDocument transfer)
         {
             Add(upload, "bytesTransferred", Number(transfer, "BytesTransferred"), "bytes");
             Add(upload, "totalBytes", Number(transfer, "TotalBytes"), "bytes");
@@ -215,18 +224,20 @@ internal static class TaskSummaryMapper
             new()
             {
                 Id = "Capturing", State = skipped ? "Skipped" : closed ? "Completed" : "Running",
-                Progress = closed ? 100 : null, Substate = closed ? "Closed" : captureState,
-                StartedAtUtc = Date(row, "CreatedAtUtc"), FinishedAtUtc = closed ? Date(data, "CaptureEndedAtUtc") ?? Date(row, "FinishedAtUtc") : null,
-                Error = !closed && !skipped && !uploadError && captureState is "Retrying" or "StorageFull" ? Error(data) : null, Metrics = capture
+                Progress = closed ? 100 : null, Substate = closed ? "Closed" : interrupted ? null : captureState,
+                StartedAtUtc = Date(row, "CreatedAtUtc"), FinishedAtUtc = closed ? Date(data, "CaptureEndedAtUtc") ?? finishedAt
+                    : interrupted ? finishedAt : null,
+                Error = !closed && !skipped && !interrupted && !uploadError && captureState is "Retrying" or "StorageFull" ? Error(data) : null, Metrics = capture
             },
             new()
             {
                 Id = "Uploading", State = completed ? "Completed" : skipped ? "Skipped"
                     : uploadState is "Queued" or "CaughtUp" ? "Waiting" : "Running",
                 Progress = completed ? 100 : captured is > 0 && acknowledged is { } count ? Math.Clamp(count / captured.Value * 100, 0, 100) : null,
-                Substate = completed ? "Completed" : uploadState,
-                FinishedAtUtc = completed ? Date(row, "FinishedAtUtc") : null,
-                Error = !completed && !skipped && uploadState == "Retrying" && uploadError ? Error(data) : null, Metrics = upload
+                Substate = completed ? "Completed" : interrupted ? null : uploadState,
+                FinishedAtUtc = completed || interrupted ? finishedAt : null,
+                Error = interrupted ? LocalizedText.Get(MessageCode.RECORDING_CACHE_LOST)
+                    : !completed && !skipped && uploadState == "Retrying" && uploadError ? Error(data) : null, Metrics = upload
             }
         ];
     }

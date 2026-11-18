@@ -25,5 +25,6 @@ export const TaskHistoryAPI = {
   filters: (signal?: AbortSignal) => request<TaskFilters>('admin/worker-tasks/filters', { signal }),
   previewClear: (scope: TaskScope, filters: TaskQuery, signal?: AbortSignal) => request<TaskClearPreview>(`${root(scope)}/clear-completed/preview${query({ ...filters, cursor: undefined })}`, { signal }),
   clearCompleted: (scope: TaskScope, filter: TaskQuery, completedBeforeUtc: string) => post<{ removed: number }>(`${root(scope)}/clear-completed`, { filter: { ...filter, cursor: undefined }, completedBeforeUtc }),
-  dismiss: (scope: TaskScope, task: TaskSummary) => request<void>(target(scope, task), { method: 'DELETE', body: JSON.stringify({ attempt: task.attempt, finishedAtUtc: task.finishedAtUtc }) }),
+  interruptRecording: (id: string, lastReportedAtUtc: string) => post<void>(`admin/worker-tasks/recording/${encodeURIComponent(id)}/interrupt`, { lastReportedAtUtc }),
+  dismiss: (scope: TaskScope, task: TaskSummary) => request<void>(target(scope, task), { method: 'DELETE', body: JSON.stringify({ attempt: task.attempt, finishedAtUtc: task.finishedAtUtc, state: task.state }) }),
 }

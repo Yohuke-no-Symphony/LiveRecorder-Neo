@@ -224,6 +224,148 @@ public sealed class TaskHistoryHttpTests
         Assert.All(completed.Stages, stage => Assert.Equal("Completed", stage.State));
     }
 
+    /// <summary>中断只收尾历史，原有归档和其它采集保留，找回缓存后能重新上报。</summary>
+    [MongoHttpFact]
+    public async Task InterruptedRecordingLeavesActiveListAndCanResumeAfterDismissal()
+    {
+        await using var fixture = await FixtureAsync();
+        var workers = fixture.App.Services.GetRequiredService<TranscodeWorkerService>();
+        var worker = (await workers.CreateAsync("windows1", "Recording", CancellationToken.None)).Worker;
+        var ownership = fixture.App.Services.GetRequiredService<RecordingOwnershipService>();
+        var assignment = (await ownership.TryAcquireWorkerAsync(new() { RoomId = 95701 }, worker.Id, CancellationToken.None))!;
+        var old = StaleRecording("old-recording", assignment);
+        var current = StaleRecording("current-recording", assignment);
+        var snapshots = fixture.Context.Collection<RecordingSessionTaskSnapshot>("recordingSessionTasks");
+        await snapshots.InsertManyAsync([old, current]);
+        var original = await snapshots.Find(value => value.Id == old.Id).SingleAsync();
+        await fixture.Context.Collection<RecordingAssignmentRecord>("recordingAssignments").UpdateOneAsync(value => value.Id == assignment.Id,
+            Builders<RecordingAssignmentRecord>.Update.Set(value => value.CurrentSessionId, current.Id));
+        var receipts = fixture.Context.Collection<RecordingSessionReceipt>("recordingSessions");
+        await receipts.InsertOneAsync(new() { Id = old.Id, AssignmentId = assignment.Id, Generation = assignment.Generation, Descriptor = old.Descriptor, Published = true });
+        var sessions = fixture.Context.Collection<BroadcastSession>("sessions");
+        await sessions.InsertOneAsync(new() { Id = old.Id, StartedAtUtc = old.Descriptor.StartedAtUtc, RecordingAssignmentId = assignment.Id, TotalBytes = 100 });
+        var path = "/api/admin/worker-tasks/recording/" + old.Id;
+        var before = (await fixture.Admin.Client.GetFromJsonAsync<BackgroundTaskSummary>(path))!;
+        Assert.True(before.CanInterruptRecording);
+        Assert.True(before.CanViewResults);
+
+        using var interrupted = await fixture.Admin.SendAsync(HttpMethod.Post, path + "/interrupt", new RecordingTaskInterruptRequest(before.LastUpdatedAtUtc!.Value));
+
+        Assert.Equal(HttpStatusCode.NoContent, interrupted.StatusCode);
+        var active = (await fixture.Admin.Client.GetFromJsonAsync<TaskHistoryPage>("/api/admin/worker-tasks?kind=recording&state=active"))!;
+        Assert.Equal(current.Id, Assert.Single(active.Items).Id);
+        Assert.Equal(1, active.Total);
+        using var preview = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/admin/worker-tasks/active", new TaskHistoryActiveRequest([worker.Id]));
+        var perWorker = (await preview.Content.ReadFromJsonAsync<Dictionary<string, BackgroundTaskSummary[]>>())!;
+        Assert.Equal(current.Id, Assert.Single(perWorker[worker.Id]).Id);
+        var unfinished = (await fixture.Admin.Client.GetFromJsonAsync<TaskHistoryPage>("/api/admin/worker-tasks?kind=recording&state=Interrupted"))!;
+        var row = Assert.Single(unfinished.Items);
+        var stored = await snapshots.Find(value => value.Id == old.Id).SingleAsync();
+        var interruptions = fixture.Context.Collection<RecordingTaskInterruption>("recordingTaskInterruptions");
+        var disposition = await interruptions.Find(value => value.Id == old.Id).SingleAsync();
+        Assert.Equal(old.Id, row.Id);
+        Assert.Equal("Interrupted", row.State);
+        Assert.Equal(disposition.CreatedAtUtc, row.FinishedAtUtc);
+        Assert.Equal(original.LastReportedAtUtc, disposition.LastReportedAtUtc);
+        Assert.False(string.IsNullOrEmpty(disposition.InterruptedByUserId));
+        Assert.Equal(original.Descriptor, stored.Descriptor);
+        Assert.Equal(old.CommittedArchiveBytes, stored.CommittedArchiveBytes);
+        Assert.Equal(old.AcknowledgedArchiveBytes, stored.AcknowledgedArchiveBytes);
+        Assert.True(row.CanViewResults);
+        Assert.True(row.CanDelete);
+        Assert.False(row.CanInterruptRecording);
+        Assert.All(row.Stages, stage =>
+        {
+            Assert.Equal("Interrupted", stage.State);
+            Assert.Null(stage.Substate);
+        });
+        Assert.NotNull(row.Stages[1].Error);
+        using var repeated = await fixture.Admin.SendAsync(HttpMethod.Post, path + "/interrupt", new RecordingTaskInterruptRequest(before.LastUpdatedAtUtc.Value));
+        Assert.Equal(HttpStatusCode.Conflict, repeated.StatusCode);
+
+        using var dismissed = await fixture.Admin.SendAsync(HttpMethod.Delete, path, new TaskHistoryDeleteRequest(row.Attempt, row.FinishedAtUtc!.Value, row.State));
+        Assert.Equal(HttpStatusCode.NoContent, dismissed.StatusCode);
+        using var hidden = await fixture.Admin.Client.GetAsync(path);
+        Assert.Equal(HttpStatusCode.NotFound, hidden.StatusCode);
+        Assert.True((await receipts.Find(value => value.Id == old.Id).SingleAsync()).Published);
+        Assert.Equal(100, (await sessions.Find(value => value.Id == old.Id).SingleAsync()).TotalBytes);
+        Assert.Equal(current.Id, (await fixture.Context.Collection<RecordingAssignmentRecord>("recordingAssignments")
+            .Find(value => value.Id == assignment.Id).SingleAsync()).CurrentSessionId);
+
+        await fixture.App.Services.GetRequiredService<RecordingSessionTaskService>().ReportAsync(worker.Id, [new()
+        {
+            AssignmentId = assignment.Id, Generation = assignment.Generation, Token = ownership.Token(assignment),
+            Descriptor = old.Descriptor, CaptureState = "Paused", UploadState = "Queued",
+            CommittedArchiveBytes = old.CommittedArchiveBytes, AcknowledgedArchiveBytes = old.AcknowledgedArchiveBytes
+        }], CancellationToken.None);
+        var resumed = (await fixture.Admin.Client.GetFromJsonAsync<BackgroundTaskSummary>(path))!;
+        Assert.Equal("Running", resumed.State);
+        Assert.False(resumed.CanInterruptRecording);
+        Assert.Equal(disposition.CreatedAtUtc, (await interruptions.Find(value => value.Id == old.Id).SingleAsync()).CreatedAtUtc);
+    }
+
+    /// <summary>新进度、当前采集和非管理员请求不能把场次结束，已释放的旧分配可以处理。</summary>
+    [MongoHttpFact]
+    public async Task RecordingInterruptionRejectsStaleConfirmationAndCurrentAssignment()
+    {
+        await using var fixture = await FixtureAsync();
+        var viewer = await fixture.CreateUserAsync("recording-interruption-viewer@example.test");
+        var browser = fixture.NewBrowser();
+        await browser.LoginAsync(viewer.Email, HttpServerFixture.USER_PASSWORD);
+        var assignment = new RecordingAssignmentRecord { OwnerId = "windows1", Generation = 2, RoomId = 95702, CurrentSessionId = "old-recording" };
+        var assignments = fixture.Context.Collection<RecordingAssignmentRecord>("recordingAssignments");
+        await assignments.InsertOneAsync(assignment);
+        var old = StaleRecording("old-recording", assignment);
+        var snapshots = fixture.Context.Collection<RecordingSessionTaskSnapshot>("recordingSessionTasks");
+        await snapshots.InsertOneAsync(old);
+        var path = "/api/admin/worker-tasks/recording/" + old.Id;
+        var body = new RecordingTaskInterruptRequest(old.LastReportedAtUtc);
+        using var forbidden = await browser.SendAsync(HttpMethod.Post, path + "/interrupt", body);
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+        Assert.False((await fixture.Admin.Client.GetFromJsonAsync<BackgroundTaskSummary>(path))!.CanInterruptRecording);
+        using var current = await fixture.Admin.SendAsync(HttpMethod.Post, path + "/interrupt", body);
+        Assert.Equal(HttpStatusCode.Conflict, current.StatusCode);
+        await assignments.UpdateOneAsync(value => value.Id == assignment.Id, Builders<RecordingAssignmentRecord>.Update.Set(value => value.State, "Released"));
+        var before = (await fixture.Admin.Client.GetFromJsonAsync<BackgroundTaskSummary>(path))!;
+        Assert.True(before.CanInterruptRecording);
+        var reported = old.LastReportedAtUtc.AddMinutes(1);
+        await snapshots.UpdateOneAsync(value => value.Id == old.Id, Builders<RecordingSessionTaskSnapshot>.Update.Set(value => value.LastReportedAtUtc, reported));
+        using var stale = await fixture.Admin.SendAsync(HttpMethod.Post, path + "/interrupt", body);
+        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+        Assert.False(await fixture.Context.Collection<RecordingTaskInterruption>("recordingTaskInterruptions").Find(value => value.Id == old.Id).AnyAsync());
+        using var applied = await fixture.Admin.SendAsync(HttpMethod.Post, path + "/interrupt", new RecordingTaskInterruptRequest(reported));
+        Assert.Equal(HttpStatusCode.NoContent, applied.StatusCode);
+    }
+
+    /// <summary>隐藏中断记录后，真实归档完成仍按独立终态展示。</summary>
+    [MongoHttpFact]
+    public async Task DismissedRecordingInterruptionDoesNotHideCompletedArchive()
+    {
+        await using var fixture = await FixtureAsync();
+        var old = StaleRecording("sealed-after-interruption", new() { OwnerId = "windows1", Generation = 2, RoomId = 95703 });
+        await fixture.Context.Collection<RecordingSessionTaskSnapshot>("recordingSessionTasks").InsertOneAsync(old);
+        var path = "/api/admin/worker-tasks/recording/" + old.Id;
+        using var interrupted = await fixture.Admin.SendAsync(HttpMethod.Post, path + "/interrupt", new RecordingTaskInterruptRequest(old.LastReportedAtUtc));
+        Assert.Equal(HttpStatusCode.NoContent, interrupted.StatusCode);
+        var disposition = await fixture.Context.Collection<RecordingTaskInterruption>("recordingTaskInterruptions").Find(value => value.Id == old.Id).SingleAsync();
+        var request = new TaskHistoryDeleteRequest(0, disposition.CreatedAtUtc, "Interrupted");
+        using var dismissed = await fixture.Admin.SendAsync(HttpMethod.Delete, path, request);
+        Assert.Equal(HttpStatusCode.NoContent, dismissed.StatusCode);
+        await fixture.Context.Collection<RecordingSessionReceipt>("recordingSessions").InsertOneAsync(new()
+        {
+            Id = old.Id, Descriptor = old.Descriptor, Published = true, FinalizedAtUtc = disposition.CreatedAtUtc
+        });
+        var completed = (await fixture.Admin.Client.GetFromJsonAsync<BackgroundTaskSummary>(path))!;
+        Assert.Equal("Completed", completed.State);
+        Assert.False(completed.CanInterruptRecording);
+        Assert.Null(completed.Error);
+        Assert.All(completed.Stages, stage => Assert.Equal("Completed", stage.State));
+        using var stale = await fixture.Admin.SendAsync(HttpMethod.Delete, path, request);
+        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+        using var legacy = await fixture.Admin.SendAsync(HttpMethod.Delete, path, request with { State = null });
+        Assert.Equal(HttpStatusCode.Conflict, legacy.StatusCode);
+    }
+
     /// <summary>超时结束的成功录像和已归档的重试快照不再携带当前错误。</summary>
     [MongoHttpFact]
     public async Task CompletedRecordingsDoNotExposeHistoricalTimeoutsAsCurrentFailures()
@@ -420,6 +562,14 @@ public sealed class TaskHistoryHttpTests
     {
         Id = id, Title = id, WorkerId = worker, Provenance = provenance, State = "Completed", PublicationReady = true,
         FinishedAtUtc = DateTime.UtcNow.AddMinutes(-1)
+    };
+
+    private static RecordingSessionTaskSnapshot StaleRecording(string id, RecordingAssignmentRecord assignment) => new()
+    {
+        Id = id, WorkerId = assignment.OwnerId, AssignmentId = assignment.Id, Generation = assignment.Generation,
+        Descriptor = new() { SessionId = id, RoomId = assignment.RoomId, StartedAtUtc = DateTime.UtcNow.AddHours(-2) },
+        CaptureState = "Paused", UploadState = "Queued", LastReportedAtUtc = DateTime.UtcNow.AddHours(-1),
+        CommittedArchiveBytes = 150, AcknowledgedArchiveBytes = 100
     };
 
     private static async Task<HttpServerFixture> FixtureAsync()

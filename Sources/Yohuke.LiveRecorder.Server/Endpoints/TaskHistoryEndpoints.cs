@@ -15,7 +15,14 @@ public static class TaskHistoryEndpoints
     public static IEndpointRouteBuilder MapTaskHistoryEndpoints(this IEndpointRouteBuilder endpoints)
     {
         Map(endpoints.MapGroup("/api/tasks").RequireAuthorization(), false);
-        Map(endpoints.MapGroup("/api/admin/worker-tasks").RequireAuthorization(policy => policy.RequireRole("Admin")), true);
+        var admin = endpoints.MapGroup("/api/admin/worker-tasks").RequireAuthorization(policy => policy.RequireRole("Admin"));
+        Map(admin, true);
+        admin.MapPost("/recording/{id}/interrupt", async (string id, RecordingTaskInterruptRequest request, HttpContext http,
+            TaskHistoryService tasks, CancellationToken ct) =>
+        {
+            await tasks.InterruptRecordingAsync(id, request, Viewer(http), ct);
+            return Results.NoContent();
+        });
         endpoints.MapGet("/api/admin/worker-tasks/filters", async (HttpContext http, TaskHistoryService tasks, CancellationToken ct) =>
         {
             NoStore(http);

@@ -46,7 +46,7 @@ import UserAvatar from '@/components/common/UserAvatar.vue'
 import TaskStages from './TaskStages.vue'
 
 defineProps<{ items: TaskSummary[]; actionKey?: string }>()
-const emit = defineEmits<{ stage: [task: TaskSummary, id: string]; action: [task: TaskSummary, action: 'cancel' | 'retry']; delete: [task: TaskSummary] }>()
+const emit = defineEmits<{ stage: [task: TaskSummary, id: string]; action: [task: TaskSummary, action: 'cancel' | 'retry']; delete: [task: TaskSummary]; interrupt: [task: TaskSummary] }>()
 const { t } = useI18n()
 const auth = useAuthStore()
 interface TaskAction { key: string; label: string; icon: string; color?: string; href?: string; external?: boolean }
@@ -71,6 +71,7 @@ function actions(task: TaskSummary): TaskAction[]
       result.push({ key: `download-${index}`, label: task.outputCount > 1 ? t('taskHistory.downloadNumbered', { number: index + 1 }) : t('taskHistory.download'), icon: 'mdi-download', href: MediaAPI.downloadJobOutput(task.id, index) })
     }
   }
+  if (task.canInterruptRecording) { result.push({ key: 'interrupt', label: t('taskHistory.interruptRecording'), icon: 'mdi-stop-circle-outline', color: 'warning' }) }
   if (task.canDelete) { result.push({ key: 'delete', label: t('taskHistory.delete'), icon: 'mdi-delete-outline', color: 'error' }) }
   return result
 }
@@ -78,6 +79,7 @@ function activate(task: TaskSummary, action: string): void
 {
   if (action === 'cancel' || action === 'retry') { emit('action', task, action) }
   else if (action === 'delete') { emit('delete', task) }
+  else if (action === 'interrupt') { emit('interrupt', task) }
 }
 function duration(task: TaskSummary): string
 {

@@ -165,6 +165,7 @@
   <data name="REQUEST_RATE_LIMIT" xml:space="preserve"><value>请求过于频繁，请稍后重试。</value></data>
   <data name="RECORDING_DISK_SPACE_LOW" xml:space="preserve"><value>录播卷剩余空间不足，采集已暂停。</value></data>
   <data name="RECORDING_UPLOAD_FAILED" xml:space="preserve"><value>录像上传暂时中断，正在等待重试。</value></data>
+  <data name="RECORDING_CACHE_LOST" xml:space="preserve"><value>管理员确认本地录像缓存已丢失，无法补传。</value></data>
   <data name="TASK_EXECUTION_FAILED" xml:space="preserve"><value>任务执行失败，请联系管理员查看诊断。</value></data>
   <data name="RECORDING_SOURCE_UNAVAILABLE" xml:space="preserve"><value>录制源暂时不可用，正在等待重新连接。</value></data>
   <data name="RECORDING_EVENT_CAPTURE_GAP" xml:space="preserve"><value>弹幕采集缺失：{0}</value></data>

@@ -13,7 +13,7 @@ import type { UserProfile } from '../src/models/auth'
 import type { WorkerLogEntry, WorkerLogPage } from '../src/models/transcoding'
 import { i18n } from '../src/plugins/i18n'
 
-const api = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn(), logs: vi.fn(), filters: vi.fn(), previewClear: vi.fn(), clearCompleted: vi.fn(), dismiss: vi.fn(), cancelMedia: vi.fn(), retryMedia: vi.fn(), cancelAi: vi.fn(), cancelTranscode: vi.fn(), retryTranscode: vi.fn(), download: vi.fn() }))
+const api = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn(), logs: vi.fn(), filters: vi.fn(), previewClear: vi.fn(), clearCompleted: vi.fn(), interruptRecording: vi.fn(), dismiss: vi.fn(), cancelMedia: vi.fn(), retryMedia: vi.fn(), cancelAi: vi.fn(), cancelTranscode: vi.fn(), retryTranscode: vi.fn(), download: vi.fn() }))
 vi.mock('../src/apis/TaskHistoryAPI', () => ({ TaskHistoryAPI: api }))
 vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { cancelJob: api.cancelMedia, retryJob: api.retryMedia, downloadJobOutput: api.download } }))
 vi.mock('../src/apis/AiAnalysisAPI', () => ({ AiAnalysisAPI: { cancel: api.cancelAi } }))
@@ -305,6 +305,41 @@ describe('统一任务表格', () =>
     expect(wrapper.get('[role="dialog"]').text()).toContain('已生成的录像和文件会保留')
     await findButton(wrapper.get('[role="dialog"]'), '删除记录').trigger('click'); await flushPromises()
     expect(api.dismiss).toHaveBeenCalledWith('personal', expect.objectContaining({ attempt: 1, finishedAtUtc: completed.finishedAtUtc }))
+  })
+
+  it('只给可处置的录像显示中断操作，确认后携带所选场次的最后上报时间', async () =>
+  {
+    useAuthStore().user = viewer('Admin')
+    const current = task({ id: 'current', kind: 'recording', type: 'Recording', canCancel: false })
+    const residue = task({ ...current, id: 'residue', title: '缓存已丢失的录像', canInterruptRecording: true, lastUpdatedAtUtc: '2026-11-17T00:00:10Z' })
+    api.list.mockResolvedValue(page([residue, current]))
+    const wrapper = await open(true, '?state=active')
+    const row = wrapper.get('[data-job-id="residue"]')
+    expect(wrapper.get('[data-job-id="current"]').find('button[aria-label="标记为中断"]').exists()).toBe(false)
+    await findButton(row, '标记为中断').trigger('click')
+    const confirmation = wrapper.get('[role="dialog"]')
+    expect(confirmation.text()).toContain(residue.title)
+    expect(confirmation.text()).toContain('无法补传')
+    expect(api.interruptRecording).not.toHaveBeenCalled()
+    await findButton(confirmation, '取消').trigger('click')
+    expect(api.interruptRecording).not.toHaveBeenCalled()
+
+    await findButton(row, '标记为中断').trigger('click')
+    api.list.mockResolvedValue(page([{ ...residue, canInterruptRecording: false, lastUpdatedAtUtc: '2026-11-17T00:01:01Z' }, current]))
+    await vi.advanceTimersByTimeAsync(4000)
+    await flushPromises()
+    expect(row.find('button[aria-label="标记为中断"]').exists()).toBe(false)
+    const pending = deferred<void>()
+    api.interruptRecording.mockReturnValueOnce(pending.promise)
+    await findButton(wrapper.get('[role="dialog"]'), '标记为中断').trigger('click')
+    expect(api.interruptRecording).toHaveBeenCalledExactlyOnceWith(residue.id, residue.lastUpdatedAtUtc)
+    expect(findButton(wrapper.get('[role="dialog"]'), '取消').attributes('disabled')).toBeDefined()
+    api.list.mockResolvedValue(page([current]))
+    pending.resolve()
+    await flushPromises()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(wrapper.find('[data-job-id="residue"]').exists()).toBe(false)
+    expect(wrapper.find('[data-job-id="current"]').exists()).toBe(true)
   })
 
   it('删除失败仅在确认框显示一次错误，重试期间禁止关闭和重复确认', async () =>

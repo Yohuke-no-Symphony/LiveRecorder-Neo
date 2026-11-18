@@ -7,6 +7,8 @@ namespace Yohuke.LiveRecorder.Infrastructure.Tasks;
 
 internal static class TaskHistoryProjection
 {
+    internal const string INTERRUPTED_RECORDING_DISMISSAL_SUFFIX = ":Interrupted";
+
     internal static List<BsonDocument> Build(TaskHistoryViewer viewer, bool administration, TaskHistoryQuery query, string? taskId = null)
     {
         var pipeline = ById(Media(), taskId);
@@ -73,7 +75,8 @@ internal static class TaskHistoryProjection
         {
             administration ? "Admin:" : "User:" + viewer.UserId + ":", "$Kind", ":", "$Id", ":",
             new BsonDocument("$toString", "$Attempt"), ":",
-            new BsonDocument("$toString", new BsonDocument("$toLong", "$FinishedAtUtc"))
+            new BsonDocument("$toString", new BsonDocument("$toLong", "$FinishedAtUtc")),
+            Cond(And(Eq("$Kind", "recording"), Eq("$State", "Interrupted")), INTERRUPTED_RECORDING_DISMISSAL_SUFFIX, "")
         }), ""))));
         pipeline.Add(new("$lookup", new BsonDocument
         {
@@ -189,6 +192,7 @@ internal static class TaskHistoryProjection
             if (source == "snapshot")
             {
                 stages.Add(Lookup("recordingSessions", "_id", "_receipts"));
+                stages.Add(Lookup("recordingTaskInterruptions", "_id", "_interruptions"));
                 stages.Add(new("$set", new BsonDocument("_receipt", First("$_receipts"))));
             }
             else
@@ -207,14 +211,25 @@ internal static class TaskHistoryProjection
                 { "CaptureState", IfNull("$CaptureState", Cond(Eq("$Descriptor.IsClosed", true), "Closed", "Recording")) }
             }));
         }
+        BsonValue interruptedAt = source == "snapshot"
+            ? Cond(And(Eq(First("$_interruptions.WorkerId"), "$WorkerId"), Eq(First("$_interruptions.AssignmentId"), "$AssignmentId"),
+                    Eq(First("$_interruptions.Generation"), "$Generation"), Eq(First("$_interruptions.LastReportedAtUtc"), "$LastReportedAtUtc")),
+                IfNull(First("$_interruptions.CreatedAtUtc"), BsonNull.Value), BsonNull.Value)
+            : BsonNull.Value;
+        var skipped = Eq("$CaptureState", "NoMedia");
         stages.Add(new("$set", new BsonDocument
         {
             { "CreatedAtUtc", "$Descriptor.StartedAtUtc" }, { "Attempt", 0 },
             { "State", Cond(new BsonDocument("$ne", new BsonArray { IfNull("$_finalized", BsonNull.Value), BsonNull.Value }), "Completed",
-                Cond(Eq("$CaptureState", "NoMedia"), "Skipped", "Running")) },
-            { "FinishedAtUtc", IfNull("$_finalized", Cond(Eq("$CaptureState", "NoMedia"), IfNull("$Descriptor.EndedAtUtc", "$Descriptor.StartedAtUtc"), BsonNull.Value)) },
+                Cond(skipped, "Skipped", Cond(Eq(interruptedAt, BsonNull.Value), "Running", "Interrupted"))) },
+            { "FinishedAtUtc", IfNull("$_finalized", Cond(skipped, IfNull("$Descriptor.EndedAtUtc", "$Descriptor.StartedAtUtc"), interruptedAt)) },
             { "Progress", 0 }
         }));
+        var currentRecording = And(Eq(First("$_assignments.CurrentSessionId"), "$_id"),
+            Eq(First("$_assignments.OwnerKind"), "Worker"), Eq(First("$_assignments.OwnerId"), "$WorkerId"),
+            Eq(First("$_assignments.Generation"), "$Generation"),
+            new BsonDocument("$in", new BsonArray { IfNull(First("$_assignments.State"), ""), new BsonArray { "Owned", "StopRequested" } }));
+        var hasReport = Eq(new BsonDocument("$type", "$LastReportedAtUtc"), "date");
         stages.Add(Project("recording", Literal("Recording"), "$Descriptor.Title", IfNull("$Descriptor.LogicalSessionId", "$_id"), Literal("Automatic"), BsonNull.Value, BsonNull.Value,
             "$WorkerId", "$State", new BsonDocument
             {
@@ -225,6 +240,7 @@ internal static class TaskHistoryProjection
                 { "AcknowledgedArchiveBytes", "$AcknowledgedArchiveBytes" }, { "LastCapturedAtUtc", "$LastCapturedAtUtc" },
                 { "CurrentTransfer", "$CurrentTransfer" }, { "ErrorCode", "$ErrorCode" }, { "ErrorArguments", "$ErrorArguments" },
                 { "LastUpdatedAtUtc", IfNull("$LastReportedAtUtc", "$LastCapturedAtUtc") },
+                { "InterruptibleSnapshot", source == "snapshot" ? Cond(currentRecording, false, hasReport) : new BsonDocument("$literal", false) },
                 { "IsClosed", "$Descriptor.IsClosed" }, { "Playable", IfNull("$_receipt.Published", source == "library") }
             }));
         return stages;

@@ -28,6 +28,7 @@ public sealed record BackgroundTaskSummary
     public bool CancelRequested { get; init; }
     public bool CanCancel { get; init; }
     public bool CanRetry { get; init; }
+    public bool CanInterruptRecording { get; init; }
     public bool CanDelete { get; init; }
     public bool CanViewResults { get; init; }
     public int OutputCount { get; init; }

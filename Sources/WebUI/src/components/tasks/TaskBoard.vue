@@ -3,7 +3,7 @@
     <v-btn prepend-icon="mdi-broom" variant="text" :disabled="!!actionKey || loading" :loading="actionKey === 'preview'" @click="previewClear">{{ t('taskHistory.clearCompleted') }}</v-btn>
     <v-btn icon="mdi-refresh" variant="text" :aria-label="t('taskHistory.refresh')" :loading="loading" @click="refresh" />
   </PageHeader>
-  <v-alert v-if="error || ((!deleteTarget && !clearPreview) && actionError) || filterError" type="error" density="compact" class="mb-4">{{ ((!deleteTarget && !clearPreview) && actionError) || error || filterError }}</v-alert>
+  <v-alert v-if="pageActionError || error || filterError" type="error" density="compact" class="mb-4">{{ pageActionError || error || filterError }}</v-alert>
   <v-alert v-if="notice" type="info" density="compact" class="mb-4">{{ notice }}</v-alert>
   <div class="task-board">
     <div class="task-filters">
@@ -15,7 +15,7 @@
       <v-select v-if="administration" v-model="creator" :items="creatorOptions" :label="t('taskHistory.creator')" density="compact" hide-details />
     </div>
     <div class="task-count text-caption muted" aria-live="polite">{{ t('taskHistory.count', { count: formatNumber(total) }) }}</div>
-    <TaskTable v-if="items.length" :items="items" :action-key="actionKey" @stage="openStage" @action="act" @delete="deleteTarget = $event" />
+    <TaskTable v-if="items.length" :items="items" :action-key="actionKey" @stage="openStage" @action="act" @delete="deleteTarget = $event" @interrupt="openRecordingInterruption" />
     <div v-else class="task-empty muted" :role="loading ? 'status' : undefined">{{ t(loading ? 'taskHistory.loading' : 'taskHistory.empty') }}</div>
     <nav class="task-pagination" :aria-label="t('taskHistory.pagination')">
       <v-btn variant="text" prepend-icon="mdi-chevron-left" :disabled="!cursors.length || loading" @click="previousPage">{{ t('taskHistory.previous') }}</v-btn>
@@ -25,6 +25,8 @@
   </div>
   <TaskStageDetailsDialog :task="selectedTask" :stage-id="selectedStageId" :scope="scope" @close="selectedTask = undefined" />
   <ConfirmDialog :model-value="!!deleteTarget" :title="t('taskHistory.deleteTitle')" :message="t('taskHistory.deleteMessage', { title: deleteTarget?.title || t('components.library.unnamedSession') })" :action-label="t('taskHistory.delete')" danger :busy="!!actionKey" :error="actionError" @update:model-value="!$event && !actionKey && (deleteTarget = undefined)" @confirm="dismiss" />
+  <ConfirmDialog :model-value="!!interruptTarget" :title="t('taskHistory.interruptRecording')" :message="t('taskHistory.interruptRecordingMessage', { title: interruptTarget?.title || t('components.library.unnamedSession'), started: formatDate(interruptTarget?.createdAtUtc) })"
+    :action-label="t('taskHistory.interruptRecording')" danger :busy="!!actionKey" :error="actionError" @update:model-value="!$event && closeRecordingInterruption()" @confirm="interruptRecording" />
   <ConfirmDialog :model-value="!!clearPreview" :title="t('taskHistory.clearTitle')" :message="`${t('taskHistory.clearMessage', { count: formatNumber(clearPreview?.count ?? 0) })} · ${frozenFilterLabel}`" :action-label="t('taskHistory.clearCompleted')" danger :busy="!!actionKey" :error="actionError" @update:model-value="!$event && !actionKey && closeClear()" @confirm="clearCompleted" />
 </template>
 
@@ -36,7 +38,7 @@ import { TaskHistoryAPI } from '@/apis/TaskHistoryAPI'
 import { useTaskHistory } from '@/composables/useTaskHistory'
 import { useAuthStore } from '@/stores/auth'
 import type { TaskFilters, TaskQuery, TaskScope } from '@/models/taskHistory'
-import { formatNumber } from '@/utilities/format'
+import { formatDate, formatNumber } from '@/utilities/format'
 import { taskTypeLabel } from '@/utilities/taskHistory'
 import PageHeader from '@/components/common/PageHeader.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -64,8 +66,10 @@ const filters = computed<TaskQuery>(() => ({ state: state.value, type: type.valu
   initiatorUserId: administration.value && creator.value !== 'all' ? creator.value : undefined,
   search: search.value || undefined, limit: 50 }))
 const { items, total, loading, error, actionError, notice, actionKey, page, nextCursor, cursors,
-  selectedTask, selectedStageId, deleteTarget, clearPreview, clearFilter, refresh, act, dismiss, previewClear,
-  clearCompleted, openStage, nextPage, previousPage } = useTaskHistory(() => props.scope, () => filters.value)
+  selectedTask, selectedStageId, deleteTarget, interruptTarget, clearPreview, clearFilter, refresh, act, dismiss,
+  openRecordingInterruption, closeRecordingInterruption, interruptRecording, previewClear, clearCompleted,
+  openStage, nextPage, previousPage } = useTaskHistory(() => props.scope, () => filters.value)
+const pageActionError = computed(() => deleteTarget.value || interruptTarget.value || clearPreview.value ? '' : actionError.value)
 const stateOptions = computed(() => ['all', 'active', 'Completed', 'failed', 'Cancelled', 'Skipped'].map(value => ({ value, title: t(`taskHistory.states.${value}`) })))
 const typeOptions = computed(() => [{ value: 'all', title: t('taskHistory.all') }, ...['Clip', 'Analysis', 'LiveMarkers',
   ...(auth.isAdmin ? ['Transcode', 'Repair', 'Merge'] : []), ...(administration.value ? ['Recording'] : [])]

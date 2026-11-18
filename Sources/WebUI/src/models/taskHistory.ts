@@ -48,6 +48,7 @@ export interface TaskSummary
   cancelRequested: boolean
   canCancel: boolean
   canRetry: boolean
+  canInterruptRecording?: boolean
   canDelete: boolean
   canViewResults: boolean
   liveMarkerFileId?: string | null

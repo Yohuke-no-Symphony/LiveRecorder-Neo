@@ -25,6 +25,7 @@ export function useTaskHistory(scope: () => TaskScope, filters: () => TaskQuery)
   const selectedTask = ref<TaskSummary>()
   const selectedStageId = ref('')
   const deleteTarget = ref<TaskSummary>()
+  const interruptTarget = ref<TaskSummary>()
   const clearPreview = ref<TaskClearPreview>()
   const clearFilter = ref<TaskQuery>()
   const page = computed(() => cursors.value.length + 1)
@@ -138,6 +139,31 @@ export function useTaskHistory(scope: () => TaskScope, filters: () => TaskQuery)
     }
   }
 
+  function openRecordingInterruption(task: TaskSummary): void
+  {
+    if (actionKey.value || scope() !== 'administration' || !mayRead.value || !task.canInterruptRecording) { return }
+    actionError.value = ''
+    interruptTarget.value = task
+  }
+
+  function closeRecordingInterruption(): void
+  {
+    if (actionKey.value) { return }
+    interruptTarget.value = undefined
+    actionError.value = ''
+  }
+
+  async function interruptRecording(): Promise<void>
+  {
+    const task = interruptTarget.value
+    const reportedAt = task?.lastUpdatedAtUtc
+    if (!task?.canInterruptRecording || !reportedAt || scope() !== 'administration') { return }
+    if (await perform(`${taskKey(task)}:interrupt`, () => TaskHistoryAPI.interruptRecording(task.id, reportedAt)))
+    {
+      interruptTarget.value = undefined
+    }
+  }
+
   async function previewClear(): Promise<void>
   {
     if (actionKey.value || !mayRead.value) { return }
@@ -221,7 +247,7 @@ export function useTaskHistory(scope: () => TaskScope, filters: () => TaskQuery)
     total.value = 0
     cursors.value = []
     nextCursor.value = null
-    selectedTask.value = deleteTarget.value = undefined
+    selectedTask.value = deleteTarget.value = interruptTarget.value = undefined
     clearPreview.value = undefined
     clearFilter.value = undefined
     actionKey.value = error.value = actionError.value = notice.value = ''
@@ -235,6 +261,7 @@ export function useTaskHistory(scope: () => TaskScope, filters: () => TaskQuery)
   })
   usePolling(load, 4000)
   return { items, total, loading, error, actionError, notice, actionKey, page, nextCursor, cursors,
-    selectedTask, selectedStageId, deleteTarget, clearPreview, clearFilter,
-    refresh, act, dismiss, previewClear, clearCompleted, openStage, nextPage, previousPage }
+    selectedTask, selectedStageId, deleteTarget, interruptTarget, clearPreview, clearFilter,
+    refresh, act, dismiss, openRecordingInterruption, closeRecordingInterruption, interruptRecording,
+    previewClear, clearCompleted, openStage, nextPage, previousPage }
 }

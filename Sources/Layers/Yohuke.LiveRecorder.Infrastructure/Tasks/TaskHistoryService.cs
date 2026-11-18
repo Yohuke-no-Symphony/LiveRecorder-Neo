@@ -6,13 +6,14 @@ using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Application.Tasks;
 using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
 using Yohuke.LiveRecorder.Infrastructure.Transcoding;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Tasks;
 
 /// <summary>统一查询业务任务，并独立清理个人或管理员的历史展示记录。</summary>
-public sealed class TaskHistoryService(IMongoContext context, WorkerConnectionStatusTracker connections)
+public sealed class TaskHistoryService(IMongoContext context, WorkerConnectionStatusTracker connections, IAppPaths paths)
 {
     private static readonly HashSet<string> Kinds = ["media", "ai", "transcode", "recording"];
     private static readonly HashSet<string> States = ["all", "active", "failed", "Queued", "Running", "Publishing", "Completed", "Failed", "Cancelled", "Skipped", "Partial", "Interrupted"];
@@ -94,11 +95,43 @@ public sealed class TaskHistoryService(IMongoContext context, WorkerConnectionSt
         return TaskSummaryMapper.From(row, viewer, connections);
     }
 
+    /// <summary>由管理员确认缓存丢失后结束历史任务；较新的场次进度使确认失效。</summary>
+    public async Task InterruptRecordingAsync(string id, RecordingTaskInterruptRequest request, TaskHistoryViewer viewer, CancellationToken cancellationToken)
+    {
+        RequireIdentity("recording", id);
+        Require(new(), viewer, true);
+        if (request.LastReportedAtUtc == default || request.LastReportedAtUtc.Kind != DateTimeKind.Utc)
+        {
+            throw new InfrastructureException(MessageCode.REQUEST_INVALID);
+        }
+        var snapshots = context.Collection<RecordingSessionTaskSnapshot>("recordingSessionTasks");
+        var snapshot = await snapshots.Find(value => value.Id == id).FirstOrDefaultAsync(cancellationToken);
+        if (snapshot is null || string.IsNullOrWhiteSpace(snapshot.WorkerId)
+            || Milliseconds(snapshot.LastReportedAtUtc) != Milliseconds(request.LastReportedAtUtc))
+        {
+            throw new InfrastructureException(MessageCode.JOB_STATE_CHANGED, 409);
+        }
+
+        await using var identityLock = await WorkerIdentityLock.AcquireAsync(paths, snapshot.WorkerId, cancellationToken);
+        var task = await GetAsync("recording", id, viewer, true, cancellationToken);
+        if (!task.CanInterruptRecording || task.WorkerId != snapshot.WorkerId || task.LastUpdatedAtUtc != snapshot.LastReportedAtUtc)
+        {
+            throw new InfrastructureException(MessageCode.JOB_STATE_CHANGED, 409);
+        }
+
+        await context.Collection<RecordingTaskInterruption>("recordingTaskInterruptions").ReplaceOneAsync(value => value.Id == id, new()
+        {
+            Id = id, WorkerId = snapshot.WorkerId, AssignmentId = snapshot.AssignmentId, Generation = snapshot.Generation,
+            LastReportedAtUtc = snapshot.LastReportedAtUtc, InterruptedByUserId = viewer.UserId
+        }, new ReplaceOptions { IsUpsert = true }, cancellationToken);
+    }
+
     /// <summary>仅隐藏确认时仍为相同终态的记录。</summary>
     public async Task DeleteAsync(string kind, string id, TaskHistoryDeleteRequest request, TaskHistoryViewer viewer, bool administration, CancellationToken cancellationToken)
     {
         var task = await GetAsync(kind, id, viewer, administration, cancellationToken);
         if (!task.CanDelete || task.FinishedAtUtc is not { } finished || task.Attempt != request.Attempt
+            || (kind == "recording" || request.State is not null) && task.State != request.State
             || Milliseconds(finished) != Milliseconds(request.FinishedAtUtc))
         {
             throw new InfrastructureException(MessageCode.JOB_STATE_CHANGED, 409);
@@ -166,9 +199,10 @@ public sealed class TaskHistoryService(IMongoContext context, WorkerConnectionSt
     {
         var finished = task.FinishedAtUtc!.Value;
         var prefix = administration ? "Admin:" : "User:" + viewer.UserId + ":";
+        var suffix = task is { Kind: "recording", State: "Interrupted" } ? TaskHistoryProjection.INTERRUPTED_RECORDING_DISMISSAL_SUFFIX : "";
         return new()
         {
-            Id = prefix + task.Kind + ":" + task.Id + ":" + task.Attempt.ToString(CultureInfo.InvariantCulture) + ":" + Milliseconds(finished).ToString(CultureInfo.InvariantCulture),
+            Id = prefix + task.Kind + ":" + task.Id + ":" + task.Attempt.ToString(CultureInfo.InvariantCulture) + ":" + Milliseconds(finished).ToString(CultureInfo.InvariantCulture) + suffix,
             Scope = administration ? "Admin" : "User", ViewerId = administration ? "" : viewer.UserId,
             Kind = task.Kind, TaskId = task.Id, Attempt = task.Attempt, FinishedAtUtc = finished
         };
