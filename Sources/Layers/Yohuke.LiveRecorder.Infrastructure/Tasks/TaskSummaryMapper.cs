@@ -20,7 +20,7 @@ internal static class TaskSummaryMapper
         var state = Text(row, "State") ?? "Queued";
         var worker = Text(row, "WorkerId");
         var active = state is "Queued" or "Running" or "Publishing";
-        var terminal = state is "Completed" or "Failed" or "Cancelled" or "Skipped" or "Partial" or "Interrupted";
+        var terminal = IsTerminal(state);
         var mayOperate = viewer.IsAdmin || Text(row, "InitiatorUserId") == viewer.UserId;
         var permission = kind switch
         {
@@ -32,12 +32,7 @@ internal static class TaskSummaryMapper
             _ => false
         };
         var stages = kind == "recording" ? RecordingStages(row, data) : kind == "ai" ? AiStages(row, data) : WorkerStages(row, data);
-        if (terminal)
-        {
-            stages = stages.Select(stage => stage.State is "Running" or "Waiting"
-                ? stage with { State = state is "Partial" or "Interrupted" ? "Interrupted" : state }
-                : stage).ToArray();
-        }
+        stages = ApplyTerminalState(stages, state);
         var error = kind == "recording" ? stages.Select(stage => stage.Error).FirstOrDefault(value => value is not null) : Error(data);
         if (!viewer.IsAdmin)
         {
@@ -79,20 +74,59 @@ internal static class TaskSummaryMapper
         };
     }
 
+    internal static IReadOnlyList<TaskStageSummary> PublicAiStages(AiAnalysisJob job)
+    {
+        if (job.State == "Queued" || job.Stages is not { Count: > 0 } snapshots)
+        {
+            return [];
+        }
+
+        var stages = snapshots.Select(snapshot => FromWorkerSnapshot(snapshot) with
+        {
+            Error = AiErrors.Describe(snapshot.ErrorCode),
+            Metrics = Metrics(snapshot.Activity, null, includeCurrentFile: false)
+        }).ToArray();
+        return ApplyTerminalState(stages, job.State);
+    }
+
+    private static bool IsTerminal(string state) => state is "Completed" or "Failed" or "Cancelled" or "Skipped" or "Partial" or "Interrupted";
+
+    private static IReadOnlyList<TaskStageSummary> ApplyTerminalState(IReadOnlyList<TaskStageSummary> stages, string state)
+    {
+        if (!IsTerminal(state))
+        {
+            return stages;
+        }
+
+        var finalStageState = state is "Partial" or "Interrupted" ? "Interrupted" : state;
+        return stages.Select(stage => stage.State is "Running" or "Waiting" ? stage with
+        {
+            State = finalStageState
+        } : stage).ToArray();
+    }
+
+    private static TaskStageSummary FromWorkerSnapshot(WorkerStageSnapshot snapshot) => new()
+    {
+        Id = snapshot.Id,
+        State = snapshot.State,
+        Progress = snapshot.State == "Running" && snapshot.Progress == 0 && snapshot.Activity is null ? null
+            : double.IsFinite(snapshot.Progress) ? Math.Clamp(snapshot.Progress, 0, 100) : null,
+        StartedAtUtc = snapshot.StartedAtUtc,
+        FinishedAtUtc = snapshot.FinishedAtUtc,
+        ElapsedMs = snapshot.ElapsedMs
+    };
+
     private static IReadOnlyList<TaskStageSummary> WorkerStages(BsonDocument row, BsonDocument data)
     {
         var state = Text(row, "State") ?? "Queued";
         if (data.TryGetValue("Stages", out var raw) && raw is BsonArray snapshots && snapshots.Count > 0
             && (state == "Queued" || snapshots.OfType<BsonDocument>().Any(stage => Text(stage, "State") is not (null or "Pending"))))
         {
-            return snapshots.OfType<BsonDocument>().Select(value => BsonSerializer.Deserialize<WorkerStageSnapshot>(value)).Select(stage => new TaskStageSummary
+            var encoder = Text(data, "Encoder");
+            return snapshots.OfType<BsonDocument>().Select(value => BsonSerializer.Deserialize<WorkerStageSnapshot>(value)).Select(stage => FromWorkerSnapshot(stage) with
             {
-                Id = stage.Id, State = stage.State,
-                Progress = stage.State == "Running" && stage.Progress == 0 && stage.Activity is null ? null
-                    : double.IsFinite(stage.Progress) ? Math.Clamp(stage.Progress, 0, 100) : null,
-                StartedAtUtc = stage.StartedAtUtc, FinishedAtUtc = stage.FinishedAtUtc, ElapsedMs = stage.ElapsedMs,
                 Substate = stage.Substate, Error = Describe(stage.ErrorCode, fallback: stage.Error),
-                Metrics = Metrics(stage.Activity, Text(data, "Encoder"))
+                Metrics = Metrics(stage.Activity, encoder)
             }).ToArray();
         }
         if (state == "Queued")
@@ -197,7 +231,7 @@ internal static class TaskSummaryMapper
         ];
     }
 
-    private static IReadOnlyList<TaskMetric> Metrics(WorkerJobActivity? activity, string? encoder)
+    private static IReadOnlyList<TaskMetric> Metrics(WorkerJobActivity? activity, string? encoder, bool includeCurrentFile = true)
     {
         var metrics = new List<TaskMetric>();
         if (activity is not null)
@@ -212,7 +246,7 @@ internal static class TaskSummaryMapper
             Add(metrics, "estimatedRemaining", activity.EstimatedSecondsRemaining * 1000, "milliseconds");
             Add(metrics, "filesCompleted", activity.FilesCompleted);
             Add(metrics, "filesTotal", activity.FilesTotal);
-            if (!string.IsNullOrWhiteSpace(activity.CurrentFile))
+            if (includeCurrentFile && !string.IsNullOrWhiteSpace(activity.CurrentFile))
             {
                 metrics.Add(new("currentFile", Text: activity.CurrentFile));
             }

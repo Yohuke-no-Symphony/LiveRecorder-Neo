@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+using Yohuke.LiveRecorder.Application.Tasks;
 using Yohuke.LiveRecorder.Domain;
 
 namespace Yohuke.LiveRecorder.Application.AI;
@@ -23,6 +25,8 @@ public sealed record AiAnalysisJobSummary(string Id, string SessionId, string St
     public int RequestRetries { get; init; }
     public string? WorkerId { get; init; }
     public int Attempt { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<TaskStageSummary>? Stages { get; init; }
 
     /// <summary>投影可公开给统计查看者的作业状态。</summary>
     public static AiAnalysisJobSummary From(AiAnalysisJob job) => new(job.Id, job.SessionId, job.State,

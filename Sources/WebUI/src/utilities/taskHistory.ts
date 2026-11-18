@@ -17,6 +17,12 @@ export function taskStageLabel(id: string, taskType?: string): string
   return i18n.global.te(key) ? i18n.global.t(key) : id
 }
 
+export function taskStageError(stage: TaskStage, taskError?: string | null): string
+{
+  if (['Completed', 'Succeeded', 'Skipped', 'Pending', 'Queued'].includes(stage.state)) { return '' }
+  return stage.error || (['Failed', 'Interrupted', 'Partial'].includes(stage.state) ? taskError : '') || ''
+}
+
 export function taskErrorLabel(error: string): string
 {
   const key = `taskHistory.errors.${error}`

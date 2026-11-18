@@ -1,3 +1,5 @@
+import type { TaskStage } from './taskHistory'
+
 export type AiJobState = 'Queued' | 'Running' | 'Completed' | 'Partial' | 'Cancelled' | 'Interrupted' | 'Failed'
 export type AiJobPurpose = 'Analysis' | 'LiveMarkers'
 
@@ -56,6 +58,7 @@ export interface AiAnalysisJob
   requestRetries?: number
   workerId?: string | null
   attempt?: number
+  stages?: TaskStage[]
   promptTokens: number
   completionTokens: number
   estimatedTokens: number

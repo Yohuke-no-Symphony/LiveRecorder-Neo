@@ -9,6 +9,7 @@ using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Library;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
+using Yohuke.LiveRecorder.Infrastructure.Tasks;
 
 namespace Yohuke.LiveRecorder.Infrastructure.AI;
 
@@ -81,7 +82,10 @@ public sealed class AiAnalysisService(IMongoContext context, LibraryService libr
         return new()
         {
             Enabled = settings.Ai.Enabled, CanGenerate = canGenerate,
-            CurrentJob = latest is null ? null : AiAnalysisJobSummary.From(latest),
+            CurrentJob = latest is null ? null : AiAnalysisJobSummary.From(latest) with
+            {
+                Stages = TaskSummaryMapper.PublicAiStages(latest)
+            },
             LatestCompleted = completed?.Result, LatestPartial = partial?.Result,
             LatestCompletedStale = completed is not null && (completed.Identity != identity || missingFile),
             LatestPartialStale = partial is not null && partial.Identity != identity,

@@ -157,6 +157,7 @@ public sealed class AiLiveMarkerHttpTests
             Settings = new() { ApiKey = "private-marker-key" },
             Snapshot = new() { EvidenceRelativePath = "private-marker-evidence" },
             Context = new() { ConversationPath = "private-marker-conversation" },
+            Stages = [new() { Id = "Reporting", State = "Completed", Progress = 100, ElapsedMs = 1250 }],
             Result = new() { SessionId = session.Id, Purpose = "LiveMarkers", IsComplete = true, Overview = "共享直播记录" }
         };
         analysis.Result.JobId = analysis.Id;
@@ -169,17 +170,22 @@ public sealed class AiLiveMarkerHttpTests
         var browser = fixture.NewBrowser();
         await browser.LoginAsync(account.Email, HttpServerFixture.USER_PASSWORD);
         await SetPermissionsAsync(fixture, account.Id, PermissionIds.VIEW_RECORDINGS, PermissionIds.VIEW_ANALYTICS);
+        var topics = (await browser.Client.GetFromJsonAsync<AiAnalysisStatus>($"/api/sessions/{session.Id}/ai-analysis"))!;
+        Assert.Equal(analysis.Id, topics.CurrentJob!.Id);
+        Assert.Empty(topics.CurrentJob.Stages!);
+        Assert.Equal("共享话题分析", topics.LatestCompleted!.Overview);
+        await SetPermissionsAsync(fixture, account.Id, PermissionIds.VIEW_RECORDINGS);
         for (var index = 0; index < 2; index++)
         {
-            var topics = (await browser.Client.GetFromJsonAsync<AiAnalysisStatus>($"/api/sessions/{session.Id}/ai-analysis"))!;
-            Assert.Equal(analysis.Id, topics.CurrentJob!.Id);
-            Assert.Equal("共享话题分析", topics.LatestCompleted!.Overview);
             using var response = await browser.Client.GetAsync($"/api/sessions/{session.Id}/ai-live-markers");
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             var text = await response.Content.ReadAsStringAsync();
             Assert.DoesNotContain("private-marker-", text);
             var status = (await response.Content.ReadFromJsonAsync<AiAnalysisStatus>())!;
             Assert.Equal(markers.Id, status.CurrentJob!.Id);
+            var stage = Assert.Single(status.CurrentJob.Stages!);
+            Assert.Equal("Reporting", stage.Id);
+            Assert.Equal(1250, stage.ElapsedMs);
             Assert.Null(status.CurrentJob.LiveMarkerFileId);
             Assert.Null(status.LatestCompleted!.LiveMarkerFileId);
             Assert.True(status.LatestCompletedStale);

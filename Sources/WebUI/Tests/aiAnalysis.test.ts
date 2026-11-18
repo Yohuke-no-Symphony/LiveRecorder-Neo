@@ -20,7 +20,10 @@ vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { sessions, streamers, analyt
 const card = defineComponent({ props: ['title'], setup: (props, { slots }) => () => h('section', [props.title ? h('h2', props.title) : null, slots.default?.(), slots.actions?.()]) })
 const button = defineComponent({ props: { disabled: Boolean }, emits: ['click'], setup: (props, { slots, emit }) => () => h('button', { disabled: props.disabled, onClick: () => emit('click') }, slots.default?.()) })
 const dialog = defineComponent({ props: { modelValue: Boolean }, setup: (props, { slots }) => () => props.modelValue ? h('div', { role: 'dialog' }, slots.default?.()) : null })
-const progress = defineComponent({ setup: () => () => h('div', { role: 'progressbar' }) })
+const progress = defineComponent({
+  props: { modelValue: Number, indeterminate: Boolean },
+  setup: props => () => h('div', { role: 'progressbar', 'aria-valuenow': props.indeterminate ? undefined : props.modelValue }),
+})
 const menu = defineComponent({ setup: (_, { slots }) =>
 {
   const opened = ref(false)
@@ -30,7 +33,7 @@ const menu = defineComponent({ setup: (_, { slots }) =>
   ])
 } })
 const menuItem = defineComponent({ props: { title: String, disabled: Boolean }, emits: ['click'], setup: (props, { emit }) => () => h('button', { role: 'menuitem', disabled: props.disabled, onClick: () => emit('click') }, props.title) })
-const stubs = { SessionPickerDialog: true, AnalyticsRangeOverview: true, AnalyticsContributions: true, VCombobox: true, ContentCard: card, CardHeader: card, EChartSurface: true, VBtn: button, VAlert: card, VProgressLinear: progress, VProgressCircular: true, VDialog: dialog, VMenu: menu, VList: card, VListItem: menuItem, VCard: card, VSelect: true, VTooltip: true, VDivider: true }
+const stubs = { SessionPickerDialog: true, AnalyticsRangeOverview: true, AnalyticsContributions: true, VCombobox: true, ContentCard: card, CardHeader: card, EChartSurface: true, VBtn: button, VAlert: card, VProgressLinear: progress, VProgressCircular: true, VDialog: dialog, VMenu: menu, VList: card, VListItem: menuItem, VCard: card, VSelect: true, VIcon: true, VTooltip: { template: '<slot name="activator" :props="{}" />' }, VDivider: true }
 const mounted: VueWrapper[] = []
 
 function source(id = 's1'): BroadcastSession
@@ -190,8 +193,9 @@ describe('统计页共享 AI 复盘', () =>
 
   it('从顶部工具栏生成，详情弹窗展示运行信息，关闭后用量和取消按钮不占据结果卡', async () =>
   {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const initial = { ...result(), canGenerate: true, latestCompleted: null }
-    const queued = { ...job('Queued'), requestRetries: 2 }
+    const queued = { ...job('Queued'), progress: 0, stages: [] }
     status.mockResolvedValueOnce(initial).mockResolvedValue({ ...initial, currentJob: queued })
     generate.mockResolvedValue(queued)
     const { wrapper } = await mountView()
@@ -204,15 +208,28 @@ describe('统计页共享 AI 复盘', () =>
     await flushPromises()
     expect(generate).toHaveBeenCalledWith('s1', false)
     const details = wrapper.get('[role="dialog"]')
+    expect(details.text()).toContain('排队中')
+    expect(details.text()).toContain('取消分析')
+    expect(details.find('[role="progressbar"]').exists()).toBe(false)
+    expect(status).toHaveBeenCalledTimes(2)
+
+    status.mockResolvedValue({
+      ...initial,
+      currentJob: {
+        ...job(), requestRetries: 2,
+        stages: [
+          { id: 'Preparing', state: 'Completed', progress: 100, metrics: [] },
+          { id: 'Analyzing', state: 'Running', progress: 48, metrics: [] },
+        ],
+      },
+    })
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(details.get('[data-stage-id="Analyzing"]').attributes('aria-pressed')).toBe('true')
+    expect(details.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('48')
     expect(details.text()).toContain('Token 用量 35 · 参考 10,000')
     expect(details.text()).toContain('模型请求 1')
     expect(details.text()).toContain('工具调用 2')
     expect(details.text()).toContain('请求重试 2')
-    expect(details.text()).toContain('排队中')
-    expect(details.text()).toContain('进度 25%')
-    expect(details.text()).toContain('取消分析')
-    expect(details.find('[role="progressbar"]').exists()).toBe(true)
-    expect(status).toHaveBeenCalledTimes(2)
     await details.findAll('button').find(button => button.text() === '关闭')!.trigger('click')
     expect(wrapper.text()).not.toContain('Token 用量')
     expect(wrapper.text()).not.toContain('模型请求')
@@ -222,7 +239,55 @@ describe('统计页共享 AI 复盘', () =>
     expect(wrapper.text()).not.toContain('取消分析')
     expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
     await openDetails(wrapper)
-    expect(status).toHaveBeenCalledTimes(2)
+    expect(status).toHaveBeenCalledTimes(3)
+  })
+
+  it('默认跟随 Worker 阶段，轮询保留手动选择，切换执行批次和重新打开时恢复跟随', async () =>
+  {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const initial = result()
+    const downloading = { id: 'Downloading', state: 'Running', progress: null, metrics: [] }
+    const preparing = { id: 'Preparing', state: 'Running', progress: 35, metrics: [] }
+    const analyzing = { id: 'Analyzing', state: 'Running', progress: 52, metrics: [] }
+    const downloaded = { ...downloading, state: 'Completed', progress: 100, elapsedMs: 1800 }
+    const prepared = { ...preparing, state: 'Completed', progress: 100 }
+    const running = { ...job(), attempt: 1 }
+    status.mockResolvedValue({ ...initial, currentJob: { ...running, stages: [downloading] } })
+    const { wrapper } = await mountView()
+    const details = await openDetails(wrapper)
+    expect(details.get('[data-stage-id="Downloading"]').attributes('aria-pressed')).toBe('true')
+    expect(details.get('[role="progressbar"]').attributes('aria-valuenow')).toBeUndefined()
+    expect(details.text()).not.toContain('Token 用量')
+    expect(details.text()).not.toContain('取消分析')
+
+    status.mockResolvedValue({ ...initial, currentJob: { ...running, stages: [downloaded, preparing] } })
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(details.get('[data-stage-id="Preparing"]').attributes('aria-pressed')).toBe('true')
+    await details.get('[data-stage-id="Downloading"]').trigger('click')
+    expect(details.text()).toContain(i18n.global.t('taskHistory.duration'))
+
+    const stages = [downloaded, prepared, analyzing]
+    status.mockResolvedValue({ ...initial, currentJob: { ...running, stages } })
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(details.get('[data-stage-id="Downloading"]').attributes('aria-pressed')).toBe('true')
+    expect(details.text()).not.toContain('Token 用量')
+
+    status.mockResolvedValue({ ...initial, currentJob: { ...running, attempt: 2, stages } })
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(details.get('[data-stage-id="Analyzing"]').attributes('aria-pressed')).toBe('true')
+    expect(details.text()).toContain('已完成 1 / 4 个分段')
+    expect(details.text()).toContain('Token 用量')
+    status.mockResolvedValue({ ...initial, currentJob: {
+      ...running, attempt: 2, state: 'Failed', stages: [downloaded, prepared,
+        { ...analyzing, state: 'Failed', error: '模型暂时不可用' }, { id: 'Reporting', state: 'Completed', progress: 100, metrics: [] }],
+    } })
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(details.get('[data-stage-id="Analyzing"]').attributes('aria-pressed')).toBe('true')
+    expect(details.text()).toContain('模型暂时不可用')
+    await details.get('[data-stage-id="Reporting"]').trigger('click')
+    expect(details.text()).not.toContain('Token 用量')
+    await details.findAll('button').find(button => button.text() === '关闭')!.trigger('click')
+    expect((await openDetails(wrapper)).get('[data-stage-id="Analyzing"]').attributes('aria-pressed')).toBe('true')
   })
 
   it('工具栏根据已有结果重新分析，详情内取消当前任务', async () =>

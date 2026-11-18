@@ -6,6 +6,7 @@ using MongoDB.Driver;
 using Xunit;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.AI;
+using Yohuke.LiveRecorder.Application.Tasks;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.AI;
 using Yohuke.LiveRecorder.Infrastructure.Files;
@@ -31,7 +32,12 @@ public sealed class AiAnalysisHttpTests
             Result = new() { SessionId = session.Id, IsComplete = true, Overview = "所有用户共享的已完成分析" }
         };
         completed.Result.JobId = completed.Id;
-        var queued = new AiAnalysisJob { SessionId = session.Id, OwnerId = "another-user", ActiveKey = session.Id };
+        var queued = new AiAnalysisJob
+        {
+            SessionId = session.Id, OwnerId = "another-user", ActiveKey = session.Id,
+            CreatedAtUtc = completed.CreatedAtUtc.AddSeconds(1),
+            Stages = [new() { Id = "Preparing", State = "Running", Progress = 12 }]
+        };
         await fixture.Context.Collection<AiAnalysisJob>("ai_analysis_jobs").InsertManyAsync([completed, queued]);
         var account = await fixture.CreateUserAsync("ai-reader@example.test");
         var viewer = fixture.NewBrowser();
@@ -53,6 +59,7 @@ public sealed class AiAnalysisHttpTests
             Assert.DoesNotContain("evidenceRelativePath", body);
             var report = JsonNode.Parse(body)!;
             Assert.False(report["canGenerate"]!.GetValue<bool>());
+            Assert.Empty(report["currentJob"]!["stages"]!.AsArray());
             Assert.Equal("所有用户共享的已完成分析", report["latestCompleted"]!["overview"]!.GetValue<string>());
         }
         using (var generation = await viewer.SendAsync(HttpMethod.Post, reportPath, new { force = true }))
@@ -86,6 +93,60 @@ public sealed class AiAnalysisHttpTests
             Assert.Equal(HttpStatusCode.Forbidden, write.StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, test.StatusCode);
         }
+    }
+
+    /// <summary>会话查看者获得与任务页同源的 Worker 阶段和终态，阶段诊断使用公开文案。</summary>
+    [MongoHttpFact]
+    public async Task SharedAnalysisReturnsPublicWorkerStages()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+        var session = await SeedSessionAsync(fixture, true);
+        var job = new AiAnalysisJob
+        {
+            SessionId = session.Id, State = "Running", OwnerId = "another-user", WorkerId = "ai-worker", Attempt = 1,
+            LeaseUntilUtc = DateTime.UtcNow.AddMinutes(5), Progress = 23,
+            Stages =
+            [
+                new()
+                {
+                    Id = "Downloading", State = "Completed", Progress = 100, ElapsedMs = 1800,
+                    Activity = new() { BytesTransferred = 1024, CurrentFile = "private-worker-file" }
+                },
+                new()
+                {
+                    Id = "Analyzing", State = "Running", ElapsedMs = 4000,
+                    ErrorCode = "AI_REQUEST_FAILED", Error = "private-worker-error"
+                }
+            ]
+        };
+        var jobs = fixture.Context.Collection<AiAnalysisJob>("ai_analysis_jobs");
+        await jobs.InsertOneAsync(job);
+        var account = await fixture.CreateUserAsync("ai-stage-reader@example.test");
+        var viewer = fixture.NewBrowser();
+        await viewer.LoginAsync(account.Email, HttpServerFixture.USER_PASSWORD);
+        await SetPermissionsAsync(fixture, account.Id, PermissionIds.VIEW_RECORDINGS, PermissionIds.VIEW_ANALYTICS);
+        var path = $"/api/sessions/{session.Id}/ai-analysis";
+        using var response = await viewer.Client.GetAsync(path);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain("private-worker-", await response.Content.ReadAsStringAsync());
+        var status = (await response.Content.ReadFromJsonAsync<AiAnalysisStatus>())!;
+        Assert.False(status.CanGenerate);
+        Assert.Equal(job.Id, status.CurrentJob!.Id);
+        var stages = status.CurrentJob.Stages!;
+        Assert.Equal(new[] { "Downloading", "Analyzing" }, stages.Select(stage => stage.Id));
+        Assert.Equal(1024, Assert.Single(stages[0].Metrics).Value);
+        Assert.Equal(100, stages[0].Progress);
+        Assert.Null(stages[1].Progress);
+        Assert.False(string.IsNullOrWhiteSpace(stages[1].Error));
+
+        await jobs.UpdateOneAsync(value => value.Id == job.Id, Builders<AiAnalysisJob>.Update.Set(value => value.State, "Interrupted"));
+        var interrupted = (await viewer.Client.GetFromJsonAsync<AiAnalysisStatus>(path))!.CurrentJob!.Stages![1];
+        var workerTask = (await fixture.Admin.Client.GetFromJsonAsync<BackgroundTaskSummary>($"/api/admin/worker-tasks/ai/{job.Id}"))!;
+        Assert.Equal("Interrupted", interrupted.State);
+        Assert.Equal(workerTask.Stages[1].State, interrupted.State);
+        Assert.Equal(workerTask.Stages[1].ElapsedMs, interrupted.ElapsedMs);
     }
 
     /// <summary>管理员密钥写入后加密保存，空输入保留，明确清除生效，读取与保存响应始终脱敏。</summary>

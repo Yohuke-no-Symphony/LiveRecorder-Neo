@@ -29,7 +29,7 @@ const select = defineComponent({ props: ['modelValue', 'items'], emits: ['update
 const dialog = defineComponent({ props: ['modelValue'], setup: (props, { slots }) => () => props.modelValue ? h('div', { role: 'dialog' }, slots.default?.()) : null })
 const stubs = {
   CardHeader: card, ContentCard: card, VCard: card, VCardText: card, VBtn: button, VMenu: menu, VList: card, VListItem: menuItem,
-  VSelect: select, VDialog: dialog, VTabs: card, VTab: card, VAlert: card, VProgressLinear: true, VVirtualScroll: true, VIcon: true,
+  VSelect: select, VDialog: dialog, VTabs: card, VTab: card, VAlert: card, VProgressLinear: true, VProgressCircular: true, VVirtualScroll: true, VIcon: true,
   VTooltip: { template: '<slot name="activator" :props="{}" />' }, SessionLiveMarkerUploadDialog: true, SessionLiveMarkerAlignmentDialog: true, ConfirmDialog: true,
   EventFeed: true, SessionTranslationPanel: true,
 }
@@ -218,13 +218,21 @@ describe('AI 生成共享直播记录', () =>
 
   it('发布阶段禁止取消，未结束和只读录像不允许生成', async () =>
   {
-    status.currentJob = { ...job(), phase: 'Publishing' }
+    status.currentJob = { ...job(), phase: 'Publishing', stages: [
+      { id: 'Analyzing', state: 'Completed', progress: 100, elapsedMs: 2400, metrics: [] },
+      { id: 'Reporting', state: 'Completed', progress: 100, elapsedMs: 1000, metrics: [] },
+    ] }
     const wrapper = await mountPanel()
     const actions = await openActions(wrapper)
     expect(findButton(actions, '生成直播记录').attributes('disabled')).toBeDefined()
     await findButton(actions, '直播记录生成详情').trigger('click')
-    expect(wrapper.get('[role="dialog"]').text()).toContain('发布中')
-    const cancelButton = findButton(wrapper.get('[role="dialog"]'), '取消生成')
+    const details = wrapper.get('[role="dialog"]')
+    expect(details.text()).toContain('发布中')
+    expect(details.get('[data-stage-id="Reporting"]').attributes('aria-pressed')).toBe('true')
+    expect(details.text()).not.toContain('Token 用量')
+    await details.get('[data-stage-id="Analyzing"]').trigger('click')
+    expect(details.text()).toContain('Token 用量')
+    const cancelButton = findButton(details, '取消生成')
     expect(cancelButton.attributes('disabled')).toBeDefined()
     await cancelButton.trigger('click')
     expect(cancel).not.toHaveBeenCalled()
