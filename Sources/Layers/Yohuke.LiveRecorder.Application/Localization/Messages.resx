@@ -186,6 +186,8 @@
   <data name="LIBRARY_DELETE_RECORDING_ACTIVE" xml:space="preserve"><value>录播仍在录制，请在录制结束后删除。</value></data>
   <data name="LIBRARY_DELETE_JOB_ACTIVE" xml:space="preserve"><value>录播仍有进行中的媒体任务，请等待任务结束。</value></data>
   <data name="LIBRARY_DELETE_FILES_FAILED" xml:space="preserve"><value>录播文件暂时无法移入回收站，请稍后重试。</value></data>
+  <data name="LIBRARY_PURGE_COUNT_INVALID" xml:space="preserve"><value>请选择 1 至 200 个回收站项目。</value></data>
+  <data name="LIBRARY_PURGE_FILES_FAILED" xml:space="preserve"><value>暂时无法彻底删除此项目，请稍后重试。</value></data>
   <data name="LIBRARY_DELETE_NOT_EDITABLE" xml:space="preserve"><value>此场录播正在归组或已被隐藏，请刷新录播库。</value></data>
   <data name="BOOKMARK_TITLE_INVALID" xml:space="preserve"><value>请填写 1 至 180 个字符的标记名称。</value></data>
   <data name="BOOKMARK_TIME_INVALID" xml:space="preserve"><value>请提供场次范围内的有效标记时间。</value></data>

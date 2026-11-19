@@ -8,6 +8,7 @@ import { createVuetify } from 'vuetify'
 import { VTextField } from 'vuetify/components/VTextField'
 import { ApiError } from '../src/apis/APIBase'
 import { MediaAPI } from '../src/apis/MediaAPI'
+import ClipCard from '../src/components/clips/ClipCard.vue'
 import ClipShareDialog from '../src/components/clips/ClipShareDialog.vue'
 import ConfirmDialog from '../src/components/common/ConfirmDialog.vue'
 import { PERMISSIONS } from '../src/models/auth'
@@ -68,6 +69,24 @@ function button(wrapper: Pick<VueWrapper, 'findAll'>, label: string)
   return match
 }
 
+function mountClipCard()
+{
+  const options = globalOptions()
+  const activeClip = { ...clip, expiresAtUtc: new Date(Date.now() + 60000).toISOString() }
+  const wrapper = mount(ClipCard, { props: { clip: activeClip }, global: {
+    ...options,
+    stubs: {
+      ...options.stubs,
+      RouterLink: { template: '<a><slot /></a>' },
+      VImg: true,
+      VIcon: true,
+      VTooltip: { props: ['text', 'location'], template: '<slot name="activator" :props="{ \'data-tooltip\': text }" />' },
+    },
+  } })
+  mounted.push(wrapper)
+  return wrapper
+}
+
 beforeEach(async () =>
 {
   vi.stubEnv('VITE_API_BASE_URL', apiOrigin)
@@ -94,6 +113,51 @@ afterEach(() =>
   else { Reflect.deleteProperty(navigator, 'clipboard') }
   vi.restoreAllMocks()
   vi.unstubAllEnvs()
+})
+
+describe('切片卡片操作', () =>
+{
+  it('同一个操作栏提供四个图标按钮的名称、提示和操作', async () =>
+  {
+    useAuthStore(pinia).user!.permissions.push(PERMISSIONS.downloadRecordings)
+    const wrapper = mountClipCard()
+    const actions = wrapper.get('.clip-actions').findAll('button, a')
+    expect(actions.map(action => action.attributes('aria-label'))).toEqual(['播放', '下载', '切片分享', '移入回收站'])
+    for (const action of actions)
+    {
+      expect(action.attributes('data-tooltip')).toBe(action.attributes('aria-label'))
+      expect(action.text()).toBe('')
+    }
+    expect(wrapper.get('a[aria-label="下载"]').attributes('href')).toBe(`${apiOrigin}/api/clips/${clip.id}/download`)
+
+    await wrapper.get('button[aria-label="播放"]').trigger('click')
+    await wrapper.get('button[aria-label="切片分享"]').trigger('click')
+    await wrapper.get('button[aria-label="移入回收站"]').trigger('click')
+    expect(wrapper.emitted('preview')).toHaveLength(1)
+    expect(wrapper.emitted('share')).toHaveLength(1)
+    expect(wrapper.emitted('trash')).toHaveLength(1)
+  })
+
+  it('无下载权限或切片到期时无下载链接，到期仍可移入回收站', async () =>
+  {
+    const wrapper = mountClipCard()
+    expect(wrapper.get('button[aria-label="下载"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('a[aria-label="下载"]').exists()).toBe(false)
+    expect(wrapper.get('button[aria-label="播放"]').attributes('disabled')).toBeUndefined()
+
+    useAuthStore(pinia).user!.permissions.push(PERMISSIONS.downloadRecordings)
+    await nextTick()
+    expect(wrapper.find('a[aria-label="下载"]').exists()).toBe(true)
+
+    await wrapper.setProps({ clip: { ...clip, expiresAtUtc: '2000-01-01T00:00:00Z' } })
+    expect(wrapper.find('a[aria-label="下载"]').exists()).toBe(false)
+    for (const label of ['播放', '下载', '切片分享'])
+    {
+      expect(wrapper.get(`button[aria-label="${label}"]`).attributes('disabled')).toBeDefined()
+    }
+    await wrapper.get('button[aria-label="移入回收站"]').trigger('click')
+    expect(wrapper.emitted('trash')).toHaveLength(1)
+  })
 })
 
 describe('切片分享管理', () =>

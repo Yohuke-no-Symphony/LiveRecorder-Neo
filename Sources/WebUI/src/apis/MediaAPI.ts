@@ -4,7 +4,7 @@ import type { SessionTimeline } from '@/models/sessionTimeline'
 import type { SessionBookmark } from '@/models/sessionBookmark'
 import type { SessionTrashResult } from '@/models/sessionLibrary'
 import type { SessionGroupConfiguration } from '@/models/sessionConfiguration'
-import type { Analytics, BroadcastSession, Clip, CreateJob, EventKind, EventPage, MediaJob, PlaybackEventWindow, PlaybackWindow, SessionDetail, StorageVolume, Streamer, TrashEntry } from '@/models/media'
+import type { Analytics, BroadcastSession, Clip, CreateJob, EventKind, EventPage, MediaJob, PlaybackEventWindow, PlaybackWindow, SessionDetail, StorageVolume, Streamer, TrashEntry, TrashPurgeResult } from '@/models/media'
 import type { SessionEventSnapshot } from '@/models/sessionEventSnapshot'
 import type { ServerPaths, ServerSettings } from '@/models/settings'
 import type { CacheCleanupOptions, CacheCleanupResult, StorageUsageReport } from '@/models/storage'
@@ -62,6 +62,7 @@ export const MediaAPI = {
   trash: () => request<TrashEntry[]>('trash'),
   restoreTrash: (id: string) => post<void>(`trash/${encodeURIComponent(id)}/restore`),
   purgeTrash: (id: string) => remove(`trash/${encodeURIComponent(id)}`),
+  purgeTrashEntries: (entryIds: string[]) => post<TrashPurgeResult[]>('trash/purge', { entryIds }),
   storage: (refresh = false) => request<StorageVolume[]>(`storage${query({ refresh })}`),
   storageDetails: (refresh = false) => request<StorageUsageReport>(`storage/details${query({ refresh })}`),
   cleanupCache: (body: CacheCleanupOptions) => post<CacheCleanupResult>('storage/cache/cleanup', body),

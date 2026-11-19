@@ -186,6 +186,8 @@
   <data name="LIBRARY_DELETE_RECORDING_ACTIVE" xml:space="preserve"><value>録画中です。録画が終了してから削除してください。</value></data>
   <data name="LIBRARY_DELETE_JOB_ACTIVE" xml:space="preserve"><value>この録画のメディアタスクが実行中です。完了するまでお待ちください。</value></data>
   <data name="LIBRARY_DELETE_FILES_FAILED" xml:space="preserve"><value>録画ファイルをゴミ箱に移動できません。しばらくしてから再試行してください。</value></data>
+  <data name="LIBRARY_PURGE_COUNT_INVALID" xml:space="preserve"><value>ゴミ箱の項目を1件から200件選択してください。</value></data>
+  <data name="LIBRARY_PURGE_FILES_FAILED" xml:space="preserve"><value>この項目を完全に削除できませんでした。しばらくしてから再試行してください。</value></data>
   <data name="LIBRARY_DELETE_NOT_EDITABLE" xml:space="preserve"><value>この録画はグループ化中か非表示になっています。ライブラリを更新してください。</value></data>
   <data name="BOOKMARK_TITLE_INVALID" xml:space="preserve"><value>ブックマーク名を 1～180 文字で入力してください。</value></data>
   <data name="BOOKMARK_TIME_INVALID" xml:space="preserve"><value>配信の時間範囲内で有効なブックマーク時刻を指定してください。</value></data>

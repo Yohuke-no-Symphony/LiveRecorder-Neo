@@ -275,6 +275,127 @@ public sealed class SessionDeletionHttpTests
         Assert.True(await fixture.Context.Collection<Clip>("clips").Find(x => x.Id == clip.Id).AnyAsync());
     }
 
+    /// <summary>批量彻删要求登录，并在删除前校验条目数量和标识。重复或已消失的条目只返回一次结果。</summary>
+    [MongoHttpFact]
+    public async Task BatchPurgeValidatesIdentifiersBeforeDeletingAnything()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+        var manifest = await SeedAsync(fixture);
+        var entry = await MoveToTrashAsync(fixture, fixture.Admin, "/api/sessions/" + manifest.Session.Id, manifest.Session.Id);
+        var trashDirectory = Path.Combine(fixture.StoragePath, entry.TrashRelativePath);
+        var anonymous = fixture.NewBrowser();
+        await anonymous.RefreshCsrfAsync();
+        using var unauthorized = await anonymous.SendAsync(HttpMethod.Post, "/api/trash/purge", new { entryIds = new[] { entry.Id } });
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
+
+        var invalidRequests = new object[]
+        {
+            new { },
+            new { entryIds = (string[]?)null },
+            new { entryIds = Array.Empty<string>() },
+            new { entryIds = new string?[] { entry.Id, null } },
+            new { entryIds = new[] { entry.Id, " " } },
+            new { entryIds = Enumerable.Repeat(entry.Id, 201).ToArray() }
+        };
+        foreach (var request in invalidRequests)
+        {
+            using var response = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/trash/purge", request);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            var problem = await response.Content.ReadFromJsonAsync<JsonObject>();
+            Assert.Equal("LIBRARY_PURGE_COUNT_INVALID", problem!["code"]!.GetValue<string>());
+        }
+        Assert.True(await fixture.Context.Collection<TrashEntry>("trash").Find(x => x.Id == entry.Id).AnyAsync());
+        Assert.True(Directory.Exists(trashDirectory));
+
+        var purged = await PurgeBatchAsync(fixture.Admin, Enumerable.Repeat(entry.Id, 200).ToArray());
+        Assert.True(purged[entry.Id]["success"]!.GetValue<bool>());
+        Assert.False(await fixture.Context.Collection<TrashEntry>("trash").Find(x => x.Id == entry.Id).AnyAsync());
+        Assert.False(Directory.Exists(trashDirectory));
+        var repeated = await PurgeBatchAsync(fixture.Admin, entry.Id);
+        Assert.True(repeated[entry.Id]["success"]!.GetValue<bool>());
+    }
+
+    /// <summary>批量彻删沿用共享录像权限和切片归属，允许部分成功。</summary>
+    [MongoHttpFact]
+    public async Task BatchPurgeRespectsClipOwnershipAndRecordingPermissions()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+        var user = await fixture.CreateUserAsync("batch-purge-owner@example.test");
+        var otherUser = await fixture.CreateUserAsync("batch-purge-other@example.test");
+        var browser = fixture.NewBrowser();
+        await browser.LoginAsync(user.Email, HttpServerFixture.USER_PASSWORD);
+        await SetPermissionsAsync(fixture, user.Id, manage: true);
+
+        var manifest = await SeedAsync(fixture);
+        var ownClip = (await HttpMediaFixtureData.CreateAsync(fixture, user.Id)).Clip;
+        var otherClip = (await HttpMediaFixtureData.CreateAsync(fixture, otherUser.Id, roomId: 101)).Clip;
+        var sessionEntry = await MoveToTrashAsync(fixture, fixture.Admin, "/api/sessions/" + manifest.Session.Id, manifest.Session.Id);
+        var ownEntry = await MoveToTrashAsync(fixture, browser, "/api/clips/" + ownClip.Id, ownClip.Id);
+        var otherEntry = await MoveToTrashAsync(fixture, fixture.Admin, "/api/clips/" + otherClip.Id, otherClip.Id);
+        var ownPath = Path.Combine(fixture.StoragePath, ownEntry.TrashRelativePath);
+        var otherPath = Path.Combine(fixture.StoragePath, otherEntry.TrashRelativePath);
+        Assert.True(File.Exists(ownPath));
+        Assert.True(File.Exists(otherPath));
+
+        var results = await PurgeBatchAsync(browser, otherEntry.Id, sessionEntry.Id, ownEntry.Id);
+        Assert.True(results[ownEntry.Id]["success"]!.GetValue<bool>());
+        foreach (var id in new[] { otherEntry.Id, sessionEntry.Id })
+        {
+            Assert.False(results[id]["success"]!.GetValue<bool>());
+            Assert.False(string.IsNullOrWhiteSpace(results[id]["error"]?.GetValue<string>()));
+            Assert.True(await fixture.Context.Collection<TrashEntry>("trash").Find(x => x.Id == id).AnyAsync());
+        }
+        Assert.False(File.Exists(ownPath));
+        Assert.False(await fixture.Context.Collection<Clip>("clips").Find(x => x.Id == ownClip.Id).AnyAsync());
+        Assert.True(File.Exists(otherPath));
+
+        await SetPermissionsAsync(fixture, user.Id, purge: true);
+        var granted = await PurgeBatchAsync(browser, sessionEntry.Id, otherEntry.Id);
+        Assert.True(granted[sessionEntry.Id]["success"]!.GetValue<bool>());
+        Assert.False(granted[otherEntry.Id]["success"]!.GetValue<bool>());
+        Assert.False(await fixture.Context.Collection<BroadcastSession>("sessions").Find(x => x.Id == manifest.Session.Id).AnyAsync());
+        Assert.True(File.Exists(otherPath));
+
+        var administrator = await PurgeBatchAsync(fixture.Admin, otherEntry.Id);
+        Assert.True(administrator[otherEntry.Id]["success"]!.GetValue<bool>());
+        Assert.False(File.Exists(otherPath));
+    }
+
+    /// <summary>未选中的分段会阻止整场彻删。同时选中时先彻删分段，再彻删整场。</summary>
+    [MongoHttpFact]
+    public async Task BatchPurgeProcessesSelectedSegmentsBeforeTheirSession()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+        var manifest = await SeedAsync(fixture, segmentCount: 2);
+        var segmentId = manifest.Segments[0].Id;
+        var sessionId = manifest.Session.Id;
+        var sessionPath = "/api/sessions/" + sessionId;
+        var segmentEntry = await MoveToTrashAsync(fixture, fixture.Admin, $"{sessionPath}/segments/{segmentId}", segmentId);
+        var sessionEntry = await MoveToTrashAsync(fixture, fixture.Admin, sessionPath, sessionId);
+        var segmentFile = Path.Combine(fixture.StoragePath, segmentEntry.TrashRelativePath);
+        var sessionDirectory = Path.Combine(fixture.StoragePath, sessionEntry.TrashRelativePath);
+
+        var blocked = await PurgeBatchAsync(fixture.Admin, sessionEntry.Id);
+        Assert.False(blocked[sessionEntry.Id]["success"]!.GetValue<bool>());
+        Assert.False(string.IsNullOrWhiteSpace(blocked[sessionEntry.Id]["error"]?.GetValue<string>()));
+        Assert.True(await fixture.Context.Collection<TrashEntry>("trash").Find(x => x.Id == segmentEntry.Id).AnyAsync());
+        Assert.True(File.Exists(segmentFile));
+        Assert.True(Directory.Exists(sessionDirectory));
+
+        var results = await PurgeBatchAsync(fixture.Admin, sessionEntry.Id, segmentEntry.Id);
+        Assert.All(results.Values, result => Assert.True(result["success"]!.GetValue<bool>(), result["error"]?.GetValue<string>()));
+        Assert.False(await fixture.Context.Collection<TrashEntry>("trash").Find(x => x.Id == sessionEntry.Id || x.Id == segmentEntry.Id).AnyAsync());
+        Assert.False(await fixture.Context.Collection<BroadcastSession>("sessions").Find(x => x.Id == sessionId).AnyAsync());
+        Assert.False(File.Exists(segmentFile));
+        Assert.False(Directory.Exists(sessionDirectory));
+    }
+
     /// <summary>分析权限单独授予和撤销，管理员仍可在未配置个人权限时操作录像和分析。</summary>
     [MongoHttpFact]
     public async Task AnalyticsPermissionCanBeGrantedAndRevokedWithoutGrantingRecordingManagement()
@@ -450,6 +571,24 @@ public sealed class SessionDeletionHttpTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
+    private static async Task<TrashEntry> MoveToTrashAsync(HttpServerFixture fixture, HttpBrowser browser, string path, string entityId)
+    {
+        using var response = await browser.SendAsync(HttpMethod.Delete, path);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        return await fixture.Context.Collection<TrashEntry>("trash").Find(x => x.EntityId == entityId).SingleAsync();
+    }
+
+    private static async Task<Dictionary<string, JsonObject>> PurgeBatchAsync(HttpBrowser browser, params string[] entryIds)
+    {
+        using var response = await browser.SendAsync(HttpMethod.Post, "/api/trash/purge", new { entryIds });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var results = await response.Content.ReadFromJsonAsync<JsonArray>();
+        Assert.NotNull(results);
+        var byId = results.Select(item => item!.AsObject()).ToDictionary(item => item["entryId"]!.GetValue<string>());
+        Assert.Equal(entryIds.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal), byId.Keys.Order(StringComparer.Ordinal));
+        return byId;
+    }
+
     private static async Task RestartAndWaitForRebuildAsync(HttpServerFixture fixture)
     {
         var recorder = fixture.App.Services.GetServices<IHostedService>().OfType<RecordingSupervisor>().Single();
@@ -466,7 +605,7 @@ public sealed class SessionDeletionHttpTests
         Assert.Equal(HttpStatusCode.NoContent, deletedProbe.StatusCode);
     }
 
-    private static async Task<SessionManifest> SeedAsync(HttpServerFixture fixture, bool recording = false, bool publishToDatabase = true)
+    private static async Task<SessionManifest> SeedAsync(HttpServerFixture fixture, bool recording = false, bool publishToDatabase = true, int segmentCount = 1)
     {
         var startedAt = DateTime.UtcNow.AddHours(-1);
         var session = new BroadcastSession
@@ -480,24 +619,30 @@ public sealed class SessionDeletionHttpTests
             State = recording ? "Recording" : "Completed"
         };
         session.DirectoryPath = Path.Combine("http-session-deletion", session.Id);
-        var relative = Path.Combine("source", "fixture.flv");
-        var file = Path.Combine(fixture.StoragePath, session.DirectoryPath, relative);
-        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-        await File.WriteAllTextAsync(file, "http-session-data-" + session.Id);
-        session.TotalBytes = new FileInfo(file).Length;
-        var segment = new RecordingSegment
+        Directory.CreateDirectory(Path.Combine(fixture.StoragePath, session.DirectoryPath, "source"));
+        var segmentDuration = TimeSpan.FromMinutes(5).TotalMilliseconds / segmentCount;
+        var manifest = new SessionManifest { Session = session };
+        for (var index = 0; index < segmentCount; index++)
         {
-            SessionId = session.Id,
-            RelativePath = relative,
-            DurationMs = TimeSpan.FromMinutes(5).TotalMilliseconds,
-            CommittedBytes = session.TotalBytes,
-            IsClosed = !recording
-        };
-        var manifest = new SessionManifest { Session = session, Segments = [segment] };
+            var relative = Path.Combine("source", $"fixture-{index}.flv");
+            var file = Path.Combine(fixture.StoragePath, session.DirectoryPath, relative);
+            await File.WriteAllTextAsync(file, "http-session-data-" + session.Id);
+            var bytes = new FileInfo(file).Length;
+            session.TotalBytes += bytes;
+            manifest.Segments.Add(new()
+            {
+                SessionId = session.Id,
+                RelativePath = relative,
+                StartOffsetMs = segmentDuration * index,
+                DurationMs = segmentDuration,
+                CommittedBytes = bytes,
+                IsClosed = !recording
+            });
+        }
         if (publishToDatabase)
         {
             await fixture.Context.Collection<BroadcastSession>("sessions").InsertOneAsync(session);
-            await fixture.Context.Collection<RecordingSegment>("segments").InsertOneAsync(segment);
+            await fixture.Context.Collection<RecordingSegment>("segments").InsertManyAsync(manifest.Segments);
         }
         await JsonFiles.WriteAsync(Path.Combine(fixture.StoragePath, session.DirectoryPath, "场次.json"), manifest);
         return manifest;

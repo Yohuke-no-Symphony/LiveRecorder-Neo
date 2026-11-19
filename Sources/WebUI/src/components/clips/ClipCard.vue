@@ -15,18 +15,26 @@
         <time class="clip-expiry" :datetime="clip.expiresAtUtc">{{ t('views.clips.expires', { date: formatDate(clip.expiresAtUtc) }) }}</time>
       </div>
       <div class="clip-actions">
-        <div class="clip-primary-actions">
-          <v-btn color="primary" size="small" prepend-icon="mdi-play" :disabled="unavailable || !auth.canViewRecordings" @click="emit('preview')">{{ t('views.common.play') }}</v-btn>
-          <v-btn :href="MediaAPI.downloadClip(clip.id)" variant="tonal" size="small" prepend-icon="mdi-download" :disabled="unavailable || !auth.canDownloadRecordings">{{ t('views.common.download') }}</v-btn>
-        </div>
-        <div class="clip-secondary-actions">
-          <v-tooltip :text="t('sharing.clipTitle')" location="top">
-            <template #activator="{ props: tooltipProps }">
-              <v-btn v-bind="tooltipProps" icon="mdi-share-variant-outline" size="small" variant="text" :aria-label="t('sharing.clipTitle')" :disabled="unavailable" @click="emit('share')" />
-            </template>
-          </v-tooltip>
-          <v-btn icon="mdi-delete-outline" size="small" variant="text" :aria-label="t('views.common.moveToTrash')" @click="emit('trash')" />
-        </div>
+        <v-tooltip :text="t('views.common.play')" location="top">
+          <template #activator="{ props: tooltipProps }">
+            <v-btn v-bind="tooltipProps" icon="mdi-play" color="primary" size="small" :aria-label="t('views.common.play')" :disabled="unavailable || !auth.canViewRecordings" @click="emit('preview')" />
+          </template>
+        </v-tooltip>
+        <v-tooltip :text="t('views.common.download')" location="top">
+          <template #activator="{ props: tooltipProps }">
+            <v-btn v-bind="tooltipProps" icon="mdi-download" size="small" variant="tonal" :aria-label="t('views.common.download')" :href="canDownload ? MediaAPI.downloadClip(clip.id) : undefined" :disabled="!canDownload" />
+          </template>
+        </v-tooltip>
+        <v-tooltip :text="t('sharing.clipTitle')" location="top">
+          <template #activator="{ props: tooltipProps }">
+            <v-btn v-bind="tooltipProps" class="clip-share-action" icon="mdi-share-variant-outline" size="small" variant="text" :aria-label="t('sharing.clipTitle')" :disabled="unavailable" @click="emit('share')" />
+          </template>
+        </v-tooltip>
+        <v-tooltip :text="t('views.common.moveToTrash')" location="top">
+          <template #activator="{ props: tooltipProps }">
+            <v-btn v-bind="tooltipProps" icon="mdi-delete-outline" size="small" variant="text" :aria-label="t('views.common.moveToTrash')" @click="emit('trash')" />
+          </template>
+        </v-tooltip>
       </div>
     </div>
   </v-card>
@@ -48,6 +56,7 @@ const auth = useAuthStore()
 const { imageSource, retry, loaded } = useRetryableImage(() => auth.canViewRecordings ? MediaAPI.cover(props.clip.sessionId) : undefined)
 const duration = computed(() => formatDuration(props.clip.endMs - props.clip.startMs))
 const unavailable = computed(() => props.clip.isTrashed || new Date(props.clip.expiresAtUtc).getTime() <= Date.now())
+const canDownload = computed(() => !unavailable.value && auth.canDownloadRecordings)
 </script>
 
 <style scoped>
@@ -65,7 +74,6 @@ const unavailable = computed(() => props.clip.isTrashed || new Date(props.clip.e
 .clip-range { white-space: nowrap; }
 .clip-details { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
 .clip-size, .clip-expiry { white-space: nowrap; }
-.clip-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: auto; padding-top: 8px; }
-.clip-primary-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-.clip-secondary-actions { display: flex; gap: 4px; margin-left: auto; }
+.clip-actions { display: flex; align-items: center; gap: 4px; margin-top: auto; padding-top: 8px; }
+.clip-share-action { margin-inline-start: auto; }
 </style>

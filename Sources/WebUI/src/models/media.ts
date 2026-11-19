@@ -187,6 +187,13 @@ export interface TrashEntry extends Entity
   state: string
 }
 
+export interface TrashPurgeResult
+{
+  entryId: string
+  success: boolean
+  error?: string | null
+}
+
 export interface StorageVolume
 {
   id: string

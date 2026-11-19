@@ -26,6 +26,8 @@ namespace Yohuke.LiveRecorder.Server.Endpoints;
 /// <summary>媒体目录、真实时间轴、私有任务和鉴权文件交付。</summary>
 public static class LibraryEndpoints
 {
+    private const int MAX_TRASH_PURGE_ENTRIES = 200;
+
     /// <summary>注册成员媒体端点和管理员录制操作。</summary>
     public static IEndpointRouteBuilder MapLibraryEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -311,20 +313,10 @@ public static class LibraryEndpoints
         api.MapDelete("/trash/{id}", async (string id, HttpContext http, IMongoContext context, StorageService storage, SessionTrashService sessionTrash, SessionSegmentTrashService segmentTrash, CancellationToken ct) =>
         {
             var entry = await GetTrashAsync(id, http, context, UserPermissionNames.PURGE_RECORDINGS, ct);
-            if (entry.Kind == "Session")
-            {
-                await sessionTrash.PurgeAsync(entry, ct);
-            }
-            else if (entry.Kind == "Segment")
-            {
-                await segmentTrash.PurgeAsync(entry, ct);
-            }
-            else
-            {
-                await storage.PurgeAsync(entry, ct);
-            }
+            await PurgeTrashEntryAsync(entry, storage, sessionTrash, segmentTrash, ct);
             return Results.NoContent();
         });
+        api.MapPost("/trash/purge", PurgeTrashBatchAsync);
         api.MapGet("/storage", async (bool? refresh, StorageUsageService storage, CancellationToken ct) => Results.Ok(await storage.GetVolumesAsync(refresh ?? false, ct)));
 
         var recordings = api.MapGroup("").RequireAuthorization(UserPermissionNames.MANAGE_RECORDINGS);
@@ -452,18 +444,79 @@ public static class LibraryEndpoints
     private static async Task<TrashEntry> GetTrashAsync(string id, HttpContext http, IMongoContext context, string sessionPermission, CancellationToken ct)
     {
         var item = await context.Collection<TrashEntry>("trash").Find(x => x.Id == id).FirstOrDefaultAsync(ct) ?? throw new InfrastructureException(MessageCode.LIBRARY_TRASH_NOT_FOUND, 404);
+        RequireTrashAccess(item, http, sessionPermission);
+        return item;
+    }
+
+    private static void RequireTrashAccess(TrashEntry item, HttpContext http, string sessionPermission)
+    {
         if (item.Kind is "Session" or "Segment")
         {
-            if (!HasPermission(http, sessionPermission))
-            {
-                throw new InfrastructureException(MessageCode.LIBRARY_ACCESS_DENIED, 403);
-            }
+            RequirePermission(http, sessionPermission);
         }
         else
         {
             RequireOwner(http, item.OwnerId);
         }
-        return item;
+    }
+
+    private static async Task<IResult> PurgeTrashBatchAsync(TrashPurgeRequest request, HttpContext http,
+        IMongoContext context, StorageService storage, SessionTrashService sessionTrash,
+        SessionSegmentTrashService segmentTrash, CancellationToken ct)
+    {
+        if (request.EntryIds is null || request.EntryIds.Count is < 1 or > MAX_TRASH_PURGE_ENTRIES ||
+            request.EntryIds.Any(string.IsNullOrWhiteSpace))
+        {
+            throw new InfrastructureException(MessageCode.LIBRARY_PURGE_COUNT_INVALID);
+        }
+
+        var ids = request.EntryIds.Distinct(StringComparer.Ordinal).ToArray();
+        var entries = await context.Collection<TrashEntry>("trash")
+            .Find(Builders<TrashEntry>.Filter.In(entry => entry.Id, ids)).ToListAsync(ct);
+        var entriesById = entries.ToDictionary(entry => entry.Id, StringComparer.Ordinal);
+        var results = new List<TrashPurgeResult>(ids.Length);
+        foreach (var id in ids.OrderBy(id => entriesById.GetValueOrDefault(id)?.Kind switch
+                 {
+                     "Segment" => 0,
+                     "Session" => 2,
+                     _ => 1
+                 }))
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                if (entriesById.TryGetValue(id, out var entry))
+                {
+                    RequireTrashAccess(entry, http, UserPermissionNames.PURGE_RECORDINGS);
+                    await PurgeTrashEntryAsync(entry, storage, sessionTrash, segmentTrash, ct);
+                }
+                results.Add(new() { EntryId = id, Success = true });
+            }
+            catch (InfrastructureException error)
+            {
+                results.Add(new()
+                {
+                    EntryId = id,
+                    Error = LocalizedText.Format(error.Code, error.Message, error.Arguments)
+                });
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                results.Add(new() { EntryId = id, Error = LocalizedText.Get(MessageCode.LIBRARY_PURGE_FILES_FAILED) });
+            }
+        }
+        return Results.Ok(results);
+    }
+
+    private static Task PurgeTrashEntryAsync(TrashEntry entry, StorageService storage,
+        SessionTrashService sessionTrash, SessionSegmentTrashService segmentTrash, CancellationToken ct)
+    {
+        return entry.Kind switch
+        {
+            "Segment" => segmentTrash.PurgeAsync(entry, ct),
+            "Session" => sessionTrash.PurgeAsync(entry, ct),
+            _ => storage.PurgeAsync(entry, ct)
+        };
     }
 
     private static void RequirePermission(HttpContext http, string permission)

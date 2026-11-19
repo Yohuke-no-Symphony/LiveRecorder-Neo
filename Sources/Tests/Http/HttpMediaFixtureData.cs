@@ -9,11 +9,11 @@ namespace Yohuke.LiveRecorder.Http.Tests;
 
 internal sealed record HttpMediaFixtureData(BroadcastSession Session, Clip Clip, MediaJob Job, string PlaybackUrl, byte[] ClipBytes, byte[] ImageBytes)
 {
-    internal static async Task<HttpMediaFixtureData> CreateAsync(HttpServerFixture fixture, string ownerId)
+    internal static async Task<HttpMediaFixtureData> CreateAsync(HttpServerFixture fixture, string ownerId, int roomId = 100)
     {
         var now = DateTime.UtcNow;
-        var streamer = new Streamer { Uid = 42, RoomId = 100, Name = "HTTP 测试主播", Enabled = false };
-        var session = new BroadcastSession { StreamerId = streamer.Id, RoomId = 100, Title = "测试直播", DirectoryPath = Path.Combine("测试主播_42", Guid.NewGuid().ToString("N")), StartedAtUtc = now.AddMinutes(-1), EndedAtUtc = now.AddMinutes(-1).AddSeconds(10), LastMediaAtUtc = now.AddMinutes(-1).AddSeconds(10), State = "Completed", HasDanmu = true, CoverUrl = "https://i0.hdslb.com/http-test-" + Guid.NewGuid().ToString("N") + ".png" };
+        var streamer = new Streamer { Uid = 42, RoomId = roomId, Name = "HTTP 测试主播", Enabled = false };
+        var session = new BroadcastSession { StreamerId = streamer.Id, RoomId = roomId, Title = "测试直播", DirectoryPath = Path.Combine("测试主播_42", Guid.NewGuid().ToString("N")), StartedAtUtc = now.AddMinutes(-1), EndedAtUtc = now.AddMinutes(-1).AddSeconds(10), LastMediaAtUtc = now.AddMinutes(-1).AddSeconds(10), State = "Completed", HasDanmu = true, CoverUrl = "https://i0.hdslb.com/http-test-" + Guid.NewGuid().ToString("N") + ".png" };
         var segment = new RecordingSegment { SessionId = session.Id, RelativePath = Path.Combine("录像", "录像_001.flv"), StartOffsetMs = 0, DurationMs = 10000, CommittedBytes = 64, IsClosed = true };
         await fixture.Context.Collection<Streamer>("streamers").InsertOneAsync(streamer);
         await fixture.Context.Collection<BroadcastSession>("sessions").InsertOneAsync(session);
