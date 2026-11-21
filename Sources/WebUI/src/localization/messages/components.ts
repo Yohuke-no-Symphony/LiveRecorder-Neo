@@ -2,7 +2,8 @@ import type { MessageSchema } from '@/localization/types'
 
 export const componentsZh = {
   download: {
-    open: '下载全片', title: '下载录播', close: '关闭下载弹窗',
+    open: '下载', title: '下载录播', close: '关闭下载弹窗',
+    video: '下载视频', danmu: '下载弹幕', translations: '下载同传',
     description: '选择需要的录制分段，分别下载原始文件。',
     selectAll: '全选可下载片段', selected: '已选 {count} 个片段 · {size}',
     segment: '片段 {number}', selectSegment: '选择片段 {number}', downloadSegment: '下载片段 {number}',
@@ -123,7 +124,8 @@ export const componentsZh = {
 
 export const componentsEn: MessageSchema<typeof componentsZh> = {
   download: {
-    open: 'Download recording', title: 'Download recording', close: 'Close downloads',
+    open: 'Download', title: 'Download recording', close: 'Close downloads',
+    video: 'Download video', danmu: 'Download live chat', translations: 'Download live translations',
     description: 'Select recording segments to download as separate original files.',
     selectAll: 'Select all available segments', selected: '{count} segments selected · {size}',
     segment: 'Segment {number}', selectSegment: 'Select segment {number}', downloadSegment: 'Download segment {number}',
@@ -246,7 +248,8 @@ export const componentsEn: MessageSchema<typeof componentsZh> = {
 
 export const componentsJa: MessageSchema<typeof componentsZh> = {
   download: {
-    open: '録画をダウンロード', title: '録画をダウンロード', close: 'ダウンロードを閉じる',
+    open: 'ダウンロード', title: '録画をダウンロード', close: 'ダウンロードを閉じる',
+    video: '動画をダウンロード', danmu: 'コメントをダウンロード', translations: '同時翻訳をダウンロード',
     description: '必要な録画セグメントを選び、元のファイルを個別にダウンロードします。',
     selectAll: 'ダウンロード可能なセグメントをすべて選択', selected: '{count} 件を選択 · {size}',
     segment: 'セグメント {number}', selectSegment: 'セグメント {number} を選択', downloadSegment: 'セグメント {number} をダウンロード',

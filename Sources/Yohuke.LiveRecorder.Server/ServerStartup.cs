@@ -115,6 +115,7 @@ public static class ServerStartup
         builder.Services.AddSingleton<SessionGroupingService>();
         builder.Services.AddSingleton<SessionConfigurationService>();
         builder.Services.AddSingleton<SessionEventReader>();
+        builder.Services.AddSingleton<SessionEventExportService>();
         builder.Services.AddPlaybackEventSnapshotServices();
         builder.Services.AddSingleton<StorageService>();
         builder.Services.AddSingleton<StorageUsageService>();

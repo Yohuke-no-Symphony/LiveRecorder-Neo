@@ -30,6 +30,7 @@ public sealed class RecordingPermissionsHttpTests
         foreach (var path in new[]
                  {
                      "/api/sessions", "/api/streamers", session, session + "/cover", session + "/events",
+                     session + "/events/download", session + "/events/download?translationsOnly=true",
                      session + "/timeline", session + "/bookmarks", session + "/events/1/avatar",
                      session + "/events/1/emoticons/0", media.PlaybackUrl,
                      media.PlaybackUrl.Replace("index.m3u8", "segment0.ts", StringComparison.Ordinal),
@@ -66,11 +67,21 @@ public sealed class RecordingPermissionsHttpTests
         var browser = fixture.NewBrowser();
         await browser.LoginAsync(user.Email, HttpServerFixture.USER_PASSWORD);
         var media = await HttpMediaFixtureData.CreateAsync(fixture, user.Id);
+        var events = $"/api/sessions/{media.Session.Id}/events/download";
+        using (var attachment = await browser.Client.GetAsync(events))
+        {
+            Assert.Equal(HttpStatusCode.OK, attachment.StatusCode);
+            Assert.Equal("text/plain", attachment.Content.Headers.ContentType!.MediaType);
+            Assert.Equal("attachment", attachment.Content.Headers.ContentDisposition!.DispositionType);
+            Assert.EndsWith(".txt", attachment.Content.Headers.ContentDisposition.FileNameStar);
+            Assert.Contains("[00:00:00.500]", await attachment.Content.ReadAsStringAsync());
+        }
         await SetPermissionsAsync(fixture, user.Id,
             new(PermissionSet.MemberDefaults.Where(id => id != PermissionIds.DOWNLOAD_RECORDINGS)));
         foreach (var path in new[]
                  {
                      $"/api/sessions/{media.Session.Id}/segments/known-id/download",
+                     events, events + "?translationsOnly=true",
                      $"/api/clips/{media.Clip.Id}/download", $"/api/jobs/{media.Job.Id}/outputs/0"
                  })
         {

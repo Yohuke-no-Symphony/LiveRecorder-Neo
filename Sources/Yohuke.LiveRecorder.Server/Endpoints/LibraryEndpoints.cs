@@ -92,6 +92,24 @@ public static class LibraryEndpoints
             var path = MediaPaths.ResolveSegment(paths.RecordsDirectory, detail.Session.DirectoryPath, segment);
             return Download(path, Path.GetFileName(path));
         });
+        downloading.MapGet("/sessions/{id}/events/download", async (string id, bool? translationsOnly, HttpContext http,
+            LibraryService library, IAppPaths paths, ISettingsStore settingsStore, SessionEventExportService exporter, CancellationToken ct) =>
+        {
+            var detail = await library.GetAsync(id, ct);
+            var pattern = translationsOnly == true
+                ? TranslationDanmuPattern.Create(TranslationDanmuPattern.Resolve(detail.Session, await settingsStore.GetAsync(ct)))
+                : null;
+            try
+            {
+                var (content, fileName) = await exporter.ExportAsync(detail.Session, paths.RecordsDirectory, pattern, ct);
+                http.Response.Headers.CacheControl = "private, no-store";
+                return Results.File(content, "text/plain; charset=utf-8", fileName);
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                throw new InfrastructureException(MessageCode.TRANSLATION_DANMU_PATTERN_TIMEOUT);
+            }
+        });
         viewing.MapGet("/sessions/{id}/cover", async (string id, SessionCoverService covers, CancellationToken ct) =>
         {
             var path = await covers.GetAsync(id, ct);

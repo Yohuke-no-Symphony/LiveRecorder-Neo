@@ -59,11 +59,7 @@
                   <v-btn v-bind="tooltipProps" icon="mdi-shield-check-outline" size="40" variant="tonal" :aria-label="t(detail.session.isPermanent ? 'shell.retention.cancelPermanent' : 'shell.retention.keepPermanent')" :loading="retentionBusy" @click="setPermanent" />
                 </template>
               </v-tooltip>
-              <v-tooltip v-if="auth.canDownloadRecordings" :text="t('components.download.open')" location="top">
-                <template #activator="{ props: tooltipProps }">
-                  <v-btn v-bind="tooltipProps" icon="mdi-download" size="40" variant="tonal" :aria-label="t('components.download.open')" @click="downloadOpen = true" />
-                </template>
-              </v-tooltip>
+              <SessionDownloadMenu v-if="auth.canDownloadRecordings" :session-id="id" @video="downloadOpen = true" />
               <v-tooltip v-if="auth.canCreateClips" :text="t('views.session.createClip')" location="top">
                 <template #activator="{ props: tooltipProps }">
                   <v-btn v-bind="tooltipProps" icon="mdi-content-cut" size="40" color="primary" :aria-label="t('views.session.createClip')" :disabled="detail.durationMs <= 0 || clipSelectionInvalid" @click="clipOpen = true" />
@@ -168,6 +164,7 @@ import MediaPlayer from '@/components/player/MediaPlayer.vue'
 import SessionPlaybackSidebar from '@/components/player/SessionPlaybackSidebar.vue'
 import ClipDialog from '@/components/player/ClipDialog.vue'
 import SessionDownloadDialog from '@/components/player/SessionDownloadDialog.vue'
+import SessionDownloadMenu from '@/components/player/SessionDownloadMenu.vue'
 import PlaybackBookmarkActions from '@/components/player/PlaybackBookmarkActions.vue'
 import SessionBookmarkList from '@/components/player/SessionBookmarkList.vue'
 import SessionBookmarkDialog from '@/components/player/SessionBookmarkDialog.vue'

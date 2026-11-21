@@ -1,4 +1,4 @@
-import { post, put, query, remove, request } from './APIBase'
+import { download, post, put, query, remove, request } from './APIBase'
 import { getServerUrl } from './ServerURL'
 import type { SessionTimeline } from '@/models/sessionTimeline'
 import type { SessionBookmark } from '@/models/sessionBookmark'
@@ -37,6 +37,10 @@ export const MediaAPI = {
   splitSession: (id: string, beforeSegmentId: string) => post<{ sessions: BroadcastSession[] }>(`sessions/${encodeURIComponent(id)}/split`, { beforeSegmentId }),
   cover: (id: string) => getServerUrl(`/api/sessions/${encodeURIComponent(id)}/cover`),
   downloadSegment: (id: string, segmentId: string) => getServerUrl(`/api/sessions/${encodeURIComponent(id)}/segments/${encodeURIComponent(segmentId)}/download`),
+  downloadSessionEvents: (id: string, translationsOnly: boolean, signal?: AbortSignal) => download(
+    `sessions/${encodeURIComponent(id)}/events/download${query({ translationsOnly: translationsOnly || undefined })}`,
+    translationsOnly ? 'translations.txt' : 'danmu.txt', { signal },
+  ),
   playback: (id: string, offsetMs: number, options: PlaybackLoadOptions = {}) => request<PlaybackWindow | undefined>(`sessions/${encodeURIComponent(id)}/playback`, { method: 'POST', body: JSON.stringify({ offsetMs, prefetch: options.prefetch, qualityId: options.qualityId }), signal: options.signal }),
   bookmarks: (id: string, signal?: AbortSignal) => request<SessionBookmark[]>(`sessions/${encodeURIComponent(id)}/bookmarks`, { signal }),
   createBookmark: (id: string, body: { title: string; offsetMs: number }) => post<SessionBookmark>(`sessions/${encodeURIComponent(id)}/bookmarks`, body),

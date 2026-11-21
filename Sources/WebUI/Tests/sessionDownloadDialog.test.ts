@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
-import { defineComponent, h, nextTick } from 'vue'
+import { defineComponent, h, nextTick, ref } from 'vue'
 import { createPinia, disposePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import SessionDownloadDialog from '../src/components/player/SessionDownloadDialog.vue'
@@ -12,6 +12,7 @@ import { i18n } from '../src/plugins/i18n'
 import type { RecordingSegment, SessionDetail } from '../src/models/media'
 import { useAuthStore } from '../src/stores/auth'
 import { PERMISSIONS } from '../src/models/auth'
+import * as downloadFile from '../src/utilities/downloadFile'
 
 const container = { template: '<div><slot /></div>' }
 const dialog = defineComponent({
@@ -27,6 +28,20 @@ const button = defineComponent({
       disabled: props.disabled, type: props.type ?? 'button',
     }, slots.default?.())
   },
+})
+const menu = defineComponent({
+  setup(_, { slots })
+  {
+    const opened = ref(false)
+    return () => h('div', [
+      slots.activator?.({ props: { 'aria-expanded': opened.value, onClick: () => { opened.value = !opened.value } } }),
+      opened.value ? h('div', { role: 'menu', onClick: () => { opened.value = false } }, slots.default?.()) : null,
+    ])
+  },
+})
+const menuItem = defineComponent({
+  props: { title: String, disabled: Boolean },
+  setup: props => () => h('button', { disabled: props.disabled }, props.title),
 })
 const checkbox = defineComponent({
   props: ['modelValue', 'value', 'label', 'disabled', 'indeterminate'], emits: ['update:modelValue'],
@@ -104,7 +119,7 @@ afterEach(() =>
 
 describe('录播原始分段下载', () =>
 {
-  it('播放页点击下载全片后打开当前场次的分段选择弹窗', async () =>
+  it('播放页通过下载菜单获取两种文本或打开视频分段弹窗', async () =>
   {
     const segments = [segment('part-1')]
     const detail: SessionDetail = {
@@ -119,6 +134,8 @@ describe('录播原始分段下载', () =>
     vi.spyOn(MediaAPI, 'session').mockResolvedValue(detail)
     vi.spyOn(MediaAPI, 'streamers').mockResolvedValue([])
     vi.spyOn(MediaAPI, 'bookmarks').mockResolvedValue([])
+    vi.spyOn(MediaAPI, 'timeline').mockResolvedValue({ durationMs: 10000, bucketWidthMs: 100, revision: 'test', heat: [], markers: [] })
+    const save = vi.spyOn(downloadFile, 'saveDownloadedFile').mockImplementation(() => {})
     const pinia = createPinia()
     useAuthStore(pinia).user = {
       id: 'viewer', email: 'viewer@example.test', displayName: 'Viewer', role: 'User',
@@ -134,6 +151,7 @@ describe('录播原始分段下载', () =>
           SessionBookmarkList: true, SessionBookmarkDialog: true, ConfirmDialog: true, StatusChip: true,
           SessionGroupDialog: true, SessionSplitDialog: true, VProgressLinear: true, VAlert: true,
           VExpansionPanels: true, VExpansionPanel: true, VExpansionPanelText: true, VTable: true, VSnackbar: true,
+          VMenu: menu, VList: container, VListItem: menuItem,
         },
       },
     })
@@ -142,12 +160,37 @@ describe('录播原始分段下载', () =>
       await flushPromises()
       expect(wrapper.get('.session-meta time').attributes('datetime')).toBe(detail.session.expiresAtUtc)
       expect(wrapper.get('.session-meta time').text()).toContain('到期')
-      const download = wrapper.find('button[aria-label="下载全片"]')
-      expect(download.exists()).toBe(true)
+      const download = wrapper.get('button[aria-label="下载"]')
+      expect(wrapper.find('[role="menu"]').exists()).toBe(false)
       await download.trigger('click')
-      const opened = wrapper.findComponent(SessionDownloadDialog)
-      expect(opened.props()).toMatchObject({ modelValue: true, sessionId: 'session-1', sessionTitle: '测试录播', segments })
-      expect(opened.findComponent(CardHeader).props('title')).toBe('下载录播')
+      const items = () => wrapper.findAll('[role="menuitem"]')
+      expect(items().map(item => item.text())).toEqual(['下载视频', '下载弹幕', '下载同传'])
+
+      for (const [index, path, filename] of [
+        [1, '', '测试录播_弹幕.txt'], [2, '?translationsOnly=true', '测试录播_同传.txt'],
+      ] as const)
+      {
+        vi.mocked(fetch).mockResolvedValueOnce(new Response('[00:00:00.500] 观众 · 测试', {
+          headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(filename)}` },
+        }))
+        await items()[index]!.trigger('click')
+        await flushPromises()
+        expect(fetch).toHaveBeenLastCalledWith(`https://recordings.example.test/api/sessions/session-1/events/download${path}`, expect.objectContaining({ credentials: 'include' }))
+        expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ fileName: filename }))
+        expect(wrapper.getComponent(SessionDownloadDialog).props('modelValue')).toBe(false)
+        await download.trigger('click')
+      }
+
+      await items()[0]!.trigger('click')
+      const dialog = wrapper.getComponent(SessionDownloadDialog)
+      expect(dialog.props()).toMatchObject({ modelValue: true, sessionId: 'session-1', sessionTitle: '测试录播', segments })
+      expect(dialog.findComponent(CardHeader).props('title')).toBe('下载录播')
+      expect(fetch).toHaveBeenCalledTimes(2)
+
+      useAuthStore(pinia).user!.permissions = [PERMISSIONS.viewRecordings]
+      await nextTick()
+      expect(wrapper.find('button[aria-label="下载"]').exists()).toBe(false)
+      expect(wrapper.findComponent(SessionDownloadDialog).exists()).toBe(false)
     }
     finally
     {
