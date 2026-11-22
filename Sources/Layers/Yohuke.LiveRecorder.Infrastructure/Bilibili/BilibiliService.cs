@@ -287,24 +287,15 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
                 var validationLifetime = GetLifetimeToken(account.Id);
                 var credentials = DeserializeCredentials(account);
                 using var http = httpClientFactory.CreateClient("bilibili");
-                var validation = await new BilibiliAccountValidationService(http).ValidateAsync(credentials.Cookie, cancellationToken: cancellationToken);
+                var validator = new BilibiliAccountValidationService(http);
+                var validation = await validator.ValidateAsync(credentials.Cookie, cancellationToken: cancellationToken);
                 var status = ValidationStatus(validation.Status);
                 if (!await SaveValidationAsync(account, status, cancellationToken, validationLifetime) || status != "Valid")
                 {
                     continue;
                 }
                 await UpdateMissingAvatarAsync(account, cancellationToken);
-                var refreshed = await RefreshAccountCredentialsAsync(account.Id, credentials, validationLifetime, cancellationToken);
-                if (refreshed is not null && refreshed != credentials)
-                {
-                    var saved = await SaveRefreshedCredentialsAsync(account, refreshed);
-                    if (saved is not null && refreshed.Cookie != credentials.Cookie)
-                    {
-                        var refreshedLifetime = GetLifetimeToken(saved.Id);
-                        var refreshedValidation = await new BilibiliAccountValidationService(http).ValidateAsync(refreshed.Cookie, cancellationToken: cancellationToken);
-                        await SaveValidationAsync(saved, ValidationStatus(refreshedValidation.Status), cancellationToken, refreshedLifetime);
-                    }
-                }
+                await MaintainCredentialsAsync(account, credentials, validator, validationLifetime, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -317,14 +308,53 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
         }
     }
 
-    private async Task<BilibiliLoginCredentials?> RefreshAccountCredentialsAsync(string accountId, BilibiliLoginCredentials credentials,
-        CancellationToken validationLifetime, CancellationToken cancellationToken)
+    private async Task MaintainCredentialsAsync(BilibiliAccount account, BilibiliLoginCredentials credentials,
+        BilibiliAccountValidationService validator, CancellationToken validationLifetime, CancellationToken cancellationToken)
     {
         using var client = new BilibiliWebLoginClient(httpClientFactory.CreateClient("bilibili-login"), true);
+        if (string.IsNullOrWhiteSpace(credentials.PendingConfirmationToken))
+        {
+            var refreshed = await RequestAccountRefreshAsync(client, account.Id, credentials, validationLifetime, cancellationToken);
+            if (refreshed is null || refreshed == credentials)
+            {
+                return;
+            }
+            var saved = await SaveRefreshedCredentialsAsync(account, refreshed);
+            if (saved is null)
+            {
+                return;
+            }
+            if (refreshed.Cookie != credentials.Cookie)
+            {
+                var refreshedLifetime = GetLifetimeToken(saved.Id);
+                var validation = await validator.ValidateAsync(refreshed.Cookie, cancellationToken: cancellationToken);
+                var status = ValidationStatus(validation.Status);
+                if (!await SaveValidationAsync(saved, status, cancellationToken, refreshedLifetime) || status != "Valid")
+                {
+                    return;
+                }
+            }
+            account = saved;
+            credentials = refreshed;
+        }
+
+        if (!string.IsNullOrWhiteSpace(credentials.PendingConfirmationToken))
+        {
+            var confirmed = await client.ConfirmPendingRefreshAsync(credentials, cancellationToken);
+            if (await SaveRefreshedCredentialsAsync(account, confirmed) is not null)
+            {
+                logger.LogInformation("Confirmed Bilibili sign-in refresh for account {AccountId}.", account.Id);
+            }
+        }
+    }
+
+    private async Task<BilibiliLoginCredentials?> RequestAccountRefreshAsync(BilibiliWebLoginClient client, string accountId,
+        BilibiliLoginCredentials credentials, CancellationToken validationLifetime, CancellationToken cancellationToken)
+    {
         BilibiliLoginCredentials refreshed;
         try
         {
-            refreshed = await client.RefreshAsync(credentials, cancellationToken);
+            refreshed = await client.RequestRefreshAsync(credentials, cancellationToken);
         }
         catch (InvalidDataException)
         {

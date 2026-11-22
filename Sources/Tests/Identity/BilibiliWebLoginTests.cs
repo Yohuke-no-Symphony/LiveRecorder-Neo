@@ -179,6 +179,49 @@ public sealed class BilibiliWebLoginTests
         Assert.Equal("refresh-old", result.RefreshToken);
     }
 
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("new-session", null)]
+    [InlineData(null, "new-csrf")]
+    public async Task RefreshRejectsMissingCookiesFromExchangeResponse(string? newSession, string? newCsrf)
+    {
+        var paths = new List<string>();
+        using var handler = new StubHttpHandler(request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            paths.Add(path);
+            if (path == "/x/passport-login/web/cookie/info")
+            {
+                return Task.FromResult(Json("""{"code":0,"data":{"refresh":true,"timestamp":1800000000000}}"""));
+            }
+            if (path.StartsWith("/correspond/1/", StringComparison.Ordinal))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("<div id='1-name'>challenge</div>") });
+            }
+            Assert.Equal("/x/passport-login/web/cookie/refresh", path);
+            var response = Json("""{"code":0,"data":{"refresh_token":"new-refresh-token"}}""");
+            if (newSession is not null)
+            {
+                response.Headers.TryAddWithoutValidation("Set-Cookie", $"SESSDATA={newSession}; Domain=.bilibili.com; Path=/; Secure");
+            }
+            if (newCsrf is not null)
+            {
+                response.Headers.TryAddWithoutValidation("Set-Cookie", $"bili_jct={newCsrf}; Domain=.bilibili.com; Path=/; Secure");
+            }
+            return Task.FromResult(response);
+        });
+        using var http = new HttpClient(handler);
+        using var client = new BilibiliWebLoginClient(http);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => client.RefreshAsync(new()
+        {
+            Cookie = "SESSDATA=old-session;bili_jct=old-csrf",
+            RefreshToken = "old-refresh-token"
+        }));
+        Assert.Equal(3, paths.Count);
+        Assert.DoesNotContain("/x/passport-login/web/confirm/refresh", paths);
+    }
+
     private static HttpResponseMessage Json(string value) => new(HttpStatusCode.OK) { Content = new StringContent(value, System.Text.Encoding.UTF8, "application/json") };
 
     private static HttpResponseMessage LoginSuccess(string session, string csrf, string refresh)

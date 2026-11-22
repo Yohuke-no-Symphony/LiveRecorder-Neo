@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Yohuke.LiveRecorder.Application.Auth;
@@ -25,7 +26,13 @@ public static class IdentityServiceCollectionExtensions
         services.AddHttpClient("identity", client => client.Timeout = TimeSpan.FromSeconds(20)).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
         services.AddHttpClient(OAuthAvatarCache.HTTP_CLIENT).ConfigurePrimaryHttpMessageHandler(OAuthAvatarHttp.CreateHandler).RemoveAllLoggers();
         services.AddHttpClient("bilibili", client => client.Timeout = TimeSpan.FromSeconds(20));
-        services.AddHttpClient("bilibili-login", client => client.Timeout = TimeSpan.FromSeconds(20)).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
+        services.AddHttpClient("bilibili-login", client => client.Timeout = TimeSpan.FromSeconds(20))
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+            {
+                AllowAutoRedirect = false,
+                UseCookies = false,
+                AutomaticDecompression = DecompressionMethods.GZip
+            });
         services.AddHostedService<BilibiliAccountMaintenanceService>();
         return services;
     }
