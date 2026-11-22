@@ -5,7 +5,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { isAppLanguage } from '@/localization/languages'
+import { isAppLanguage, LANGUAGE_OPTIONS } from '@/localization/languages'
 import type { AppLanguage } from '@/localization/types'
 
 const props = withDefaults(defineProps<{
@@ -18,9 +18,7 @@ const emit = defineEmits<{ 'update:modelValue': [language: AppLanguage | null] }
 const { t } = useI18n()
 const items = computed(() => [
   ...(props.allowDefault ? [{ title: t('core.language.followDefault'), value: null }] : []),
-  { title: '中文', value: 'zh-CN' },
-  { title: 'English', value: 'en-US' },
-  { title: '日本語', value: 'ja-JP' },
+  ...LANGUAGE_OPTIONS,
 ])
 
 function select(language: unknown): void

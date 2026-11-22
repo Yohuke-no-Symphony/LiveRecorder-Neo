@@ -3,6 +3,8 @@ import type { AppLanguage } from './types'
 export const DEFAULT_LANGUAGE: AppLanguage = 'zh-CN'
 export const LANGUAGE_STORAGE_KEY = 'lr.language'
 export const SUPPORTED_LANGUAGES: readonly AppLanguage[] = ['zh-CN', 'en-US', 'ja-JP']
+const LANGUAGE_NAMES: Record<AppLanguage, string> = { 'zh-CN': '中文', 'en-US': 'English', 'ja-JP': '日本語' }
+export const LANGUAGE_OPTIONS = SUPPORTED_LANGUAGES.map(value => ({ title: LANGUAGE_NAMES[value], value }))
 
 export function isAppLanguage(value: unknown): value is AppLanguage
 {

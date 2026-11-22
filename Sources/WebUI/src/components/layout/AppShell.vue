@@ -20,7 +20,6 @@
     <v-spacer />
     <div class="shell-actions">
       <v-btn :icon="theme.global.current.value.dark ? 'mdi-weather-sunny' : 'mdi-weather-night'" variant="text" :aria-label="t('shell.nav.toggleTheme')" @click="toggleTheme" />
-      <v-btn icon="mdi-progress-clock" variant="text" to="/jobs" :aria-label="t('shell.nav.jobs')" />
       <AppLanguageMenu />
       <v-menu>
         <template #activator="{ props: menuProps }">
