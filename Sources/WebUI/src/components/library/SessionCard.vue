@@ -178,6 +178,12 @@ button.session-link:disabled {
   outline-offset: -3px;
 }
 
+.session-actions,
+.duration {
+  -webkit-backdrop-filter: var(--ui-backdrop-blur);
+  backdrop-filter: var(--ui-backdrop-blur);
+}
+
 .session-actions {
   position: absolute;
   top: 8px;

@@ -16,6 +16,46 @@ a { color: inherit; text-decoration: none; }
 .v-table { background: transparent !important; }
 .v-table th { color: rgba(var(--v-theme-on-surface), .5) !important; font-size: .75rem !important; white-space: nowrap; }
 .v-table td { border-color: rgba(var(--v-theme-on-surface), .06) !important; }
+
+@supports ((backdrop-filter: blur(16px)) or (-webkit-backdrop-filter: blur(16px))) {
+  :root {
+    --ui-backdrop-blur: blur(16px);
+  }
+
+  .shell-topbar,
+  .v-dialog > .v-overlay__content > :is(.v-card, .v-sheet),
+  .v-dialog > .v-overlay__content > form > :is(.v-card, .v-sheet),
+  .v-menu > .v-overlay__content > :is(.v-card, .v-sheet, .v-list),
+  .v-dialog > .v-overlay__scrim,
+  .v-navigation-drawer__scrim {
+    background-color: var(--ui-backdrop-background, rgba(var(--v-theme-surface), .9));
+    -webkit-backdrop-filter: var(--ui-backdrop-blur);
+    backdrop-filter: var(--ui-backdrop-blur);
+  }
+
+  .shell-topbar {
+    --ui-backdrop-background: rgba(var(--v-theme-background), .9);
+  }
+
+  .v-menu > :is(.v-select__content, .v-autocomplete__content) > .v-sheet > .v-list {
+    background-color: transparent;
+  }
+
+  .v-dialog > .v-overlay__scrim {
+    --ui-backdrop-background: rgba(0, 0, 0, var(--v-overlay-opacity));
+  }
+
+  .v-dialog > .v-overlay__scrim:not(.fade-transition-enter-from, .fade-transition-leave-to) {
+    opacity: 1;
+  }
+
+  .v-navigation-drawer__scrim {
+    /* Let Vuetify fade the blur and tint together during the drawer gesture. */
+    --v-navigation-drawer-scrim-opacity: 1;
+    --ui-backdrop-background: rgba(0, 0, 0, .2);
+  }
+}
+
 .page-container { width: 100%; max-width: 1600px; margin: 0 auto; padding: 24px 32px 40px; }
 .page-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; }
 .page-header > * { min-width: 0; max-width: 100%; }

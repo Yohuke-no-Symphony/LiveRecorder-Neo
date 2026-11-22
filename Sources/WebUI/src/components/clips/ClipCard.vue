@@ -115,6 +115,8 @@ const canDownload = computed(() => !unavailable.value && auth.canDownloadRecordi
   right: 10px;
   bottom: 10px;
   background: #000a;
+  -webkit-backdrop-filter: var(--ui-backdrop-blur);
+  backdrop-filter: var(--ui-backdrop-blur);
   color: white;
   font-size: .7rem;
   padding: 3px 6px;
