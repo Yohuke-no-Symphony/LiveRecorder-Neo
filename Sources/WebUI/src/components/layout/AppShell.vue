@@ -3,7 +3,7 @@
     <router-link to="/" class="shell-brand"><AppBrand /></router-link>
     <v-list class="px-3" nav density="comfortable">
       <v-list-item v-for="link in links" :key="link.to" :to="link.to" :prepend-icon="link.icon" :title="link.title" color="primary" rounded="lg" class="mb-1" :exact="link.to === '/'" />
-      <template v-if="auth.isAdmin">
+      <template v-if="adminLinks.length">
         <div class="nav-group">{{ t('shell.nav.management') }}</div>
         <v-list-item v-for="link in adminLinks" :key="link.to" :to="link.to" :prepend-icon="link.icon" :title="link.title" color="primary" rounded="lg" class="mb-1" />
       </template>
@@ -16,11 +16,26 @@
   </v-navigation-drawer>
   <v-app-bar flat color="background" height="68" class="shell-topbar">
     <v-app-bar-nav-icon v-if="mobile" @click="drawer = !drawer" />
-    <v-breadcrumbs :items="breadcrumbs" class="text-body-2 px-6" />
+    <v-breadcrumbs :items="breadcrumbs" class="shell-breadcrumbs text-body-2 px-2 px-sm-6" />
     <v-spacer />
-    <v-btn :icon="theme.global.current.value.dark ? 'mdi-weather-sunny' : 'mdi-weather-night'" variant="text" :aria-label="t('shell.nav.toggleTheme')" @click="toggleTheme" />
-    <v-btn icon="mdi-progress-clock" variant="text" to="/jobs" :aria-label="t('shell.nav.jobs')" />
-    <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" variant="text" class="mr-4" :aria-label="t('shell.nav.userMenu')"><UserAvatar :name="auth.user?.displayName ?? ''" :avatar-url="auth.user?.avatarUrl" size="30" class="mr-2" /><span v-if="!mobile">{{ auth.user?.displayName }}</span><v-icon icon="mdi-chevron-down" size="16" class="ml-2" /></v-btn></template><v-list density="compact"><v-list-item to="/account" :title="t('shell.nav.account')" prepend-icon="mdi-account-cog-outline" /><v-list-item :title="t('shell.nav.logout')" prepend-icon="mdi-logout" @click="logout" /></v-list></v-menu>
+    <div class="shell-actions">
+      <v-btn :icon="theme.global.current.value.dark ? 'mdi-weather-sunny' : 'mdi-weather-night'" variant="text" :aria-label="t('shell.nav.toggleTheme')" @click="toggleTheme" />
+      <v-btn icon="mdi-progress-clock" variant="text" to="/jobs" :aria-label="t('shell.nav.jobs')" />
+      <AppLanguageMenu />
+      <v-menu>
+        <template #activator="{ props: menuProps }">
+          <v-btn v-bind="menuProps" variant="text" class="mr-2 mr-sm-4" :aria-label="t('shell.nav.userMenu')">
+            <UserAvatar :name="auth.user?.displayName ?? ''" :avatar-url="auth.user?.avatarUrl" size="30" class="mr-2" />
+            <span v-if="!mobile" class="shell-user-name text-truncate" :title="auth.user?.displayName">{{ auth.user?.displayName }}</span>
+            <v-icon icon="mdi-chevron-down" size="16" class="ml-2" />
+          </v-btn>
+        </template>
+        <v-list density="compact">
+          <v-list-item to="/account" :title="t('shell.nav.account')" prepend-icon="mdi-account-cog-outline" />
+          <v-list-item :title="t('shell.nav.logout')" prepend-icon="mdi-logout" @click="logout" />
+        </v-list>
+      </v-menu>
+    </div>
   </v-app-bar>
   <v-main><main class="page-container"><slot /></main></v-main>
   <v-snackbar v-model="errorOpen" color="error">{{ error }}</v-snackbar>
@@ -34,10 +49,12 @@ import { useDisplay, useTheme } from 'vuetify'
 import { useAuthStore } from '@/stores/auth'
 import { MediaAPI } from '@/apis/MediaAPI'
 import { usePolling } from '@/composables/usePolling'
+import { canAccessRoute } from '@/router/access'
 import type { StorageVolume } from '@/models/media'
 import StorageBar from '@/components/common/StorageBar.vue'
 import AppBrand from '@/components/common/AppBrand.vue'
 import UserAvatar from '@/components/common/UserAvatar.vue'
+import AppLanguageMenu from './AppLanguageMenu.vue'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -61,11 +78,13 @@ const adminLinks = computed(() => [
   { to: '/admin/targets', title: t('shell.nav.targets'), icon: 'mdi-record-circle-outline' },
   { to: '/admin/accounts', title: t('shell.nav.accounts'), icon: 'mdi-account-box-outline' },
   { to: '/admin/users', title: t('shell.nav.users'), icon: 'mdi-account-group-outline' },
+  { to: '/admin/clips', title: t('shell.nav.clipManagement'), icon: 'mdi-content-cut' },
+  { to: '/admin/trash', title: t('shell.nav.trashManagement'), icon: 'mdi-delete-outline' },
   { to: '/admin/storage', title: t('shell.nav.storage'), icon: 'mdi-harddisk' },
   { to: '/admin/workers', title: t('shell.nav.workers'), icon: 'mdi-server-network' },
   { to: '/admin/worker-tasks', title: t('shell.nav.workerTasks'), icon: 'mdi-format-list-checks' },
   { to: '/admin/settings', title: t('shell.nav.settings'), icon: 'mdi-cog-outline' },
-])
+].filter(link => canAccessRoute(router.resolve(link.to).meta, auth)))
 const breadcrumbs = computed(() =>
 {
   const definitions = route.meta.breadcrumbs ?? []
@@ -73,8 +92,7 @@ const breadcrumbs = computed(() =>
   {
     const current = index === definitions.length - 1
     const target = !current && item.to ? router.resolve(item.to) : undefined
-    const allowed = target && (!target.meta.admin || auth.isAdmin)
-      && (!Array.isArray(target.meta.permissions) || target.meta.permissions.every(permission => auth.hasPermission(String(permission))))
+    const allowed = target && canAccessRoute(target.meta, auth)
     return { title: t(item.titleKey), to: allowed ? item.to : undefined, disabled: !allowed, active: current }
   })
 })
@@ -93,25 +111,9 @@ usePolling(async () =>
   catch { volumes.value = [] }
 }, 30000)
 
-watch(() => auth.canViewRecordings, allowed =>
+watch(() => canAccessRoute(route.meta, auth), allowed =>
 {
-  if (!allowed && Array.isArray(route.meta.permissions) && route.meta.permissions.includes('recordings.view'))
-  {
-    void router.replace(auth.homePath)
-  }
-})
-
-watch(() => auth.canViewAnalytics, allowed =>
-{
-  if (!allowed && route.path === '/analytics')
-  {
-    void router.replace(auth.homePath)
-  }
-})
-
-watch(() => auth.isAdmin, allowed =>
-{
-  if (!allowed && route.path.startsWith('/admin/'))
+  if (!allowed && auth.hasAccess)
   {
     void router.replace(auth.homePath)
   }
@@ -142,4 +144,9 @@ async function logout(): Promise<void>
 .nav-group { padding: 24px 16px 10px; color: rgba(var(--v-theme-on-surface), .32); font-size: .7rem; }
 .shell-footer { padding: 24px; }
 .shell-topbar { border-bottom: 1px solid rgba(var(--v-theme-on-surface), .06); }
+.shell-actions { display: flex; align-items: center; flex-shrink: 0; }
+.shell-user-name { max-width: 12rem; }
+.shell-breadcrumbs { min-width: 0; overflow: hidden; white-space: nowrap; }
+.shell-breadcrumbs :deep(.v-breadcrumbs-item),
+.shell-breadcrumbs :deep(.v-breadcrumbs-item--link) { display: block; overflow: hidden; text-overflow: ellipsis; }
 </style>

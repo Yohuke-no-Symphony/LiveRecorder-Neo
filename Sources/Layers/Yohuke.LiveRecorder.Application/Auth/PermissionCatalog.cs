@@ -12,6 +12,8 @@ public static class PermissionCatalog
             "shell.permissions.downloadDescription", "mdi-download-outline", false, true),
         new(PermissionIds.CREATE_CLIPS, "recordings", "shell.permissions.createClips", null, "mdi-content-cut", false,
             true),
+        new(PermissionIds.MANAGE_CLIPS, "recordings", "shell.permissions.manageClips",
+            "shell.permissions.manageClipsDescription", "mdi-content-cut", true, false),
         new(PermissionIds.MANAGE_RECORDINGS, "recordings", "shell.permissions.manageRecordings",
             "shell.permissions.manageDescription", "mdi-shield-check-outline", false, false),
         new(PermissionIds.CONFIGURE_RECORDINGS, "recordings", "shell.permissions.configureRecordings",

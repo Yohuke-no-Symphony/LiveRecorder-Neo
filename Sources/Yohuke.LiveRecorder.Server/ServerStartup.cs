@@ -230,7 +230,7 @@ public static class ServerStartup
             foreach (var permission in PermissionCatalog.Definitions.Select(definition => definition.Id))
             {
                 options.AddPolicy(permission, policy => policy.RequireAuthenticatedUser().RequireAssertion(context =>
-                    context.User.IsInRole("Admin") || context.User.HasClaim(UserPermissionNames.CLAIM_TYPE, permission)));
+                    UserPermissionNames.IsGranted(context.User, permission)));
             }
         });
         builder.Services.Configure<ForwardedHeadersOptions>(options =>
@@ -361,7 +361,9 @@ public static class ServerStartup
         app.MapIdentityEndpoints(developmentOrigins);
         app.MapBilibiliEndpoints();
         app.MapLibraryEndpoints();
+        app.MapClipLibraryEndpoints();
         app.MapClipShareEndpoints();
+        app.MapTrashEndpoints();
         app.MapPlaybackEventSnapshotEndpoints();
         app.MapStorageCacheEndpoints();
         app.MapAnalyticsExportEndpoints();

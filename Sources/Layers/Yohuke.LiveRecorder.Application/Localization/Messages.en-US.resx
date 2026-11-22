@@ -183,6 +183,7 @@ This code is valid for 10 minutes. Do not share it. If you did not request it, i
   <data name="BILIBILI_SEARCH_INVALID" xml:space="preserve"><value>Search keywords must be 200 characters or fewer and the page must be greater than zero.</value></data>
   <data name="BILIBILI_SEARCH_UNAVAILABLE" xml:space="preserve"><value>Unable to search live rooms. Please try again later.</value></data>
   <data name="LIBRARY_DELETE_COUNT_INVALID" xml:space="preserve"><value>Select between 1 and 200 recordings.</value></data>
+  <data name="LIBRARY_CLIP_TRASH_COUNT_INVALID" xml:space="preserve"><value>Select between 1 and 200 clips.</value></data>
   <data name="LIBRARY_DELETE_RECORDING_ACTIVE" xml:space="preserve"><value>This recording is still in progress. Wait for it to finish before deleting it.</value></data>
   <data name="LIBRARY_DELETE_JOB_ACTIVE" xml:space="preserve"><value>This recording has active media jobs. Wait for them to finish.</value></data>
   <data name="LIBRARY_DELETE_FILES_FAILED" xml:space="preserve"><value>The recording files cannot be moved to trash right now. Try again later.</value></data>

@@ -35,6 +35,7 @@ export const useAuthStore = defineStore('auth', () =>
   const canViewRecordings = computed(() => hasPermission(PERMISSIONS.viewRecordings))
   const canDownloadRecordings = computed(() => canViewRecordings.value && hasPermission(PERMISSIONS.downloadRecordings))
   const canCreateClips = computed(() => canViewRecordings.value && hasPermission(PERMISSIONS.createClips))
+  const canManageClips = computed(() => hasPermission(PERMISSIONS.manageClips))
   const canUploadLiveMarkers = computed(() => canViewRecordings.value && hasPermission(PERMISSIONS.uploadLiveMarkers))
   const canGenerateLiveMarkers = computed(() => canViewRecordings.value && hasPermission(PERMISSIONS.generateLiveMarkers))
   const canManageLiveMarkers = computed(() => canViewRecordings.value && hasPermission(PERMISSIONS.manageLiveMarkers))
@@ -209,5 +210,5 @@ export const useAuthStore = defineStore('auth', () =>
     setCsrfToken('')
   }
 
-  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canConfigureRecordings, canViewAnalytics, canGenerateAnalytics, canPurgeRecordings, canViewRecordings, canDownloadRecordings, canCreateClips, canUploadLiveMarkers, canGenerateLiveMarkers, canManageLiveMarkers, permissionDefinitions, hasPermission, homePath, bootstrap, refresh, login, logout, clearSession, setLanguage, analyticsPreferenceSaving, setAnalyticsRangePinned, playbackPreferenceSaving, setPlaybackEventRetentionCount }
+  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canConfigureRecordings, canViewAnalytics, canGenerateAnalytics, canPurgeRecordings, canViewRecordings, canDownloadRecordings, canCreateClips, canManageClips, canUploadLiveMarkers, canGenerateLiveMarkers, canManageLiveMarkers, permissionDefinitions, hasPermission, homePath, bootstrap, refresh, login, logout, clearSession, setLanguage, analyticsPreferenceSaving, setAnalyticsRangePinned, playbackPreferenceSaving, setPlaybackEventRetentionCount }
 })

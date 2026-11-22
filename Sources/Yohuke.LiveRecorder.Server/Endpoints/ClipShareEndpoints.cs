@@ -20,13 +20,13 @@ public static class ClipShareEndpoints
             return await next(context);
         });
         sharing.MapGet("", async (string id, HttpContext http, ClipShareService service, CancellationToken ct) =>
-            Results.Ok(new ClipShareLinkResponse(await service.GetTokenAsync(id, Owner(http), http.User.IsInRole("Admin"), ct))));
+            Results.Ok(new ClipShareLinkResponse(await service.GetTokenAsync(id, Owner(http), CanManageAll(http), ct))));
         sharing.MapPut("", async (string id, HttpContext http, ClipShareService service, CancellationToken ct) =>
-            Results.Ok(new ClipShareLinkResponse(await service.CreateAsync(id, Owner(http), http.User.IsInRole("Admin"), ct))))
+            Results.Ok(new ClipShareLinkResponse(await service.CreateAsync(id, Owner(http), CanManageAll(http), ct))))
             .RequireAuthorization(UserPermissionNames.VIEW_RECORDINGS);
         sharing.MapDelete("/{token}", async (string id, string token, HttpContext http, ClipShareService service, CancellationToken ct) =>
         {
-            await service.RevokeAsync(id, token, Owner(http), http.User.IsInRole("Admin"), ct);
+            await service.RevokeAsync(id, token, Owner(http), CanManageAll(http), ct);
             return Results.NoContent();
         });
 
@@ -46,4 +46,6 @@ public static class ClipShareEndpoints
     }
 
     private static string Owner(HttpContext http) => http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+
+    private static bool CanManageAll(HttpContext http) => UserPermissionNames.IsGranted(http.User, UserPermissionNames.MANAGE_CLIPS);
 }

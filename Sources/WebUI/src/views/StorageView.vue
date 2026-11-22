@@ -19,14 +19,14 @@
       <v-tab value="directories">{{ t('views.storage.directories') }}</v-tab>
     </v-tabs>
     <div class="filter-bar"><v-text-field v-model="search" :label="t('views.storage.search')" prepend-inner-icon="mdi-magnify" clearable density="compact" style="max-width: 400px" /></div>
-    <StorageUsageTable v-if="visibleRows.length" :rows="visibleRows" />
+    <StorageUsageTable v-if="visibleRows.length" v-model:page="page" :rows="visibleRows" />
     <EmptyState v-else :title="t('views.storage.empty')" icon="mdi-harddisk" />
   </template>
   <StorageCacheCleanupDialog v-model="cleanupOpen" @busy="cleaning = $event" @cleaned="load(true)" />
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MediaAPI } from '@/apis/MediaAPI'
 import { useAction } from '@/composables/useAction'
@@ -43,6 +43,7 @@ const { t } = useI18n()
 const report = ref<StorageUsageReport>()
 const tab = ref<'rooms' | 'users' | 'directories'>('rooms')
 const search = ref<string | null>('')
+const page = ref(1)
 const cleanupOpen = ref(false)
 const cleaning = ref(false)
 const { busy, error, run } = useAction()
@@ -59,6 +60,7 @@ const visibleRows = computed<StorageUsageRow[]>(() =>
   const term = (search.value ?? '').trim().toLocaleLowerCase()
   return rows.filter(row => `${row.name} ${row.id} ${row.path}`.toLocaleLowerCase().includes(term))
 })
+watch([tab, search], () => { page.value = 1 })
 
 async function load(refresh = false): Promise<void>
 {

@@ -52,7 +52,11 @@ export const viewsZh = {
     segmentTrashed: '片段已移入回收站，可以恢复。',
     createJob: '创建任务', jobCreated: '后台任务已创建', view: '查看',
   },
-  clips: { mine: '我的切片', expires: '到期 {date}', empty: '暂无切片', browse: '浏览录播', trashConfirm: '将切片移入回收站？' },
+  clips: {
+    mine: '我的切片', expires: '到期 {date}', empty: '暂无切片', browse: '浏览录播', trashConfirm: '将切片移入回收站？',
+    owner: '所有者', trashSelected: '移入回收站（{count}）', trashCount: '将 {count} 条切片移入回收站。',
+    trashFailure: '{title}：{message}',
+  },
   jobs: {
     active: '进行中', failed: '未完成', count: '{count} 项', task: '任务', progress: '进度', fast: '快速', exact: '精确',
     analysisResults: '查看分析', loadFailed: '后台任务加载失败',
@@ -97,9 +101,10 @@ export const viewsZh = {
     confirmUser: '设为普通用户？', confirmAdmin: '设为管理员？', copied: '已复制邀请码',
   },
   trash: {
-    title: '回收站', name: '名称', type: '类型', purgeAt: '彻底删除时间', restore: '恢复', purge: '彻底删除', empty: '回收站为空', purgeConfirm: '彻底删除？',
-    select: '选择', clear: '清空', allSelectable: '全选可删除项目', selectEntry: '选择 {title}', selected: '已选 {count} 项',
+    name: '名称', type: '类型', purgeAt: '彻底删除时间', restore: '恢复', purge: '彻底删除', empty: '回收站为空', purgeConfirm: '彻底删除？',
+    clear: '清空', allSelectable: '全选可删除项目', selected: '已选 {count} 项',
     cancelSelection: '取消选择', purgeSelected: '彻底删除所选', clearConfirm: '清空回收站？', purgeCountConfirm: '彻底删除这 {count} 项后无法恢复。',
+    clearKindConfirm: '清空「{type}」？', purgeKindsConfirm: '彻底删除 {count} 项（{types}）后无法恢复。',
     selectionChanged: '可删除项目已更新，请重新确认。', purgeFailure: '{title}：{message}',
     segment: '录像分段', sourceRecording: '查看所属录像', restoreRecordingFirst: '请先恢复整场录像，再恢复此分段。',
     sharedSegment: '共享文件会保留到不再被其他录像或任务引用。',
@@ -158,7 +163,11 @@ export const viewsEn: MessageSchema<typeof viewsZh> = {
     segmentTrashed: 'Segment moved to the trash. You can restore it.',
     createJob: 'Create job', jobCreated: 'Background job created', view: 'View',
   },
-  clips: { mine: 'My clips', expires: 'Expires {date}', empty: 'No clips yet', browse: 'Browse recordings', trashConfirm: 'Move this clip to trash?' },
+  clips: {
+    mine: 'My clips', expires: 'Expires {date}', empty: 'No clips yet', browse: 'Browse recordings', trashConfirm: 'Move clips to trash?',
+    owner: 'Owner', trashSelected: 'Move to trash ({count})', trashCount: 'Move {count} selected clips to trash.',
+    trashFailure: '{title}: {message}',
+  },
   jobs: {
     active: 'In progress', failed: 'Incomplete', count: '{count} jobs', task: 'Job', progress: 'Progress', fast: 'Fast', exact: 'Precise',
     analysisResults: 'View analysis', loadFailed: 'Could not load background jobs',
@@ -203,9 +212,10 @@ export const viewsEn: MessageSchema<typeof viewsZh> = {
     confirmUser: 'Change to a regular user?', confirmAdmin: 'Make this user an administrator?', copied: 'Invitation code copied',
   },
   trash: {
-    title: 'Trash', name: 'Name', type: 'Type', purgeAt: 'Permanent deletion', restore: 'Restore', purge: 'Delete permanently', empty: 'Trash is empty', purgeConfirm: 'Delete permanently?',
-    select: 'Select', clear: 'Empty trash', allSelectable: 'Select all deletable items', selectEntry: 'Select {title}', selected: '{count} selected',
+    name: 'Name', type: 'Type', purgeAt: 'Permanent deletion', restore: 'Restore', purge: 'Delete permanently', empty: 'Trash is empty', purgeConfirm: 'Delete permanently?',
+    clear: 'Empty trash', allSelectable: 'Select all deletable items', selected: '{count} selected',
     cancelSelection: 'Cancel selection', purgeSelected: 'Permanently delete selected', clearConfirm: 'Empty trash?', purgeCountConfirm: 'Permanently deleting these {count} items cannot be undone.',
+    clearKindConfirm: 'Empty {type}?', purgeKindsConfirm: 'Permanently deleting {count} items ({types}) cannot be undone.',
     selectionChanged: 'The items available for deletion have changed. Review the selection and confirm again.', purgeFailure: '{title}: {message}',
     segment: 'Recording segment', sourceRecording: 'View recording', restoreRecordingFirst: 'Restore the entire recording before restoring this segment.',
     sharedSegment: 'Shared files are kept while other recordings or jobs still reference them.',
@@ -264,7 +274,11 @@ export const viewsJa: MessageSchema<typeof viewsZh> = {
     segmentTrashed: 'セグメントをゴミ箱に移動しました。復元できます。',
     createJob: 'タスクを作成', jobCreated: 'バックグラウンドタスクを作成しました', view: '表示',
   },
-  clips: { mine: '自分のクリップ', expires: '有効期限 {date}', empty: 'クリップはまだありません', browse: '録画を見る', trashConfirm: 'このクリップをゴミ箱に移動しますか？' },
+  clips: {
+    mine: '自分のクリップ', expires: '有効期限 {date}', empty: 'クリップはまだありません', browse: '録画を見る', trashConfirm: 'クリップをゴミ箱に移動しますか？',
+    owner: '所有者', trashSelected: 'ゴミ箱に移動（{count} 件）', trashCount: '選択した {count} 件のクリップをゴミ箱に移動します。',
+    trashFailure: '{title}：{message}',
+  },
   jobs: {
     active: '処理中', failed: '未完了', count: '{count} 件', task: 'タスク', progress: '進捗', fast: '高速', exact: '精密',
     analysisResults: '分析を見る', loadFailed: 'バックグラウンドタスクを読み込めませんでした',
@@ -309,9 +323,10 @@ export const viewsJa: MessageSchema<typeof viewsZh> = {
     confirmUser: '一般ユーザーに変更しますか？', confirmAdmin: '管理者に変更しますか？', copied: '招待コードをコピーしました',
   },
   trash: {
-    title: 'ゴミ箱', name: '名前', type: '種類', purgeAt: '完全削除の日時', restore: '復元', purge: '完全に削除', empty: 'ゴミ箱は空です', purgeConfirm: '完全に削除しますか？',
-    select: '選択', clear: '空にする', allSelectable: '削除可能な項目をすべて選択', selectEntry: '{title} を選択', selected: '{count} 件選択中',
+    name: '名前', type: '種類', purgeAt: '完全削除の日時', restore: '復元', purge: '完全に削除', empty: 'ゴミ箱は空です', purgeConfirm: '完全に削除しますか？',
+    clear: '空にする', allSelectable: '削除可能な項目をすべて選択', selected: '{count} 件選択中',
     cancelSelection: '選択を解除', purgeSelected: '選択した項目を完全に削除', clearConfirm: 'ゴミ箱を空にしますか？', purgeCountConfirm: 'この {count} 件の項目を完全に削除すると復元できません。',
+    clearKindConfirm: '「{type}」を空にしますか？', purgeKindsConfirm: '{count} 件の項目（{types}）を完全に削除すると復元できません。',
     selectionChanged: '削除できる項目が変更されました。選択内容を確認し、もう一度確定してください。', purgeFailure: '{title}：{message}',
     segment: '録画セグメント', sourceRecording: '元の録画を表示', restoreRecordingFirst: 'このセグメントを復元する前に、録画全体を復元してください。',
     sharedSegment: 'ほかの録画やタスクが参照している共有ファイルは保持されます。',

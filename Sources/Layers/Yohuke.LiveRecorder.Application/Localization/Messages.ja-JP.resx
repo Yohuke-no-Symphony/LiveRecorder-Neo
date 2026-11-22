@@ -183,6 +183,7 @@
   <data name="BILIBILI_SEARCH_INVALID" xml:space="preserve"><value>検索語は200文字以内、ページ番号は1以上で指定してください。</value></data>
   <data name="BILIBILI_SEARCH_UNAVAILABLE" xml:space="preserve"><value>ライブ配信ルームを検索できません。しばらくしてから再試行してください。</value></data>
   <data name="LIBRARY_DELETE_COUNT_INVALID" xml:space="preserve"><value>録画を1件から200件選択してください。</value></data>
+  <data name="LIBRARY_CLIP_TRASH_COUNT_INVALID" xml:space="preserve"><value>クリップを1件から200件選択してください。</value></data>
   <data name="LIBRARY_DELETE_RECORDING_ACTIVE" xml:space="preserve"><value>録画中です。録画が終了してから削除してください。</value></data>
   <data name="LIBRARY_DELETE_JOB_ACTIVE" xml:space="preserve"><value>この録画のメディアタスクが実行中です。完了するまでお待ちください。</value></data>
   <data name="LIBRARY_DELETE_FILES_FAILED" xml:space="preserve"><value>録画ファイルをゴミ箱に移動できません。しばらくしてから再試行してください。</value></data>

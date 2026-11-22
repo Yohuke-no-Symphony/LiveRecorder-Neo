@@ -54,7 +54,7 @@ function session(id: string, recording = false): BroadcastSession
 async function start(sessions = [session('a'), session('b'), session('live', true)])
 {
   const routeView = { template: '<div />' }
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: routeView }, { path: '/sessions/:id', component: routeView }, { path: '/analytics', component: routeView }, { path: '/trash', component: routeView }] })
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: routeView }, { path: '/sessions/:id', component: routeView }, { path: '/analytics', component: routeView }, { path: '/admin/trash', component: routeView }] })
   await router.push('/')
   let wrapper: VueWrapper<InstanceType<typeof SessionLibrary>>
   wrapper = mount(SessionLibrary, {

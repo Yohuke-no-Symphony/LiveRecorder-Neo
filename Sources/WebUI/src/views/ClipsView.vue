@@ -1,5 +1,5 @@
 <template>
-  <PageHeader :title="auth.isAdmin ? t('views.common.clips') : t('views.clips.mine')"><v-btn variant="outlined" to="/jobs" prepend-icon="mdi-progress-clock">{{ t('views.common.jobs') }}</v-btn></PageHeader>
+  <PageHeader :title="t('views.clips.mine')"><v-btn variant="outlined" to="/jobs" prepend-icon="mdi-progress-clock">{{ t('views.common.jobs') }}</v-btn></PageHeader>
   <v-alert v-if="error" type="error" class="mb-6">{{ error }}</v-alert>
   <div v-if="clips.length" class="media-grid">
     <ClipCard v-for="clip in clips" :key="clip.id" :clip="clip" @preview="preview(clip)" @share="sharingClip = clip" @trash="selected = clip" />
@@ -36,7 +36,8 @@ const sharingClip = ref<Clip>()
 const { busy, error, run } = useAction()
 async function load(): Promise<void>
 {
-  await run(async () => { clips.value = (await MediaAPI.clips()).sort((a, b) => b.createdAtUtc.localeCompare(a.createdAtUtc)) })
+  if (busy.value || selected.value) { return }
+  await run(async () => { clips.value = await MediaAPI.clips() })
 }
 async function deleteClip(): Promise<void>
 {

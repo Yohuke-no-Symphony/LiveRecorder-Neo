@@ -135,7 +135,7 @@
     </v-dialog>
     <v-snackbar v-model="playbackLinkCopied" color="surface-variant">{{ t('sharing.copied') }}</v-snackbar>
     <v-snackbar v-model="jobCreated" color="surface-variant">{{ t('views.session.jobCreated') }}<template #actions><v-btn color="primary" to="/jobs">{{ t('views.session.view') }}</v-btn></template></v-snackbar>
-    <v-snackbar v-model="segmentTrashed" color="surface-variant">{{ t('views.session.segmentTrashed') }}<template #actions><v-btn color="primary" to="/trash">{{ t('views.trash.title') }}</v-btn></template></v-snackbar>
+    <v-snackbar v-model="segmentTrashed" color="surface-variant">{{ t('views.session.segmentTrashed') }}<template #actions><v-btn color="primary" to="/admin/trash">{{ t('shell.nav.trashManagement') }}</v-btn></template></v-snackbar>
   </v-defaults-provider>
 </template>
 

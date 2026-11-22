@@ -9,6 +9,7 @@ import { VBreadcrumbs } from 'vuetify/components/VBreadcrumbs'
 import AppShell from '../src/components/layout/AppShell.vue'
 import applicationRouter from '../src/router'
 import { useAuthStore } from '../src/stores/auth'
+import { PERMISSIONS } from '../src/models/auth'
 import { i18n } from '../src/plugins/i18n'
 
 vi.mock('../src/composables/usePolling', () => ({ usePolling: vi.fn() }))
@@ -70,11 +71,13 @@ describe('页面导航与面包屑', () =>
     ['/jobs', ['后台任务']],
     ['/clips', ['我的切片']],
     ['/analytics', ['直播分析']],
-    ['/trash', ['回收站']],
+    ['/trash', ['个人回收站']],
     ['/account', ['账户设置']],
     ['/admin/targets', ['管理', '录制管理']],
     ['/admin/accounts', ['管理', 'B站账号']],
     ['/admin/users', ['管理', '用户与邀请']],
+    ['/admin/clips', ['管理', '切片管理']],
+    ['/admin/trash', ['管理', '回收站管理']],
     ['/admin/storage', ['管理', '磁盘']],
     ['/admin/workers', ['管理', 'Worker']],
     ['/admin/settings', ['管理', '设置']],
@@ -125,6 +128,28 @@ describe('页面导航与面包屑', () =>
     await nextTick()
     expect(wrapper.find('.nav-item[data-to="/admin/workers"]').exists()).toBe(false)
     await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/'))
+  })
+
+  it('被授权的普通账号只看到有权访问的管理入口，撤权后退出页面', async () =>
+  {
+    const auth = useAuthStore()
+    auth.user!.permissions = [PERMISSIONS.viewRecordings, PERMISSIONS.manageClips]
+    const wrapper = await openShell('/admin/clips')
+    expect(wrapper.findAll('.nav-item[data-to^="/admin/"]').map(item => item.attributes('data-to')))
+      .toEqual(['/admin/clips', '/admin/trash'])
+    expect(breadcrumbTitles(wrapper)).toEqual(['管理', '切片管理'])
+    expect(wrapper.get('.nav-item[data-to="/trash"]').text()).toBe('个人回收站')
+
+    auth.user!.permissions = [PERMISSIONS.viewRecordings, PERMISSIONS.purgeRecordings]
+    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/'))
+    expect(wrapper.find('.nav-item[data-to="/admin/clips"]').exists()).toBe(false)
+    expect(wrapper.get('.nav-item[data-to="/admin/trash"]').text()).toBe('回收站管理')
+    await router.push('/admin/trash')
+    expect(router.currentRoute.value.path).toBe('/admin/trash')
+
+    auth.user!.permissions = [PERMISSIONS.viewRecordings]
+    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/'))
+    expect(wrapper.findAll('.nav-item[data-to^="/admin/"]')).toHaveLength(0)
   })
 
   it('同一外壳内切换页面会更新层级，未知路径按现有规则回到录播库', async () =>

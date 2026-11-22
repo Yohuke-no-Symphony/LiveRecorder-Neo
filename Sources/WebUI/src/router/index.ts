@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { PERMISSIONS } from '@/models/auth'
+import { canAccessRoute } from './access'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -24,6 +25,8 @@ const router = createRouter({
     { path: '/admin/targets', component: () => import('@/views/TargetsView.vue'), meta: { admin: true, breadcrumbs: [{ titleKey: 'shell.nav.management' }, { titleKey: 'shell.nav.targets' }] } },
     { path: '/admin/accounts', component: () => import('@/views/AccountsView.vue'), meta: { admin: true, breadcrumbs: [{ titleKey: 'shell.nav.management' }, { titleKey: 'shell.nav.accounts' }] } },
     { path: '/admin/users', component: () => import('@/views/UsersView.vue'), meta: { admin: true, breadcrumbs: [{ titleKey: 'shell.nav.management' }, { titleKey: 'shell.nav.users' }] } },
+    { path: '/admin/clips', component: () => import('@/views/ClipManagementView.vue'), meta: { permissions: [PERMISSIONS.manageClips], breadcrumbs: [{ titleKey: 'shell.nav.management' }, { titleKey: 'shell.nav.clipManagement' }] } },
+    { path: '/admin/trash', component: () => import('@/views/TrashView.vue'), props: { management: true }, meta: { anyPermission: [PERMISSIONS.manageClips, PERMISSIONS.manageRecordings, PERMISSIONS.purgeRecordings], breadcrumbs: [{ titleKey: 'shell.nav.management' }, { titleKey: 'shell.nav.trashManagement' }] } },
     { path: '/admin/storage', component: () => import('@/views/StorageView.vue'), meta: { admin: true, breadcrumbs: [{ titleKey: 'shell.nav.management' }, { titleKey: 'shell.nav.storage' }] } },
     { path: '/admin/workers', component: () => import('@/views/WorkersView.vue'), meta: { admin: true, breadcrumbs: [{ titleKey: 'shell.nav.management' }, { titleKey: 'shell.nav.workers' }] } },
     { path: '/admin/worker-tasks', component: () => import('@/views/WorkerTasksView.vue'), meta: { admin: true, breadcrumbs: [{ titleKey: 'shell.nav.management' }, { titleKey: 'shell.nav.workerTasks' }] } },
@@ -57,11 +60,7 @@ router.beforeEach(async to =>
   {
     return '/access'
   }
-  if (Array.isArray(to.meta.permissions) && to.meta.permissions.some(permission => !auth.hasPermission(String(permission))))
-  {
-    return auth.homePath
-  }
-  if (to.meta.admin && !auth.isAdmin)
+  if (!canAccessRoute(to.meta, auth))
   {
     return auth.homePath
   }

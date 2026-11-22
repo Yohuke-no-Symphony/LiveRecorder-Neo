@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, disposePinia, setActivePinia, type Pinia } from 'pinia'
 import { defineComponent, h } from 'vue'
+import { createVuetify } from 'vuetify'
+import { VDataTable } from 'vuetify/components/VDataTable'
 import { AuthAPI } from '../src/apis/AuthAPI'
 import { MediaAPI } from '../src/apis/MediaAPI'
 import type { TrashEntry } from '../src/models/media'
@@ -30,6 +32,7 @@ const definitions: PermissionDefinition[] = [
   ['analytics.generate', 'analytics', 'generateAnalytics'],
 ].map(([id, group, label]) => ({ id: id!, group: group!, labelKey: `shell.permissions.${label}`, descriptionKey: null, icon: 'mdi-check', isDangerous: id === 'recordings.purge' || id === 'live-markers.manage', defaultGranted: false }))
 const mounted: VueWrapper[] = []
+const vuetify = createVuetify({ components: { VDataTable } })
 let pinia: Pinia
 const container = { template: '<div><slot /></div>' }
 const switchField = defineComponent({
@@ -44,7 +47,8 @@ const switchField = defineComponent({
   },
 })
 const stubs = {
-  VSwitch: switchField, VCard: container, VTable: container, VTabs: container, VTab: container,
+  VSwitch: switchField, VCard: container, VTab: container,
+  VTabs: { name: 'VTabs', props: ['modelValue'], emits: ['update:modelValue'], template: '<div><slot /></div>' },
   VChip: container, VChipGroup: container, VAvatar: container, VIcon: true, VDivider: true,
   VTextField: true, VSnackbar: true, VMenu: true,
   VAlert: { template: '<div role="alert"><slot /></div>' },
@@ -67,6 +71,8 @@ function button(wrapper: VueWrapper, label: string)
 beforeEach(() =>
 {
   vi.stubGlobal('localStorage', { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() })
+  vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
   pinia = createPinia()
   setActivePinia(pinia)
   i18n.global.locale.value = 'zh-CN'
@@ -90,7 +96,7 @@ describe('独立权限与管理入口', () =>
     vi.spyOn(AuthAPI, 'invitations').mockResolvedValue([])
     const ban = vi.spyOn(AuthAPI, 'banUser').mockRejectedValueOnce(new Error('封禁失败')).mockResolvedValue({ ...profile, status: 'Disabled' })
     const unban = vi.spyOn(AuthAPI, 'unbanUser').mockResolvedValue(profile)
-    const wrapper = mount(UsersView, { global: { plugins: [pinia, i18n], stubs: {
+    const wrapper = mount(UsersView, { global: { plugins: [pinia, i18n, vuetify], stubs: {
       ...stubs, VList: container, VCardText: container,
       VMenu: { template: '<div><slot name="activator" :props="{}" /><slot /></div>' },
       VListItem: { props: ['title', 'disabled'], template: '<button :disabled="disabled">{{ title }}</button>' },
@@ -122,7 +128,7 @@ describe('独立权限与管理入口', () =>
     useAuthStore().user = admin
     vi.spyOn(AuthAPI, 'users').mockResolvedValue([admin, { ...user(), status: 'Pending' }])
     vi.spyOn(AuthAPI, 'invitations').mockResolvedValue([])
-    const wrapper = mount(UsersView, { global: { plugins: [pinia, i18n], stubs: {
+    const wrapper = mount(UsersView, { global: { plugins: [pinia, i18n, vuetify], stubs: {
       ...stubs, VList: container,
       VMenu: { template: '<div><slot name="activator" :props="{}" /><slot /></div>' },
       VListItem: { props: ['title'], template: '<button>{{ title }}</button>' },
@@ -215,7 +221,7 @@ describe('独立权限与管理入口', () =>
     }
     vi.spyOn(MediaAPI, 'trash').mockResolvedValue([entry])
     vi.spyOn(MediaAPI, 'storage').mockResolvedValue([])
-    const wrapper = mount(TrashView, { global: { plugins: [pinia, i18n], stubs } })
+    const wrapper = mount(TrashView, { props: { management: true }, global: { plugins: [pinia, i18n, vuetify], stubs } })
     mounted.push(wrapper)
     await flushPromises()
     expect(wrapper.findAll('button').some(item => item.text() === '恢复')).toBe(restore)
@@ -251,7 +257,7 @@ describe('独立权限与管理入口', () =>
     vi.spyOn(AuthAPI, 'users').mockResolvedValue([profile])
     vi.spyOn(AuthAPI, 'invitations').mockResolvedValue([])
     const save = vi.spyOn(AuthAPI, 'userPermissions').mockRejectedValueOnce(new Error('保存失败')).mockResolvedValue({ ...profile, permissions: ['recordings.purge'] })
-    const wrapper = mount(UsersView, { global: { plugins: [pinia, i18n], stubs } })
+    const wrapper = mount(UsersView, { global: { plugins: [pinia, i18n, vuetify], stubs } })
     mounted.push(wrapper)
     await flushPromises()
     await button(wrapper, '权限').trigger('click')
@@ -266,5 +272,33 @@ describe('独立权限与管理入口', () =>
     await flushPromises()
     expect(save).toHaveBeenLastCalledWith('viewer', ['recordings.purge'])
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('用户和邀请可分别按表头排序，使用次数按数值比较', async () =>
+  {
+    const viewer = { ...user(), id: 'a', displayName: 'Alpha' }
+    const admin = { ...user(), id: 'z', displayName: 'Zulu', role: 'Admin' as const }
+    useAuthStore().user = admin
+    vi.spyOn(AuthAPI, 'users').mockResolvedValue([admin, viewer])
+    const invitation = { createdAtUtc: '2026-11-13T00:00:00Z', maxUses: 20, revoked: false }
+    vi.spyOn(AuthAPI, 'invitations').mockResolvedValue([
+      { ...invitation, id: 'many', usedCount: 12 },
+      { ...invitation, id: 'few', usedCount: 2 },
+    ])
+    const wrapper = mount(UsersView, { global: { plugins: [pinia, i18n, vuetify], stubs } })
+    mounted.push(wrapper)
+    await flushPromises()
+    const userHeader = wrapper.findAll('th').find(header => header.text() === '用户')!
+    await userHeader.trigger('click')
+    expect(wrapper.get('tbody tr').text()).toContain('Alpha')
+    await userHeader.trigger('click')
+    expect(wrapper.get('tbody tr').text()).toContain('Zulu')
+
+    wrapper.getComponent({ name: 'VTabs' }).vm.$emit('update:modelValue', 'invitations')
+    await flushPromises()
+    const usedHeader = wrapper.findAll('th').find(header => header.text() === '已使用')!
+    await usedHeader.trigger('click')
+    expect(wrapper.get('tbody tr').text()).toContain('2 / 20')
+    expect(wrapper.get('tbody tr').text()).not.toContain('12 / 20')
   })
 })

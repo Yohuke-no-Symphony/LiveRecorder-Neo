@@ -48,6 +48,9 @@ public sealed class DatabaseIndexWorker(IMongoContext context, IBootstrapStore b
                         new CreateIndexOptions { Name = "clipping_worker_jobs" }), cancellationToken: stoppingToken);
                     await context.Collection<MediaJob>("jobs").Indexes.CreateOneAsync(new CreateIndexModel<MediaJob>(Builders<MediaJob>.IndexKeys.Ascending(x => x.MutationKey), new CreateIndexOptions<MediaJob> { Unique = true, Name = "active_mutation", PartialFilterExpression = new BsonDocument("MutationKey", new BsonDocument("$type", "string")) }), cancellationToken: stoppingToken);
                     await context.Collection<Clip>("clips").Indexes.CreateOneAsync(new CreateIndexModel<Clip>(Builders<Clip>.IndexKeys.Ascending(x => x.OwnerId).Ascending(x => x.IsTrashed).Ascending(x => x.ExpiresAtUtc)), cancellationToken: stoppingToken);
+                    await context.Collection<Clip>("clips").Indexes.CreateOneAsync(new CreateIndexModel<Clip>(
+                        Builders<Clip>.IndexKeys.Ascending(x => x.IsTrashed).Descending(x => x.CreatedAtUtc).Descending(x => x.Id),
+                        new CreateIndexOptions { Name = "clips_management_created" }), cancellationToken: stoppingToken);
                     await context.Collection<TrashEntry>("trash").Indexes.CreateOneAsync(new CreateIndexModel<TrashEntry>(Builders<TrashEntry>.IndexKeys.Ascending(x => x.EntityId), new CreateIndexOptions { Unique = true, Name = "trash_entity_unique" }), cancellationToken: stoppingToken);
                     return;
                 }

@@ -18,7 +18,7 @@ namespace Yohuke.LiveRecorder.Http.Tests;
 /// <summary>验证管理员授权入口、独立策略以及已有 Cookie 的即时授撤权。</summary>
 public sealed class UserPermissionsHttpTests
 {
-    /// <summary>真实宿主中的三个权限策略独立判断，管理员不依赖显式授权声明。</summary>
+    /// <summary>真实宿主中的权限策略独立判断，管理员不依赖显式授权声明。</summary>
     [Fact]
     public async Task HostPoliciesRespectIndependentGrantsAndAdministratorRole()
     {
@@ -27,9 +27,9 @@ public sealed class UserPermissionsHttpTests
         var policies = new[]
         {
             UserPermissionNames.MANAGE_RECORDINGS, UserPermissionNames.VIEW_ANALYTICS,
-            UserPermissionNames.PURGE_RECORDINGS
+            UserPermissionNames.PURGE_RECORDINGS, UserPermissionNames.MANAGE_CLIPS
         };
-        for (var mask = 0; mask < 8; mask++)
+        for (var mask = 0; mask < (1 << policies.Length); mask++)
         {
             var user = new UserProfile("viewer", "viewer@example.test", "用户", "", "User", "Active")
             {
@@ -154,6 +154,9 @@ public sealed class UserPermissionsHttpTests
         await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
         var definitions = await fixture.Admin.Client.GetFromJsonAsync<PermissionDefinition[]>("/api/auth/permissions");
         Assert.Equal(PermissionCatalog.Definitions, definitions);
+        var clipManagement = Assert.Single(definitions!, definition => definition.Id == PermissionIds.MANAGE_CLIPS);
+        Assert.True(clipManagement.IsDangerous);
+        Assert.False(clipManagement.DefaultGranted);
         var user = await fixture.CreateUserAsync("strict-permissions@example.test");
         var endpoint = $"/api/admin/users/{user.Id}/permissions";
         foreach (var payload in new object[] { new[] { "unknown.permission" }, new { manageRecordings = true } })

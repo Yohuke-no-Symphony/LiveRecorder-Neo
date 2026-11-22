@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
+import { createVuetify } from 'vuetify'
+import { VDataTable } from 'vuetify/components/VDataTable'
 import StorageBar from '../src/components/common/StorageBar.vue'
 import TrashView from '../src/views/TrashView.vue'
 import StorageView from '../src/views/StorageView.vue'
@@ -15,6 +17,7 @@ vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { storage, storageDetails, tr
 vi.mock('../src/stores/auth', () => ({ useAuthStore: () => ({ isAdmin: true, canManageRecordings: true, canPurgeRecordings: true }) }))
 
 const mounted: VueWrapper[] = []
+const vuetify = createVuetify({ components: { VDataTable } })
 const container = { template: '<div><slot /></div>' }
 const cleanupDialog = {
   name: 'StorageCacheCleanupDialog', props: ['modelValue'], emits: ['update:modelValue', 'cleaned', 'busy'],
@@ -22,7 +25,7 @@ const cleanupDialog = {
 }
 const stubs = {
   StorageCacheCleanupDialog: cleanupDialog,
-  VCard: container, VChip: container, VTable: { template: '<table><slot /></table>' }, VTabs: { name: 'VTabs', props: ['modelValue'], emits: ['update:modelValue'], template: '<div><slot /></div>' },
+  VCard: container, VChip: container, VTabs: { name: 'VTabs', props: ['modelValue'], emits: ['update:modelValue'], template: '<div><slot /></div>' },
   VTab: { props: ['value'], template: '<button @click="$parent.$emit(\'update:modelValue\', value)"><slot /></button>' },
   VTooltip: {
     props: ['disabled'], data: () => ({ open: false }),
@@ -60,7 +63,7 @@ function cleanupResult(): CacheCleanupResult
 
 function render(component: Parameters<typeof mount>[0], props = {}): VueWrapper
 {
-  const wrapper = mount(component, { props, global: { plugins: [i18n], stubs } })
+  const wrapper = mount(component, { props, global: { plugins: [i18n, vuetify], stubs } })
   mounted.push(wrapper)
   return wrapper
 }
@@ -68,6 +71,8 @@ function render(component: Parameters<typeof mount>[0], props = {}): VueWrapper
 beforeEach(() =>
 {
   vi.useFakeTimers()
+  vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
   vi.clearAllMocks()
   i18n.global.locale.value = 'zh-CN'
   storage.mockResolvedValue([volume(), volume('data')])
@@ -79,6 +84,7 @@ afterEach(() =>
 {
   for (const wrapper of mounted.splice(0)) { wrapper.unmount() }
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 describe('磁盘分类', () =>
@@ -266,6 +272,30 @@ describe('管理员磁盘明细', () =>
     await nextTick()
     expect(wrapper.text()).toContain('/records/.trash')
     expect(wrapper.text()).toContain('100 B')
+  })
+
+  it('默认按合计降序，各容量列按字节比较并将缺失项视为零', async () =>
+  {
+    const data = report()
+    const room = data.rooms[0]!
+    data.rooms = [
+      room,
+      { ...room, id: 'large', name: 'Large', derivedBytes: 1024, totalBytes: 2048 },
+      { ...room, id: 'small', name: 'Small', derivedBytes: 512, totalBytes: 512 },
+    ]
+    storageDetails.mockResolvedValue(data)
+    const wrapper = render(StorageView)
+    await flushPromises()
+    const total = wrapper.findAll('th').find(header => header.text() === '合计')!
+    expect(total.attributes('aria-sort')).toBe('descending')
+    expect(wrapper.get('tbody tr').text()).toContain('Large')
+    await total.trigger('click')
+    expect(wrapper.get('tbody tr').text()).toContain('测试直播间')
+
+    await wrapper.findAll('th').find(header => header.text() === '转码成品')!.trigger('click')
+    expect(wrapper.findAll('tbody tr').map(row => row.text())).toEqual([
+      expect.stringContaining('测试直播间'), expect.stringContaining('Small'), expect.stringContaining('Large'),
+    ])
   })
 
   it('刷新失败提示错误，同时保留上次成功的明细', async () =>

@@ -20,7 +20,7 @@ import CardHeader from '@/components/common/CardHeader.vue'
 const { t } = useI18n()
 
 const opened = defineModel<boolean>({ required: true })
-defineProps<{ clip?: Clip }>()
+defineProps<{ clip?: Pick<Clip, 'id' | 'title'> }>()
 const video = ref<HTMLVideoElement>()
 const failed = ref(false)
 watch(opened, value =>

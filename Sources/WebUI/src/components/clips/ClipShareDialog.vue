@@ -38,7 +38,7 @@ import type { Clip } from '@/models/media'
 import { useAuthStore } from '@/stores/auth'
 import { absoluteShareLink, copyShareLink } from '@/utilities/shareLinks'
 
-const props = defineProps<{ clip: Clip }>()
+const props = defineProps<{ clip: Pick<Clip, 'id' | 'title'> }>()
 const opened = defineModel<boolean>({ required: true })
 const { t } = useI18n()
 const router = useRouter()

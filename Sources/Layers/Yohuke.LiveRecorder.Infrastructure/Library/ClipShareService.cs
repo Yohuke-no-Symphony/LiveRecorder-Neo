@@ -16,17 +16,17 @@ public sealed class ClipShareService(IMongoContext context, IAppPaths paths, Tim
 {
     private IMongoCollection<Clip> Clips => context.Collection<Clip>("clips");
 
-    /// <summary>读取所有者或管理员管理的当前分享令牌。</summary>
-    public async Task<string?> GetTokenAsync(string id, string userId, bool isAdmin, CancellationToken cancellationToken)
+    /// <summary>读取切片所有者或具有切片管理权限的账号可管理的当前分享令牌。</summary>
+    public async Task<string?> GetTokenAsync(string id, string userId, bool canManageAll, CancellationToken cancellationToken)
     {
-        var clip = await GetManagedClipAsync(id, userId, isAdmin, cancellationToken);
+        var clip = await GetManagedClipAsync(id, userId, canManageAll, cancellationToken);
         return clip.ShareToken;
     }
 
     /// <summary>为可用切片创建分享令牌，或返回已存在的令牌。</summary>
-    public async Task<string> CreateAsync(string id, string userId, bool isAdmin, CancellationToken cancellationToken)
+    public async Task<string> CreateAsync(string id, string userId, bool canManageAll, CancellationToken cancellationToken)
     {
-        var clip = await GetManagedClipAsync(id, userId, isAdmin, cancellationToken);
+        var clip = await GetManagedClipAsync(id, userId, canManageAll, cancellationToken);
         ResolveAvailableFile(clip);
 
         var now = clock.GetUtcNow().UtcDateTime;
@@ -47,9 +47,9 @@ public sealed class ClipShareService(IMongoContext context, IAppPaths paths, Tim
     }
 
     /// <summary>撤销指定令牌，保留其他请求已创建的新令牌。</summary>
-    public async Task RevokeAsync(string id, string token, string userId, bool isAdmin, CancellationToken cancellationToken)
+    public async Task RevokeAsync(string id, string token, string userId, bool canManageAll, CancellationToken cancellationToken)
     {
-        var clip = await GetManagedClipAsync(id, userId, isAdmin, cancellationToken);
+        var clip = await GetManagedClipAsync(id, userId, canManageAll, cancellationToken);
         await Clips.UpdateOneAsync(value => value.Id == id && value.OwnerId == clip.OwnerId && value.ShareToken == token,
             Builders<Clip>.Update.Unset(value => value.ShareToken), cancellationToken: cancellationToken);
     }
@@ -62,11 +62,11 @@ public sealed class ClipShareService(IMongoContext context, IAppPaths paths, Tim
         return (clip, ResolveAvailableFile(clip));
     }
 
-    private async Task<Clip> GetManagedClipAsync(string id, string userId, bool isAdmin, CancellationToken cancellationToken)
+    private async Task<Clip> GetManagedClipAsync(string id, string userId, bool canManageAll, CancellationToken cancellationToken)
     {
         var clip = await Clips.Find(value => value.Id == id).FirstOrDefaultAsync(cancellationToken)
                    ?? throw new InfrastructureException(MessageCode.LIBRARY_CLIP_NOT_FOUND, 404);
-        if (!isAdmin && clip.OwnerId != userId)
+        if (!canManageAll && clip.OwnerId != userId)
         {
             throw new InfrastructureException(MessageCode.LIBRARY_ACCESS_DENIED, 403);
         }

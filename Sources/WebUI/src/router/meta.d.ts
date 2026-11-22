@@ -5,6 +5,10 @@ declare module 'vue-router'
 {
   interface RouteMeta
   {
+    admin?: boolean
+    public?: boolean
+    permissions?: readonly string[]
+    anyPermission?: readonly string[]
     breadcrumbs?: readonly RouteBreadcrumb[]
   }
 }

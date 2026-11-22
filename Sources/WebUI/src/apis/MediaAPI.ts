@@ -10,6 +10,7 @@ import type { ServerPaths, ServerSettings } from '@/models/settings'
 import type { CacheCleanupOptions, CacheCleanupResult, StorageUsageReport } from '@/models/storage'
 import type { PlaybackLoadOptions } from '@/models/playbackLoadOptions'
 import type { ClipShareLink, SharedClip } from '@/models/clipShare'
+import type { ClipManagementQuery, ClipTrashResult, ManagedClipPage } from '@/models/clipManagement'
 
 function clipSharePath(id: string): string
 {
@@ -19,6 +20,11 @@ function clipSharePath(id: string): string
 function sharedClipPath(id: string, token: string): string
 {
   return `${clipSharePath(id)}/${encodeURIComponent(token)}`
+}
+
+function trashPath(management: boolean): string
+{
+  return management ? 'admin/trash' : 'trash'
 }
 
 export const MediaAPI = {
@@ -55,6 +61,9 @@ export const MediaAPI = {
   retryJob: (id: string) => post<void>(`jobs/${encodeURIComponent(id)}/retry`),
   downloadJobOutput: (id: string, index: number) => getServerUrl(`/api/jobs/${encodeURIComponent(id)}/outputs/${index}`),
   clips: () => request<Clip[]>('clips'),
+  managedClips: (options: ClipManagementQuery, signal?: AbortSignal) =>
+    request<ManagedClipPage>(`admin/clips${query({ ...options })}`, { signal }),
+  trashManagedClips: (clipIds: string[]) => post<ClipTrashResult[]>('admin/clips/trash', { clipIds }),
   deleteClip: (id: string) => remove(`clips/${encodeURIComponent(id)}`),
   downloadClip: (id: string) => getServerUrl(`/api/clips/${encodeURIComponent(id)}/download`),
   previewClip: (id: string) => getServerUrl(`/api/clips/${encodeURIComponent(id)}/media`),
@@ -63,10 +72,10 @@ export const MediaAPI = {
   revokeClipShare: (id: string, token: string) => remove(sharedClipPath(id, token)),
   sharedClip: (id: string, token: string) => request<SharedClip>(sharedClipPath(id, token)),
   downloadSharedClip: (id: string, token: string) => getServerUrl(`/api/${sharedClipPath(id, token)}/download`),
-  trash: () => request<TrashEntry[]>('trash'),
-  restoreTrash: (id: string) => post<void>(`trash/${encodeURIComponent(id)}/restore`),
-  purgeTrash: (id: string) => remove(`trash/${encodeURIComponent(id)}`),
-  purgeTrashEntries: (entryIds: string[]) => post<TrashPurgeResult[]>('trash/purge', { entryIds }),
+  trash: (management = false) => request<TrashEntry[]>(trashPath(management)),
+  restoreTrash: (id: string, management = false) => post<void>(`${trashPath(management)}/${encodeURIComponent(id)}/restore`),
+  purgeTrash: (id: string, management = false) => remove(`${trashPath(management)}/${encodeURIComponent(id)}`),
+  purgeTrashEntries: (entryIds: string[], management = false) => post<TrashPurgeResult[]>(`${trashPath(management)}/purge`, { entryIds }),
   storage: (refresh = false) => request<StorageVolume[]>(`storage${query({ refresh })}`),
   storageDetails: (refresh = false) => request<StorageUsageReport>(`storage/details${query({ refresh })}`),
   cleanupCache: (body: CacheCleanupOptions) => post<CacheCleanupResult>('storage/cache/cleanup', body),

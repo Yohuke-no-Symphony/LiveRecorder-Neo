@@ -6,6 +6,7 @@ public static class PermissionIds
     public const string VIEW_RECORDINGS = "recordings.view";
     public const string DOWNLOAD_RECORDINGS = "recordings.download";
     public const string CREATE_CLIPS = "clips.create";
+    public const string MANAGE_CLIPS = "clips.manage";
     public const string UPLOAD_LIVE_MARKERS = "live-markers.upload";
     public const string MANAGE_LIVE_MARKERS = "live-markers.manage";
     public const string GENERATE_LIVE_MARKERS = "live-markers.generate";

@@ -167,11 +167,11 @@ public sealed class SessionDeletionHttpTests
         Assert.DoesNotContain(manifest.Session.Id, await SessionIdsAsync(fixture.Admin));
         using var hiddenDetail = await fixture.Admin.Client.GetAsync("/api/sessions/" + manifest.Session.Id);
         Assert.Equal(HttpStatusCode.NotFound, hiddenDetail.StatusCode);
-        var trash = await fixture.Admin.Client.GetFromJsonAsync<JsonArray>("/api/trash");
+        var trash = await fixture.Admin.Client.GetFromJsonAsync<JsonArray>("/api/admin/trash");
         Assert.Contains(trash!, item => item!["id"]!.GetValue<string>() == entry.Id && item["kind"]!.GetValue<string>() == "Session");
         Assert.False(File.Exists(source));
 
-        using var restored = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/trash/" + entry.Id + "/restore");
+        using var restored = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/admin/trash/" + entry.Id + "/restore");
         Assert.Equal(HttpStatusCode.NoContent, restored.StatusCode);
         Assert.Contains(manifest.Session.Id, await SessionIdsAsync(fixture.Admin));
         Assert.Equal(contents, await File.ReadAllTextAsync(source));
@@ -210,9 +210,9 @@ public sealed class SessionDeletionHttpTests
         using var deletedByAdmin = await fixture.Admin.SendAsync(HttpMethod.Delete, "/api/sessions/" + manifest.Session.Id);
         Assert.Equal(HttpStatusCode.NoContent, deletedByAdmin.StatusCode);
         var entry = await fixture.Context.Collection<TrashEntry>("trash").Find(x => x.EntityId == manifest.Session.Id).SingleAsync();
-        var visible = await browser.Client.GetFromJsonAsync<JsonArray>("/api/trash");
+        var visible = await browser.Client.GetFromJsonAsync<JsonArray>("/api/admin/trash");
         Assert.Contains(visible!, item => item!["id"]!.GetValue<string>() == entry.Id);
-        using var restored = await browser.SendAsync(HttpMethod.Post, "/api/trash/" + entry.Id + "/restore");
+        using var restored = await browser.SendAsync(HttpMethod.Post, "/api/admin/trash/" + entry.Id + "/restore");
         Assert.Equal(HttpStatusCode.NoContent, restored.StatusCode);
         Assert.Contains(manifest.Session.Id, await SessionIdsAsync(browser));
 
@@ -220,18 +220,20 @@ public sealed class SessionDeletionHttpTests
         Assert.Equal(HttpStatusCode.OK, batch.StatusCode);
         Assert.True(Assert.Single((await batch.Content.ReadFromJsonAsync<JsonArray>())!)!["success"]!.GetValue<bool>());
         entry = await fixture.Context.Collection<TrashEntry>("trash").Find(x => x.EntityId == manifest.Session.Id).SingleAsync();
-        using var purge = await browser.SendAsync(HttpMethod.Delete, "/api/trash/" + entry.Id);
+        using var purge = await browser.SendAsync(HttpMethod.Delete, "/api/admin/trash/" + entry.Id);
         Assert.Equal(HttpStatusCode.Forbidden, purge.StatusCode);
 
         await SetPermissionsAsync(fixture, user.Id);
-        using var revokedRestore = await browser.SendAsync(HttpMethod.Post, "/api/trash/" + entry.Id + "/restore");
+        using var revokedRestore = await browser.SendAsync(HttpMethod.Post, "/api/admin/trash/" + entry.Id + "/restore");
         using var revokedRetention = await browser.SendAsync(HttpMethod.Put, "/api/sessions/" + manifest.Session.Id + "/retention", new { isPermanent = false });
         using var revokedBatch = await browser.SendAsync(HttpMethod.Post, "/api/sessions/trash", new { sessionIds = new[] { manifest.Session.Id } });
         Assert.Equal(HttpStatusCode.Forbidden, revokedRestore.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, revokedRetention.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, revokedBatch.StatusCode);
-        visible = await browser.Client.GetFromJsonAsync<JsonArray>("/api/trash");
-        Assert.DoesNotContain(visible!, item => item!["id"]!.GetValue<string>() == entry.Id);
+        using var revokedList = await browser.Client.GetAsync("/api/admin/trash");
+        Assert.Equal(HttpStatusCode.Forbidden, revokedList.StatusCode);
+        var personal = await browser.Client.GetFromJsonAsync<JsonArray>("/api/trash");
+        Assert.DoesNotContain(personal!, item => item!["id"]!.GetValue<string>() == entry.Id);
     }
 
     /// <summary>仅彻删权限可处理共享录像回收项，但不能软删、恢复、标记永久保留或访问其他人的切片。</summary>
@@ -259,16 +261,16 @@ public sealed class SessionDeletionHttpTests
         var privateTrash = new TrashEntry { OwnerId = clip.OwnerId, EntityId = clip.Id, Kind = "Clip", State = "Active", PurgeAtUtc = DateTime.UtcNow.AddDays(7) };
         await fixture.Context.Collection<Clip>("clips").InsertOneAsync(clip);
         await fixture.Context.Collection<TrashEntry>("trash").InsertOneAsync(privateTrash);
-        var visible = await browser.Client.GetFromJsonAsync<JsonArray>("/api/trash");
+        var visible = await browser.Client.GetFromJsonAsync<JsonArray>("/api/admin/trash");
         Assert.Contains(visible!, item => item!["id"]!.GetValue<string>() == entry.Id);
         Assert.DoesNotContain(visible!, item => item!["id"]!.GetValue<string>() == privateTrash.Id);
-        using var forbiddenRestore = await browser.SendAsync(HttpMethod.Post, "/api/trash/" + entry.Id + "/restore");
+        using var forbiddenRestore = await browser.SendAsync(HttpMethod.Post, "/api/admin/trash/" + entry.Id + "/restore");
         using var forbiddenClipDelete = await browser.SendAsync(HttpMethod.Delete, "/api/clips/" + clip.Id);
-        using var forbiddenClipPurge = await browser.SendAsync(HttpMethod.Delete, "/api/trash/" + privateTrash.Id);
+        using var forbiddenClipPurge = await browser.SendAsync(HttpMethod.Delete, "/api/admin/trash/" + privateTrash.Id);
         Assert.Equal(HttpStatusCode.Forbidden, forbiddenRestore.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, forbiddenClipDelete.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, forbiddenClipPurge.StatusCode);
-        using var purged = await browser.SendAsync(HttpMethod.Delete, "/api/trash/" + entry.Id);
+        using var purged = await browser.SendAsync(HttpMethod.Delete, "/api/admin/trash/" + entry.Id);
         Assert.Equal(HttpStatusCode.NoContent, purged.StatusCode);
         Assert.False(await fixture.Context.Collection<BroadcastSession>("sessions").Find(x => x.Id == manifest.Session.Id).AnyAsync());
         Assert.False(Directory.Exists(Path.Combine(fixture.StoragePath, entry.TrashRelativePath)));
@@ -287,7 +289,7 @@ public sealed class SessionDeletionHttpTests
         var trashDirectory = Path.Combine(fixture.StoragePath, entry.TrashRelativePath);
         var anonymous = fixture.NewBrowser();
         await anonymous.RefreshCsrfAsync();
-        using var unauthorized = await anonymous.SendAsync(HttpMethod.Post, "/api/trash/purge", new { entryIds = new[] { entry.Id } });
+        using var unauthorized = await anonymous.SendAsync(HttpMethod.Post, "/api/admin/trash/purge", new { entryIds = new[] { entry.Id } });
         Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
 
         var invalidRequests = new object[]
@@ -301,7 +303,7 @@ public sealed class SessionDeletionHttpTests
         };
         foreach (var request in invalidRequests)
         {
-            using var response = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/trash/purge", request);
+            using var response = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/admin/trash/purge", request);
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
             var problem = await response.Content.ReadFromJsonAsync<JsonObject>();
             Assert.Equal("LIBRARY_PURGE_COUNT_INVALID", problem!["code"]!.GetValue<string>());
@@ -309,11 +311,11 @@ public sealed class SessionDeletionHttpTests
         Assert.True(await fixture.Context.Collection<TrashEntry>("trash").Find(x => x.Id == entry.Id).AnyAsync());
         Assert.True(Directory.Exists(trashDirectory));
 
-        var purged = await PurgeBatchAsync(fixture.Admin, Enumerable.Repeat(entry.Id, 200).ToArray());
+        var purged = await PurgeBatchAsync(fixture.Admin, "/api/admin/trash/purge", Enumerable.Repeat(entry.Id, 200).ToArray());
         Assert.True(purged[entry.Id]["success"]!.GetValue<bool>());
         Assert.False(await fixture.Context.Collection<TrashEntry>("trash").Find(x => x.Id == entry.Id).AnyAsync());
         Assert.False(Directory.Exists(trashDirectory));
-        var repeated = await PurgeBatchAsync(fixture.Admin, entry.Id);
+        var repeated = await PurgeBatchAsync(fixture.Admin, "/api/admin/trash/purge", entry.Id);
         Assert.True(repeated[entry.Id]["success"]!.GetValue<bool>());
     }
 
@@ -341,7 +343,7 @@ public sealed class SessionDeletionHttpTests
         Assert.True(File.Exists(ownPath));
         Assert.True(File.Exists(otherPath));
 
-        var results = await PurgeBatchAsync(browser, otherEntry.Id, sessionEntry.Id, ownEntry.Id);
+        var results = await PurgeBatchAsync(browser, "/api/trash/purge", otherEntry.Id, sessionEntry.Id, ownEntry.Id);
         Assert.True(results[ownEntry.Id]["success"]!.GetValue<bool>());
         foreach (var id in new[] { otherEntry.Id, sessionEntry.Id })
         {
@@ -354,13 +356,13 @@ public sealed class SessionDeletionHttpTests
         Assert.True(File.Exists(otherPath));
 
         await SetPermissionsAsync(fixture, user.Id, purge: true);
-        var granted = await PurgeBatchAsync(browser, sessionEntry.Id, otherEntry.Id);
+        var granted = await PurgeBatchAsync(browser, "/api/admin/trash/purge", sessionEntry.Id, otherEntry.Id);
         Assert.True(granted[sessionEntry.Id]["success"]!.GetValue<bool>());
         Assert.False(granted[otherEntry.Id]["success"]!.GetValue<bool>());
         Assert.False(await fixture.Context.Collection<BroadcastSession>("sessions").Find(x => x.Id == manifest.Session.Id).AnyAsync());
         Assert.True(File.Exists(otherPath));
 
-        var administrator = await PurgeBatchAsync(fixture.Admin, otherEntry.Id);
+        var administrator = await PurgeBatchAsync(fixture.Admin, "/api/admin/trash/purge", otherEntry.Id);
         Assert.True(administrator[otherEntry.Id]["success"]!.GetValue<bool>());
         Assert.False(File.Exists(otherPath));
     }
@@ -381,14 +383,14 @@ public sealed class SessionDeletionHttpTests
         var segmentFile = Path.Combine(fixture.StoragePath, segmentEntry.TrashRelativePath);
         var sessionDirectory = Path.Combine(fixture.StoragePath, sessionEntry.TrashRelativePath);
 
-        var blocked = await PurgeBatchAsync(fixture.Admin, sessionEntry.Id);
+        var blocked = await PurgeBatchAsync(fixture.Admin, "/api/admin/trash/purge", sessionEntry.Id);
         Assert.False(blocked[sessionEntry.Id]["success"]!.GetValue<bool>());
         Assert.False(string.IsNullOrWhiteSpace(blocked[sessionEntry.Id]["error"]?.GetValue<string>()));
         Assert.True(await fixture.Context.Collection<TrashEntry>("trash").Find(x => x.Id == segmentEntry.Id).AnyAsync());
         Assert.True(File.Exists(segmentFile));
         Assert.True(Directory.Exists(sessionDirectory));
 
-        var results = await PurgeBatchAsync(fixture.Admin, sessionEntry.Id, segmentEntry.Id);
+        var results = await PurgeBatchAsync(fixture.Admin, "/api/admin/trash/purge", sessionEntry.Id, segmentEntry.Id);
         Assert.All(results.Values, result => Assert.True(result["success"]!.GetValue<bool>(), result["error"]?.GetValue<string>()));
         Assert.False(await fixture.Context.Collection<TrashEntry>("trash").Find(x => x.Id == sessionEntry.Id || x.Id == segmentEntry.Id).AnyAsync());
         Assert.False(await fixture.Context.Collection<BroadcastSession>("sessions").Find(x => x.Id == sessionId).AnyAsync());
@@ -524,7 +526,7 @@ public sealed class SessionDeletionHttpTests
         Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
         var entry = await fixture.Context.Collection<TrashEntry>("trash")
             .Find(x => x.EntityId == manifest.Session.Id).SingleAsync();
-        using var restored = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/trash/" + entry.Id + "/restore");
+        using var restored = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/admin/trash/" + entry.Id + "/restore");
         Assert.Equal(HttpStatusCode.NoContent, restored.StatusCode);
         var restoredSession = await fixture.Context.Collection<BroadcastSession>("sessions")
             .Find(x => x.Id == manifest.Session.Id).SingleAsync();
@@ -578,9 +580,9 @@ public sealed class SessionDeletionHttpTests
         return await fixture.Context.Collection<TrashEntry>("trash").Find(x => x.EntityId == entityId).SingleAsync();
     }
 
-    private static async Task<Dictionary<string, JsonObject>> PurgeBatchAsync(HttpBrowser browser, params string[] entryIds)
+    private static async Task<Dictionary<string, JsonObject>> PurgeBatchAsync(HttpBrowser browser, string path, params string[] entryIds)
     {
-        using var response = await browser.SendAsync(HttpMethod.Post, "/api/trash/purge", new { entryIds });
+        using var response = await browser.SendAsync(HttpMethod.Post, path, new { entryIds });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var results = await response.Content.ReadFromJsonAsync<JsonArray>();
         Assert.NotNull(results);

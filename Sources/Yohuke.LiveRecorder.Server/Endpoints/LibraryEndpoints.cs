@@ -26,8 +26,6 @@ namespace Yohuke.LiveRecorder.Server.Endpoints;
 /// <summary>媒体目录、真实时间轴、私有任务和鉴权文件交付。</summary>
 public static class LibraryEndpoints
 {
-    private const int MAX_TRASH_PURGE_ENTRIES = 200;
-
     /// <summary>注册成员媒体端点和管理员录制操作。</summary>
     public static IEndpointRouteBuilder MapLibraryEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -255,86 +253,6 @@ public static class LibraryEndpoints
             var path = MediaPaths.Resolve(paths.RecordsDirectory, job.OutputRelativePaths[index]);
             return Download(path, Path.GetFileName(path));
         });
-        api.MapGet("/clips", async (HttpContext http, IMongoContext context, CancellationToken ct) =>
-        {
-            var filter = Builders<Clip>.Filter.Where(x => !x.IsTrashed && x.ExpiresAtUtc > DateTime.UtcNow);
-            if (!http.User.IsInRole("Admin"))
-            {
-                filter &= Builders<Clip>.Filter.Eq(x => x.OwnerId, Owner(http));
-            }
-            return Results.Ok(await context.Collection<Clip>("clips").Find(filter).SortByDescending(x => x.CreatedAtUtc).ToListAsync(ct));
-        });
-        downloading.MapGet("/clips/{id}/download", async (string id, HttpContext http, IMongoContext context, IAppPaths paths, CancellationToken ct) =>
-        {
-            var clip = await GetClipAsync(id, http, context, ct);
-            if (clip.IsTrashed || clip.ExpiresAtUtc <= DateTime.UtcNow)
-            {
-                throw new InfrastructureException(MessageCode.LIBRARY_CLIP_EXPIRED, 410);
-            }
-            return Download(MediaPaths.Resolve(paths.RecordsDirectory, clip.RelativePath), MediaPaths.SafeName(clip.Title) + ".mp4");
-        });
-        viewing.MapGet("/clips/{id}/media", async (string id, HttpContext http, IMongoContext context, IAppPaths paths, CancellationToken ct) =>
-        {
-            var clip = await GetClipAsync(id, http, context, ct);
-            if (clip.IsTrashed || clip.ExpiresAtUtc <= DateTime.UtcNow)
-            {
-                throw new InfrastructureException(MessageCode.LIBRARY_CLIP_EXPIRED, 410);
-            }
-            var path = MediaPaths.Resolve(paths.RecordsDirectory, clip.RelativePath);
-            if (!File.Exists(path))
-            {
-                throw new InfrastructureException(MessageCode.LIBRARY_FILE_NOT_FOUND, 410);
-            }
-            return new MediaFileResult(path, "video/mp4", MediaTrafficKind.Playback);
-        });
-        api.MapDelete("/clips/{id}", async (string id, HttpContext http, IMongoContext context, StorageService storage, CancellationToken ct) =>
-        {
-            await storage.TrashClipAsync(await GetClipAsync(id, http, context, ct), ct);
-            return Results.NoContent();
-        });
-        api.MapGet("/trash", async (HttpContext http, IMongoContext context, ISettingsStore settingsStore, CancellationToken ct) =>
-        {
-            var filter = Builders<TrashEntry>.Filter.Where(x => x.OwnerId == Owner(http) && x.Kind == "Clip");
-            if (http.User.IsInRole("Admin"))
-            {
-                filter = FilterDefinition<TrashEntry>.Empty;
-            }
-            else if (HasPermission(http, UserPermissionNames.MANAGE_RECORDINGS) || HasPermission(http, UserPermissionNames.PURGE_RECORDINGS))
-            {
-                filter |= Builders<TrashEntry>.Filter.In(x => x.Kind, new[] { "Session", "Segment" });
-            }
-            var entries = await context.Collection<TrashEntry>("trash").Find(filter).SortByDescending(x => x.CreatedAtUtc).ToListAsync(ct);
-            var settings = await settingsStore.GetAsync(ct);
-            foreach (var entry in entries)
-            {
-                entry.PurgeAtUtc = TrashRetentionPolicy.GetPurgeAtUtc(entry, settings);
-            }
-            return Results.Ok(entries);
-        });
-        api.MapPost("/trash/{id}/restore", async (string id, HttpContext http, IMongoContext context, StorageService storage, SessionTrashService sessionTrash, SessionSegmentTrashService segmentTrash, CancellationToken ct) =>
-        {
-            var entry = await GetTrashAsync(id, http, context, UserPermissionNames.MANAGE_RECORDINGS, ct);
-            if (entry.Kind == "Session")
-            {
-                await sessionTrash.RestoreAsync(entry, ct);
-            }
-            else if (entry.Kind == "Segment")
-            {
-                await segmentTrash.RestoreAsync(entry, ct);
-            }
-            else
-            {
-                await storage.RestoreAsync(entry, ct);
-            }
-            return Results.NoContent();
-        });
-        api.MapDelete("/trash/{id}", async (string id, HttpContext http, IMongoContext context, StorageService storage, SessionTrashService sessionTrash, SessionSegmentTrashService segmentTrash, CancellationToken ct) =>
-        {
-            var entry = await GetTrashAsync(id, http, context, UserPermissionNames.PURGE_RECORDINGS, ct);
-            await PurgeTrashEntryAsync(entry, storage, sessionTrash, segmentTrash, ct);
-            return Results.NoContent();
-        });
-        api.MapPost("/trash/purge", PurgeTrashBatchAsync);
         api.MapGet("/storage", async (bool? refresh, StorageUsageService storage, CancellationToken ct) => Results.Ok(await storage.GetVolumesAsync(refresh ?? false, ct)));
 
         var recordings = api.MapGroup("").RequireAuthorization(UserPermissionNames.MANAGE_RECORDINGS);
@@ -452,101 +370,13 @@ public static class LibraryEndpoints
         return job;
     }
 
-    private static async Task<Clip> GetClipAsync(string id, HttpContext http, IMongoContext context, CancellationToken ct)
-    {
-        var clip = await context.Collection<Clip>("clips").Find(x => x.Id == id).FirstOrDefaultAsync(ct) ?? throw new InfrastructureException(MessageCode.LIBRARY_CLIP_NOT_FOUND, 404);
-        RequireOwner(http, clip.OwnerId);
-        return clip;
-    }
-
-    private static async Task<TrashEntry> GetTrashAsync(string id, HttpContext http, IMongoContext context, string sessionPermission, CancellationToken ct)
-    {
-        var item = await context.Collection<TrashEntry>("trash").Find(x => x.Id == id).FirstOrDefaultAsync(ct) ?? throw new InfrastructureException(MessageCode.LIBRARY_TRASH_NOT_FOUND, 404);
-        RequireTrashAccess(item, http, sessionPermission);
-        return item;
-    }
-
-    private static void RequireTrashAccess(TrashEntry item, HttpContext http, string sessionPermission)
-    {
-        if (item.Kind is "Session" or "Segment")
-        {
-            RequirePermission(http, sessionPermission);
-        }
-        else
-        {
-            RequireOwner(http, item.OwnerId);
-        }
-    }
-
-    private static async Task<IResult> PurgeTrashBatchAsync(TrashPurgeRequest request, HttpContext http,
-        IMongoContext context, StorageService storage, SessionTrashService sessionTrash,
-        SessionSegmentTrashService segmentTrash, CancellationToken ct)
-    {
-        if (request.EntryIds is null || request.EntryIds.Count is < 1 or > MAX_TRASH_PURGE_ENTRIES ||
-            request.EntryIds.Any(string.IsNullOrWhiteSpace))
-        {
-            throw new InfrastructureException(MessageCode.LIBRARY_PURGE_COUNT_INVALID);
-        }
-
-        var ids = request.EntryIds.Distinct(StringComparer.Ordinal).ToArray();
-        var entries = await context.Collection<TrashEntry>("trash")
-            .Find(Builders<TrashEntry>.Filter.In(entry => entry.Id, ids)).ToListAsync(ct);
-        var entriesById = entries.ToDictionary(entry => entry.Id, StringComparer.Ordinal);
-        var results = new List<TrashPurgeResult>(ids.Length);
-        foreach (var id in ids.OrderBy(id => entriesById.GetValueOrDefault(id)?.Kind switch
-                 {
-                     "Segment" => 0,
-                     "Session" => 2,
-                     _ => 1
-                 }))
-        {
-            ct.ThrowIfCancellationRequested();
-            try
-            {
-                if (entriesById.TryGetValue(id, out var entry))
-                {
-                    RequireTrashAccess(entry, http, UserPermissionNames.PURGE_RECORDINGS);
-                    await PurgeTrashEntryAsync(entry, storage, sessionTrash, segmentTrash, ct);
-                }
-                results.Add(new() { EntryId = id, Success = true });
-            }
-            catch (InfrastructureException error)
-            {
-                results.Add(new()
-                {
-                    EntryId = id,
-                    Error = LocalizedText.Format(error.Code, error.Message, error.Arguments)
-                });
-            }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-            {
-                results.Add(new() { EntryId = id, Error = LocalizedText.Get(MessageCode.LIBRARY_PURGE_FILES_FAILED) });
-            }
-        }
-        return Results.Ok(results);
-    }
-
-    private static Task PurgeTrashEntryAsync(TrashEntry entry, StorageService storage,
-        SessionTrashService sessionTrash, SessionSegmentTrashService segmentTrash, CancellationToken ct)
-    {
-        return entry.Kind switch
-        {
-            "Segment" => segmentTrash.PurgeAsync(entry, ct),
-            "Session" => sessionTrash.PurgeAsync(entry, ct),
-            _ => storage.PurgeAsync(entry, ct)
-        };
-    }
-
     private static void RequirePermission(HttpContext http, string permission)
     {
-        if (!HasPermission(http, permission))
+        if (!UserPermissionNames.IsGranted(http.User, permission))
         {
             throw new InfrastructureException(MessageCode.LIBRARY_ACCESS_DENIED, 403);
         }
     }
-
-    private static bool HasPermission(HttpContext http, string permission) =>
-        http.User.IsInRole("Admin") || http.User.HasClaim(UserPermissionNames.CLAIM_TYPE, permission);
 
     private static IResult Download(string path, string name)
     {

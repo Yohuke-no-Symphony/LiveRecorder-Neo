@@ -17,6 +17,7 @@ export const PERMISSIONS = {
   viewRecordings: 'recordings.view',
   downloadRecordings: 'recordings.download',
   createClips: 'clips.create',
+  manageClips: 'clips.manage',
   uploadLiveMarkers: 'live-markers.upload',
   generateLiveMarkers: 'live-markers.generate',
   manageLiveMarkers: 'live-markers.manage',

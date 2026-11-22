@@ -67,7 +67,7 @@ public sealed class AuthenticationHttpTests
             "/api/playback/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/index.m3u8",
             "/api/playback/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/segment0.ts",
             "/api/jobs", "/api/jobs/example", "/api/jobs/example/outputs/0", "/api/clips", "/api/clips/example/download", "/api/clips/example/media", "/api/auth/identities",
-            "/api/trash", "/api/storage", "/api/settings", "/api/settings/paths", "/api/admin/users", "/api/admin/bilibili/accounts"
+            "/api/trash", "/api/admin/trash", "/api/admin/clips", "/api/storage", "/api/settings", "/api/settings/paths", "/api/admin/users", "/api/admin/bilibili/accounts"
         })
         {
             using var response = await anonymous.Client.GetAsync(path);

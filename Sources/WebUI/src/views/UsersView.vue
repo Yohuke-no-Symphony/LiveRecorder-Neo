@@ -4,13 +4,69 @@
   <v-alert v-if="error" type="error" class="mb-6">{{ error }}</v-alert>
   <template v-if="tab === 'users'">
     <div class="filter-bar"><v-text-field v-model="search" :label="t('views.users.search')" prepend-inner-icon="mdi-magnify" clearable density="compact" style="max-width: 330px" /><v-chip-group v-model="userFilter" mandatory color="primary"><v-chip value="all">{{ t('views.common.all') }}</v-chip><v-chip value="Pending">{{ t('views.common.pending') }}</v-chip><v-chip value="Active">{{ t('views.common.approved') }}</v-chip><v-chip value="Disabled">{{ t('accountManagement.banned') }}</v-chip></v-chip-group></div>
-    <v-card v-if="visibleUsers.length"><v-table><thead><tr><th>{{ t('views.common.user') }}</th><th>{{ t('views.common.email') }}</th><th>{{ t('views.users.role') }}</th><th>{{ t('views.common.status') }}</th><th /></tr></thead><tbody><tr v-for="user in visibleUsers" :key="user.id"><td class="py-5"><div class="d-flex align-center ga-3"><UserAvatar :name="user.displayName" :avatar-url="user.avatarUrl" size="34" />{{ user.displayName }}</div></td><td class="text-body-2 muted">{{ user.email }}</td><td><v-chip size="small" :color="user.role === 'Admin' ? 'primary' : undefined">{{ user.role === 'Admin' ? t('views.common.admin') : t('views.common.user') }}</v-chip></td><td><v-chip v-if="user.status === 'Disabled'" size="small" color="error">{{ t('accountManagement.banned') }}</v-chip><StatusChip v-else :status="user.status === 'Active' ? 'approved' : user.status" /></td><td><div class="action-buttons"><v-btn v-if="user.role === 'User'" size="small" variant="text" :disabled="busy" @click="editPermissions(user)">{{ t('shell.permissions.title') }}</v-btn><template v-if="user.status === 'Pending'"><v-btn size="small" color="primary" variant="text" :disabled="busy" @click="approve(user, true)">{{ t('views.users.approve') }}</v-btn><v-btn size="small" color="error" variant="text" :disabled="busy" @click="approve(user, false)">{{ t('views.users.reject') }}</v-btn></template><v-menu v-else-if="user.id !== auth.user?.id"><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-horizontal" variant="text" size="small" :aria-label="t('views.users.actions')" /></template><v-list density="compact"><v-list-item :title="user.role === 'Admin' ? t('views.users.makeUser') : t('views.users.makeAdmin')" @click="roleUser = user" /><v-list-item v-if="user.status === 'Active' || user.status === 'Disabled'" :title="t(user.status === 'Disabled' ? 'accountManagement.unban' : 'accountManagement.ban')" :disabled="statusBusy" @click="selectStatusUser(user)" /></v-list></v-menu></div></td></tr></tbody></v-table></v-card>
-    <EmptyState v-else-if="!busy" :title="t('views.users.empty')" icon="mdi-account-group-outline" />
+    <v-card>
+      <v-data-table
+        v-model:page="userPage"
+        :headers="userHeaders"
+        :items="visibleUsers"
+        :items-per-page="25"
+        :items-per-page-options="[25, 50, 100]"
+        :loading="busy && !visibleUsers.length"
+        :no-data-text="t('views.users.empty')"
+        :aria-label="t('views.users.users')"
+        item-value="id"
+      >
+        <template #item.displayName="{ item: user }">
+          <div class="d-flex align-center ga-3"><UserAvatar :name="user.displayName" :avatar-url="user.avatarUrl" size="34" />{{ user.displayName }}</div>
+        </template>
+        <template #item.role="{ item: user }">
+          <v-chip size="small" :color="user.role === 'Admin' ? 'primary' : undefined">{{ user.role === 'Admin' ? t('views.common.admin') : t('views.common.user') }}</v-chip>
+        </template>
+        <template #item.status="{ item: user }">
+          <v-chip v-if="user.status === 'Disabled'" size="small" color="error">{{ t('accountManagement.banned') }}</v-chip>
+          <StatusChip v-else :status="user.status === 'Active' ? 'approved' : user.status" />
+        </template>
+        <template #item.actions="{ item: user }">
+          <div class="action-buttons">
+            <v-btn v-if="user.role === 'User'" size="small" variant="text" :disabled="busy" @click="editPermissions(user)">{{ t('shell.permissions.title') }}</v-btn>
+            <template v-if="user.status === 'Pending'">
+              <v-btn size="small" color="primary" variant="text" :disabled="busy" @click="approve(user, true)">{{ t('views.users.approve') }}</v-btn>
+              <v-btn size="small" color="error" variant="text" :disabled="busy" @click="approve(user, false)">{{ t('views.users.reject') }}</v-btn>
+            </template>
+            <v-menu v-else-if="user.id !== auth.user?.id">
+              <template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-horizontal" variant="text" size="small" :aria-label="t('views.users.actions')" /></template>
+              <v-list density="compact">
+                <v-list-item :title="user.role === 'Admin' ? t('views.users.makeUser') : t('views.users.makeAdmin')" @click="roleUser = user" />
+                <v-list-item v-if="user.status === 'Active' || user.status === 'Disabled'" :title="t(user.status === 'Disabled' ? 'accountManagement.unban' : 'accountManagement.ban')" :disabled="statusBusy" @click="selectStatusUser(user)" />
+              </v-list>
+            </v-menu>
+          </div>
+        </template>
+      </v-data-table>
+    </v-card>
   </template>
   <template v-else>
     <v-alert v-if="createdCode" type="success" class="mb-6"><div class="d-flex align-center justify-space-between ga-3"><span class="mono">{{ createdCode }}</span><v-btn variant="text" size="small" prepend-icon="mdi-content-copy" @click="copyCode">{{ t('views.users.copy') }}</v-btn></div></v-alert>
-    <v-card v-if="invitations.length"><v-table><thead><tr><th>{{ t('views.common.createdAt') }}</th><th>{{ t('views.users.used') }}</th><th>{{ t('views.common.expiresAt') }}</th><th>{{ t('views.common.status') }}</th><th /></tr></thead><tbody><tr v-for="invitation in invitations" :key="invitation.id"><td class="py-5 text-caption">{{ formatDate(invitation.createdAtUtc) }}</td><td class="mono text-caption">{{ formatNumber(invitation.usedCount) }} / {{ formatNumber(invitation.maxUses) }}</td><td class="text-caption">{{ formatDate(invitation.expiresAtUtc) }}</td><td><StatusChip :status="invitation.revoked ? 'disabled' : invitation.expiresAtUtc && new Date(invitation.expiresAtUtc).getTime() <= Date.now() ? 'expired' : 'valid'" /></td><td><v-btn v-if="!invitation.revoked" size="small" variant="text" color="error" :disabled="busy" @click="revoke(invitation)">{{ t('views.users.revoke') }}</v-btn></td></tr></tbody></v-table></v-card>
-    <EmptyState v-else-if="!busy" :title="t('views.users.noInvitations')" icon="mdi-ticket-confirmation-outline" />
+    <v-card>
+      <v-data-table
+        :headers="invitationHeaders"
+        :items="invitations"
+        :items-per-page="25"
+        :items-per-page-options="[25, 50, 100]"
+        :loading="busy && !invitations.length"
+        :no-data-text="t('views.users.noInvitations')"
+        :aria-label="t('views.users.invitations')"
+        item-value="id"
+      >
+        <template #item.createdAtUtc="{ item }">{{ formatDate(item.createdAtUtc) }}</template>
+        <template #item.usedCount="{ item }">{{ formatNumber(item.usedCount) }} / {{ formatNumber(item.maxUses) }}</template>
+        <template #item.expiresAtUtc="{ item }">{{ formatDate(item.expiresAtUtc) }}</template>
+        <template #item.status="{ value }"><StatusChip :status="value" /></template>
+        <template #item.actions="{ item }">
+          <v-btn v-if="!item.revoked" size="small" variant="text" color="error" :disabled="busy" @click="revoke(item)">{{ t('views.users.revoke') }}</v-btn>
+        </template>
+      </v-data-table>
+    </v-card>
   </template>
   <v-dialog v-model="createOpen" max-width="440" :aria-label="t('views.users.createInvitation')"><ContentCard :title="t('views.users.createInvitation')"><form class="form-stack" @submit.prevent="create"><v-text-field v-model.number="maxUses" :label="t('views.users.maxUses')" type="number" min="1" max="10000" required /><v-text-field v-model="expiry" :label="t('views.common.expiresAt')" type="datetime-local" /><v-alert v-if="createError" type="error">{{ createError }}</v-alert><CardActions embedded><v-btn variant="text" @click="createOpen = false">{{ t('views.common.cancel') }}</v-btn><v-btn type="submit" color="primary" :loading="createBusy">{{ t('views.users.create') }}</v-btn></CardActions></form></ContentCard></v-dialog>
   <ConfirmDialog :model-value="!!roleUser" :title="roleUser?.role === 'Admin' ? t('views.users.confirmUser') : t('views.users.confirmAdmin')" :message="roleUser?.displayName" :busy="busy" :error="error" @update:model-value="!$event && (roleUser = undefined)" @confirm="changeRole" />
@@ -31,7 +87,7 @@
 import { useI18n } from 'vue-i18n'
 import ContentCard from '@/components/common/ContentCard.vue'
 import CardActions from '@/components/common/CardActions.vue'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { AuthAPI } from '@/apis/AuthAPI'
 import { useAuthStore } from '@/stores/auth'
 import { useAction } from '@/composables/useAction'
@@ -40,7 +96,6 @@ import type { Invitation, UserPermissions, UserProfile } from '@/models/auth'
 import { formatDate, formatNumber } from '@/utilities/format'
 import PageHeader from '@/components/common/PageHeader.vue'
 import UserAvatar from '@/components/common/UserAvatar.vue'
-import EmptyState from '@/components/common/EmptyState.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import PermissionFields from '@/components/common/PermissionFields.vue'
@@ -51,8 +106,9 @@ const auth = useAuthStore()
 const tab = ref('users')
 const users = ref<UserProfile[]>([])
 const invitations = ref<Invitation[]>([])
-const search = ref('')
+const search = ref<string | null>('')
 const userFilter = ref('all')
+const userPage = ref(1)
 const roleUser = ref<UserProfile>()
 const statusUser = ref<UserProfile>()
 const { busy: statusBusy, error: statusError, run: runStatus } = useAction()
@@ -67,8 +123,28 @@ const expiry = ref('')
 const copied = ref(false)
 const { busy, error, run } = useAction()
 const { busy: createBusy, error: createError, run: runCreate } = useAction()
+const userHeaders = computed(() => [
+  { key: 'displayName', title: t('views.common.user'), cellProps: { class: 'py-5' } },
+  { key: 'email', title: t('views.common.email'), cellProps: { class: 'text-body-2 muted' } },
+  { key: 'role', title: t('views.users.role') },
+  { key: 'status', title: t('views.common.status') },
+  { key: 'actions', title: '', sortable: false },
+])
+const invitationHeaders = computed(() => [
+  { key: 'createdAtUtc', title: t('views.common.createdAt'), cellProps: { class: 'py-5 text-caption' } },
+  { key: 'usedCount', title: t('views.users.used'), cellProps: { class: 'mono text-caption' } },
+  { key: 'expiresAtUtc', title: t('views.common.expiresAt'), cellProps: { class: 'text-caption' } },
+  { key: 'status', title: t('views.common.status'), value: invitationStatus },
+  { key: 'actions', title: '', sortable: false },
+])
 const pendingCount = computed(() => users.value.filter(user => user.status === 'Pending').length)
-const visibleUsers = computed(() => users.value.filter(user => (userFilter.value === 'all' || user.status === userFilter.value) && `${user.displayName} ${user.email}`.toLowerCase().includes(search.value.toLowerCase())))
+const visibleUsers = computed(() =>
+{
+  const query = search.value?.toLowerCase() ?? ''
+  return users.value.filter(user => (userFilter.value === 'all' || user.status === userFilter.value)
+    && `${user.displayName} ${user.email}`.toLowerCase().includes(query))
+})
+watch([search, userFilter], () => { userPage.value = 1 })
 usePolling(async () =>
 {
   const revision = usersRevision
@@ -79,6 +155,11 @@ usePolling(async () =>
     invitations.value = loadedInvitations
   })
 }, 15000)
+function invitationStatus(invitation: Invitation): string
+{
+  if (invitation.revoked) { return 'disabled' }
+  return invitation.expiresAtUtc && new Date(invitation.expiresAtUtc).getTime() <= Date.now() ? 'expired' : 'valid'
+}
 function selectStatusUser(user: UserProfile): void
 {
   statusUser.value = user

@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, disposePinia, type Pinia } from 'pinia'
+import { createVuetify } from 'vuetify'
+import { VDataTable } from 'vuetify/components/VDataTable'
 import { MediaAPI } from '../src/apis/MediaAPI'
 import { PERMISSIONS, type UserProfile } from '../src/models/auth'
 import type { TrashEntry } from '../src/models/media'
@@ -20,15 +22,11 @@ const container = { template: '<div><slot /></div>' }
 const stubs = {
   VCard: container,
   VCardText: container,
-  VTable: { template: '<table><slot /></table>' },
+  VTabs: { name: 'VTabs', props: ['modelValue'], emits: ['update:modelValue'], template: '<div role="tablist"><slot /></div>' },
+  VTab: { props: ['value', 'disabled'], template: '<button role="tab" :disabled="disabled"><slot /></button>' },
   VAlert: { template: '<div role="alert"><slot /></div>' },
   VBtn: { props: ['disabled', 'loading'], template: '<button :disabled="disabled || loading"><slot /></button>' },
   VDialog: { props: ['modelValue'], template: '<div v-if="modelValue" role="dialog"><slot /></div>' },
-  VCheckboxBtn: {
-    props: ['modelValue', 'disabled', 'indeterminate'],
-    emits: ['update:modelValue'],
-    template: '<input type="checkbox" :checked="modelValue" :disabled="disabled" :indeterminate="indeterminate" @change="$emit(\'update:modelValue\', $event.target.checked)" />',
-  },
   VIcon: true,
   VSnackbar: { props: ['modelValue'], template: '<div v-if="modelValue" role="status"><slot /><slot name="actions" /></div>' },
   RouterLink: true,
@@ -57,14 +55,18 @@ function completeBatch(ids: string[])
   return ids.map(entryId => ({ entryId, success: true }))
 }
 
-async function renderTrash(entries: TrashEntry[], role: UserProfile['role'] = 'Admin'): Promise<VueWrapper>
+async function renderTrash(entries: TrashEntry[], role: UserProfile['role'] = 'Admin', management = false,
+  permissions: string[] = [PERMISSIONS.manageRecordings]): Promise<VueWrapper>
 {
   serverEntries = entries
   useAuthStore(pinia).user = {
     id: 'owner', displayName: '测试用户', email: 'owner@example.test', role,
-    status: 'Active', permissions: [PERMISSIONS.manageRecordings],
+    status: 'Active', permissions,
   }
-  const wrapper = mount(TrashView, { global: { plugins: [pinia, i18n], stubs } })
+  const wrapper = mount(TrashView, {
+    props: { management },
+    global: { plugins: [pinia, i18n, createVuetify({ components: { VDataTable } })], stubs },
+  })
   mounted.push(wrapper)
   await flushPromises()
   return wrapper
@@ -82,6 +84,12 @@ function checkbox(wrapper: VueWrapper, label: string)
   return wrapper.get<HTMLInputElement>(`input[aria-label="${label}"]`)
 }
 
+function rowCheckbox(wrapper: VueWrapper, title: string)
+{
+  const row = wrapper.findAll('tbody tr').find(item => item.text().includes(title))
+  return row!.get<HTMLInputElement>('input[type="checkbox"]')
+}
+
 function dialog(wrapper: VueWrapper)
 {
   return wrapper.get('[role="dialog"]')
@@ -96,6 +104,8 @@ async function confirmPurge(wrapper: VueWrapper): Promise<void>
 beforeEach(() =>
 {
   vi.stubGlobal('localStorage', { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() })
+  vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
   pinia = createPinia()
   i18n.global.locale.value = 'zh-CN'
   trash.mockReset().mockImplementation(async () => [...serverEntries])
@@ -117,15 +127,12 @@ describe('回收站批量彻底删除', () =>
     const recording = entry('session', { kind: 'Session', title: '共享录像', ownerId: 'recorder' })
     const wrapper = await renderTrash([entry('a'), recording, entry('b')], 'User')
 
-    await button(wrapper, '选择').trigger('click')
     const selectAll = checkbox(wrapper, '全选可删除项目')
-    const clipA = checkbox(wrapper, '选择 切片 a')
-    const clipB = checkbox(wrapper, '选择 切片 b')
-    const shared = wrapper.find<HTMLInputElement>('input[aria-label="选择 共享录像"]')
-    expect(shared.exists() && !shared.element.disabled).toBe(false)
-    expect(button(wrapper, '彻底删除所选').element.disabled).toBe(true)
+    const clipA = rowCheckbox(wrapper, '切片 a')
+    const clipB = rowCheckbox(wrapper, '切片 b')
+    expect(wrapper.get('tbody').text()).not.toContain('共享录像')
 
-    await clipA.setValue(true)
+    await clipA.trigger('click')
     expect(selectAll.element.indeterminate).toBe(true)
     expect(wrapper.text()).toContain('已选 1 项')
     await selectAll.setValue(true)
@@ -140,10 +147,9 @@ describe('回收站批量彻底删除', () =>
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     expect(clipA.element.checked && clipB.element.checked).toBe(true)
 
-    await selectAll.setValue(false)
-    expect(clipA.element.checked || clipB.element.checked).toBe(false)
     await button(wrapper, '取消选择').trigger('click')
-    expect(wrapper.find('input[aria-label="全选可删除项目"]').exists()).toBe(false)
+    expect(clipA.element.checked || clipB.element.checked).toBe(false)
+    expect(selectAll.element.checked).toBe(false)
     expect(purgeTrashEntries).not.toHaveBeenCalled()
   })
 
@@ -159,13 +165,13 @@ describe('回收站批量彻底删除', () =>
     storage.mockRejectedValueOnce(new Error('空间统计刷新失败'))
 
     await confirmPurge(wrapper)
-    expect(purgeTrashEntries).toHaveBeenCalledExactlyOnceWith(['a', 'b'])
+    expect(purgeTrashEntries).toHaveBeenCalledExactlyOnceWith(['a', 'b'], false)
     expect(trash).toHaveBeenCalledTimes(2)
     expect(storage).toHaveBeenCalledTimes(2)
     expect(storage).toHaveBeenLastCalledWith(true)
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     const rows = wrapper.get('tbody').text()
-    expect(rows).toContain(recording.title)
+    expect(rows).not.toContain(recording.title)
     expect(rows).toContain(newClip.title)
     expect(rows).not.toContain('切片 a')
     expect(rows).not.toContain('切片 b')
@@ -185,18 +191,17 @@ describe('回收站批量彻底删除', () =>
       { entryId: 'b', success: false, error: '文件暂时无法删除' },
     ])
 
-    await button(wrapper, '选择').trigger('click')
     await checkbox(wrapper, '全选可删除项目').setValue(true)
     await button(wrapper, '彻底删除所选').trigger('click')
     await confirmPurge(wrapper)
-    expect(purgeTrashEntries).toHaveBeenNthCalledWith(1, ['a', 'b'])
+    expect(purgeTrashEntries).toHaveBeenNthCalledWith(1, ['a', 'b'], false)
     expect(wrapper.get('tbody').text()).not.toContain('切片 a')
-    expect(checkbox(wrapper, '选择 切片 b').element.checked).toBe(true)
+    expect(rowCheckbox(wrapper, '切片 b').element.checked).toBe(true)
     expect(dialog(wrapper).text()).toContain('文件暂时无法删除')
     expect(dialog(wrapper).text()).toContain('彻底删除这 1 项后无法恢复。')
 
     await confirmPurge(wrapper)
-    expect(purgeTrashEntries).toHaveBeenNthCalledWith(2, ['b'])
+    expect(purgeTrashEntries).toHaveBeenNthCalledWith(2, ['b'], false)
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('回收站为空')
   })
@@ -207,7 +212,7 @@ describe('回收站批量彻底删除', () =>
     const segments = Array.from({ length: 400 }, (_, index) => entry(`segment-${index}`, {
       kind: 'Segment', sessionId: recording.entityId, title: `分段 ${index}`,
     }))
-    const wrapper = await renderTrash([recording, ...segments])
+    const wrapper = await renderTrash([recording, ...segments], 'Admin', true)
     purgeTrashEntries
       .mockImplementationOnce(async ids => completeBatch(ids))
       .mockImplementationOnce(async ids =>
@@ -217,14 +222,14 @@ describe('回收站批量彻底删除', () =>
       })
 
     await button(wrapper, '清空').trigger('click')
-    expect(dialog(wrapper).text()).toContain('彻底删除这 401 项后无法恢复。')
+    expect(dialog(wrapper).text()).toContain('彻底删除 401 项（录播 / 录像分段）后无法恢复。')
     await confirmPurge(wrapper)
 
     const attemptedBatches = purgeTrashEntries.mock.calls.map(([ids]) => ids)
     expect(attemptedBatches.map(ids => ids.length)).toEqual([200, 200])
     expect(new Set(attemptedBatches.flat())).toEqual(new Set(segments.map(item => item.id)))
     expect(dialog(wrapper).text()).toContain('批次连接中断')
-    expect(dialog(wrapper).text()).toContain('彻底删除这 200 项后无法恢复。')
+    expect(dialog(wrapper).text()).toContain('彻底删除 200 项（录播 / 录像分段）后无法恢复。')
     const remaining = new Set(serverEntries.map(item => item.id))
 
     await confirmPurge(wrapper)
@@ -234,5 +239,82 @@ describe('回收站批量彻底删除', () =>
     expect(retriedIds.at(-1)).toBe(recording.id)
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('回收站为空')
+  })
+
+  it('管理员的个人回收站也只显示自己的切片', async () =>
+  {
+    const wrapper = await renderTrash([entry('mine'), entry('other', { ownerId: 'other' }),
+      entry('session', { kind: 'Session', title: '共享录像' })])
+    expect(wrapper.get('h1').text()).toBe('个人回收站')
+    expect(wrapper.find('[role="tablist"]').exists()).toBe(false)
+    expect(wrapper.get('tbody').text()).toContain('切片 mine')
+    expect(wrapper.get('tbody').text()).not.toContain('切片 other')
+    expect(wrapper.get('tbody').text()).not.toContain('共享录像')
+  })
+
+  it('管理回收站切换类型时清除选中项，清空只提交当前类型', async () =>
+  {
+    const recording = entry('session', { kind: 'Session', title: '共享录像' })
+    const segment = entry('segment', { kind: 'Segment', title: '片段甲' })
+    const wrapper = await renderTrash([entry('other', { ownerId: 'other' }), recording, segment], 'Admin', true)
+    expect(wrapper.get('h1').text()).toBe('回收站管理')
+    expect(wrapper.findAll('[role="tab"]').map(tab => tab.text())).toEqual(['全部', '切片', '录播', '录像分段'])
+    await checkbox(wrapper, '全选可删除项目').setValue(true)
+    expect(wrapper.text()).toContain('已选 3 项')
+    wrapper.getComponent({ name: 'VTabs' }).vm.$emit('update:modelValue', 'Clip')
+    await flushPromises()
+    expect(checkbox(wrapper, '全选可删除项目').element.checked).toBe(false)
+    expect(wrapper.text()).not.toContain('已选')
+    expect(wrapper.get('tbody').text()).not.toContain(recording.title)
+
+    await button(wrapper, '清空').trigger('click')
+    expect(dialog(wrapper).text()).toContain('清空「切片」？')
+    expect(dialog(wrapper).text()).toContain('彻底删除 1 项（切片）后无法恢复。')
+    await confirmPurge(wrapper)
+    expect(purgeTrashEntries).toHaveBeenCalledExactlyOnceWith(['other'], true)
+    expect(serverEntries.map(item => item.id)).toEqual([recording.id, segment.id])
+  })
+
+  it('切片与录播清理权限各自决定可见的类型和操作', async () =>
+  {
+    const wrapper = await renderTrash(
+      [entry('other', { ownerId: 'other' }), entry('session', { kind: 'Session', title: '共享录像' })],
+      'User', true, [PERMISSIONS.manageClips],
+    )
+    expect(wrapper.findAll('[role="tab"]').map(tab => tab.text())).toEqual(['全部', '切片'])
+    expect(wrapper.get('tbody').text()).toContain('切片 other')
+    expect(wrapper.get('tbody').text()).not.toContain('共享录像')
+    expect(wrapper.get('tbody').text()).toContain('恢复')
+
+    useAuthStore(pinia).user!.permissions = [PERMISSIONS.purgeRecordings]
+    await flushPromises()
+    expect(wrapper.findAll('[role="tab"]').map(tab => tab.text())).toEqual(['全部', '录播', '录像分段'])
+    expect(wrapper.get('tbody').text()).toContain('共享录像')
+    expect(wrapper.get('tbody').text()).not.toContain('切片 other')
+    expect(wrapper.get('tbody').text()).not.toContain('恢复')
+    expect(wrapper.find('tbody button[aria-label="彻底删除"]').exists()).toBe(true)
+  })
+
+  it('大小按字节排序，表头全选跨页且跳过只有恢复权限的录播', async () =>
+  {
+    const recording = entry('session', { kind: 'Session', title: '共享录像', bytes: 1 })
+    const clips = Array.from({ length: 26 }, (_, index) => entry(String(index + 1), {
+      title: `片段 ${index + 1}`, bytes: (26 - index) * 1024,
+    }))
+    const wrapper = await renderTrash([recording, ...clips], 'User', true,
+      [PERMISSIONS.manageClips, PERMISSIONS.manageRecordings])
+    const sizeHeader = wrapper.findAll('th').find(header => header.text() === '大小')!
+    await sizeHeader.trigger('click')
+    expect(wrapper.findAll('tbody tr').slice(0, 2).map(row => row.text())).toEqual([
+      expect.stringContaining('共享录像'), expect.stringContaining('片段 26'),
+    ])
+    expect(rowCheckbox(wrapper, '共享录像').element.disabled).toBe(true)
+    expect(wrapper.findAll('tbody tr')).toHaveLength(25)
+    await checkbox(wrapper, '全选可删除项目').setValue(true)
+    expect(wrapper.text()).toContain('已选 26 项')
+    await button(wrapper, '彻底删除所选').trigger('click')
+    await confirmPurge(wrapper)
+    expect(purgeTrashEntries).toHaveBeenCalledExactlyOnceWith(clips.map(clip => clip.id), true)
+    expect(wrapper.get('tbody').text()).toContain('共享录像')
   })
 })

@@ -2,7 +2,38 @@
   <PageHeader :title="t('views.targets.title')"><v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">{{ t('views.targets.add') }}</v-btn></PageHeader>
   <v-alert v-if="error" type="error" class="mb-6">{{ error }}</v-alert>
   <div class="summary-grid mb-6"><v-card class="card-content"><div class="stat-label">{{ t('views.targets.recording') }}</div><div class="stat-value mt-2">{{ formatNumber(targets.filter(item => item.state === 'Recording').length) }}</div></v-card><v-card class="card-content"><div class="stat-label">{{ t('views.targets.enabled') }}</div><div class="stat-value mt-2">{{ formatNumber(targets.filter(item => item.enabled).length) }}</div></v-card><v-card class="card-content"><div class="stat-label">{{ t('views.targets.monitored') }}</div><div class="stat-value mt-2">{{ formatNumber(targets.length) }}</div></v-card></div>
-  <v-card v-if="targets.length"><v-table><thead><tr><th>{{ t('views.common.streamer') }}</th><th>{{ t('views.common.status') }}</th><th>{{ t('views.targets.account') }}</th><th>{{ t('views.common.quality') }}</th><th>{{ t('views.common.enabled') }}</th><th /></tr></thead><tbody><tr v-for="target in targets" :key="target.id"><td class="py-5"><div class="d-flex align-center ga-3"><v-avatar size="40" color="surface-variant"><v-img :src="MediaAPI.avatar(target.id)" /></v-avatar><div><router-link :to="`/streamers/${target.id}`" class="font-weight-medium">{{ target.name || target.roomId }}</router-link><div class="text-caption muted mt-1">{{ target.roomId }}</div><div v-if="target.error" class="text-caption text-error mt-2">{{ target.error }}</div></div></div></td><td><StatusChip :status="target.state" /></td><td class="text-body-2 muted">{{ accounts.find(account => account.id === target.accountId)?.userName || t('views.targets.default') }}</td><td class="text-body-2 muted">{{ qualityOptions.find(item => item.value === target.quality)?.title || t('views.common.globalSettings') }}</td><td><v-switch :model-value="target.enabled" :disabled="busy" density="compact" :aria-label="t('views.targets.enableTarget', { name: target.name })" @update:model-value="toggle(target, !!$event)" /></td><td><div class="action-buttons"><v-btn icon="mdi-pencil-outline" size="small" variant="text" :aria-label="t('views.targets.edit')" @click="openEdit(target)" /><v-btn icon="mdi-delete-outline" size="small" variant="text" :aria-label="t('views.targets.remove')" @click="deleteTarget = target" /></div></td></tr></tbody></v-table></v-card>
+  <v-card v-if="targets.length">
+    <v-data-table
+      :headers="headers"
+      :items="targets"
+      :items-per-page="25"
+      :items-per-page-options="[25, 50, 100]"
+      :aria-label="t('views.targets.title')"
+      item-value="id"
+    >
+      <template #item.name="{ item: target }">
+        <div class="d-flex align-center ga-3">
+          <v-avatar size="40" color="surface-variant"><v-img :src="MediaAPI.avatar(target.id)" /></v-avatar>
+          <div>
+            <router-link :to="`/streamers/${target.id}`" class="font-weight-medium">{{ target.name || target.roomId }}</router-link>
+            <div class="text-caption muted mt-1">{{ target.roomId }}</div>
+            <div v-if="target.error" class="text-caption text-error mt-2">{{ target.error }}</div>
+          </div>
+        </div>
+      </template>
+      <template #item.state="{ item }"><StatusChip :status="item.state" /></template>
+      <template #item.quality="{ item }">{{ qualityOptions.find(option => option.value === item.quality)?.title || t('views.common.globalSettings') }}</template>
+      <template #item.enabled="{ item }">
+        <v-switch :model-value="item.enabled" :disabled="busy" density="compact" :aria-label="t('views.targets.enableTarget', { name: item.name })" @update:model-value="toggle(item, !!$event)" />
+      </template>
+      <template #item.actions="{ item }">
+        <div class="action-buttons">
+          <v-btn icon="mdi-pencil-outline" size="small" variant="text" :aria-label="t('views.targets.edit')" @click="openEdit(item)" />
+          <v-btn icon="mdi-delete-outline" size="small" variant="text" :aria-label="t('views.targets.remove')" @click="deleteTarget = item" />
+        </div>
+      </template>
+    </v-data-table>
+  </v-card>
   <EmptyState v-else-if="!busy" :title="t('views.targets.empty')" icon="mdi-record-circle-outline"><v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">{{ t('views.targets.add') }}</v-btn></EmptyState>
   <TargetAddDialog v-if="createOpen" v-model="createOpen" :accounts="accounts" :monitored-room-ids="targets.map(target => String(target.roomId))" @added="onTargetAdded" />
   <v-dialog v-model="editOpen" max-width="540" :aria-label="t('views.targets.edit')">
@@ -49,6 +80,19 @@ const qualityOptions = computed(() => QUALITY_OPTIONS.map(item => ({ value: item
 const streamers = ref<Streamer[]>([])
 const targets = computed(() => streamers.value.filter(streamer => streamer.isMonitored !== false))
 const accounts = ref<BilibiliAccount[]>([])
+const accountNames = computed(() => new Map(accounts.value.map(account => [account.id, account.userName])))
+const headers = computed(() => [
+  { key: 'name', title: t('views.common.streamer'), value: (target: Streamer) => target.name || String(target.roomId), cellProps: { class: 'py-5' } },
+  { key: 'state', title: t('views.common.status') },
+  {
+    key: 'accountId', title: t('views.targets.account'),
+    value: (target: Streamer) => accountNames.value.get(target.accountId ?? '') || t('views.targets.default'),
+    cellProps: { class: 'text-body-2 muted' },
+  },
+  { key: 'quality', title: t('views.common.quality'), cellProps: { class: 'text-body-2 muted' } },
+  { key: 'enabled', title: t('views.common.enabled'), value: (target: Streamer) => Number(target.enabled) },
+  { key: 'actions', title: '', sortable: false },
+])
 const createOpen = ref(false)
 const editOpen = ref(false)
 const editing = ref<Streamer>()

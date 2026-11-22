@@ -399,7 +399,7 @@ public sealed class TranscodingHttpTests
         using var removed = await fixture.Admin.Client.GetAsync(playback.Url);
         Assert.Equal(HttpStatusCode.NotFound, removed.StatusCode);
         var entry = await fixture.Context.Collection<TrashEntry>("trash").Find(x => x.EntityId == session.Id).SingleAsync();
-        using var restored = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/trash/" + entry.Id + "/restore");
+        using var restored = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/admin/trash/" + entry.Id + "/restore");
         Assert.Equal(HttpStatusCode.NoContent, restored.StatusCode);
         using var restoredPlayback = await fixture.Admin.SendAsync(HttpMethod.Post, "/api/sessions/" + session.Id + "/playback", new { offsetMs = 10000 });
         var restoredWindow = await restoredPlayback.Content.ReadFromJsonAsync<PlaybackResponse>();

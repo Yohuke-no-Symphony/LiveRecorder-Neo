@@ -39,7 +39,7 @@
     <v-snackbar v-model="transcodeNotice">{{ t('transcoding.created') }}<template #actions><v-btn to="/jobs" color="primary">{{ t('transcoding.viewJobs') }}</v-btn></template></v-snackbar>
     <ConfirmDialog :model-value="confirmOpen" :title="t('components.library.trashTitle')" :message="t('components.library.trashConfirm', { count: formatNumber(pendingIds.length) })" :action-label="t('components.library.moveToTrash')" danger :busy="busy" :error="error" @update:model-value="setConfirmationOpen" @confirm="trash" />
     <ConfirmDialog v-if="auth.canManageRecordings" :model-value="!!pendingCancellation" :title="t('shell.retention.cancelPermanent')" :message="t('shell.retention.cancelPermanentConfirm', { title: pendingCancellation?.title || t('components.library.unnamedSession') })" :action-label="t('shell.retention.cancelPermanent')" danger :busy="busy" :error="error" @update:model-value="!$event && !busy && (pendingCancellation = undefined)" @confirm="pendingCancellation && savePermanent(pendingCancellation.id, false)" />
-    <v-snackbar v-model="noticeOpen" color="surface-variant">{{ t('components.library.trashed', { count: formatNumber(trashedCount) }) }}<template #actions><v-btn color="primary" to="/trash">{{ t('components.library.viewTrash') }}</v-btn></template></v-snackbar>
+    <v-snackbar v-model="noticeOpen" color="surface-variant">{{ t('components.library.trashed', { count: formatNumber(trashedCount) }) }}<template #actions><v-btn color="primary" to="/admin/trash">{{ t('components.library.viewTrash') }}</v-btn></template></v-snackbar>
   </div>
 </template>
 
