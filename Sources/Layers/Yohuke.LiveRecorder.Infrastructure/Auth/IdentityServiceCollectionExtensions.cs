@@ -15,6 +15,7 @@ public static class IdentityServiceCollectionExtensions
     {
         services.AddSingleton<IPasswordHasher<UserAccount>, PasswordHasher<UserAccount>>();
         services.AddSingleton<IEmailSender, SmtpEmailSender>();
+        services.AddSingleton<OAuthAvatarCache>();
         services.AddSingleton<IIdentityService, IdentityService>();
         services.AddSingleton<IPasswordResetService, PasswordResetService>();
         services.AddSingleton<IInstallationService, InstallationService>();
@@ -22,6 +23,7 @@ public static class IdentityServiceCollectionExtensions
         services.AddSingleton<IBilibiliEventConnection, BilibiliEventConnection>();
         services.AddSingleton<IBilibiliService>(provider => provider.GetRequiredService<BilibiliService>());
         services.AddHttpClient("identity", client => client.Timeout = TimeSpan.FromSeconds(20)).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+        services.AddHttpClient(OAuthAvatarCache.HTTP_CLIENT).ConfigurePrimaryHttpMessageHandler(OAuthAvatarHttp.CreateHandler).RemoveAllLoggers();
         services.AddHttpClient("bilibili", client => client.Timeout = TimeSpan.FromSeconds(20));
         services.AddHttpClient("bilibili-login", client => client.Timeout = TimeSpan.FromSeconds(20)).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
         services.AddHostedService<BilibiliAccountMaintenanceService>();

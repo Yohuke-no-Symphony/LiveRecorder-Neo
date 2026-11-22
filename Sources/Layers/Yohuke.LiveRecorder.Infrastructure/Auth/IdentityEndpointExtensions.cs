@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Routing;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Domain;
+using EntityTagHeaderValue = Microsoft.Net.Http.Headers.EntityTagHeaderValue;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Auth;
 
@@ -23,6 +24,14 @@ public static class IdentityEndpointExtensions
     {
         var auth = endpoints.MapGroup("/api/auth");
         auth.MapGet("/permissions", () => Results.Ok(PermissionCatalog.Definitions)).RequireAuthorization();
+        auth.MapGet(OAuthAvatarCache.ROUTE_PREFIX + "{id}", async (string id, HttpContext http, OAuthAvatarCache avatars, CancellationToken ct) =>
+        {
+            http.Response.Headers.CacheControl = "private, no-cache";
+            var avatar = await avatars.GetAsync(id, ct);
+            return avatar is null
+                ? Results.NotFound()
+                : Results.Bytes(avatar.Content, avatar.ContentType, entityTag: new EntityTagHeaderValue(avatar.ETag));
+        }).RequireAuthorization();
         auth.MapGet("/me", async (HttpContext http, IIdentityService identity, IAntiforgery antiforgery, CancellationToken ct) =>
         {
             var id = http.User.FindFirstValue(ClaimTypes.NameIdentifier);

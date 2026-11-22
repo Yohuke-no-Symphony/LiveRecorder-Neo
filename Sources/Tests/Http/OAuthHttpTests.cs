@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Files;
@@ -12,6 +13,35 @@ namespace Yohuke.LiveRecorder.Http.Tests;
 public sealed class OAuthHttpTests
 {
     private const string FRONTEND_ORIGIN = "http://127.0.0.1:5784";
+
+    [MongoHttpFact]
+    public async Task CachedOAuthAvatarRequiresLoginAndSupportsPrivateRevalidation()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        var login = await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+        var id = login["user"]!["id"]!.GetValue<string>();
+        var url = $"/api/auth/avatars/{id}";
+        var image = Convert.FromBase64String("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");
+        const string ETAG = "\"avatar-test-etag\"";
+        await fixture.Context.Collection<BsonDocument>("oauth_avatars").InsertOneAsync(new()
+        {
+            { "_id", id }, { "ContentType", "image/gif" }, { "Content", new BsonBinaryData(image) }, { "ETag", ETAG },
+        });
+
+        using var anonymous = await fixture.NewBrowser().Client.GetAsync(url);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+        using var avatar = await fixture.Admin.Client.GetAsync(url);
+        Assert.Equal(HttpStatusCode.OK, avatar.StatusCode);
+        Assert.Equal("image/gif", avatar.Content.Headers.ContentType!.MediaType);
+        Assert.Equal(image, await avatar.Content.ReadAsByteArrayAsync());
+        Assert.Equal(ETAG, avatar.Headers.ETag!.Tag);
+        Assert.True(avatar.Headers.CacheControl is { Private: true, NoCache: true });
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.IfNoneMatch.ParseAdd(ETAG);
+        using var revalidated = await fixture.Admin.Client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.NotModified, revalidated.StatusCode);
+    }
 
     [MongoHttpFact]
     public async Task LoggedInAccountCanBindThroughRealPkceExchangeWithoutRegisteringAnotherUser()

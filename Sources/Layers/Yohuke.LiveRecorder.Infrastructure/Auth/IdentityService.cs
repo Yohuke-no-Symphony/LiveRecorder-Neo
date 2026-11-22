@@ -17,7 +17,7 @@ using Yohuke.LiveRecorder.Infrastructure.Persistence;
 namespace Yohuke.LiveRecorder.Infrastructure.Auth;
 
 /// <summary>以 MongoDB 保存账号与单次身份流程，统一执行普通注册与外部注册要求。</summary>
-public sealed class IdentityService(IMongoContext context, ISettingsStore settingsStore, IEmailSender emailSender, ISecretProtector protector, IPasswordHasher<UserAccount> passwordHasher, IHttpClientFactory httpClientFactory, IUserSessionRevoker sessionRevoker) : IIdentityService
+public sealed class IdentityService(IMongoContext context, ISettingsStore settingsStore, IEmailSender emailSender, ISecretProtector protector, IPasswordHasher<UserAccount> passwordHasher, IHttpClientFactory httpClientFactory, IUserSessionRevoker sessionRevoker, OAuthAvatarCache avatarCache) : IIdentityService
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly SemaphoreSlim indexGate = new(1, 1);
@@ -167,11 +167,11 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         var registration = await registrations.Find(x => x.Id == id && x.ExpiresAtUtc > DateTime.UtcNow).FirstOrDefaultAsync(cancellationToken)
                            ?? throw new InfrastructureException(MessageCode.AUTH_OAUTH_REGISTRATION_EXPIRED);
         var email = IdentityValidation.NormalizeEmail(request.Email);
-        var user = new UserAccount { Email = email, NormalizedEmail = email, DisplayName = IdentityValidation.NormalizeDisplayName(request.DisplayName), AvatarUrl = registration.AvatarUrl };
+        var user = new UserAccount { Email = email, NormalizedEmail = email, DisplayName = IdentityValidation.NormalizeDisplayName(request.DisplayName) };
         var external = new ExternalLogin { Id = ExternalId(registration.ProviderId, registration.Subject), ProviderId = registration.ProviderId, Subject = registration.Subject, UserId = user.Id };
         var result = await RegisterCoreAsync(user, request.EmailCode, request.InvitationCode, external, cancellationToken);
         await registrations.DeleteOneAsync(x => x.Id == id, cancellationToken);
-        return result;
+        return await avatarCache.RefreshAsync(result, registration.AvatarUrl, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -442,16 +442,23 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         {
             return await BindIdentityAsync(flow.LinkUserId!, providerId, subject, externalId, cancellationToken);
         }
+        var avatarSource = string.IsNullOrWhiteSpace(provider.AvatarField) ? "" : ReadField(info, provider.AvatarField);
         var existing = await context.Collection<ExternalLogin>("external_logins").Find(x => x.Id == externalId).FirstOrDefaultAsync(cancellationToken);
         if (existing is not null)
         {
             var user = await RequireUserAsync(existing.UserId, cancellationToken);
             EnsureActive(user);
+            if (avatarSource.Length > 0)
+            {
+                await avatarCache.RefreshAsync(Profile(user), avatarSource, cancellationToken);
+                user = await RequireUserAsync(user.Id, cancellationToken);
+                EnsureActive(user);
+            }
             return new(Profile(user), null, user.Email, user.DisplayName);
         }
         await EnsureRegistrationEnabledAsync(cancellationToken);
         var ticket = IdentityToken.Create();
-        var registration = new OAuthRegistration { Id = IdentityToken.Hash(ticket), ProviderId = providerId, Subject = subject, Email = ReadField(info, provider.EmailField), DisplayName = ReadField(info, provider.NameField), AvatarUrl = ReadField(info, provider.AvatarField), ExpiresAtUtc = DateTime.UtcNow.AddMinutes(10) };
+        var registration = new OAuthRegistration { Id = IdentityToken.Hash(ticket), ProviderId = providerId, Subject = subject, Email = ReadField(info, provider.EmailField), DisplayName = ReadField(info, provider.NameField), AvatarUrl = avatarSource, ExpiresAtUtc = DateTime.UtcNow.AddMinutes(10) };
         await context.Collection<OAuthRegistration>("oauth_registrations").InsertOneAsync(registration, cancellationToken: cancellationToken);
         return new(null, ticket, registration.Email, registration.DisplayName);
     }

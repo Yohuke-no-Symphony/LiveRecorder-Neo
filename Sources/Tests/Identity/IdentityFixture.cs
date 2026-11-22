@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
@@ -48,7 +49,8 @@ internal sealed class IdentityFixture : IAsyncDisposable
             fixture.Bootstrap = current.Current.Bootstrap;
             fixture.Context = current.Current.Mongo;
             fixture.Protector = current.Current.SecretProtector;
-            fixture.Identity = new(fixture.Context, fixture.Settings, fixture.Email, fixture.Protector, hasher, fixture.Http, fixture.SessionRevoker);
+            var avatarCache = new OAuthAvatarCache(fixture.Context, fixture.Http, NullLogger<OAuthAvatarCache>.Instance);
+            fixture.Identity = new(fixture.Context, fixture.Settings, fixture.Email, fixture.Protector, hasher, fixture.Http, fixture.SessionRevoker, avatarCache);
             return fixture;
         }
         catch
