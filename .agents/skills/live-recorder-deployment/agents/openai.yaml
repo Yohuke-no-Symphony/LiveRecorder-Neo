@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deploy Live Recorder"
+  short_description: "Set up or update Live Recorder with guided steps"
+  default_prompt: "Use $live-recorder-deployment to get Live Recorder running. I have no technical experience, so handle the setup where you can and guide me through anything I need to click."

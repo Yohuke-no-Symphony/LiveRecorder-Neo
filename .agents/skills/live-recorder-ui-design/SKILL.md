@@ -1,61 +1,61 @@
 ---
 name: live-recorder-ui-design
-description: 为 Yohuke.LiveRecorder 的 Vue 与 Vuetify WebUI 新增、修改或审查卡片、弹窗、表单和页面布局，沿用项目紧凑样式与共用组件，保留交互和可访问性。适用于该项目 UI 开发与样式统一，不用于 Unity、Avalonia 或其它项目的界面设计。
+description: Add, update, or review cards, dialogs, forms, and page layouts in the Yohuke.LiveRecorder Vue and Vuetify WebUI. Reuse its compact styles and shared components while preserving interaction and accessibility. Applies to this WebUI only.
 ---
 
-# Live Recorder UI 设计规范
+# Live Recorder UI Design
 
-## 读取真实实现
+## Inspect the implementation
 
-项目入口为仓库内的 `Sources/WebUI`；工作目录已经是 WebUI 时使用相对路径。先读取目标组件及相关来源，以实际代码为准：
+The WebUI lives in `Sources/WebUI`. Use paths relative to that directory if it is already the working directory. Read the target component and relevant shared code first.
 
-- `src/plugins/vuetify.ts`：主题语义色、圆角、按钮与表单控件默认外观。
-- `src/styles/main.css`：公共间距、页面容器、网格、表单行和工具栏。
-- `src/components/common/{CardHeader,ContentCard,CardActions}.vue`：卡片与弹窗的公共结构。
+- `src/plugins/vuetify.ts` defines semantic theme colors, corner radii, and defaults for buttons and form controls.
+- `src/styles/main.css` defines shared spacing, page containers, grids, form rows, and toolbars.
+- `src/components/common/{CardHeader,ContentCard,CardActions}.vue` defines the shared card and dialog structure.
 
-复用已有业务组件与 Vue 数据绑定；同类内容封装为 `.vue` 组件。样式修改保留现有请求、权限、表单和关闭逻辑，避免扩展为业务重构。
+Reuse existing feature components and Vue bindings. Extract repeated structures into `.vue` components. Preserve requests, permissions, form behavior, and close handlers when changing styles.
 
-## 组件选择
+## Choose components
 
-| 内容 | 使用方式 |
+| Content | Component |
 | --- | --- |
-| 有标题的普通内容卡、设置卡、表单弹窗 | `ContentCard`，标题传 `title` |
-| 无标题的普通内容块 | `ContentCard`，省略 `title` |
-| 已有全宽表格、消息列表、媒体预览 | 保留 `v-card`，需要标题时复用 `CardHeader`，避免正文再套一层内边距 |
-| 封面卡、播放器、头像身份卡、登录及首次安装页 | 保留专用组件，复用主题和公共间距 |
-| 统计数字、磁盘等专用卡片 | 保留内容结构，常规内距用 `.card-content` |
+| Standard titled cards, settings cards, and form dialogs | Use `ContentCard` with the `title` prop. |
+| Standard untitled content blocks | Use `ContentCard` and omit `title`. |
+| Existing full-width tables, message lists, and media previews | Keep `v-card` and reuse `CardHeader` when needed. Keep the body flush with the card. |
+| Cover cards, players, avatar identity cards, login, and first-time setup | Keep dedicated components and reuse the theme and shared spacing. |
+| Specialized statistics and disk-usage cards | Keep the content structure and use `.card-content` for standard padding. |
 
-`ContentCard` 的默认插槽放正文，`suffix` 放计数等短信息，`header-actions` 放标题栏按钮，`actions` 放底部操作。`titleId` 将外层弹窗的 `aria-labelledby` 关联到实际标题。
+In `ContentCard`, put the body in the default slot, brief details such as counts in `suffix`, header buttons in `header-actions`, and footer controls in `actions`. Use `titleId` to connect the surrounding dialog's `aria-labelledby` to the visible heading.
 
-`CardHeader` 自身的操作插槽名为 `actions`。标题使用 H2、单行省略和完整 `title` 属性；后缀保持简短，长业务信息放正文。页面 H1 仍使用 `PageHeader`。
+`CardHeader` has its own `actions` slot. Keep card headings as single-line H2s with ellipsis and the full text in the `title` attribute. Keep suffixes short and place longer details in the body. Use `PageHeader` for the page H1.
 
-## 间距与布局
+## Spacing and layout
 
-统一调整时修改 `main.css` 的公共变量，避免各页面复制一套数值：
+Make shared spacing changes in `main.css` so pages inherit the same values.
 
-| 变量或公共类 | 当前约定 |
+| Variable or shared class | Convention |
 | --- | --- |
-| `--ui-card-padding` | 常规正文内距及左右对齐 16px |
-| `--ui-card-header-padding` | 标题上下及有标题正文顶部 8px |
-| `--ui-card-title-size` | 卡片标题 1rem，公共标题字重 600 |
-| `--ui-form-gap` / `.form-stack` | 字段间距 20px |
-| `--ui-layout-gap` | 常规网格间距 20px |
-| `CardActions` | 右对齐、8px 间距、允许换行，底部与左右 16px |
-| `.form-row` | 两列字段，窄屏改单列 |
-| `.settings-grid` / `.summary-grid` | 设置两列、统计三列，按现有断点折叠 |
-| `.table-toolbar` / `.filter-bar` | 允许换行，沿用公共间距 |
+| `--ui-card-padding` | 16px for standard body padding and horizontal alignment. |
+| `--ui-card-header-padding` | 8px above and below the header and at the top of the body on titled cards. |
+| `--ui-card-title-size` | 1rem card title size and a shared title weight of 600. |
+| `--ui-form-gap` / `.form-stack` | 20px between form fields. |
+| `--ui-layout-gap` | 20px for standard grid gaps. |
+| `CardActions` | Right-aligned, wrapping controls with an 8px gap and 16px padding on the bottom and sides. |
+| `.form-row` | Two columns, collapsing to one on narrow screens. |
+| `.settings-grid` / `.summary-grid` | Two columns for settings and three for summaries, collapsing at existing breakpoints. |
+| `.table-toolbar` / `.filter-bar` | Wrap controls and use shared spacing. |
 
-不要在 `ContentCard` 外叠加 `pa-5`、`pa-6` 或独立标题底距。正文中的次级标题用 `.section-heading`。
+Avoid adding `pa-5`, `pa-6`, or separate heading margins around `ContentCard`. Use `.section-heading` for secondary headings in the body.
 
-页面复用 `PageHeader` 和 `.page-container`。长标题、路径和翻译文本要能收缩或换行，相关 flex/grid 子项使用 `min-width: 0`。主要页面断点沿用 600px 和 960px，特殊控件可按内容使用局部断点；确认、搜索和视频弹窗按内容保留各自宽度。
+Reuse `PageHeader` and `.page-container`. Let long headings, paths, and translated text shrink or wrap by setting `min-width: 0` on relevant flex or grid children. Use the existing 600px and 960px breakpoints for page layouts. Use local breakpoints when a control's content needs them. Size confirmation, search, and video dialogs for their content.
 
-## 弹窗与表单
+## Dialogs and forms
 
-外层 `v-dialog` 由调用方控制模型、宽度、`persistent`、`scrollable`、生命周期和 ARIA 名称。`ContentCard` 只封装卡片结构。
+The caller owns the outer `v-dialog` model, width, `persistent` and `scrollable` behavior, lifecycle, and accessible name. Use `ContentCard` for the card structure.
 
-可滚动弹窗必须保持渲染后的 `v-card-text` 为 `v-card` 直接子元素；不要在两者间再包 `div` 或 `form`。标题和底部操作保持在滚动正文之外。
+For scrollable dialogs, keep the rendered `v-card-text` as a direct child of `v-card`. Place any `div` or `form` inside the body and keep the header and footer outside the scrolling area.
 
-普通表单在正文内保留 `<form @submit.prevent>`，按钮放在 `<CardActions embedded>` 内。需要固定底部操作时，用唯一表单 ID 关联 `actions` 插槽中的提交按钮：
+Keep standard forms in the body with `<form @submit.prevent>` and place their buttons in `<CardActions embedded>`. For a fixed footer, associate the submit button in the `actions` slot with a unique form ID.
 
 ```vue
 <v-dialog v-model="opened" max-width="580" scrollable :persistent="busy" :aria-label="title">
@@ -72,30 +72,30 @@ description: 为 Yohuke.LiveRecorder 的 Vue 与 Vuetify WebUI 新增、修改�
 </v-dialog>
 ```
 
-在调用方 setup 中用 Vue `useId()` 生成 `formId`；展示字符串来自 i18n 或 props。不要用 `@click="save"` 替代原生 submit，导致 Enter 和浏览器 required 校验丢失。
+Generate `formId` with Vue's `useId()` in the caller's setup. Get display strings from i18n or props. Keep native form submission to preserve Enter-key behavior and browser validation of required fields.
 
-保留现有忙碌限制、失败后的草稿、取消按钮状态与关闭回调，尤其是搜索添加的 `updateOpen`、外置 form 关联、账号登录的 `after-leave` 清理和视频预览关闭时暂停播放。
+Preserve busy-state restrictions, drafts after failures, cancel-button states, and close callbacks. Check `updateOpen` in the search-and-add dialog, external form associations, `after-leave` cleanup after account login, and playback pausing when video previews close.
 
-`CardActions` 用普通 div，保留调用方按钮样式。不要随意替换为 `v-card-actions`，Vuetify 会为子按钮注入默认 variant，可能改变全局 flat 主按钮。主操作使用 primary，取消用 text，破坏性确认使用 error；图标按钮提供本地化 `aria-label`。
+`CardActions` uses a plain `div` so callers retain their button styles. Keep it in place where `v-card-actions` would inject a default button variant and affect globally flat primary buttons. Use `primary` for the main action, the `text` variant for cancel, and `error` for destructive confirmations. Give icon buttons localized `aria-label` values.
 
-## 文案与主题
+## Copy and theme
 
-**禁止添加无用的说明小字。** 不得重复字段或按钮含义、复述显而易见的流程、展示用户无需了解的内部实现细节，或为填充布局添加提示。仅在确实有助于用户理解、输入或操作时添加说明，删除已有冗余说明。空态直接说明当前状态。计数与统计单位尽量放标题同行，长解释按需展示。
+Use supporting text only when it helps the user understand, enter information, or act. Remove copy that repeats field or button labels, restates obvious steps, exposes irrelevant implementation details, or fills space. State empty conditions directly. Keep counts and units on the title line when space allows, and show longer explanations where users need them.
 
-保留影响决策的说明：确认对象和删除范围、目录迁移不移动文件且需重启、保留天数为零、默认权限影响范围、SMTP 证书设置含义、金额和未知值口径。不要为了压缩高度删除错误、加载状态或非直观输入规则。
+Keep details that affect a decision, including what will be deleted, storage migration requiring a restart and a separate file move, the meaning of zero retention days, the scope of default permissions, SMTP certificate settings, and how amounts and unknown values are reported. Preserve errors, loading states, and input rules users cannot infer from the controls.
 
-主题色使用 Vuetify 语义色及 `rgb(var(--v-theme-...))`；字体与卡片圆角沿用全局设置，媒体覆盖层等特殊视觉可保留。文案同步 `zh-CN`、`en-US`、`ja-JP`，不在组件中写死业务文字。
+Use Vuetify semantic colors and `rgb(var(--v-theme-...))`. Follow global typography and card radii, and preserve specialized visuals such as media overlays. Update business copy in `zh-CN`, `en-US`, and `ja-JP` through localization.
 
-## 验证与交付
+## Verify and deliver
 
-从 WebUI 运行 `pnpm type-check` 与 `pnpm build`。按受影响组件筛选测试，例如：
+Run `pnpm type-check` and `pnpm build` from the WebUI directory. Select tests by the components affected.
 
 ```sh
 pnpm test -- Tests/targetAddDialog.test.ts Tests/userPermissions.test.ts Tests/sessionLibrary.test.ts
 ```
 
-按修改范围补充 `languageSettings`、`smtpSettings`、`analytics`、`storage`、`sessionTimeline`、`sessionDownloadDialog` 或 `localization` 测试；纯间距改动不自动运行全部后端测试。
+When relevant, include `languageSettings`, `smtpSettings`, `analytics`, `storage`, `sessionTimeline`, `sessionDownloadDialog`, or `localization` tests. For spacing-only changes, keep verification focused on the affected UI.
 
-验证可观察行为：原生提交、外置 form 关联、忙碌时关闭限制、滚动正文与固定头尾、长标题及窄屏操作区，以及三语和明暗主题下的可读性。不用匹配 padding 字符串的测试代替行为验收；完成后清理临时视觉和自动化验收文件。
+Verify native submission, external form associations, close restrictions while busy, scrolling content with a fixed header and footer, long headings, narrow-screen actions, and readability in all three languages and both themes. Test observable behavior and clean up temporary visual and automation artifacts.
 
-视觉改动较多时，请用户对刷新后的代表性弹窗和窄屏布局截图验收。交付时区分已通过的自动化检查和仍待人工验收的部分。
+For substantial visual changes, ask the user to refresh and review screenshots of representative dialogs and narrow layouts. Report the checks that passed and any visual checks still pending.
