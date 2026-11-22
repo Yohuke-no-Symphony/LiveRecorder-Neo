@@ -22,6 +22,7 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
     private readonly ConcurrentDictionary<string, BilibiliBindingSession> sessions = new();
     private readonly ConcurrentDictionary<string, CancellationTokenSource> credentialLifetimes = new();
     private readonly ConcurrentBag<CancellationTokenSource> retiredLifetimes = [];
+    private readonly HashSet<string> refreshDataWarnings = [];
     private readonly SemaphoreSlim accountGate = new(1, 1);
     private readonly object lifetimeGate = new();
     private TaskCompletionSource accountChanges = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -293,9 +294,8 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
                     continue;
                 }
                 await UpdateMissingAvatarAsync(account, cancellationToken);
-                using var client = new BilibiliWebLoginClient(httpClientFactory.CreateClient("bilibili-login"), true);
-                var refreshed = await client.RefreshAsync(credentials, cancellationToken);
-                if (refreshed != credentials)
+                var refreshed = await RefreshAccountCredentialsAsync(account.Id, credentials, validationLifetime, cancellationToken);
+                if (refreshed is not null && refreshed != credentials)
                 {
                     var saved = await SaveRefreshedCredentialsAsync(account, refreshed);
                     if (saved is not null && refreshed.Cookie != credentials.Cookie)
@@ -315,6 +315,41 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
                 logger.LogWarning("B站账号 {AccountId} 维护失败：{ErrorType}", account.Id, exception.GetType().Name);
             }
         }
+    }
+
+    private async Task<BilibiliLoginCredentials?> RefreshAccountCredentialsAsync(string accountId, BilibiliLoginCredentials credentials,
+        CancellationToken validationLifetime, CancellationToken cancellationToken)
+    {
+        using var client = new BilibiliWebLoginClient(httpClientFactory.CreateClient("bilibili-login"), true);
+        BilibiliLoginCredentials refreshed;
+        try
+        {
+            refreshed = await client.RefreshAsync(credentials, cancellationToken);
+        }
+        catch (InvalidDataException)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            bool firstFailure;
+            lock (lifetimeGate)
+            {
+                if (validationLifetime.IsCancellationRequested)
+                {
+                    return null;
+                }
+                firstFailure = refreshDataWarnings.Add(accountId);
+            }
+            logger.Log(firstFailure ? LogLevel.Warning : LogLevel.Debug,
+                "B站账号 {AccountId} 自动刷新登录失败。B站未返回完整的刷新数据，后台会重试。持续失败时可在“B站账号”页面重新登录。", accountId);
+            return null;
+        }
+        lock (lifetimeGate)
+        {
+            if (!validationLifetime.IsCancellationRequested)
+            {
+                refreshDataWarnings.Remove(accountId);
+            }
+        }
+        return refreshed;
     }
 
     /// <summary>停止登录会话并释放凭据变更边界。</summary>
@@ -731,6 +766,7 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
             {
                 return;
             }
+            refreshDataWarnings.Remove(id);
             credentialLifetimes.TryGetValue(id, out var previous);
             credentialLifetimes[id] = new();
             if (previous is not null)

@@ -3,6 +3,7 @@ using System.Net;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Driver;
 using Yohuke.DanmuCore.Apis;
@@ -25,14 +26,15 @@ internal sealed class BilibiliAccountTestFixture : IAsyncDisposable
     internal long RoomLiveStartTime { get; set; } = 1800000000;
     internal Func<HttpRequestMessage, Task<HttpResponseMessage?>>? BeforeRequest { get; set; }
 
-    private BilibiliAccountTestFixture(IdentityFixture identity)
+    private BilibiliAccountTestFixture(IdentityFixture identity, ILogger<BilibiliService>? logger)
     {
         Identity = identity;
-        Service = new(identity.Context, identity.Protector, identity.Http, NullLogger<BilibiliService>.Instance, identity.Settings, Connection);
+        Service = new(identity.Context, identity.Protector, identity.Http, logger ?? NullLogger<BilibiliService>.Instance, identity.Settings, Connection);
         Identity.Http.Handle = RespondAsync;
     }
 
-    internal static async Task<BilibiliAccountTestFixture> CreateAsync() => new(await IdentityFixture.CreateAsync());
+    internal static async Task<BilibiliAccountTestFixture> CreateAsync(ILogger<BilibiliService>? logger = null) =>
+        new(await IdentityFixture.CreateAsync(), logger);
 
     internal async Task<BilibiliAccount> AddAccountAsync(long uid, string status = "Valid")
     {
