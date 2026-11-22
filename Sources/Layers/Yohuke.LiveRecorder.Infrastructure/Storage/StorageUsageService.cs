@@ -116,7 +116,8 @@ public sealed class StorageUsageService(IAppPaths paths, TimeProvider timeProvid
             ],
             Rooms = state.Rooms.Values.OrderByDescending(row => row.TotalBytes).ThenBy(row => row.Id).ToArray(),
             Users = state.Users.Values.OrderByDescending(row => row.TotalBytes).ThenBy(row => row.Id).ToArray(),
-            Directories = state.Directories.Values.OrderByDescending(row => row.TotalBytes).ThenBy(row => row.Id).ToArray()
+            Directories = state.Directories.Values.OrderByDescending(row => row.TotalBytes).ThenBy(row => row.Id).ToArray(),
+            DerivedBytesByAssetId = state.DerivedBytesByAssetId
         };
     }
 
@@ -190,6 +191,11 @@ public sealed class StorageUsageService(IAppPaths paths, TimeProvider timeProvid
         {
             state.DerivedBytes += bytes;
             GetDirectory(state, "recordings", root, ".derived", "derived").DerivedBytes += bytes;
+            if (parts.Length > 2)
+            {
+                var assetId = parts[1];
+                state.DerivedBytesByAssetId[assetId] = state.DerivedBytesByAssetId.GetValueOrDefault(assetId) + bytes;
+            }
             return;
         }
         if (parts[0] == ".trash")

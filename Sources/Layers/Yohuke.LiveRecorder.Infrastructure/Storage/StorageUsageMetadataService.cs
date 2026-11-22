@@ -5,10 +5,10 @@ using Yohuke.LiveRecorder.Infrastructure.Persistence;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Storage;
 
-/// <summary>为管理员扫描快照补充最小身份投影及回收文件归属，不修改缓存快照。</summary>
+/// <summary>为管理员扫描快照补充身份及文件归属，不修改缓存快照。</summary>
 public sealed class StorageUsageMetadataService(IMongoContext context, IAppPaths paths)
 {
-    /// <summary>补充直播间、用户名称及实际回收文件归属，不读取凭据字段。</summary>
+    /// <summary>补充直播间、用户名称及实际转码和回收文件归属，不读取凭据字段。</summary>
     public async Task<StorageUsageReport> EnrichAsync(StorageUsageReport report, CancellationToken cancellationToken = default)
     {
         var roomsTask = context.Collection<Streamer>("streamers").Find(FilterDefinition<Streamer>.Empty)
@@ -35,11 +35,12 @@ public sealed class StorageUsageMetadataService(IMongoContext context, IAppPaths
                 RetainedInPlace = entry.RetainedInPlace,
                 OriginalRelativePath = entry.OriginalRelativePath
             }).ToListAsync(cancellationToken);
-        await Task.WhenAll(roomsTask, usersTask, trashTask);
+        var rooms = report.Rooms.ToDictionary(room => room.Id, room => room with { });
+        var derivedTask = AddDerivedUsageAsync(report.DerivedBytesByAssetId, rooms, cancellationToken);
+        await Task.WhenAll(roomsTask, usersTask, trashTask, derivedTask);
         var identities = (await roomsTask).Where(room => !string.IsNullOrEmpty(room.Id))
             .GroupBy(room => room.Id).ToDictionary(group => group.Key, group => group.First());
         var userNames = (await usersTask).ToDictionary(user => user.Id, user => user.Name);
-        var rooms = report.Rooms.ToDictionary(room => room.Id, room => room with { });
         var users = report.Users.ToDictionary(user => user.Id, user => user with { });
         var trashDirectories = report.Directories.Where(directory => directory.Kind == "trash")
             .ToDictionary(directory => directory.Id, directory => directory.TotalBytes);
@@ -55,16 +56,7 @@ public sealed class StorageUsageMetadataService(IMongoContext context, IAppPaths
                 {
                     continue;
                 }
-                if (!rooms.TryGetValue(directory, out var room))
-                {
-                    room = new()
-                    {
-                        Id = directory,
-                        Name = directory,
-                        Path = Path.Combine(paths.RecordsDirectory, directory)
-                    };
-                    rooms.Add(directory, room);
-                }
+                var room = GetOrAddRoom(rooms, directory);
                 room.TrashBytes += trashBytes;
                 room.RetainedInPlace |= entry.Kind == "Segment"
                     ? entry.RetainedInPlace
@@ -87,17 +79,7 @@ public sealed class StorageUsageMetadataService(IMongoContext context, IAppPaths
                 var directory = entry.OriginalRelativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
                 if (!string.IsNullOrEmpty(directory) && !directory.StartsWith('.'))
                 {
-                    if (!rooms.TryGetValue(directory, out var room))
-                    {
-                        room = new()
-                        {
-                            Id = directory,
-                            Name = directory,
-                            Path = Path.Combine(paths.RecordsDirectory, directory)
-                        };
-                        rooms.Add(directory, room);
-                    }
-                    room.TrashBytes += trashBytes;
+                    GetOrAddRoom(rooms, directory).TrashBytes += trashBytes;
                 }
             }
         }
@@ -123,5 +105,41 @@ public sealed class StorageUsageMetadataService(IMongoContext context, IAppPaths
             Rooms = rooms.Values.OrderByDescending(room => room.TotalBytes).ThenBy(room => room.Id).ToArray(),
             Users = users.Values.OrderByDescending(user => user.TotalBytes).ThenBy(user => user.Id).ToArray()
         };
+    }
+
+    private async Task AddDerivedUsageAsync(IReadOnlyDictionary<string, long> bytesByAssetId,
+        Dictionary<string, StorageRoomUsage> rooms, CancellationToken cancellationToken)
+    {
+        foreach (var assetIds in bytesByAssetId.Keys.Chunk(1000))
+        {
+            var assets = await context.Collection<MediaAsset>("mediaAssets").Find(asset => assetIds.Contains(asset.Id))
+                .Project(asset => new { asset.Id, asset.SourceRelativePath })
+                .ToListAsync(cancellationToken);
+            foreach (var asset in assets)
+            {
+                var source = asset.SourceRelativePath;
+                var separator = source.IndexOfAny(['/', '\\']);
+                if (separator <= 0 || source.StartsWith('.'))
+                {
+                    continue;
+                }
+                GetOrAddRoom(rooms, source[..separator]).DerivedBytes += bytesByAssetId[asset.Id];
+            }
+        }
+    }
+
+    private StorageRoomUsage GetOrAddRoom(Dictionary<string, StorageRoomUsage> rooms, string directory)
+    {
+        if (!rooms.TryGetValue(directory, out var room))
+        {
+            room = new()
+            {
+                Id = directory,
+                Name = directory,
+                Path = Path.Combine(paths.RecordsDirectory, directory)
+            };
+            rooms.Add(directory, room);
+        }
+        return room;
     }
 }

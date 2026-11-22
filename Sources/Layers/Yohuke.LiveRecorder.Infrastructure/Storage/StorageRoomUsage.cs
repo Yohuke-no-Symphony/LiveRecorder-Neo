@@ -9,8 +9,9 @@ public sealed record StorageRoomUsage
     public long RoomId { get; set; }
     public bool RetainedInPlace { get; set; }
     public long RecordingBytes { get; set; }
+    public long DerivedBytes { get; set; }
     public long ClipBytes { get; set; }
     public long TrashBytes { get; set; }
     public long OtherBytes { get; set; }
-    public long TotalBytes => RecordingBytes + ClipBytes + TrashBytes + OtherBytes;
+    public long TotalBytes => RecordingBytes + DerivedBytes + ClipBytes + TrashBytes + OtherBytes;
 }

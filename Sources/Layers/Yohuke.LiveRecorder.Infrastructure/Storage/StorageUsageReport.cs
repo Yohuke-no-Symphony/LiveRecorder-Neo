@@ -9,4 +9,5 @@ public sealed record StorageUsageReport
     public IReadOnlyList<StorageRoomUsage> Rooms { get; init; } = [];
     public IReadOnlyList<StorageUserUsage> Users { get; init; } = [];
     public IReadOnlyList<StorageDirectoryUsage> Directories { get; init; } = [];
+    internal IReadOnlyDictionary<string, long> DerivedBytesByAssetId { get; init; } = new Dictionary<string, long>();
 }

@@ -112,6 +112,53 @@ public sealed class StorageUsageHttpTests
         Assert.Equal(23L, Bytes(refreshedRecordings, "recordingBytes"));
     }
 
+    /// <summary>磁盘统计将每个资产下的成品归到源直播间，未知归属的文件仍计入卷和目录。</summary>
+    [MongoHttpFact]
+    public async Task AttributesActualDerivedFilesToTheirSourceRooms()
+    {
+        await using var fixture = await HttpServerFixture.CreateAsync();
+        await fixture.InstallAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+        var streamer = new Streamer
+        {
+            RoomId = 31415,
+            Uid = 27182,
+            Name = "转码统计直播间",
+            DirectoryName = "room_one",
+            Enabled = false
+        };
+        await fixture.Context.Collection<Streamer>("streamers").InsertOneAsync(streamer);
+        var source = Path.Combine(streamer.DirectoryName, "session", "source.flv");
+        var asset = new MediaAsset { SourceRelativePath = source };
+        var secondAsset = new MediaAsset { SourceRelativePath = Path.Combine("room_two", "session", "source.flv") };
+        await fixture.Context.Collection<MediaAsset>("mediaAssets").InsertManyAsync([asset, secondAsset]);
+        await WriteBytesAsync(Path.Combine(fixture.StoragePath, source), 11);
+        var derived = Path.Combine(fixture.StoragePath, ".derived");
+        await WriteBytesAsync(Path.Combine(derived, asset.Id, "version", "recipe", "job-1", "init.mp4"), 13);
+        await WriteBytesAsync(Path.Combine(derived, asset.Id, "version", "recipe", "job-1", "chunk_00000.m4s"), 17);
+        await WriteBytesAsync(Path.Combine(derived, asset.Id, "version", "other-recipe", "other-job-1", "chunk_00000.m4s"), 19);
+        await WriteBytesAsync(Path.Combine(derived, secondAsset.Id, "version", "recipe", "job-1", "chunk_00000.m4s"), 23);
+        await WriteBytesAsync(Path.Combine(derived, "unknown-asset", "version", "recipe", "job-1", "chunk_00000.m4s"), 29);
+
+        var summary = await fixture.Admin.Client.GetFromJsonAsync<JsonArray>("/api/storage");
+        var recordings = Assert.Single(summary!, item => item!["id"]!.GetValue<string>() == "recordings")!.AsObject();
+        Assert.Equal(101L, Bytes(recordings, "derivedBytes"));
+
+        var details = await fixture.Admin.Client.GetFromJsonAsync<JsonObject>("/api/storage/details");
+        var rooms = details!["rooms"]!.AsArray();
+        Assert.Equal(2, rooms.Count);
+        var room = Assert.Single(rooms, item => item!["name"]!.GetValue<string>() == streamer.Name)!.AsObject();
+        Assert.Equal(streamer.RoomId, room["roomId"]!.GetValue<long>());
+        Assert.Equal(11L, Bytes(room, "recordingBytes"));
+        Assert.Equal(49L, Bytes(room, "derivedBytes"));
+        Assert.Equal(60L, Bytes(room, "totalBytes"));
+        var secondRoom = Assert.Single(rooms, item => item!["id"]!.GetValue<string>() == "room_two")!.AsObject();
+        Assert.Equal(23L, Bytes(secondRoom, "derivedBytes"));
+        Assert.Equal(23L, Bytes(secondRoom, "totalBytes"));
+        var directory = Assert.Single(details["directories"]!.AsArray(), item => item!["kind"]!.GetValue<string>() == "derived")!.AsObject();
+        Assert.Equal(101L, Bytes(directory, "derivedBytes"));
+    }
+
     /// <summary>匿名请求不能读取磁盘摘要或明细，已登录普通成员仅能读取摘要。</summary>
     [MongoHttpFact]
     public async Task DirectoryDetailsRejectAnonymousAndOrdinaryMembers()
