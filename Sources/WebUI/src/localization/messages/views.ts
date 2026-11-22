@@ -102,8 +102,8 @@ export const viewsZh = {
   },
   trash: {
     name: '名称', type: '类型', purgeAt: '彻底删除时间', restore: '恢复', purge: '彻底删除', empty: '回收站为空', purgeConfirm: '彻底删除？',
-    clear: '清空', allSelectable: '全选可删除项目', selected: '已选 {count} 项',
-    cancelSelection: '取消选择', purgeSelected: '彻底删除所选', clearConfirm: '清空回收站？', purgeCountConfirm: '彻底删除这 {count} 项后无法恢复。',
+    clear: '清空', allSelectable: '全选可删除项目',
+    purgeSelected: '彻底删除所选（{count}）', clearConfirm: '清空回收站？', purgeCountConfirm: '彻底删除这 {count} 项后无法恢复。',
     clearKindConfirm: '清空「{type}」？', purgeKindsConfirm: '彻底删除 {count} 项（{types}）后无法恢复。',
     selectionChanged: '可删除项目已更新，请重新确认。', purgeFailure: '{title}：{message}',
     segment: '录像分段', sourceRecording: '查看所属录像', restoreRecordingFirst: '请先恢复整场录像，再恢复此分段。',
@@ -213,8 +213,8 @@ export const viewsEn: MessageSchema<typeof viewsZh> = {
   },
   trash: {
     name: 'Name', type: 'Type', purgeAt: 'Permanent deletion', restore: 'Restore', purge: 'Delete permanently', empty: 'Trash is empty', purgeConfirm: 'Delete permanently?',
-    clear: 'Empty trash', allSelectable: 'Select all deletable items', selected: '{count} selected',
-    cancelSelection: 'Cancel selection', purgeSelected: 'Permanently delete selected', clearConfirm: 'Empty trash?', purgeCountConfirm: 'Permanently deleting these {count} items cannot be undone.',
+    clear: 'Empty trash', allSelectable: 'Select all deletable items',
+    purgeSelected: 'Permanently delete selected ({count})', clearConfirm: 'Empty trash?', purgeCountConfirm: 'Permanently deleting these {count} items cannot be undone.',
     clearKindConfirm: 'Empty {type}?', purgeKindsConfirm: 'Permanently deleting {count} items ({types}) cannot be undone.',
     selectionChanged: 'The items available for deletion have changed. Review the selection and confirm again.', purgeFailure: '{title}: {message}',
     segment: 'Recording segment', sourceRecording: 'View recording', restoreRecordingFirst: 'Restore the entire recording before restoring this segment.',
@@ -324,8 +324,8 @@ export const viewsJa: MessageSchema<typeof viewsZh> = {
   },
   trash: {
     name: '名前', type: '種類', purgeAt: '完全削除の日時', restore: '復元', purge: '完全に削除', empty: 'ゴミ箱は空です', purgeConfirm: '完全に削除しますか？',
-    clear: '空にする', allSelectable: '削除可能な項目をすべて選択', selected: '{count} 件選択中',
-    cancelSelection: '選択を解除', purgeSelected: '選択した項目を完全に削除', clearConfirm: 'ゴミ箱を空にしますか？', purgeCountConfirm: 'この {count} 件の項目を完全に削除すると復元できません。',
+    clear: '空にする', allSelectable: '削除可能な項目をすべて選択',
+    purgeSelected: '選択した項目を完全に削除（{count} 件）', clearConfirm: 'ゴミ箱を空にしますか？', purgeCountConfirm: 'この {count} 件の項目を完全に削除すると復元できません。',
     clearKindConfirm: '「{type}」を空にしますか？', purgeKindsConfirm: '{count} 件の項目（{types}）を完全に削除すると復元できません。',
     selectionChanged: '削除できる項目が変更されました。選択内容を確認し、もう一度確定してください。', purgeFailure: '{title}：{message}',
     segment: '録画セグメント', sourceRecording: '元の録画を表示', restoreRecordingFirst: 'このセグメントを復元する前に、録画全体を復元してください。',

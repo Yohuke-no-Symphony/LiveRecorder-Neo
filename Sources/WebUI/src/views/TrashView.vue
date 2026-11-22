@@ -1,12 +1,8 @@
 <template>
   <PageHeader :title="t(management ? 'shell.nav.trashManagement' : 'shell.nav.trash')">
-    <template v-if="selectedEntries.length">
-      <span class="text-body-2" role="status">{{ t('views.trash.selected', { count: formatNumber(selectedEntries.length) }) }}</span>
-      <v-btn variant="text" prepend-icon="mdi-close" :disabled="busy" @click="selectedIds = []">{{ t('views.trash.cancelSelection') }}</v-btn>
-      <v-btn variant="outlined" color="error" prepend-icon="mdi-delete-forever-outline" :disabled="busy" @click="openPurge('selection', selectedEntries)">
-        {{ t('views.trash.purgeSelected') }}
-      </v-btn>
-    </template>
+    <v-btn v-if="selectedEntries.length" variant="outlined" color="error" prepend-icon="mdi-delete-forever-outline" :disabled="busy" @click="openPurge('selection', selectedEntries)">
+      {{ t('views.trash.purgeSelected', { count: formatNumber(selectedEntries.length) }) }}
+    </v-btn>
     <v-btn v-else variant="outlined" color="error" prepend-icon="mdi-delete-sweep-outline" :disabled="busy || !purgeableEntries.length" @click="openPurge('clear', purgeableEntries)">
       {{ t('views.trash.clear') }}
     </v-btn>

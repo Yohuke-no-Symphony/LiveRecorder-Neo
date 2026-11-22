@@ -122,7 +122,7 @@ afterEach(() =>
 
 describe('回收站批量彻底删除', () =>
 {
-  it('录像管理者只可选择自己的切片，可全选、半选和取消', async () =>
+  it('表格保留单选和全选，页头的删除按钮显示数量，可从表头取消勾选', async () =>
   {
     const recording = entry('session', { kind: 'Session', title: '共享录像', ownerId: 'recorder' })
     const wrapper = await renderTrash([entry('a'), recording, entry('b')], 'User')
@@ -134,22 +134,24 @@ describe('回收站批量彻底删除', () =>
 
     await clipA.trigger('click')
     expect(selectAll.element.indeterminate).toBe(true)
-    expect(wrapper.text()).toContain('已选 1 项')
+    expect(button(wrapper, '彻底删除所选（1）').attributes('variant')).toBe('outlined')
+    expect(wrapper.get('.page-actions').text()).not.toMatch(/已选|取消选择/)
     await selectAll.setValue(true)
     expect(clipA.element.checked && clipB.element.checked).toBe(true)
     expect(selectAll.element.indeterminate).toBe(false)
-    expect(wrapper.text()).toContain('已选 2 项')
+    expect(wrapper.get('.page-actions').text()).toContain('彻底删除所选（2）')
 
-    await button(wrapper, '彻底删除所选').trigger('click')
+    await button(wrapper, '彻底删除所选（2）').trigger('click')
     expect(dialog(wrapper).text()).toContain('彻底删除这 2 项后无法恢复。')
     expect(purgeTrashEntries).not.toHaveBeenCalled()
     await button(dialog(wrapper), '取消').trigger('click')
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     expect(clipA.element.checked && clipB.element.checked).toBe(true)
 
-    await button(wrapper, '取消选择').trigger('click')
+    await selectAll.setValue(false)
     expect(clipA.element.checked || clipB.element.checked).toBe(false)
     expect(selectAll.element.checked).toBe(false)
+    expect(wrapper.get('.page-actions').text()).toContain('清空')
     expect(purgeTrashEntries).not.toHaveBeenCalled()
   })
 
@@ -192,7 +194,7 @@ describe('回收站批量彻底删除', () =>
     ])
 
     await checkbox(wrapper, '全选可删除项目').setValue(true)
-    await button(wrapper, '彻底删除所选').trigger('click')
+    await button(wrapper, '彻底删除所选（2）').trigger('click')
     await confirmPurge(wrapper)
     expect(purgeTrashEntries).toHaveBeenNthCalledWith(1, ['a', 'b'], false)
     expect(wrapper.get('tbody').text()).not.toContain('切片 a')
@@ -260,11 +262,11 @@ describe('回收站批量彻底删除', () =>
     expect(wrapper.get('h1').text()).toBe('回收站管理')
     expect(wrapper.findAll('[role="tab"]').map(tab => tab.text())).toEqual(['全部', '切片', '录播', '录像分段'])
     await checkbox(wrapper, '全选可删除项目').setValue(true)
-    expect(wrapper.text()).toContain('已选 3 项')
+    expect(wrapper.get('.page-actions').text()).toContain('彻底删除所选（3）')
     wrapper.getComponent({ name: 'VTabs' }).vm.$emit('update:modelValue', 'Clip')
     await flushPromises()
     expect(checkbox(wrapper, '全选可删除项目').element.checked).toBe(false)
-    expect(wrapper.text()).not.toContain('已选')
+    expect(wrapper.get('.page-actions').text()).not.toContain('彻底删除所选')
     expect(wrapper.get('tbody').text()).not.toContain(recording.title)
 
     await button(wrapper, '清空').trigger('click')
@@ -311,8 +313,7 @@ describe('回收站批量彻底删除', () =>
     expect(rowCheckbox(wrapper, '共享录像').element.disabled).toBe(true)
     expect(wrapper.findAll('tbody tr')).toHaveLength(25)
     await checkbox(wrapper, '全选可删除项目').setValue(true)
-    expect(wrapper.text()).toContain('已选 26 项')
-    await button(wrapper, '彻底删除所选').trigger('click')
+    await button(wrapper, '彻底删除所选（26）').trigger('click')
     await confirmPurge(wrapper)
     expect(purgeTrashEntries).toHaveBeenCalledExactlyOnceWith(clips.map(clip => clip.id), true)
     expect(wrapper.get('tbody').text()).toContain('共享录像')

@@ -1,7 +1,7 @@
 <template>
   <PageHeader :title="t(administration ? 'taskHistory.administrationTitle' : 'taskHistory.personalTitle')">
-    <v-btn prepend-icon="mdi-broom" variant="text" :disabled="!!actionKey || loading" :loading="actionKey === 'preview'" @click="previewClear">{{ t('taskHistory.clearCompleted') }}</v-btn>
-    <v-btn icon="mdi-refresh" variant="text" :aria-label="t('taskHistory.refresh')" :loading="loading" @click="refresh" />
+    <v-btn variant="outlined" color="error" prepend-icon="mdi-delete-sweep-outline" :disabled="!!actionKey || loading" :loading="actionKey === 'preview'" @click="previewClear">{{ t('taskHistory.clearCompleted') }}</v-btn>
+    <v-btn variant="outlined" prepend-icon="mdi-refresh" :loading="loading" @click="refresh">{{ t('taskHistory.refresh') }}</v-btn>
   </PageHeader>
   <v-alert v-if="pageActionError || error || filterError" type="error" density="compact" class="mb-4">{{ pageActionError || error || filterError }}</v-alert>
   <v-alert v-if="notice" type="info" density="compact" class="mb-4">{{ notice }}</v-alert>
