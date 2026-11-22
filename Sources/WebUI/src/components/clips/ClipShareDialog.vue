@@ -5,7 +5,7 @@
         <p class="clip-share-title">{{ clip.title }}</p>
         <v-progress-linear v-if="!loaded && busy" indeterminate color="primary"/>
         <ShareLinkField v-if="link" :link="link"/>
-        <p v-if="copyStatus" class="text-body-2" role="status">{{ t(copyStatus) }}</p>
+        <p v-if="manualCopyRequired" class="text-body-2" role="status">{{ t('sharing.manualCopy') }}</p>
         <v-alert v-if="loaded && !token && !auth.canViewRecordings" type="info">{{ t('sharing.createPermission') }}
         </v-alert>
         <v-alert v-if="error && !confirmRevoke" type="error">
@@ -29,6 +29,10 @@
       </template>
     </ContentCard>
   </v-dialog>
+  <v-snackbar v-model="linkCopied" location="bottom center" color="surface-variant"
+              style="--v-layout-left: 0px; --v-layout-right: 0px" min-width="min(344px, 100%)" _disable-global-stack>
+    <div class="text-center">{{ t('sharing.copied') }}</div>
+  </v-snackbar>
   <ConfirmDialog v-model="confirmRevoke" :title="t('sharing.revoke')" :message="t('sharing.revokeConfirm')"
                  :action-label="t('sharing.revoke')" :busy="busy" :error="confirmRevoke ? error : ''" danger
                  @confirm="revoke"/>
@@ -55,7 +59,8 @@ const auth = useAuthStore()
 const token = ref<string | null>(null)
 const loaded = ref(false)
 const confirmRevoke = ref(false)
-const copyStatus = ref<'sharing.copied' | 'sharing.manualCopy'>()
+const linkCopied = ref(false)
+const manualCopyRequired = ref(false)
 const {busy, error, run} = useAction()
 const link = computed(() => token.value
   ? absoluteShareLink(router.resolve({name: 'shared-clip', params: {id: props.clip.id, token: token.value}}).href)
@@ -93,7 +98,8 @@ async function revoke(): Promise<void> {
     token.value = null
     loaded.value = false
     confirmRevoke.value = false
-    copyStatus.value = undefined
+    linkCopied.value = false
+    manualCopyRequired.value = false
     await readToken()
   })
 }
@@ -102,7 +108,8 @@ async function copy(): Promise<void> {
   const currentLink = link.value
   const copied = await copyShareLink(currentLink)
   if (currentLink === link.value) {
-    copyStatus.value = copied ? 'sharing.copied' : 'sharing.manualCopy'
+    linkCopied.value = copied
+    manualCopyRequired.value = !copied
   }
 }
 </script>

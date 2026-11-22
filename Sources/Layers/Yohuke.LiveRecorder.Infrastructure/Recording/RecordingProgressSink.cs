@@ -170,7 +170,7 @@ public sealed class RecordingProgressSink : IProgress<MediaRecordingUpdate>, IAs
                     dirtySegments.Add(segment.Id);
                 }
             }
-            logger.LogWarning("场次 {SessionId} 已保存在文件中，数据库同步等待恢复：{Message}", session.Id, error.Message);
+            logger.LogWarning("Session {SessionId} was saved to disk. Database synchronization is pending: {Message}", session.Id, error.Message);
         }
     }
 

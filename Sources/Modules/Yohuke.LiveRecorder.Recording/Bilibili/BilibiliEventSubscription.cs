@@ -108,8 +108,8 @@ public sealed class BilibiliEventSubscription : IDisposable
         }
         catch (OperationCanceledException exception) when (drain.IsCancellationRequested)
         {
-            logger.LogError("直播间 {RoomId} 弹幕尾部未在 {DrainSeconds} 秒内排空，已接收消息可能缺失。", roomId, policy.DrainTimeout.TotalSeconds);
-            throw new IOException("弹幕停止时未能排空已接收业务包，归档完整性未知。", exception);
+            logger.LogError("The chat backlog for room {RoomId} did not drain within {DrainSeconds} seconds. Some received messages may be missing.", roomId, policy.DrainTimeout.TotalSeconds);
+            throw new IOException("Received chat event packets could not be drained at shutdown. The archive may be incomplete.", exception);
         }
         finally
         {
@@ -203,7 +203,7 @@ public sealed class BilibiliEventSubscription : IDisposable
                     }
                     catch (Exception exception)
                     {
-                        logger.LogWarning("直播间 {RoomId} 红包 {LotId} 补录暂不可用：{ErrorType}", roomId, request.LotId, exception.GetType().Name);
+                        logger.LogWarning("Backfill in room {RoomId} for red pocket {LotId} is temporarily unavailable: {ErrorType}", roomId, request.LotId, exception.GetType().Name);
                     }
                 }
                 ReportIncompleteCoverage();
@@ -240,7 +240,7 @@ public sealed class BilibiliEventSubscription : IDisposable
         {
             failed = true;
             Enqueue(new() { Raw = Diagnostic("RECORDER_HISTORY_FAILED", "近期普通弹幕补录暂不可用，断连期间消息不能保证完整。") });
-            logger.LogWarning("直播间 {RoomId} 历史补录暂不可用：{ErrorType}", roomId, exception.GetType().Name);
+            logger.LogWarning("Chat history backfill for room {RoomId} is temporarily unavailable: {ErrorType}", roomId, exception.GetType().Name);
         }
         try
         {
@@ -262,7 +262,7 @@ public sealed class BilibiliEventSubscription : IDisposable
         {
             failed = true;
             Enqueue(new() { Raw = Diagnostic("RECORDER_RED_POCKET_FAILED", "红包列表补录暂不可用，已有红包的完整性未知。") });
-            logger.LogWarning("直播间 {RoomId} 红包列表补录暂不可用：{ErrorType}", roomId, exception.GetType().Name);
+            logger.LogWarning("Red pocket list backfill for room {RoomId} is temporarily unavailable: {ErrorType}", roomId, exception.GetType().Name);
         }
         if (failed && Interlocked.Increment(ref recoveryFailures) < 3)
         {
@@ -278,7 +278,7 @@ public sealed class BilibiliEventSubscription : IDisposable
         Interlocked.Exchange(ref recoveryFailures, 0);
         Interlocked.Exchange(ref recoveryRequested, 1);
     }
-    private void OnError(object? sender, Exception error) => logger.LogWarning("直播间 {RoomId} 弹幕连接报告 {ErrorType}", roomId, error.GetType().Name);
+    private void OnError(object? sender, Exception error) => logger.LogWarning("The chat connection for room {RoomId} reported {ErrorType}", roomId, error.GetType().Name);
 
     private void BeginDrain(object? state) => ((CancellationTokenSource)state!).CancelAfter(policy.DrainTimeout);
 
@@ -298,7 +298,7 @@ public sealed class BilibiliEventSubscription : IDisposable
         }
         catch (Exception exception) when (exception is Newtonsoft.Json.JsonException or FormatException or InvalidDataException or OverflowException or ArgumentException)
         {
-            logger.LogWarning("直播间 {RoomId} 的 {Command} 无法解析，将保存原始业务包：{ErrorType}", roomId, raw.Command, exception.GetType().Name);
+            logger.LogWarning("Could not parse the event in room {RoomId} with command {Command}. The raw event packet will be saved: {ErrorType}", roomId, raw.Command, exception.GetType().Name);
         }
         return default;
     }

@@ -80,6 +80,7 @@ describe('页面导航与面包屑', () =>
     ['/admin/trash', ['管理', '回收站管理']],
     ['/admin/storage', ['管理', '磁盘']],
     ['/admin/workers', ['管理', 'Worker']],
+    ['/admin/server-logs', ['管理', '服务器日志']],
     ['/admin/settings', ['管理', '设置']],
   ])('%s 显示实际层级，当前页与管理分组没有链接', async (path, titles) =>
   {
@@ -128,6 +129,28 @@ describe('页面导航与面包屑', () =>
     await nextTick()
     expect(wrapper.find('.nav-item[data-to="/admin/workers"]').exists()).toBe(false)
     await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/'))
+  })
+
+  it('服务器日志的直达路由与侧栏入口只允许管理员访问', async () =>
+  {
+    const auth = useAuthStore()
+    vi.spyOn(auth, 'bootstrap').mockResolvedValue()
+    vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    await applicationRouter.replace('/admin/server-logs')
+    expect(applicationRouter.currentRoute.value.path).toBe('/')
+    const wrapper = await openShell('/')
+    expect(wrapper.find('.nav-item[data-to="/admin/server-logs"]').exists()).toBe(false)
+
+    auth.user!.role = 'Admin'
+    await applicationRouter.replace('/admin/server-logs')
+    expect(applicationRouter.currentRoute.value.path).toBe('/admin/server-logs')
+    const links = wrapper.findAll('.nav-item').map(item => item.attributes('data-to'))
+    expect(links[links.indexOf('/admin/worker-tasks') + 1]).toBe('/admin/server-logs')
+    expect(wrapper.get('.nav-item[data-to="/admin/server-logs"]').text()).toBe('服务器日志')
+    await router.push('/admin/server-logs')
+    expect(wrapper.get('main.page-container').classes()).toContain('page-container-fill')
+    await router.push('/admin/workers')
+    expect(wrapper.get('main.page-container').classes()).not.toContain('page-container-fill')
   })
 
   it('被授权的普通账号只看到有权访问的管理入口，撤权后退出页面', async () =>

@@ -312,7 +312,7 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
             }
             catch (Exception exception)
             {
-                logger.LogWarning("B站账号 {AccountId} 维护失败：{ErrorType}", account.Id, exception.GetType().Name);
+                logger.LogWarning("Maintenance failed for Bilibili account {AccountId}: {ErrorType}", account.Id, exception.GetType().Name);
             }
         }
     }
@@ -339,7 +339,7 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
                 firstFailure = refreshDataWarnings.Add(accountId);
             }
             logger.Log(firstFailure ? LogLevel.Warning : LogLevel.Debug,
-                "B站账号 {AccountId} 自动刷新登录失败。B站未返回完整的刷新数据，后台会重试。持续失败时可在“B站账号”页面重新登录。", accountId);
+                "Automatic sign-in refresh failed for Bilibili account {AccountId}. Bilibili returned incomplete refresh data. The server will retry in the background. If the problem persists, sign in again on the Bilibili accounts page.", accountId);
             return null;
         }
         lock (lifetimeGate)
@@ -483,7 +483,7 @@ public sealed class BilibiliService(IMongoContext context, ISecretProtector prot
                 {
                     failure = ExceptionDispatchInfo.Capture(error);
                 }
-                logger.LogWarning("B站账号 {AccountId} 采集请求失败，尝试下一有效账号：{ErrorType}", account.Id, error.GetType().Name);
+                logger.LogWarning("Capture request failed for Bilibili account {AccountId}. Trying the next valid account: {ErrorType}", account.Id, error.GetType().Name);
             }
         }
         cancellationToken.ThrowIfCancellationRequested();

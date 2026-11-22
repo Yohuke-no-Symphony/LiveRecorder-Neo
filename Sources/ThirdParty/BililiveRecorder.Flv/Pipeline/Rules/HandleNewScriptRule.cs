@@ -13,7 +13,7 @@ namespace BililiveRecorder.Flv.Pipeline.Rules
     {
         private const string STORE_KEY = "HandleNewScriptRule_MetaDataReceived";
         private const string onMetaData = "onMetaData";
-        private static readonly ProcessingComment comment_onmetadata = new ProcessingComment(CommentType.OnMetaData, false, "收到了 onMetaData");
+        private static readonly ProcessingComment comment_onmetadata = new ProcessingComment(CommentType.OnMetaData, false, "Received onMetaData");
 
         private readonly bool splitOnScriptTag;
 
@@ -101,7 +101,7 @@ namespace BililiveRecorder.Flv.Pipeline.Rules
             }
             else
             {
-                var message = $"收到直播服务器发送的 onMetaData 数据，请检查此位置是否有重复的直播片段或缺少数据。\n造成这个问题的原因可能是录播姬所连接的直播服务器与它的上级服务器的连接断开重连了。\n数据内容: {data?.ToJson() ?? "(null)"}";
+                var message = $"Received onMetaData from the live server. Check this position for duplicated segments or missing data.\nThe live server may have lost and re-established its upstream connection.\nMetadata: {data?.ToJson() ?? "(null)"}";
                 context.AddComment(new ProcessingComment(CommentType.OnMetaData, false, message));
 
                 if (this.splitOnScriptTag)
@@ -128,7 +128,7 @@ namespace BililiveRecorder.Flv.Pipeline.Rules
                 yield break;
             }
         notOnMetaData:
-            context.AddComment(new ProcessingComment(CommentType.Logging, false, "收到了非 onMetaData 的 Script Tag: " + (data?.ToJson() ?? "(null)")));
+            context.AddComment(new ProcessingComment(CommentType.Logging, false, "Received a script tag other than onMetaData: " + (data?.ToJson() ?? "(null)")));
             yield break;
         }
     }

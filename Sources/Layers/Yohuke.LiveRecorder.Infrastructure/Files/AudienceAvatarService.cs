@@ -102,7 +102,7 @@ public sealed class AudienceAvatarService(IUserAvatarSource source, TimeProvider
         }
         catch (Exception error) when (error is HttpRequestException or OperationCanceledException or Newtonsoft.Json.JsonException)
         {
-            logger.LogDebug(error, "观众 {UserId} 的头像暂时不可用", userId);
+            logger.LogDebug(error, "Avatar for viewer {UserId} is temporarily unavailable", userId);
         }
         catch (Exception error)
         {

@@ -44,7 +44,7 @@ namespace BililiveRecorder.Flv.Writer
             try
             { this.stream.Dispose(); }
             catch (Exception ex)
-            { this.logger?.Warning(ex, "关闭录像文件时发生错误"); }
+            { this.logger?.Warning(ex, "Failed to close the recording file"); }
 
             this.stream = null;
 
@@ -53,7 +53,7 @@ namespace BililiveRecorder.Flv.Writer
                 try
                 { this.textFile.Dispose(); }
                 catch (Exception ex)
-                { this.logger?.Warning(ex, "关闭录像记录文本文件时发生错误"); }
+                { this.logger?.Warning(ex, "Failed to close the recording log file"); }
 
                 this.textFile = null;
             }
@@ -100,7 +100,7 @@ namespace BililiveRecorder.Flv.Writer
             }
             else
             {
-                this.logger?.Warning("因 Script tag 输出长度不一致跳过修改");
+                this.logger?.Warning("Skipped overwriting the script tag because the serialized length changed");
             }
         }
 
@@ -113,26 +113,26 @@ namespace BililiveRecorder.Flv.Writer
             {
                 this.textFile = new StreamWriter(this.targetProvider.CreateAccompanyingTextLogStream(), Encoding.UTF8);
 
-                await this.textFile.WriteLineAsync("此文件内记录了对应的视频文件中可能存在的问题").ConfigureAwait(false);
-                await this.textFile.WriteAsync("mikufans录播姬 ").ConfigureAwait(false);
+                await this.textFile.WriteLineAsync("This log records potential issues in the associated video file.").ConfigureAwait(false);
+                await this.textFile.WriteAsync("Bililive Recorder ").ConfigureAwait(false);
                 await this.textFile.WriteLineAsync(GitVersionInformation.FullSemVer).ConfigureAwait(false);
                 await this.textFile.WriteLineAsync().ConfigureAwait(false);
             }
 
             var fileTime = TimeSpan.FromSeconds(lastTagDuration);
 
-            await this.textFile.WriteLineAsync("-----记录开始-----").ConfigureAwait(false);
-            await this.textFile.WriteAsync("记录时间: ").ConfigureAwait(false);
+            await this.textFile.WriteLineAsync("-----BEGIN LOG ENTRY-----").ConfigureAwait(false);
+            await this.textFile.WriteAsync("Logged at: ").ConfigureAwait(false);
             await this.textFile.WriteLineAsync(DateTimeOffset.Now.ToString("O")).ConfigureAwait(false);
-            await this.textFile.WriteAsync("视频时间: ").ConfigureAwait(false);
+            await this.textFile.WriteAsync("Video time: ").ConfigureAwait(false);
             await this.textFile.WriteLineAsync($"{(int)Math.Floor(fileTime.TotalHours):D2}:{fileTime.Minutes:D2}:{fileTime.Seconds:D2}.{fileTime.Milliseconds:D3}").ConfigureAwait(false);
-            await this.textFile.WriteAsync("文件位置: ").ConfigureAwait(false);
+            await this.textFile.WriteAsync("File offset: ").ConfigureAwait(false);
             await this.textFile.WriteAsync(this.FileSize.ToString()).ConfigureAwait(false);
-            await this.textFile.WriteLineAsync(" 字节").ConfigureAwait(false);
+            await this.textFile.WriteLineAsync(" bytes").ConfigureAwait(false);
 
             await this.textFile.WriteLineAsync(message).ConfigureAwait(false);
 
-            await this.textFile.WriteLineAsync("-----记录结束-----").ConfigureAwait(false);
+            await this.textFile.WriteLineAsync("-----END LOG ENTRY-----").ConfigureAwait(false);
 
             await this.textFile.FlushAsync().ConfigureAwait(false);
         }
@@ -207,7 +207,7 @@ namespace BililiveRecorder.Flv.Writer
                     }
                     catch (Exception ex)
                     {
-                        this.logger?.Warning(ex, "关闭文件时发生错误");
+                        this.logger?.Warning(ex, "Failed to close the file");
                     }
 
                     this.stream = null;

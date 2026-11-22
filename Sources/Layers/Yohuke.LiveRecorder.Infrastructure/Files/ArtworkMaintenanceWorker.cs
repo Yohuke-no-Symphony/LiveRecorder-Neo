@@ -42,7 +42,7 @@ public sealed class ArtworkMaintenanceWorker(IMongoContext context, IBootstrapSt
                         }
                         catch (Exception error)
                         {
-                            logger.LogWarning(error, "场次 {SessionId} 的封面将在稍后重试", session.Id);
+                            logger.LogWarning(error, "Cover generation for session {SessionId} will be retried", session.Id);
                         }
                     }
                     var streamers = await context.Collection<Streamer>("streamers").Find(x => x.AvatarRelativePath == null && x.AvatarUrl != "" && x.DirectoryName != "").Limit(50).ToListAsync(stoppingToken);
@@ -62,7 +62,7 @@ public sealed class ArtworkMaintenanceWorker(IMongoContext context, IBootstrapSt
             }
             catch (Exception error)
             {
-                logger.LogWarning("封面快照将在稍后重试：{Message}", error.Message);
+                logger.LogWarning("Cover snapshot processing will be retried: {Message}", error.Message);
             }
             try
             {

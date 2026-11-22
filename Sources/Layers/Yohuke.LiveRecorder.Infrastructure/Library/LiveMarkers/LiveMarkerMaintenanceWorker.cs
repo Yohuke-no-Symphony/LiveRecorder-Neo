@@ -30,7 +30,7 @@ public sealed class LiveMarkerMaintenanceWorker(
             }
             catch (Exception error)
             {
-                logger.LogWarning("直播记录附件清理将重试：{Message}", error.Message);
+                logger.LogWarning("Live marker attachment cleanup will be retried: {Message}", error.Message);
                 try
                 {
                     await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);

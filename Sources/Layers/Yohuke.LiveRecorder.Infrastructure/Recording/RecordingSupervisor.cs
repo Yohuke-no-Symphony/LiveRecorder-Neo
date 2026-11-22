@@ -91,7 +91,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
             }
             catch (Exception error)
             {
-                logger.LogWarning("录制目标同步暂缓：{Message}", error.Message);
+                logger.LogWarning("Recording target synchronization is deferred: {Message}", error.Message);
             }
             try
             {
@@ -392,7 +392,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                     {
                         SetRecordingError(target, session, error);
                         await TrySaveTargetAsync(target, cancellationToken);
-                        logger.LogWarning("直播间 {RoomId} 等待重试：{Message}", target.RoomId, error.Message);
+                        logger.LogWarning("Recording will retry for room {RoomId}: {Message}", target.RoomId, error.Message);
                     }
                     retryDelay = TimeSpan.FromSeconds(retrySeconds);
                     retrySeconds = Math.Min(30, retrySeconds * 2);
@@ -430,7 +430,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                 }
                 catch (Exception error)
                 {
-                    logger.LogWarning("场次暂停状态等待数据库恢复：{Message}", error.Message);
+                    logger.LogWarning("The session pause state will be saved when the database is available again: {Message}", error.Message);
                 }
             }
         }
@@ -462,7 +462,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         }
         catch (IOException error)
         {
-            logger.LogWarning("未产生有效媒体的录制目录 {Directory} 等待清理：{Message}", directory, error.Message);
+            logger.LogWarning("Cleanup is pending for recording directory {Directory}, which contains no valid media: {Message}", directory, error.Message);
         }
     }
 
@@ -544,7 +544,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
             }
             catch (Exception error) when (!cancellationToken.IsCancellationRequested)
             {
-                logger.LogWarning("直播间 {RoomId} 状态查询暂缓，继续当前录制：{Message}", target.RoomId, error.Message);
+                logger.LogWarning("Room {RoomId} status lookup is deferred. The current recording will continue: {Message}", target.RoomId, error.Message);
             }
         }
     }
@@ -592,7 +592,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         }
         catch (Exception error)
         {
-            logger.LogError(error, "弹幕归档结束时报告失败");
+            logger.LogError(error, "Failed to finalize the chat archive");
         }
     }
 
@@ -639,7 +639,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                         TextCode = MessageCode.RECORDING_EVENT_CONNECTION_LOST.ToString()
                     }, cancellationToken);
                 }
-                logger.LogWarning("直播间 {RoomId} 弹幕将重连：{Message}", target.RoomId, error.Message);
+                logger.LogWarning("The chat connection for room {RoomId} will reconnect: {Message}", target.RoomId, error.Message);
                 await WriteTaskLogAsync(session, "Capturing", "Warning",
                     "The event connection will reconnect; committed events remain in the broadcast archive (" + error.GetType().Name + "). " + error.Message, cancellationToken);
             }
@@ -809,7 +809,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {
-            logger.LogWarning("直播间管理状态等待数据库恢复：{Message}", error.Message);
+            logger.LogWarning("Room management state will be saved when the database is available again: {Message}", error.Message);
         }
     }
 
@@ -864,7 +864,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
             }
             catch (JsonException error)
             {
-                logger.LogWarning("档案清单 {Path} 无法读取：{Message}", path, error.Message);
+                logger.LogWarning("Could not read archive manifest {Path}: {Message}", path, error.Message);
             }
         }
         await segmentTrash.ReconcileUnderLibraryLockAsync(cancellationToken);
@@ -935,7 +935,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         }
         catch (Exception error)
         {
-            logger.LogError(error, "录制子任务结束，将由协调器重新调度");
+            logger.LogError(error, "A recording subtask ended and will be rescheduled by the supervisor");
         }
     }
 }

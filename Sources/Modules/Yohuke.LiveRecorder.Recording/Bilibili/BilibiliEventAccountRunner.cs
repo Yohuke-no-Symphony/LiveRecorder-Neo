@@ -51,7 +51,7 @@ internal sealed class BilibiliEventAccountRunner(
                 catch (InfrastructureException error) when (error.Code == nameof(MessageCode.BILIBILI_CREDENTIALS_CORRUPT))
                 {
                     Reject(account);
-                    logger.LogWarning("直播间 {RoomId} 账号 {AccountId} 凭据不可读，尝试下一有效账号", roomId, account?.Id);
+                    logger.LogWarning("Could not read credentials in room {RoomId} for account {AccountId}. Trying the next valid account", roomId, account?.Id);
                     await ReportGapAsync(onEvent, cancellationToken);
                     continue;
                 }
@@ -73,7 +73,7 @@ internal sealed class BilibiliEventAccountRunner(
                     {
                         await expireCredentials(account, cancellationToken);
                     }
-                    logger.LogWarning("直播间 {RoomId} 账号 {AccountId} 弹幕来源失败，尝试下一有效账号：{ErrorType}", roomId, account?.Id, error.InnerException?.GetType().Name);
+                    logger.LogWarning("Chat source failed in room {RoomId} for account {AccountId}. Trying the next valid account: {ErrorType}", roomId, account?.Id, error.InnerException?.GetType().Name);
                     await ReportGapAsync(onEvent, cancellationToken);
                 }
             }

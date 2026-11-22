@@ -127,7 +127,7 @@ public sealed class ClipPlanPreparation(ClipInputPlanner inputs, ILogger<ClipPla
                 }
                 catch (Exception error)
                 {
-                    logger.LogWarning("切片 {JobId} 的远端准备失败，将保留本地处理：{ErrorType}", entry.Job.Id, error.GetType().Name);
+                    logger.LogWarning("Remote preparation failed for clip job {JobId}. The job will remain available for local processing: {ErrorType}", entry.Job.Id, error.GetType().Name);
                 }
                 lock (gate)
                 {

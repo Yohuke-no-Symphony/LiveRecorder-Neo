@@ -64,7 +64,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
             }
             catch (Exception error)
             {
-                logger.LogWarning("任务调度等待恢复：{Message}", error.Message);
+                logger.LogWarning("Job scheduling will resume after recovery: {Message}", error.Message);
             }
             try
             {
@@ -168,7 +168,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
             }
             catch (Exception databaseError)
             {
-                logger.LogWarning("任务 {JobId} 将由过期租约恢复：{Message}", job.Id, databaseError.Message);
+                logger.LogWarning("Job {JobId} will be recovered when its lease expires: {Message}", job.Id, databaseError.Message);
             }
         }
         finally
@@ -189,7 +189,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
                 }
                 catch (Exception error)
                 {
-                    logger.LogWarning("任务 {JobId} 的工作目录将稍后清理：{Message}", job.Id, error.Message);
+                    logger.LogWarning("Cleanup of the working directory for job {JobId} will be retried later: {Message}", job.Id, error.Message);
                 }
             }
         }
@@ -429,7 +429,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
                     RequireOutputPath(path, outputDirectory);
                     if (!File.Exists(path) || artifact.Value <= 0 || new FileInfo(path).Length != artifact.Value)
                     {
-                        throw new InvalidDataException("恢复产物长度不符。");
+                        throw new InvalidDataException("The recovered artifact length does not match the manifest.");
                     }
                 }
                 foreach (var relative in manifest.Paths)
@@ -438,7 +438,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
                     RequireOutputPath(path, outputDirectory);
                     if (!manifest.ArtifactLengths.ContainsKey(relative))
                     {
-                        throw new InvalidDataException("恢复产物缺少完成校验信息。");
+                        throw new InvalidDataException("The manifest is missing verification data for a recovered artifact.");
                     }
                     await ValidateMediaAsync(path, cancellationToken);
                 }
@@ -446,7 +446,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
                 {
                     if (manifest.RepairedSegments.Count != manifest.Paths.Count)
                     {
-                        throw new InvalidDataException("修复清单没有覆盖所有产物。");
+                        throw new InvalidDataException("The repair manifest does not account for all artifacts.");
                     }
                     foreach (var segment in manifest.RepairedSegments)
                     {
@@ -454,7 +454,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
                         var index = MediaPaths.ResolveSegmentIndex(root, session.DirectoryPath, segment);
                         if (string.IsNullOrEmpty(index))
                         {
-                            throw new InvalidDataException("修复清单缺少索引路径。");
+                            throw new InvalidDataException("The repair manifest is missing an index path.");
                         }
                         RequireOutputPath(media, outputDirectory);
                         RequireOutputPath(index, outputDirectory);
@@ -465,7 +465,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
                             || !manifest.Paths.Contains(mediaRelative) || !manifest.ArtifactLengths.TryGetValue(mediaRelative, out var bytes) || bytes != segment.CommittedBytes
                             || !manifest.ArtifactLengths.ContainsKey(Path.GetRelativePath(root, index)))
                         {
-                            throw new InvalidDataException("修复索引身份不符。");
+                            throw new InvalidDataException("The repair index identity does not match the manifest.");
                         }
                     }
                 }
@@ -473,7 +473,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
             }
             catch (Exception error) when (error is JsonException or IOException or InvalidDataException or InfrastructureException)
             {
-                logger.LogWarning("任务 {JobId} 的旧完成清单不可复用，将重新处理：{Message}", job.Id, error.Message);
+                logger.LogWarning("Job {JobId} will be reprocessed because its previous completion manifest cannot be reused: {Message}", job.Id, error.Message);
             }
         }
         return null;
@@ -567,7 +567,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         if (!Path.GetFullPath(path).StartsWith(Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)) + Path.DirectorySeparatorChar, comparison))
         {
-            throw new InvalidDataException("产物路径不在当前作业版本目录中。");
+            throw new InvalidDataException("The artifact path is outside the directory for the current job attempt.");
         }
         MediaPaths.Resolve(directory, Path.GetRelativePath(directory, path));
     }

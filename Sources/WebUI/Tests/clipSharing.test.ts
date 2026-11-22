@@ -31,6 +31,7 @@ const container = { template: '<div><slot /></div>' }
 const stubs = {
   VCard: container, VCardText: container, VProgressLinear: true,
   VDialog: { props: ['modelValue'], template: '<section v-if="modelValue" role="dialog"><slot /></section>' },
+  VSnackbar: { props: ['modelValue'], template: '<div v-if="modelValue" role="status"><slot /></div>' },
   VAlert: { template: '<div role="alert"><slot /><slot name="append" /></div>' },
   VBtn: {
     props: ['href', 'disabled', 'loading'],
@@ -184,7 +185,7 @@ describe('切片分享管理', () =>
     await button(wrapper, '复制链接').trigger('click')
     await flushPromises()
     expect(writeText).toHaveBeenCalledWith(link)
-    expect(wrapper.get('[role="status"]').text()).toBe('请选择链接并手动复制。')
+    expect(wrapper.get('[role="dialog"] [role="status"]').text()).toBe('请选择链接并手动复制。')
     input.element.select()
     expect(input.element.selectionStart).toBe(0)
     expect(input.element.selectionEnd).toBe(link.length)
@@ -201,7 +202,10 @@ describe('切片分享管理', () =>
     expect(wrapper.get<HTMLInputElement>('input').element.value).toContain(cardPath)
     await button(wrapper, '复制链接').trigger('click')
     await flushPromises()
-    expect(wrapper.get('[role="status"]').text()).toBe('链接已复制')
+    const snackbar = wrapper.get('[role="status"]')
+    expect(snackbar.text()).toBe('链接已复制')
+    expect(snackbar.attributes('location')).toBe('bottom center')
+    expect(wrapper.find('[role="dialog"] [role="status"]').exists()).toBe(false)
 
     await button(wrapper, '撤销分享').trigger('click')
     const confirm = wrapper.getComponent(ConfirmDialog)

@@ -33,6 +33,7 @@ internal sealed class EndpointMappingStartupFlow(IReadOnlyCollection<string> dev
         app.MapAiEndpoints();
         app.MapAiWorkerEndpoints();
         app.MapTaskHistoryEndpoints();
+        app.MapServerLogEndpoints();
         app.MapHub<StatusHub>("/hubs/status", options => options.CloseOnAuthenticationExpiration = true).RequireAuthorization();
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
         if (app.Environment.IsDevelopment())

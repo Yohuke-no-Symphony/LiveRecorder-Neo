@@ -12,8 +12,8 @@ namespace BililiveRecorder.Flv.Pipeline.Rules
     /// </summary>
     public class HandleDelayedAudioHeaderRule : ISimpleProcessingRule
     {
-        private static readonly ProcessingComment comment1 = new ProcessingComment(CommentType.Unrepairable, true, "音频数据出现在音频头之前");
-        private static readonly ProcessingComment comment2 = new ProcessingComment(CommentType.DecodingHeader, true, "检测到延后收到的音频头");
+        private static readonly ProcessingComment comment1 = new ProcessingComment(CommentType.Unrepairable, true, "Audio data arrived before the audio header");
+        private static readonly ProcessingComment comment2 = new ProcessingComment(CommentType.DecodingHeader, true, "Received a delayed audio header");
 
         public void Run(FlvProcessingContext context, Action next)
         {
@@ -46,7 +46,7 @@ namespace BililiveRecorder.Flv.Pipeline.Rules
                                     if (shouldReportError)
                                     {
                                         context.AddComment(comment1);
-                                        yield return new PipelineDisconnectAction("直播音频数据中间出现音频头");
+                                        yield return new PipelineDisconnectAction("Received an audio header in the middle of the live audio data");
                                         yield return PipelineNewFileAction.Instance;
                                         yield return null;
                                         yield break;

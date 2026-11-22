@@ -61,7 +61,7 @@ public sealed class DatabaseIndexWorker(IMongoContext context, IBootstrapStore b
             }
             catch (Exception error)
             {
-                logger.LogWarning("数据库索引初始化等待恢复：{Message}", error.Message);
+                logger.LogWarning("Database index initialization will resume after recovery: {Message}", error.Message);
             }
             await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
         }

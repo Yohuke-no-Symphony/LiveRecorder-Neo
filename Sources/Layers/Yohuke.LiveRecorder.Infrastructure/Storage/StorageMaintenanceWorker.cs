@@ -29,7 +29,7 @@ public sealed class StorageMaintenanceWorker(IBootstrapStore bootstrap, StorageS
             }
             catch (Exception error)
             {
-                logger.LogWarning("存储维护将重试：{Message}", error.Message);
+                logger.LogWarning("Storage maintenance will be retried: {Message}", error.Message);
             }
             try
             {

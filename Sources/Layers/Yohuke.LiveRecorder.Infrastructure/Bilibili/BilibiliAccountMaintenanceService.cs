@@ -25,7 +25,7 @@ public sealed class BilibiliAccountMaintenanceService(BilibiliService service, I
                 }
                 catch (Exception exception)
                 {
-                    logger.LogWarning("采集身份维护暂不可用：{ErrorType}", exception.GetType().Name);
+                    logger.LogWarning("Capture account maintenance is temporarily unavailable: {ErrorType}", exception.GetType().Name);
                 }
             }
         }

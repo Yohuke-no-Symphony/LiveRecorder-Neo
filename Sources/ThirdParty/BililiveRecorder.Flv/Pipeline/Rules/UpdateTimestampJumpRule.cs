@@ -56,12 +56,12 @@ namespace BililiveRecorder.Flv.Pipeline.Rules
 
                     if (diff < (-JUMP_THRESHOLD) || (isFirstChunk && diff < 0))
                     {
-                        context.AddComment(new ProcessingComment(CommentType.TimestampJump, true, $"时间戳变小, curr: {currentTimestamp}, diff: {diff}"));
+                        context.AddComment(new ProcessingComment(CommentType.TimestampJump, true, $"Timestamp moved backward: current {currentTimestamp}, delta {diff}"));
                         ts.CurrentOffset = currentTimestamp - ts.NextTimestampTarget;
                     }
                     else if (diff > JUMP_THRESHOLD)
                     {
-                        context.AddComment(new ProcessingComment(CommentType.TimestampJump, true, $"时间戳间隔过大, curr: {currentTimestamp}, diff: {diff}"));
+                        context.AddComment(new ProcessingComment(CommentType.TimestampJump, true, $"Timestamp gap exceeded the limit: current {currentTimestamp}, delta {diff}"));
                         ts.CurrentOffset = currentTimestamp - ts.NextTimestampTarget;
                     }
 

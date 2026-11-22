@@ -13,8 +13,8 @@ namespace BililiveRecorder.Flv.Pipeline.Rules
     /// </summary>
     public class UpdateTimestampOffsetRule : ISimpleProcessingRule
     {
-        private static readonly ProcessingComment COMMENT_JumpedWithinGOP = new ProcessingComment(CommentType.Unrepairable, true, "GOP 内音频或视频时间戳不连续");
-        private static readonly ProcessingComment COMMENT_CantSolve = new ProcessingComment(CommentType.Unrepairable, true, "出现了无法计算偏移量的音视频偏移");
+        private static readonly ProcessingComment COMMENT_JumpedWithinGOP = new ProcessingComment(CommentType.Unrepairable, true, "Audio or video timestamps are discontinuous within a GOP");
+        private static readonly ProcessingComment COMMENT_CantSolve = new ProcessingComment(CommentType.Unrepairable, true, "Could not calculate the offset between the audio and video timestamps");
 
         public void Run(FlvProcessingContext context, Action next)
         {
@@ -46,7 +46,7 @@ namespace BililiveRecorder.Flv.Pipeline.Rules
                 if (data.Tags.Where(x => x.Type == TagType.Audio).Any2(ref IsNextTimestampSmaller.Instance) || data.Tags.Where(x => x.Type == TagType.Video).Any2(ref IsNextTimestampSmaller.Instance))
                 {
                     // 音频或视频自身就有问题，没救了
-                    yield return new PipelineDisconnectAction("GOP 内音频或视频时间戳不连续");
+                    yield return new PipelineDisconnectAction("Audio or video timestamps are discontinuous within a GOP");
                     context.AddComment(COMMENT_JumpedWithinGOP);
                     yield break;
                 }
@@ -146,7 +146,7 @@ namespace BililiveRecorder.Flv.Pipeline.Rules
                 validOffset:
                     if (offset != 0)
                     {
-                        context.AddComment(new ProcessingComment(CommentType.TimestampOffset, true, $"音视频时间戳偏移, D: {offset}"));
+                        context.AddComment(new ProcessingComment(CommentType.TimestampOffset, true, $"Audio and video timestamp offset: {offset}"));
 
                         foreach (var tag in data.Tags)
                             if (tag.Type == TagType.Video)
@@ -158,7 +158,7 @@ namespace BililiveRecorder.Flv.Pipeline.Rules
 
                 invalidOffset:
                     context.AddComment(COMMENT_CantSolve);
-                    yield return new PipelineDisconnectAction("出现无法计算的音视频时间戳错位");
+                    yield return new PipelineDisconnectAction("Could not calculate the offset between the audio and video timestamps");
                     yield break;
                 }
             }

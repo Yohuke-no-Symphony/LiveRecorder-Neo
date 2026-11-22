@@ -43,7 +43,7 @@ public sealed class BilibiliAccountMaintenanceTests
 
         var warning = Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Warning);
         Assert.Contains(account.Id, warning.Message);
-        Assert.Contains("自动刷新登录失败", warning.Message);
+        Assert.Contains("Automatic sign-in refresh failed", warning.Message);
         Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Debug && entry.Message.Contains(account.Id, StringComparison.Ordinal));
         Assert.Equal(2, fixture.Requests.Count(request => request.Path.StartsWith("/correspond/1/", StringComparison.Ordinal)));
         Assert.Equal(2, fixture.Requests.Count(request => request.Path == COOKIE_INFO && request.Cookie.Contains("SESSDATA=original-43", StringComparison.Ordinal)));

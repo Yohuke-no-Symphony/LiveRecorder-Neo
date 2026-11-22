@@ -25,10 +25,10 @@ namespace BililiveRecorder.Flv.Pipeline.Rules
             IsAnnexB,
         }
 
-        private static readonly ProcessingComment MultipleHeaderComment = new ProcessingComment(CommentType.DecodingHeader, true, "收到了连续多个 Header，新建文件");
-        private static readonly ProcessingComment SplitFileComment = new ProcessingComment(CommentType.DecodingHeader, true, "因为 Header 问题新建文件");
-        private static readonly ProcessingComment AnnexBCommentFirst = new ProcessingComment(CommentType.DecodingHeader, false, "检测到一次 AnnexB 格式");
-        private static readonly ProcessingComment AnnexBComment = new ProcessingComment(CommentType.DecodingHeader, false, "检测到 AnnexB 格式，不再切割文件");
+        private static readonly ProcessingComment MultipleHeaderComment = new ProcessingComment(CommentType.DecodingHeader, true, "Started a new file after receiving multiple consecutive headers");
+        private static readonly ProcessingComment SplitFileComment = new ProcessingComment(CommentType.DecodingHeader, true, "Started a new file because of a header issue");
+        private static readonly ProcessingComment AnnexBCommentFirst = new ProcessingComment(CommentType.DecodingHeader, false, "Detected Annex B format once");
+        private static readonly ProcessingComment AnnexBComment = new ProcessingComment(CommentType.DecodingHeader, false, "Detected Annex B format. Further file splitting is disabled");
 
         private readonly bool disableSplitOnH264AnnexB;
 
@@ -169,7 +169,7 @@ namespace BililiveRecorder.Flv.Pipeline.Rules
                 // 如果不能正常播放，后期可以使用这里保存的 Header 配合 FlvInteractiveRebase 工具手动修复
                 if (multiple_header_present)
                 {
-                    var b = new StringBuilder("连续遇到了多个不同的音视频Header，如果录制的文件不能正常播放可以尝试用这里的数据进行手动修复\n");
+                    var b = new StringBuilder("Received multiple different audio or video headers in succession. If the recording cannot be played, the data below may help with manual repair.\n");
 
                     foreach (var tag in header.AllTags)
                     {

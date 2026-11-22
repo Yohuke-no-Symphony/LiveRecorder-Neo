@@ -62,7 +62,7 @@ public sealed class SessionCoverService(IMongoContext context, LibraryService li
                     }
                     catch (Exception error)
                     {
-                        logger.LogWarning(error, "场次 {SessionId} 的片段 {SegmentId} 暂时无法生成封面", session.Id, segment.Id);
+                        logger.LogWarning(error, "Could not generate a cover for session {SessionId}, segment {SegmentId}", session.Id, segment.Id);
                     }
                 }
                 return null;

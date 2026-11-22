@@ -28,7 +28,7 @@ public sealed class AiJobMaintenanceWorker(IBootstrapStore bootstrap, AiJobExecu
             }
             catch (Exception error)
             {
-                logger.LogWarning("AI 任务状态恢复待重试：{ErrorType}", error.GetType().Name);
+                logger.LogWarning("AI job state recovery will be retried: {ErrorType}", error.GetType().Name);
                 await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
             }
         }

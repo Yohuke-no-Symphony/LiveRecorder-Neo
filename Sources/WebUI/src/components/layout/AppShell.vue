@@ -42,7 +42,7 @@
     </div>
   </v-app-bar>
   <v-main>
-    <main class="page-container">
+    <main class="page-container" :class="{ 'page-container-fill': route.meta.fillViewport }">
       <slot/>
     </main>
   </v-main>
@@ -95,6 +95,7 @@ const adminLinks = computed(() => [
   {to: '/admin/storage', title: t('shell.nav.storage'), icon: 'mdi-harddisk'},
   {to: '/admin/workers', title: t('shell.nav.workers'), icon: 'mdi-server-network'},
   {to: '/admin/worker-tasks', title: t('shell.nav.workerTasks'), icon: 'mdi-format-list-checks'},
+  {to: '/admin/server-logs', title: t('shell.nav.serverLogs'), icon: 'mdi-text-box-outline'},
   {to: '/admin/settings', title: t('shell.nav.settings'), icon: 'mdi-cog-outline'},
 ].filter(link => canAccessRoute(router.resolve(link.to).meta, auth)))
 const breadcrumbs = computed(() => {

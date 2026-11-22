@@ -154,7 +154,7 @@ public sealed class MediaBandwidthScheduler : BackgroundService, IMediaBandwidth
                     }
                     refreshedAt = timeProvider.GetTimestamp();
                 }
-                logger.LogError(error, "无法刷新媒体带宽设置，继续使用最近一次有效设置。");
+                logger.LogError(error, "Could not refresh media bandwidth settings. The last valid settings will remain in use.");
             }
         }
         finally

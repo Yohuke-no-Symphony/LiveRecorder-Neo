@@ -7,6 +7,7 @@ declare module 'vue-router'
   {
     admin?: boolean
     public?: boolean
+    fillViewport?: boolean
     permissions?: readonly string[]
     anyPermission?: readonly string[]
     breadcrumbs?: readonly RouteBreadcrumb[]

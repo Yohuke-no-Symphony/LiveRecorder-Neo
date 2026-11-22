@@ -37,7 +37,7 @@ public sealed class TranscodeMaintenanceService(IMongoContext context, IBootstra
             }
             catch (Exception exception)
             {
-                logger.LogWarning(exception, "转码调度等待恢复。");
+                logger.LogWarning(exception, "Transcode scheduling will resume after recovery.");
             }
             try
             {
@@ -74,7 +74,7 @@ public sealed class TranscodeMaintenanceService(IMongoContext context, IBootstra
                 }
                 catch (Exception exception) when (exception is InfrastructureException or FileNotFoundException or InvalidOperationException)
                 {
-                    logger.LogDebug(exception, "场次 {SessionId} 的转码等待已提交媒体。", session.Id);
+                    logger.LogDebug(exception, "Transcoding for session {SessionId} is waiting for committed media.", session.Id);
                 }
             }
         }

@@ -1,3 +1,5 @@
+using Yohuke.LiveRecorder.Server.Logging;
+
 namespace Yohuke.LiveRecorder.Server.StartupFlows;
 
 internal static class HostStartupFlow
@@ -10,6 +12,10 @@ internal static class HostStartupFlow
             throw new InvalidOperationException("The --DataDirectory option and LIVE_RECORDER_DATA_DIR environment variable are no longer supported. Use --config to specify a startup JSON file and set DataDirectory in that file.");
         }
         var builder = WebApplication.CreateBuilder(args);
+        var applicationCategory = builder.Environment.ApplicationName;
+        builder.Services.AddSingleton<ServerLogBuffer>();
+        builder.Services.AddSingleton<ILoggerProvider>(services =>
+            new ServerLogProvider(services.GetRequiredService<ServerLogBuffer>(), applicationCategory));
         if (builder.Configuration["DataDirectory"] is not null)
         {
             throw new InvalidOperationException("The standalone DataDirectory startup setting is no longer supported. Use --config to specify a startup JSON file and set DataDirectory in that file.");
