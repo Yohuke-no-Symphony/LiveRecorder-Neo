@@ -1,137 +1,139 @@
 <template>
   <v-navigation-drawer v-model="drawer" :permanent="!mobile" width="240" color="background">
-    <router-link to="/" class="shell-brand"><AppBrand /></router-link>
+    <router-link to="/" class="shell-brand">
+      <AppBrand/>
+    </router-link>
     <v-list class="px-3" nav density="comfortable">
-      <v-list-item v-for="link in links" :key="link.to" :to="link.to" :prepend-icon="link.icon" :title="link.title" color="primary" rounded="lg" class="mb-1" :exact="link.to === '/'" />
+      <v-list-item v-for="link in links" :key="link.to" :to="link.to" :prepend-icon="link.icon" :title="link.title"
+                   color="primary" rounded="lg" class="mb-1" :exact="link.to === '/'"/>
       <template v-if="adminLinks.length">
         <div class="nav-group">{{ t('shell.nav.management') }}</div>
-        <v-list-item v-for="link in adminLinks" :key="link.to" :to="link.to" :prepend-icon="link.icon" :title="link.title" color="primary" rounded="lg" class="mb-1" />
+        <v-list-item v-for="link in adminLinks" :key="link.to" :to="link.to" :prepend-icon="link.icon"
+                     :title="link.title" color="primary" rounded="lg" class="mb-1"/>
       </template>
     </v-list>
     <template #append>
       <div class="shell-footer">
-        <StorageBar v-if="recordingVolume" :volume="recordingVolume" />
+        <StorageBar v-if="recordingVolume" :volume="recordingVolume"/>
       </div>
     </template>
   </v-navigation-drawer>
   <v-app-bar flat color="background" height="68" class="shell-topbar">
-    <v-app-bar-nav-icon v-if="mobile" @click="drawer = !drawer" />
-    <v-breadcrumbs :items="breadcrumbs" class="shell-breadcrumbs text-body-2 px-2 px-sm-6" />
-    <v-spacer />
+    <v-app-bar-nav-icon v-if="mobile" @click="drawer = !drawer"/>
+    <v-breadcrumbs :items="breadcrumbs" class="shell-breadcrumbs text-body-2 px-2 px-sm-6"/>
+    <v-spacer/>
     <div class="shell-actions">
-      <v-btn :icon="theme.global.current.value.dark ? 'mdi-weather-sunny' : 'mdi-weather-night'" variant="text" :aria-label="t('shell.nav.toggleTheme')" @click="toggleTheme" />
-      <AppLanguageMenu />
+      <v-btn :icon="theme.global.current.value.dark ? 'mdi-weather-sunny' : 'mdi-weather-night'" variant="text"
+             :aria-label="t('shell.nav.toggleTheme')" @click="toggleTheme"/>
+      <AppLanguageMenu/>
       <v-menu>
         <template #activator="{ props: menuProps }">
           <v-btn v-bind="menuProps" variant="text" class="mr-2 mr-sm-4" :aria-label="t('shell.nav.userMenu')">
-            <UserAvatar :name="auth.user?.displayName ?? ''" :avatar-url="auth.user?.avatarUrl" size="30" class="mr-2" />
+            <UserAvatar :name="auth.user?.displayName ?? ''" :avatar-url="auth.user?.avatarUrl" size="30" class="mr-2"/>
             <span v-if="!mobile" class="shell-user-name text-truncate" :title="auth.user?.displayName">{{ auth.user?.displayName }}</span>
-            <v-icon icon="mdi-chevron-down" size="16" class="ml-2" />
+            <v-icon icon="mdi-chevron-down" size="16" class="ml-2"/>
           </v-btn>
         </template>
         <v-list density="compact">
-          <v-list-item to="/account" :title="t('shell.nav.account')" prepend-icon="mdi-account-cog-outline" />
-          <v-list-item :title="t('shell.nav.logout')" prepend-icon="mdi-logout" @click="logout" />
+          <v-list-item to="/account" :title="t('shell.nav.account')" prepend-icon="mdi-account-cog-outline"/>
+          <v-list-item :title="t('shell.nav.logout')" prepend-icon="mdi-logout" @click="logout"/>
         </v-list>
       </v-menu>
     </div>
   </v-app-bar>
-  <v-main><main class="page-container"><slot /></main></v-main>
+  <v-main>
+    <main class="page-container">
+      <slot/>
+    </main>
+  </v-main>
   <v-snackbar v-model="errorOpen" color="error">{{ error }}</v-snackbar>
 </template>
 
 <script setup lang="ts">
-import { useI18n } from 'vue-i18n'
-import { computed, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useDisplay, useTheme } from 'vuetify'
-import { useAuthStore } from '@/stores/auth'
-import { MediaAPI } from '@/apis/MediaAPI'
-import { usePolling } from '@/composables/usePolling'
-import { canAccessRoute } from '@/router/access'
-import type { StorageVolume } from '@/models/media'
+import {useI18n} from 'vue-i18n'
+import {computed, ref, watch} from 'vue'
+import {useRoute, useRouter} from 'vue-router'
+import {useDisplay, useTheme} from 'vuetify'
+import {useAuthStore} from '@/stores/auth'
+import {MediaAPI} from '@/apis/MediaAPI'
+import {usePolling} from '@/composables/usePolling'
+import {canAccessRoute} from '@/router/access'
+import type {StorageVolume} from '@/models/media'
 import StorageBar from '@/components/common/StorageBar.vue'
 import AppBrand from '@/components/common/AppBrand.vue'
 import UserAvatar from '@/components/common/UserAvatar.vue'
 import AppLanguageMenu from './AppLanguageMenu.vue'
 
-const { t } = useI18n()
+const {t} = useI18n()
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 const theme = useTheme()
-const { mobile } = useDisplay()
+const {mobile} = useDisplay()
 const drawer = ref(!mobile.value)
 const volumes = ref<StorageVolume[]>([])
 const recordingVolume = computed(() => volumes.value.find(volume => volume.id === 'recordings'))
 const error = ref('')
 const errorOpen = ref(false)
 const links = computed(() => [
-  ...(auth.canViewRecordings ? [{ to: '/', title: t('shell.nav.library'), icon: 'mdi-play-box-multiple-outline' }] : []),
-  { to: '/clips', title: t('shell.nav.clips'), icon: 'mdi-content-cut' },
-  { to: '/jobs', title: t('shell.nav.jobs'), icon: 'mdi-progress-clock' },
-  ...(auth.canViewAnalytics ? [{ to: '/analytics', title: t('shell.nav.analytics'), icon: 'mdi-chart-timeline-variant' }] : []),
-  { to: '/trash', title: t('shell.nav.trash'), icon: 'mdi-delete-outline' },
+  ...(auth.canViewRecordings ? [{to: '/', title: t('shell.nav.library'), icon: 'mdi-play-box-multiple-outline'}] : []),
+  {to: '/clips', title: t('shell.nav.clips'), icon: 'mdi-content-cut'},
+  {to: '/jobs', title: t('shell.nav.jobs'), icon: 'mdi-progress-clock'},
+  ...(auth.canViewAnalytics ? [{
+    to: '/analytics',
+    title: t('shell.nav.analytics'),
+    icon: 'mdi-chart-timeline-variant'
+  }] : []),
+  {to: '/trash', title: t('shell.nav.trash'), icon: 'mdi-delete-outline'},
 ])
 const adminLinks = computed(() => [
-  { to: '/admin/targets', title: t('shell.nav.targets'), icon: 'mdi-record-circle-outline' },
-  { to: '/admin/accounts', title: t('shell.nav.accounts'), icon: 'mdi-account-box-outline' },
-  { to: '/admin/users', title: t('shell.nav.users'), icon: 'mdi-account-group-outline' },
-  { to: '/admin/clips', title: t('shell.nav.clipManagement'), icon: 'mdi-content-cut' },
-  { to: '/admin/trash', title: t('shell.nav.trashManagement'), icon: 'mdi-delete-outline' },
-  { to: '/admin/storage', title: t('shell.nav.storage'), icon: 'mdi-harddisk' },
-  { to: '/admin/workers', title: t('shell.nav.workers'), icon: 'mdi-server-network' },
-  { to: '/admin/worker-tasks', title: t('shell.nav.workerTasks'), icon: 'mdi-format-list-checks' },
-  { to: '/admin/settings', title: t('shell.nav.settings'), icon: 'mdi-cog-outline' },
+  {to: '/admin/targets', title: t('shell.nav.targets'), icon: 'mdi-record-circle-outline'},
+  {to: '/admin/accounts', title: t('shell.nav.accounts'), icon: 'mdi-account-box-outline'},
+  {to: '/admin/users', title: t('shell.nav.users'), icon: 'mdi-account-group-outline'},
+  {to: '/admin/clips', title: t('shell.nav.clipManagement'), icon: 'mdi-content-cut'},
+  {to: '/admin/trash', title: t('shell.nav.trashManagement'), icon: 'mdi-delete-outline'},
+  {to: '/admin/storage', title: t('shell.nav.storage'), icon: 'mdi-harddisk'},
+  {to: '/admin/workers', title: t('shell.nav.workers'), icon: 'mdi-server-network'},
+  {to: '/admin/worker-tasks', title: t('shell.nav.workerTasks'), icon: 'mdi-format-list-checks'},
+  {to: '/admin/settings', title: t('shell.nav.settings'), icon: 'mdi-cog-outline'},
 ].filter(link => canAccessRoute(router.resolve(link.to).meta, auth)))
-const breadcrumbs = computed(() =>
-{
+const breadcrumbs = computed(() => {
   const definitions = route.meta.breadcrumbs ?? []
-  return definitions.map((item, index) =>
-  {
+  return definitions.map((item, index) => {
     const current = index === definitions.length - 1
     const target = !current && item.to ? router.resolve(item.to) : undefined
     const allowed = target && canAccessRoute(target.meta, auth)
-    return { title: t(item.titleKey), to: allowed ? item.to : undefined, disabled: !allowed, active: current }
+    return {title: t(item.titleKey), to: allowed ? item.to : undefined, disabled: !allowed, active: current}
   })
 })
-usePolling(async () =>
-{
-  try
-  {
+usePolling(async () => {
+  try {
     await auth.refresh()
-    if (!auth.hasAccess)
-    {
+    if (!auth.hasAccess) {
       await router.replace('/login')
       return
     }
     volumes.value = await MediaAPI.storage()
+  } catch {
+    volumes.value = []
   }
-  catch { volumes.value = [] }
 }, 30000)
 
-watch(() => canAccessRoute(route.meta, auth), allowed =>
-{
-  if (!allowed && auth.hasAccess)
-  {
+watch(() => canAccessRoute(route.meta, auth), allowed => {
+  if (!allowed && auth.hasAccess) {
     void router.replace(auth.homePath)
   }
 })
 
-function toggleTheme(): void
-{
+function toggleTheme(): void {
   theme.change(theme.global.current.value.dark ? 'day' : 'night')
 }
 
-async function logout(): Promise<void>
-{
-  try
-  {
+async function logout(): Promise<void> {
+  try {
     await auth.logout()
     await router.push('/login')
-  }
-  catch (value)
-  {
+  } catch (value) {
     error.value = value instanceof Error ? value.message : t('shell.nav.logoutFailed')
     errorOpen.value = true
   }
@@ -139,13 +141,47 @@ async function logout(): Promise<void>
 </script>
 
 <style scoped>
-.shell-brand { display: flex; align-items: center; min-height: 90px; padding: 14px 20px; }
-.nav-group { padding: 24px 16px 10px; color: rgba(var(--v-theme-on-surface), .32); font-size: .7rem; }
-.shell-footer { padding: 24px; }
-.shell-topbar { border-bottom: 1px solid rgba(var(--v-theme-on-surface), .06); }
-.shell-actions { display: flex; align-items: center; flex-shrink: 0; }
-.shell-user-name { max-width: 12rem; }
-.shell-breadcrumbs { min-width: 0; overflow: hidden; white-space: nowrap; }
+.shell-brand {
+  display: flex;
+  align-items: center;
+  min-height: 90px;
+  padding: 14px 20px;
+}
+
+.nav-group {
+  padding: 24px 16px 10px;
+  color: rgba(var(--v-theme-on-surface), .32);
+  font-size: .7rem;
+}
+
+.shell-footer {
+  padding: 24px;
+}
+
+.shell-topbar {
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), .06);
+}
+
+.shell-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.shell-user-name {
+  max-width: 12rem;
+}
+
+.shell-breadcrumbs {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 .shell-breadcrumbs :deep(.v-breadcrumbs-item),
-.shell-breadcrumbs :deep(.v-breadcrumbs-item--link) { display: block; overflow: hidden; text-overflow: ellipsis; }
+.shell-breadcrumbs :deep(.v-breadcrumbs-item--link) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 </style>
