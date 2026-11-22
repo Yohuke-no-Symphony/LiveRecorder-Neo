@@ -5,6 +5,7 @@ namespace Yohuke.LiveRecorder.Infrastructure.Auth;
 
 internal static class OAuthAvatarHttp
 {
+    private const int MAX_SOURCE_LENGTH = 4096;
     private static readonly IPNetwork[] NonPublicIPv4 =
     [
         IPNetwork.Parse("0.0.0.0/8"),
@@ -31,8 +32,20 @@ internal static class OAuthAvatarHttp
         IPNetwork.Parse("3fff::/20"),
     ];
 
+    internal static string ResolveRelativeSource(string source, Uri userInfoEndpoint)
+    {
+        if (source.Length is 0 or > MAX_SOURCE_LENGTH || source[0] is '?' or '#'
+            || source.StartsWith("//", StringComparison.Ordinal) || !Uri.IsWellFormedUriString(source, UriKind.Relative))
+        {
+            return source;
+        }
+
+        var path = source[0] == '/' ? source : "/" + source;
+        return Uri.TryCreate(userInfoEndpoint, path, out var uri) ? uri.AbsoluteUri : string.Empty;
+    }
+
     internal static Uri? GetSource(string source) =>
-        source.Length <= 4096 && Uri.TryCreate(source, UriKind.Absolute, out var uri)
+        source.Length <= MAX_SOURCE_LENGTH && Uri.TryCreate(source, UriKind.Absolute, out var uri)
         && uri.Scheme == Uri.UriSchemeHttps && uri.IsDefaultPort && uri.HostNameType == UriHostNameType.Dns
         && !uri.IsLoopback && uri.UserInfo.Length == 0 && uri.Fragment.Length == 0
             ? uri

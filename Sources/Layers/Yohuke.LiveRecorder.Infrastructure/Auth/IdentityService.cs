@@ -424,7 +424,8 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         {
             throw new InfrastructureException(MessageCode.AUTH_OAUTH_TOKEN_INVALID, 502);
         }
-        using var infoRequest = new HttpRequestMessage(HttpMethod.Get, provider.UserInfoEndpoint);
+        var userInfoEndpoint = new Uri(provider.UserInfoEndpoint);
+        using var infoRequest = new HttpRequestMessage(HttpMethod.Get, userInfoEndpoint);
         infoRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         using var infoResponse = await client.SendAsync(infoRequest, cancellationToken);
         if (!infoResponse.IsSuccessStatusCode)
@@ -442,7 +443,9 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         {
             return await BindIdentityAsync(flow.LinkUserId!, providerId, subject, externalId, cancellationToken);
         }
-        var avatarSource = string.IsNullOrWhiteSpace(provider.AvatarField) ? "" : ReadField(info, provider.AvatarField);
+        var avatarSource = string.IsNullOrWhiteSpace(provider.AvatarField)
+            ? string.Empty
+            : OAuthAvatarHttp.ResolveRelativeSource(ReadField(info, provider.AvatarField), userInfoEndpoint);
         var existing = await context.Collection<ExternalLogin>("external_logins").Find(x => x.Id == externalId).FirstOrDefaultAsync(cancellationToken);
         if (existing is not null)
         {
