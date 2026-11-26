@@ -6,7 +6,10 @@ namespace Yohuke.LiveRecorder.Infrastructure.Configuration;
 public static class PrivateFiles
 {
     /// <summary>先写入独立临时文件，成功后替换目标，失败时保留原配置。</summary>
-    public static async Task WriteAllTextAsync(string path, string value, CancellationToken cancellationToken = default)
+    public static Task WriteAllTextAsync(string path, string value, CancellationToken cancellationToken = default) =>
+        WriteAllBytesAsync(path, Encoding.UTF8.GetBytes(value), cancellationToken);
+
+    internal static async Task WriteAllBytesAsync(string path, ReadOnlyMemory<byte> value, CancellationToken cancellationToken)
     {
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -24,8 +27,9 @@ public static class PrivateFiles
             }
             await using (var stream = new FileStream(temporary, options))
             {
-                await stream.WriteAsync(Encoding.UTF8.GetBytes(value), cancellationToken);
-                await stream.FlushAsync(cancellationToken);
+                await stream.WriteAsync(value, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                stream.Flush(flushToDisk: true);
             }
             cancellationToken.ThrowIfCancellationRequested();
             File.Move(temporary, path, true);

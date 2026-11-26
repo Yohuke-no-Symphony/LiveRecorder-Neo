@@ -25,10 +25,10 @@ public static class IdentityEndpointExtensions
         var auth = endpoints.MapGroup("/api/auth");
         auth.MapAccountSettingsEndpoints();
         auth.MapGet("/permissions", () => Results.Ok(PermissionCatalog.Definitions)).RequireAuthorization();
-        auth.MapGet(OAuthAvatarCache.ROUTE_PREFIX + "{id}", async (string id, HttpContext http, OAuthAvatarCache avatars, CancellationToken ct) =>
+        auth.MapGet(UserAvatarFiles.ROUTE_PREFIX + "{id}", async (string id, string? v, HttpContext http, UserAvatarService avatars, CancellationToken ct) =>
         {
             http.Response.Headers.CacheControl = "private, no-cache";
-            var avatar = await avatars.GetAsync(id, ct);
+            var avatar = await avatars.ReadAsync(id, v, ct);
             return avatar is null
                 ? Results.NotFound()
                 : Results.Bytes(avatar.Content, avatar.ContentType, entityTag: new EntityTagHeaderValue(avatar.ETag));

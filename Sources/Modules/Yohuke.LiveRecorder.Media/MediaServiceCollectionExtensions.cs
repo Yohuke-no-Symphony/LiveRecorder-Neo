@@ -31,6 +31,7 @@ public static class MediaServiceCollectionExtensions
         services.AddSingleton<IPlaybackWindowBuilder>(provider => provider.GetRequiredService<IndexedPlaybackWindowBuilder>());
         services.AddSingleton<IPlaybackFragmentSourceFactory, IndexedPlaybackFragmentSourceFactory>();
         services.AddSingleton<IVideoFrameExtractor, FfmpegVideoFrameExtractor>();
+        services.AddSingleton<IAvatarImageEncoder, FfmpegAvatarImageEncoder>();
         services.AddHttpClient<FlvMediaRecorder>(client => client.Timeout = Timeout.InfiniteTimeSpan);
         services.AddTransient<IMediaRecorder>(provider => provider.GetRequiredService<FlvMediaRecorder>());
         return services;

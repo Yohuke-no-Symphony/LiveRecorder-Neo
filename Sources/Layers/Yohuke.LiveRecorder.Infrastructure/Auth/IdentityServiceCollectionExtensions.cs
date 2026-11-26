@@ -17,6 +17,7 @@ public static class IdentityServiceCollectionExtensions
         services.AddSingleton<IPasswordHasher<UserAccount>, PasswordHasher<UserAccount>>();
         services.AddSingleton<IEmailSender, SmtpEmailSender>();
         services.AddSingleton<OAuthAvatarCache>();
+        services.AddSingleton<UserAvatarService>();
         services.AddSingleton<IIdentityService, IdentityService>();
         services.AddSingleton<IAccountSettingsService, AccountSettingsService>();
         services.AddSingleton<IPasswordResetService, PasswordResetService>();

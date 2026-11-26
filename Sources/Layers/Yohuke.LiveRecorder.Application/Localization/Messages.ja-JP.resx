@@ -264,4 +264,6 @@
   <data name="EMAIL_CHANGE_BODY" xml:space="preserve"><value>新しいメールアドレスの認証コード：{0}
 
 有効期限内にこのコードを入力してください。メールアドレスの変更を申し込んでいない場合は、このメールを破棄してください。</value></data>
+  <data name="AUTH_AVATAR_INVALID" xml:space="preserve"><value>256 × 256 の有効な JPEG アバターをアップロードしてください。</value></data>
+  <data name="AUTH_AVATAR_TOO_LARGE" xml:space="preserve"><value>アバターファイルのサイズは 128 KiB 以下にしてください。</value></data>
 </root>

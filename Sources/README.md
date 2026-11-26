@@ -80,6 +80,8 @@ Linux systemd 示例：[live-recorder.service](https://github.com/Yohuke-no-Symp
 
 主站在启动或恢复实例时检查 MongoDB 中的数据版本，业务入口在所需迁移通过核验后开放。迁移失败时查看启动日志，处理原因后重启，主站从最近提交的断点继续。若需要回退，停服后将旧程序和升级前同一批次的设置、数据目录、录像目录及 MongoDB 一起恢复。
 
+用户头像保存在实例数据目录的 `avatars/` 下，随该目录一起备份。首次升级到数据版本 `0.2` 时，主站会将账号正在使用的 MongoDB 缓存头像搬到此目录并保留原头像 URL。
+
 旧版 `--DataDirectory` 和 `LIVE_RECORDER_DATA_DIR` 已停用，改用 `--config`。旧数据目录中的 `bootstrap.json`、安装令牌和 `keys/` 原样保留，旧 `Data/settings.json` 或数据库全局设置可在恢复时导入。
 
 ## 分布式转码

@@ -4,7 +4,11 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Net.Http.Headers;
+using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
+using Yohuke.LiveRecorder.Application.Localization;
+using Yohuke.LiveRecorder.Application.Media;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Auth;
 
@@ -34,6 +38,30 @@ internal static class AccountSettingsEndpoints
             await settings.ConfirmEmailChangeAsync(UserId(http), SessionVersion(http), request, ct);
             return await SignOutAsync(http);
         });
+        account.MapPut("/avatar", async (HttpContext http, UserAvatarService avatars, IAvatarImageEncoder encoder, CancellationToken ct) =>
+        {
+            var request = http.Request;
+            if (!MediaTypeHeaderValue.TryParse(request.ContentType, out var contentType) ||
+                !contentType.MediaType.Equals("image/jpeg", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InfrastructureException(MessageCode.AUTH_AVATAR_INVALID, 415);
+            }
+            var limit = IAvatarImageEncoder.MAX_IMAGE_BYTES;
+            if (request.ContentLength > limit)
+            {
+                throw new InfrastructureException(MessageCode.AUTH_AVATAR_TOO_LARGE, 413);
+            }
+            var input = new byte[limit + 1];
+            var length = await request.Body.ReadAtLeastAsync(input, input.Length, false, ct);
+            if (length > limit)
+            {
+                throw new InfrastructureException(MessageCode.AUTH_AVATAR_TOO_LARGE, 413);
+            }
+            var content = await encoder.EncodeAsync(input.AsMemory(0, length), ct);
+            return Results.Ok(await avatars.SetAsync(UserId(http), SessionVersion(http), content, ct));
+        });
+        account.MapDelete("/avatar", async (HttpContext http, UserAvatarService avatars, CancellationToken ct) =>
+            Results.Ok(await avatars.ClearAsync(UserId(http), SessionVersion(http), ct)));
     }
 
     private static string UserId(HttpContext http) => http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;

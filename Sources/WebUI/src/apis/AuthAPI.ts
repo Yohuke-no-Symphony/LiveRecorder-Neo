@@ -12,6 +12,10 @@ export const AuthAPI = {
   me: () => request<UserSession>('auth/me'),
   accountSettings: () => request<AccountSettings>('auth/me/settings'),
   setDisplayName: (displayName: string) => put<UserProfile>('auth/me/display-name', { displayName }),
+  uploadAvatar: (image: Blob) => request<UserProfile>('auth/me/avatar', {
+    method: 'PUT', body: image, headers: { 'Content-Type': 'image/jpeg' },
+  }),
+  clearAvatar: () => remove<UserProfile>('auth/me/avatar'),
   changePassword: (currentPassword: string, newPassword: string) => put<void>('auth/me/password', { currentPassword, newPassword }),
   requestEmailChange: (email: string, currentPassword?: string) => post<PendingEmailChange>('auth/me/email-change/request', { email, currentPassword }),
   confirmEmailChange: (email: string, code: string) => post<void>('auth/me/email-change/confirm', { email, code }),

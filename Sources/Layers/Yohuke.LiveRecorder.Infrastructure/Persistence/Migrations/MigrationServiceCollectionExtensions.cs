@@ -8,7 +8,7 @@ namespace Yohuke.LiveRecorder.Infrastructure.Persistence.Migrations;
 public static class MigrationServiceCollectionExtensions
 {
     private static readonly Version Legacy = new(0, 1);
-    private static readonly Version Target = new(0, 1);
+    private static readonly Version Target = new(0, 2);
 
     /// <summary>验证版本链并注册每段迁移的独立依赖作用域。</summary>
     public static IServiceCollection AddMigrations(this IServiceCollection services) =>

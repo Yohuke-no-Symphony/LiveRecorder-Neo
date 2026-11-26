@@ -10,6 +10,7 @@ public sealed class UserAccount : Entity
     public bool AnalyticsRangePinned { get; set; } = true;
     public int PlaybackEventRetentionCount { get; set; } = 500;
     public string AvatarUrl { get; set; } = "";
+    public string? AvatarRevision { get; set; }
     public string PasswordHash { get; set; } = "";
     public long SessionVersion { get; set; }
     public string Role { get; set; } = "User";

@@ -13,6 +13,7 @@ public static class MongoSerialization
         {
             mapping.AutoMap();
             mapping.SetIgnoreExtraElements(true);
+            mapping.MapMember(user => user.AvatarRevision).SetIgnoreIfNull(true);
             mapping.MapMember(user => user.PendingEmailChange).SetIgnoreIfNull(true);
         });
         BsonClassMap.RegisterClassMap<Clip>(mapping =>

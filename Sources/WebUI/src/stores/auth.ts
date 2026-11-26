@@ -131,6 +131,17 @@ export const useAuthStore = defineStore('auth', () =>
     return updated.displayName
   }
 
+  async function changeAvatar(image: Blob | null): Promise<void>
+  {
+    const operation = sessionGeneration
+    const updated = image ? await AuthAPI.uploadAvatar(image) : await AuthAPI.clearAvatar()
+    if (operation === sessionGeneration && user.value?.id === updated.id)
+    {
+      profileRevision++
+      user.value = { ...user.value, avatarUrl: updated.avatarUrl }
+    }
+  }
+
   function preserveSessionFields(profile: UserProfile | null, analyticsRevision: number, playbackRevision: number, identityRevision: number): UserProfile | null
   {
     if (!profile || profile.id !== user.value?.id) { return profile }
@@ -138,6 +149,7 @@ export const useAuthStore = defineStore('auth', () =>
     if (identityRevision !== profileRevision)
     {
       preserved.displayName = user.value.displayName
+      preserved.avatarUrl = user.value.avatarUrl
     }
     if (analyticsPreferenceSaving.value || analyticsRevision !== analyticsPreferenceRevision)
     {
@@ -229,5 +241,5 @@ export const useAuthStore = defineStore('auth', () =>
     setCsrfToken('')
   }
 
-  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canConfigureRecordings, canViewAnalytics, canGenerateAnalytics, canPurgeRecordings, canViewRecordings, canDownloadRecordings, canCreateClips, canManageClips, canUploadLiveMarkers, canGenerateLiveMarkers, canManageLiveMarkers, permissionDefinitions, hasPermission, homePath, bootstrap, refresh, login, logout, clearSession, setLanguage, setDisplayName, analyticsPreferenceSaving, setAnalyticsRangePinned, playbackPreferenceSaving, setPlaybackEventRetentionCount }
+  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canConfigureRecordings, canViewAnalytics, canGenerateAnalytics, canPurgeRecordings, canViewRecordings, canDownloadRecordings, canCreateClips, canManageClips, canUploadLiveMarkers, canGenerateLiveMarkers, canManageLiveMarkers, permissionDefinitions, hasPermission, homePath, bootstrap, refresh, login, logout, clearSession, setLanguage, setDisplayName, changeAvatar, analyticsPreferenceSaving, setAnalyticsRangePinned, playbackPreferenceSaving, setPlaybackEventRetentionCount }
 })

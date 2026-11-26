@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Nodes;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -15,7 +17,7 @@ public sealed class OAuthHttpTests
     private const string FRONTEND_ORIGIN = "http://127.0.0.1:5784";
 
     [MongoHttpFact]
-    public async Task CachedOAuthAvatarRequiresLoginAndSupportsPrivateRevalidation()
+    public async Task LegacyOAuthAvatarMovesToFilesAndKeepsItsAuthenticatedUrlAndEtag()
     {
         await using var fixture = await HttpServerFixture.CreateAsync();
         await fixture.InstallAsync();
@@ -23,11 +25,46 @@ public sealed class OAuthHttpTests
         var id = login["user"]!["id"]!.GetValue<string>();
         var url = $"/api/auth/avatars/{id}";
         var image = Convert.FromBase64String("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");
-        const string ETAG = "\"avatar-test-etag\"";
-        await fixture.Context.Collection<BsonDocument>("oauth_avatars").InsertOneAsync(new()
+        var revision = Convert.ToHexString(SHA256.HashData(image));
+        var etag = $"\"{revision}\"";
+        var interrupted = await fixture.CreateUserAsync("legacy-interrupted-avatar@example.test");
+        var external = await fixture.CreateUserAsync("legacy-external-avatar@example.test");
+        var unsupported = await fixture.CreateUserAsync("legacy-unsupported-avatar@example.test");
+        var orphanId = Guid.NewGuid().ToString("N");
+        var users = fixture.Context.Collection<UserAccount>("users");
+        var userUpdates = Builders<UserAccount>.Update;
+        await users.UpdateOneAsync(user => user.Id == id, userUpdates.Set(user => user.AvatarUrl, url));
+        await users.UpdateOneAsync(user => user.Id == interrupted.Id, userUpdates
+            .Set(user => user.AvatarUrl, $"/api/auth/avatars/{interrupted.Id}").Set(user => user.AvatarRevision, revision));
+        await users.UpdateOneAsync(user => user.Id == external.Id, userUpdates.Set(user => user.AvatarUrl, "https://example.test/avatar.png"));
+        await users.UpdateOneAsync(user => user.Id == unsupported.Id, userUpdates.Set(user => user.AvatarUrl, $"/api/auth/avatars/{unsupported.Id}"));
+        var accountPath = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(interrupted.Id)));
+        var interruptedFile = Path.Combine(fixture.DataDirectory, "avatars", accountPath, revision + ".img");
+        Directory.CreateDirectory(Path.GetDirectoryName(interruptedFile)!);
+        await File.WriteAllBytesAsync(interruptedFile, image);
+        File.SetLastWriteTimeUtc(interruptedFile, DateTime.UtcNow.AddDays(-1));
+        var interruptedWriteTime = File.GetLastWriteTimeUtc(interruptedFile);
+        var avatars = fixture.Context.Collection<BsonDocument>("oauth_avatars");
+        await avatars.InsertManyAsync(new[]
         {
-            { "_id", id }, { "ContentType", "image/gif" }, { "Content", new BsonBinaryData(image) }, { "ETag", ETAG },
+            LegacyAvatar(id, image, etag), LegacyAvatar(interrupted.Id, image, etag),
+            LegacyAvatar(external.Id, image, etag), LegacyAvatar(orphanId, image, etag),
+            LegacyAvatar(unsupported.Id, "unrecognized image"u8.ToArray(), "\"unrecognized-etag\""),
         });
+        var scope = new BsonDocument("_id", "server");
+        await fixture.Context.Collection<BsonDocument>("schema_migrations").UpdateOneAsync(scope,
+            Builders<BsonDocument>.Update.Set("Version", "0.1").Set("PendingTarget", "0.2"));
+
+        await fixture.RestartAsync();
+        await fixture.Admin.LoginAsync(HttpServerFixture.ADMIN_EMAIL, HttpServerFixture.ADMIN_PASSWORD);
+
+        Assert.Equal("0.2", (await fixture.Context.Collection<BsonDocument>("schema_migrations").Find(scope).SingleAsync())["Version"].AsString);
+        var account = await fixture.Context.Collection<UserAccount>("users").Find(user => user.Id == id).SingleAsync();
+        Assert.Equal(url, account.AvatarUrl);
+        Assert.Equal(revision, account.AvatarRevision);
+        Assert.Equal(interruptedWriteTime, File.GetLastWriteTimeUtc(interruptedFile));
+        var remaining = await fixture.Context.Collection<BsonDocument>("oauth_avatars").Find(FilterDefinition<BsonDocument>.Empty).ToListAsync();
+        Assert.Equal(new[] { external.Id, unsupported.Id, orphanId }.Order(StringComparer.Ordinal), remaining.Select(item => item["_id"].AsString).Order(StringComparer.Ordinal));
 
         using var anonymous = await fixture.NewBrowser().Client.GetAsync(url);
         Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
@@ -35,13 +72,18 @@ public sealed class OAuthHttpTests
         Assert.Equal(HttpStatusCode.OK, avatar.StatusCode);
         Assert.Equal("image/gif", avatar.Content.Headers.ContentType!.MediaType);
         Assert.Equal(image, await avatar.Content.ReadAsByteArrayAsync());
-        Assert.Equal(ETAG, avatar.Headers.ETag!.Tag);
+        Assert.Equal(etag, avatar.Headers.ETag!.Tag);
         Assert.True(avatar.Headers.CacheControl is { Private: true, NoCache: true });
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.IfNoneMatch.ParseAdd(ETAG);
+        request.Headers.IfNoneMatch.ParseAdd(etag);
         using var revalidated = await fixture.Admin.Client.SendAsync(request);
         Assert.Equal(HttpStatusCode.NotModified, revalidated.StatusCode);
     }
+
+    private static BsonDocument LegacyAvatar(string id, byte[] content, string etag) => new()
+    {
+        { "_id", id }, { "ContentType", "image/gif" }, { "Content", new BsonBinaryData(content) }, { "ETag", etag },
+    };
 
     [MongoHttpFact]
     public async Task LoggedInAccountCanBindThroughRealPkceExchangeWithoutRegisteringAnotherUser()

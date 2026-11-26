@@ -17,6 +17,12 @@ export const shellZh = {
     emailCodeSent: '验证码已发送到新邮箱。', resendCode: '重发验证码', reauthorize: '重新授权并发送验证码',
     noBoundProvider: '请先在登录方式中绑定可用的外部账号。',
     passwordChanged: '密码已修改，请重新登录。', emailChanged: '邮箱已换绑，请用新邮箱登录。',
+    avatar: {
+      change: '设置头像', clear: '清空头像', clearConfirm: '清空后将显示用户名首字母。',
+      crop: '裁剪头像', select: '选择图片', preview: '头像裁剪预览', zoom: '缩放',
+      horizontal: '水平位置', vertical: '垂直位置', fileLimit: '请选择 10 MB 以内的 JPEG、PNG 或 WebP 图片。',
+      invalid: '无法读取或压缩这张图片。', saved: '头像已保存', cleared: '头像已清空',
+    },
   },
   permissions: {
     title: '权限',
@@ -117,6 +123,12 @@ export const shellEn: MessageSchema<typeof shellZh> = {
     emailCodeSent: 'A verification code was sent to the new email address.', resendCode: 'Resend code', reauthorize: 'Authorize and send code',
     noBoundProvider: 'Link an available external account under Sign-in methods first.',
     passwordChanged: 'Password changed. Sign in again.', emailChanged: 'Email changed. Sign in with your new address.',
+    avatar: {
+      change: 'Set avatar', clear: 'Remove avatar', clearConfirm: 'Your first initial will be shown after removing the avatar.',
+      crop: 'Crop avatar', select: 'Choose an image', preview: 'Avatar crop preview', zoom: 'Zoom',
+      horizontal: 'Horizontal position', vertical: 'Vertical position', fileLimit: 'Choose a JPEG, PNG or WebP image up to 10 MB.',
+      invalid: 'Unable to read or compress this image.', saved: 'Avatar saved', cleared: 'Avatar removed',
+    },
   },
   permissions: {
     title: 'Permissions',
@@ -217,6 +229,12 @@ export const shellJa: MessageSchema<typeof shellZh> = {
     emailCodeSent: '新しいメールアドレスに確認コードを送信しました。', resendCode: '確認コードを再送', reauthorize: '再認証して確認コードを送信',
     noBoundProvider: '先に「ログイン方法」で利用可能な外部アカウントを連携してください。',
     passwordChanged: 'パスワードを変更しました。再度ログインしてください。', emailChanged: 'メールアドレスを変更しました。新しいアドレスでログインしてください。',
+    avatar: {
+      change: 'アバターを設定', clear: 'アバターを削除', clearConfirm: '削除すると表示名の最初の文字が表示されます。',
+      crop: 'アバターを切り抜く', select: '画像を選択', preview: 'アバターのプレビュー', zoom: '拡大・縮小',
+      horizontal: '横位置', vertical: '縦位置', fileLimit: '10 MB 以下の JPEG・PNG・WebP 画像を選択してください。',
+      invalid: '画像を読み込むか圧縮できませんでした。', saved: 'アバターを保存しました', cleared: 'アバターを削除しました',
+    },
   },
   permissions: {
     title: 'アクセス権',

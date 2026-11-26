@@ -264,4 +264,6 @@ The link is valid for 30 minutes. Resetting your password invalidates previous s
   <data name="EMAIL_CHANGE_BODY" xml:space="preserve"><value>Your code to verify your new email address is: {0}
 
 Enter this code before the verification expires. If you did not request an email change, you can ignore this message.</value></data>
+  <data name="AUTH_AVATAR_INVALID" xml:space="preserve"><value>Upload a valid 256 × 256 JPEG avatar.</value></data>
+  <data name="AUTH_AVATAR_TOO_LARGE" xml:space="preserve"><value>Avatar files must be 128 KiB or smaller.</value></data>
 </root>

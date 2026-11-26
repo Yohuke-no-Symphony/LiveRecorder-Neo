@@ -1,17 +1,20 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using MongoDB.Bson;
 using MongoDB.Driver;
-using Yohuke.LiveRecorder.Application.Auth;
 using Xunit;
+using Yohuke.LiveRecorder.Application.Auth;
+using Yohuke.LiveRecorder.Domain;
+using Yohuke.LiveRecorder.Infrastructure.Auth;
 
 namespace Yohuke.LiveRecorder.Identity.Tests;
 
-/// <summary>验证 OAuth 头像随身份流程持久化，并保留最后一张可用图片。</summary>
+/// <summary>验证 OAuth 注册将头像存为实例文件，后续登录保留该头像。</summary>
 public sealed class OAuthAvatarIntegrationTests
 {
     [MongoFact]
-    public async Task RegistrationAndLoginCacheProviderAvatarAndKeepLastSuccessfulDownload()
+    public async Task OnlyRegistrationDownloadsTheProviderAvatar()
     {
         await using var fixture = await IdentityFixture.CreateAsync();
         var settings = await fixture.Settings.GetAsync();
@@ -35,10 +38,6 @@ public sealed class OAuthAvatarIntegrationTests
         const string PROVIDER_AVATAR_URL = "https://identity.example.test/" + PROVIDER_AVATAR_PATH;
         const string CDN_AVATAR_URL = "https://avatars.example.test/user.gif";
         var original = Convert.FromBase64String("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");
-        var replacement = (byte[])original.Clone();
-        replacement[13] = 0xff;
-        var avatarResponse = new ByteArrayContent(original);
-        var avatarStatus = HttpStatusCode.OK;
         var avatarSource = PROVIDER_AVATAR_PATH;
         var avatarDownloads = new List<string>();
         fixture.Http.Handle = request =>
@@ -48,7 +47,7 @@ public sealed class OAuthAvatarIntegrationTests
                 Assert.Null(request.Headers.Authorization);
                 Assert.False(request.Headers.Contains("Cookie"));
                 avatarDownloads.Add(request.RequestUri.AbsoluteUri);
-                return Task.FromResult(new HttpResponseMessage(avatarStatus) { Content = avatarResponse });
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(original) });
             }
             var content = request.RequestUri.AbsolutePath switch
             {
@@ -63,35 +62,25 @@ public sealed class OAuthAvatarIntegrationTests
         Assert.NotNull(registration.RegistrationTicket);
         Assert.Empty(avatarDownloads);
         var created = await fixture.Identity.CompleteOAuthRegistrationAsync(registration.RegistrationTicket, new("avatar@example.test", "头像测试", "", ""));
-        var url = $"/api/auth/avatars/{created.Id}";
+        var account = await fixture.Context.Collection<UserAccount>("users").Find(user => user.Id == created.Id).SingleAsync();
+        var revision = Assert.IsType<string>(account.AvatarRevision);
+        var url = UserAvatarFiles.VersionedUrl(created.Id, revision);
         Assert.Equal(url, created.AvatarUrl);
         Assert.Equal(url, (await fixture.Identity.GetUserAsync(created.Id))!.AvatarUrl);
 
-        var avatars = fixture.Context.Collection<BsonDocument>("oauth_avatars");
-        var cached = await avatars.Find(new BsonDocument("_id", created.Id)).SingleAsync();
-        Assert.Equal("image/gif", cached["ContentType"].AsString);
-        Assert.Equal(original, cached["Content"].AsBsonBinaryData.Bytes);
-        var originalEtag = cached["ETag"].AsString;
-
-        avatarSource = "/" + PROVIDER_AVATAR_PATH;
-        avatarResponse = new ByteArrayContent(replacement);
-        var refreshed = await ExchangeAsync(fixture);
-        Assert.Equal(url, refreshed.User!.AvatarUrl);
-        cached = await avatars.Find(new BsonDocument("_id", created.Id)).SingleAsync();
-        Assert.Equal(replacement, cached["Content"].AsBsonBinaryData.Bytes);
-        Assert.NotEqual(originalEtag, cached["ETag"].AsString);
-
-        avatarStatus = HttpStatusCode.ServiceUnavailable;
-        avatarResponse = new StringContent("unavailable");
-        var offline = await ExchangeAsync(fixture);
-        Assert.Equal(url, offline.User!.AvatarUrl);
-        avatarSource = CDN_AVATAR_URL;
-        avatarStatus = HttpStatusCode.OK;
-        avatarResponse = new StringContent("<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
-        var unsupported = await ExchangeAsync(fixture);
-        Assert.Equal(url, unsupported.User!.AvatarUrl);
-        Assert.Equal(cached, await avatars.Find(new BsonDocument("_id", created.Id)).SingleAsync());
-        Assert.Equal([PROVIDER_AVATAR_URL, PROVIDER_AVATAR_URL, PROVIDER_AVATAR_URL, CDN_AVATAR_URL], avatarDownloads);
+        foreach (var source in new[] { CDN_AVATAR_URL, "/" + PROVIDER_AVATAR_PATH })
+        {
+            avatarSource = source;
+            var login = await ExchangeAsync(fixture);
+            Assert.Equal(url, login.User!.AvatarUrl);
+        }
+        Assert.Equal(PROVIDER_AVATAR_URL, Assert.Single(avatarDownloads));
+        var cached = await UserAvatarFiles.ReadAsync(fixture.Paths, created.Id, revision, CancellationToken.None);
+        Assert.NotNull(cached);
+        Assert.Equal("image/gif", cached.ContentType);
+        Assert.Equal(original, cached.Content);
+        Assert.Equal($"\"{Convert.ToHexString(SHA256.HashData(original))}\"", cached.ETag);
+        Assert.False(await fixture.Context.Collection<BsonDocument>("oauth_avatars").Find(new BsonDocument("_id", created.Id)).AnyAsync());
     }
 
     private static async Task<OAuthLoginResult> ExchangeAsync(IdentityFixture fixture)

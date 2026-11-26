@@ -264,4 +264,6 @@
   <data name="EMAIL_CHANGE_BODY" xml:space="preserve"><value>您的换绑邮箱验证码为：{0}
 
 请在换绑验证到期前提交此验证码。如果您没有申请更换邮箱，请忽略本邮件。</value></data>
+  <data name="AUTH_AVATAR_INVALID" xml:space="preserve"><value>请上传 256 × 256 的有效 JPEG 头像。</value></data>
+  <data name="AUTH_AVATAR_TOO_LARGE" xml:space="preserve"><value>头像文件大小不能超过 128 KiB。</value></data>
 </root>

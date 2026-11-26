@@ -174,7 +174,7 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         var external = new ExternalLogin { Id = ExternalId(registration.ProviderId, registration.Subject), ProviderId = registration.ProviderId, Subject = registration.Subject, UserId = user.Id };
         var result = await RegisterCoreAsync(user, request.EmailCode, request.InvitationCode, external, cancellationToken);
         await registrations.DeleteOneAsync(x => x.Id == id, cancellationToken);
-        return await avatarCache.RefreshAsync(result, registration.AvatarUrl, cancellationToken);
+        return await avatarCache.ImportRegistrationAvatarAsync(result, registration.AvatarUrl, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -481,9 +481,6 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         {
             return await BindIdentityAsync(flow.LinkUserId!, providerId, subject, externalId, cancellationToken);
         }
-        var avatarSource = string.IsNullOrWhiteSpace(provider.AvatarField)
-            ? string.Empty
-            : OAuthAvatarHttp.ResolveRelativeSource(ReadField(info, provider.AvatarField), userInfoEndpoint);
         var existing = await context.Collection<ExternalLogin>("external_logins").Find(x => x.Id == externalId).FirstOrDefaultAsync(cancellationToken);
         if (flow.Intent == OAUTH_EMAIL_CHANGE)
         {
@@ -498,15 +495,12 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         {
             var user = await RequireUserAsync(existing.UserId, cancellationToken);
             EnsureActive(user);
-            if (avatarSource.Length > 0)
-            {
-                await avatarCache.RefreshAsync(Profile(user), avatarSource, cancellationToken);
-                user = await RequireUserAsync(user.Id, cancellationToken);
-                EnsureActive(user);
-            }
             return new(Profile(user), null, user.Email, user.DisplayName);
         }
         await EnsureRegistrationEnabledAsync(cancellationToken);
+        var avatarSource = string.IsNullOrWhiteSpace(provider.AvatarField)
+            ? string.Empty
+            : OAuthAvatarHttp.ResolveRelativeSource(ReadField(info, provider.AvatarField), userInfoEndpoint);
         var ticket = IdentityToken.Create();
         var registration = new OAuthRegistration { Id = IdentityToken.Hash(ticket), ProviderId = providerId, Subject = subject, Email = ReadField(info, provider.EmailField), DisplayName = ReadField(info, provider.NameField), AvatarUrl = avatarSource, ExpiresAtUtc = DateTime.UtcNow.AddMinutes(10) };
         await context.Collection<OAuthRegistration>("oauth_registrations").InsertOneAsync(registration, cancellationToken: cancellationToken);
