@@ -29,7 +29,7 @@ public sealed class FfmpegVideoFrameExtractor(MediaProcessRunner processes, IOpt
         {
             return false;
         }
-        Func<Stream, CancellationToken, Task> input;
+        Func<Stream, CancellationToken, Task>? input = null;
         var hasIndex = File.Exists(request.IndexPath);
         if (hasIndex)
         {
@@ -46,7 +46,7 @@ public sealed class FfmpegVideoFrameExtractor(MediaProcessRunner processes, IOpt
         {
             return false;
         }
-        else
+        else if (request.CommittedBytes > 0)
         {
             input = (stream, ct) => CopyCommittedAsync(source, committed, stream, ct);
         }
@@ -61,8 +61,12 @@ public sealed class FfmpegVideoFrameExtractor(MediaProcessRunner processes, IOpt
             {
                 arguments.AddRange(["-f", "flv"]);
             }
+            else if (input is null)
+            {
+                arguments.AddRange(["-protocol_whitelist", "file"]);
+            }
             arguments.AddRange([
-                "-i", "pipe:0", "-map", "0:v:0", "-an", "-frames:v", "1",
+                "-i", input is null ? source : "pipe:0", "-map", "0:v:0", "-an", "-frames:v", "1",
                 "-vf", "scale=w='min(640,iw)':h=-2", "-c:v", "mjpeg", "-q:v", "3", "-f", "image2", "-update", "1", output
             ]);
             await processes.RunAsync(MediaProcessKind.Export, arguments, token, input);

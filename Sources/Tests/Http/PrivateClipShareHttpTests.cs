@@ -71,6 +71,12 @@ public sealed class PrivateClipShareHttpTests
             var payload = await unlocked.Content.ReadFromJsonAsync<JsonObject>();
             Assert.Equal(media.Clip.Title, payload!["title"]!.GetValue<string>());
         }
+        using (var cover = await recipientBrowser.Client.GetAsync(card + "/cover"))
+        {
+            Assert.Equal(HttpStatusCode.OK, cover.StatusCode);
+            Assert.True(cover.Headers.CacheControl?.NoStore);
+            Assert.Equal(media.ImageBytes, await cover.Content.ReadAsByteArrayAsync());
+        }
         using (var request = new HttpRequestMessage(HttpMethod.Get, card + "/download"))
         {
             request.Headers.Range = new RangeHeaderValue(10, 19);
@@ -204,7 +210,7 @@ public sealed class PrivateClipShareHttpTests
 
     private static async Task AssertShareStatusAsync(HttpBrowser browser, string card, HttpStatusCode status, string? code = null)
     {
-        foreach (var suffix in new[] { "", "/download" })
+        foreach (var suffix in new[] { "", "/cover", "/download" })
         {
             using var response = await browser.Client.GetAsync(card + suffix);
             if (code is null)

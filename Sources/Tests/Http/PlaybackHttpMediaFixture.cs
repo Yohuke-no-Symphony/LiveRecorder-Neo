@@ -126,7 +126,7 @@ internal static class PlaybackHttpMediaFixture
         await RunFfmpegAsync(settings.FfmpegPath, ["-hide_banner", "-loglevel", "error", "-xerror", "-i", path, "-f", "null", "-"]);
     }
 
-    private static async Task RunFfmpegAsync(string tool, string[] arguments)
+    internal static async Task RunFfmpegAsync(string tool, string[] arguments)
     {
         var start = new ProcessStartInfo(tool)
         {

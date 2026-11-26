@@ -33,11 +33,11 @@ const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboar
 const container = { template: '<div><slot /></div>' }
 const stubs = {
   VCard: container, VCardText: container, VProgressLinear: true, VSelect: true,
+  VImg: { props: ['src'], template: '<img :src="src" />' },
   VDialog: { props: ['modelValue'], template: '<section v-if="modelValue" role="dialog"><slot /></section>' },
   VSnackbar: { props: ['modelValue'], template: '<div v-if="modelValue" role="status"><slot /></div>' },
   VAlert: { template: '<div role="alert"><slot /><slot name="append" /></div>' },
-  UserAvatar: true, VList: container, VIcon: true,
-  VListItem: { props: ['to', 'title'], template: '<router-link :to="to">{{ title }}<slot name="subtitle" /></router-link>' },
+  UserAvatar: true, VIcon: true,
   VBtn: {
     props: ['href', 'disabled', 'loading'],
     template: '<component :is="href ? \'a\' : \'button\'" :href="href" :disabled="disabled || loading"><slot /></component>',
@@ -84,8 +84,6 @@ function mountClipCard()
     stubs: {
       ...options.stubs,
       RouterLink: { template: '<a><slot /></a>' },
-      VImg: true,
-      VIcon: true,
       VTooltip: { props: ['text', 'location'], template: '<slot name="activator" :props="{ \'data-tooltip\': text }" />' },
     },
   } })
@@ -129,7 +127,8 @@ describe('切片卡片操作', () =>
   {
     useAuthStore(pinia).user!.permissions.push(PERMISSIONS.downloadRecordings)
     const wrapper = mountClipCard()
-    const actions = wrapper.get('.clip-actions').findAll('button, a')
+    expect(wrapper.get('.video-card img').attributes('src')).toBe(`${apiOrigin}/api/clips/${clip.id}/cover`)
+    const actions = wrapper.get('.video-card-actions').findAll('button, a')
     expect(actions.map(action => action.attributes('aria-label'))).toEqual(['播放', '下载', '切片分享', '移入回收站'])
     for (const action of actions)
     {
@@ -269,6 +268,7 @@ describe('共享切片接收页', () =>
     expect(unlock.mock.invocationCallOrder[0]).toBeLessThan(load.mock.invocationCallOrder[0]!)
     expect(takeSharePassword(cardPath)).toBeUndefined()
     expect(wrapper.get('h2').text()).toBe(clip.title)
+    expect(wrapper.get('.video-card img').attributes('src')).toBe(`${apiOrigin}/api/clips/${clip.id}/share/${token}/cover`)
     expect(wrapper.get('a[href="/users/owner"]').text()).toBe('分享者甲')
   })
 
@@ -285,6 +285,7 @@ describe('共享切片接收页', () =>
     const wrapper = await openCard()
     expect(wrapper.text()).toContain('密码错误')
     expect(load).not.toHaveBeenCalled()
+    expect(wrapper.find('.video-card img').exists()).toBe(false)
     await wrapper.get('input[type="password"]').setValue('right')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
@@ -300,7 +301,7 @@ describe('共享切片接收页', () =>
     const wrapper = await openCard()
     expect(load).toHaveBeenCalledWith(clip.id, token)
     expect(wrapper.get('h2').text()).toBe(clip.title)
-    expect(wrapper.text()).toContain('00:00:06')
+    expect(wrapper.get('.video-card-duration').text()).toBe('00:06')
     expect(wrapper.text()).toContain('2 KB')
     expect(wrapper.get('time').attributes('datetime')).toBe(clip.expiresAtUtc)
     expect(wrapper.text()).toContain('下载此切片需要下载录播权限。')
@@ -351,13 +352,17 @@ describe('个人主页公开分享', () =>
     await flushPromises()
 
     expect(wrapper.get('h1').text()).toBe(owner.displayName)
-    expect(wrapper.get('a[href="' + cardPath + '"]').text()).toContain(clip.title)
+    const card = wrapper.get('.media-grid a[href="' + cardPath + '"]')
+    expect(card.attributes('aria-label')).toBe(clip.title)
+    expect(card.get('h3').text()).toBe(clip.title)
+    expect(card.get('img').attributes('src')).toBe(`${apiOrigin}/api/clips/${clip.id}/share/${token}/cover`)
     await button(wrapper, '加载更多').trigger('click')
     await flushPromises()
 
     expect(load).toHaveBeenNthCalledWith(1, owner.id, null)
     expect(load).toHaveBeenNthCalledWith(2, owner.id, nextCursor)
     expect(wrapper.text()).toContain('较早的公开切片')
+    expect(wrapper.findAll('.media-grid .video-card')).toHaveLength(2)
     expect(wrapper.findAll('button').some(element => element.text() === '加载更多')).toBe(false)
   })
 

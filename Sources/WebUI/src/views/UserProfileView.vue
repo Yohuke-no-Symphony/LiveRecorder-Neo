@@ -14,50 +14,59 @@
       <v-btn variant="text" size="small" @click="loadProfile">{{ t('views.common.retry') }}</v-btn>
     </template>
   </v-alert>
-  <ContentCard v-if="profile" :title="t('sharing.profileShares')">
-    <p v-if="!auth.canViewRecordings" class="text-body-2 muted">{{ t('sharing.profilePermission') }}</p>
+  <section v-if="profile" :aria-labelledby="sharesHeadingId" class="profile-shares">
+    <h2 :id="sharesHeadingId" class="section-heading mb-0">{{ t('sharing.profileShares') }}</h2>
+    <ContentCard v-if="!auth.canViewRecordings">
+      <p class="text-body-2 muted">{{ t('sharing.profilePermission') }}</p>
+    </ContentCard>
     <template v-else>
       <v-progress-linear v-if="loadingShares" indeterminate color="primary"/>
-      <v-list v-if="shares.length" bg-color="transparent" lines="two">
-        <v-list-item v-for="share in shares" :key="share.id" :title="share.title"
+      <ul v-if="shares.length" class="media-grid profile-share-grid" role="list">
+        <li v-for="share in shares" :key="share.id">
+          <VideoCard class="flex-grow-1" :title="share.title" :duration-ms="share.durationMs"
+                     :cover-url="MediaAPI.sharedClipCover(share.id, share.token)" link-icon="mdi-arrow-right"
                      :to="{name: 'shared-clip', params: {id: share.id, token: share.token}}">
-          <template #subtitle>
-            <span class="mono">{{ formatDuration(share.durationMs, true) }}</span> · {{ formatBytes(share.bytes) }}
-            · <time :datetime="share.createdAtUtc">{{ formatDate(share.createdAtUtc) }}</time>
-          </template>
-        </v-list-item>
-      </v-list>
+            <template #metadata>
+              <span>{{ formatBytes(share.bytes) }}</span>
+              <time :datetime="share.createdAtUtc">{{ formatDate(share.createdAtUtc) }}</time>
+            </template>
+          </VideoCard>
+        </li>
+      </ul>
       <v-alert v-if="shareError" type="error">{{ shareError }}</v-alert>
       <EmptyState v-else-if="!loadingShares && !shares.length" :title="t('sharing.noProfileShares')" icon="mdi-share-variant-outline"/>
+      <CardActions v-if="cursor || shareError" embedded>
+        <v-btn variant="tonal" color="primary" :loading="loadingShares" @click="loadShares">
+          {{ t(shareError ? 'views.common.retry' : 'sharing.moreProfileShares') }}
+        </v-btn>
+      </CardActions>
     </template>
-    <template v-if="auth.canViewRecordings && (cursor || shareError)" #actions>
-      <v-btn variant="tonal" color="primary" :loading="loadingShares" @click="loadShares">
-        {{ t(shareError ? 'views.common.retry' : 'sharing.moreProfileShares') }}
-      </v-btn>
-    </template>
-  </ContentCard>
+  </section>
 </template>
 
 <script setup lang="ts">
-import {onMounted, ref, watch} from 'vue'
+import {onMounted, ref, useId, watch} from 'vue'
 import {useI18n} from 'vue-i18n'
 import {useRoute} from 'vue-router'
 import {AuthAPI} from '@/apis/AuthAPI'
 import {MediaAPI} from '@/apis/MediaAPI'
+import CardActions from '@/components/common/CardActions.vue'
 import ContentCard from '@/components/common/ContentCard.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import UserAvatar from '@/components/common/UserAvatar.vue'
+import VideoCard from '@/components/common/VideoCard.vue'
 import {useAction} from '@/composables/useAction'
 import type {PublicUserProfile} from '@/models/auth'
 import type {PublicClipShare, PublicClipShareCursor} from '@/models/clipShare'
 import {useAuthStore} from '@/stores/auth'
-import {formatBytes, formatDate, formatDuration} from '@/utilities/format'
+import {formatBytes, formatDate} from '@/utilities/format'
 
 const {t} = useI18n()
 const route = useRoute()
 const auth = useAuthStore()
 const userId = String(route.params.userId)
+const sharesHeadingId = useId()
 const profile = ref<PublicUserProfile>()
 const shares = ref<PublicClipShare[]>([])
 const cursor = ref<PublicClipShareCursor | null>(null)
@@ -94,5 +103,22 @@ async function loadShares(): Promise<void> {
 <style scoped>
 :deep(.page-title) {
   overflow-wrap: anywhere;
+}
+
+.profile-shares {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-layout-gap);
+}
+
+.profile-share-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.profile-share-grid > li {
+  display: flex;
+  min-width: 0;
 }
 </style>

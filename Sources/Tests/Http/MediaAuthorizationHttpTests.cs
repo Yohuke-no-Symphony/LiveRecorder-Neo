@@ -161,6 +161,13 @@ public sealed class MediaAuthorizationHttpTests
             Assert.Equal(owner.DisplayName, sharedBy["displayName"]!.GetValue<string>());
             Assert.Equal(OWNER_AVATAR, sharedBy["avatarUrl"]!.GetValue<string>());
         }
+        using (var cover = await ownerBrowser.Client.GetAsync(cardUrl + "/cover"))
+        {
+            Assert.Equal(HttpStatusCode.OK, cover.StatusCode);
+            Assert.True(cover.Headers.CacheControl?.NoStore);
+            Assert.Equal("image/png", cover.Content.Headers.ContentType?.MediaType);
+            Assert.Equal(media.ImageBytes, await cover.Content.ReadAsByteArrayAsync());
+        }
         using (var denied = await ownerBrowser.Client.GetAsync(cardUrl + "/download"))
         {
             Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
@@ -352,7 +359,7 @@ public sealed class MediaAuthorizationHttpTests
 
     private static async Task AssertSharedEndpointsStatusAsync(HttpBrowser browser, string cardUrl, HttpStatusCode status)
     {
-        foreach (var path in new[] { cardUrl, cardUrl + "/download" })
+        foreach (var path in new[] { cardUrl, cardUrl + "/cover", cardUrl + "/download" })
         {
             using var response = await browser.Client.GetAsync(path);
             Assert.Equal(status, response.StatusCode);

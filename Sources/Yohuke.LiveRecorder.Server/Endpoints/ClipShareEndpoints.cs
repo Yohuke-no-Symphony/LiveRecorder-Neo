@@ -52,6 +52,12 @@ public static class ClipShareEndpoints
             var owner = PublicUserProfileResponse.From(await identity.GetUserAsync(clip.OwnerId, ct));
             return Results.Ok(new SharedClipResponse(clip.Title, clip.EndMs - clip.StartMs, clip.Bytes, clip.ExpiresAtUtc, owner));
         });
+        viewing.MapGet("/cover", async (string id, string token, HttpContext http, ClipShareService service, ClipShareAccessCookie access,
+            ClipCoverService covers, SessionCoverService sessionCovers, CancellationToken ct) =>
+        {
+            var (clip, path) = await service.GetSharedAsync(id, token, access.IsGranted(http, id, token), ct);
+            return await ClipLibraryEndpoints.CoverAsync(clip, path, http, covers, sessionCovers, ct);
+        });
         viewing.MapGet("/download", async (string id, string token, HttpContext http, ClipShareService service, ClipShareAccessCookie access, CancellationToken ct) =>
         {
             var (clip, path) = await service.GetSharedAsync(id, token, access.IsGranted(http, id, token), ct);

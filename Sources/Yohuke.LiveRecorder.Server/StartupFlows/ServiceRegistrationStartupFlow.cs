@@ -82,6 +82,7 @@ internal sealed class ServiceRegistrationStartupFlow : IBuilderStartupFlow
         builder.Services.AddSingleton<AnalyticsContributionService>();
         builder.Services.AddSingleton<AnalyticsExportService>();
         builder.Services.AddSingleton<ArtworkCache>();
+        builder.Services.AddSingleton<ClipCoverService>();
         builder.Services.AddSingleton<SessionCoverService>();
         builder.Services.AddSingleton<IUserAvatarSource>(services => new BilibiliUserAvatarSource(services.GetRequiredService<IHttpClientFactory>().CreateClient("bilibili")));
         builder.Services.AddSingleton<AudienceAvatarService>();

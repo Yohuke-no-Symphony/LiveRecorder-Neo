@@ -38,6 +38,12 @@ public static class ClipLibraryEndpoints
             var clip = await GetAccessibleClipAsync(id, http, context, ct);
             return new MediaFileResult(ResolveAvailableFile(clip, paths), "video/mp4", MediaTrafficKind.Playback);
         }).RequireAuthorization(UserPermissionNames.VIEW_RECORDINGS);
+        clips.MapGet("/{id}/cover", async (string id, HttpContext http, IMongoContext context, IAppPaths paths,
+            ClipCoverService covers, SessionCoverService sessionCovers, CancellationToken ct) =>
+        {
+            var clip = await GetAccessibleClipAsync(id, http, context, ct);
+            return await CoverAsync(clip, ResolveAvailableFile(clip, paths), http, covers, sessionCovers, ct);
+        }).RequireAuthorization(UserPermissionNames.VIEW_RECORDINGS);
         clips.MapGet("/{id}/download", async (string id, HttpContext http, IMongoContext context, IAppPaths paths, CancellationToken ct) =>
         {
             var clip = await GetAccessibleClipAsync(id, http, context, ct);
@@ -54,6 +60,28 @@ public static class ClipLibraryEndpoints
         management.MapGet("", ListManagedAsync);
         management.MapPost("/trash", TrashBatchAsync);
         return endpoints;
+    }
+
+    internal static async Task<IResult> CoverAsync(Clip clip, string path, HttpContext http, ClipCoverService covers,
+        SessionCoverService sessionCovers, CancellationToken ct)
+    {
+        http.Response.Headers.CacheControl = "private, no-store";
+        http.Response.Headers.XContentTypeOptions = "nosniff";
+        string? original;
+        try
+        {
+            original = await sessionCovers.GetAsync(clip.SessionId, ct);
+        }
+        catch (InfrastructureException error) when (error.Code == nameof(MessageCode.LIBRARY_SESSION_NOT_FOUND))
+        {
+            original = null;
+        }
+        if (original is not null)
+        {
+            return LibraryEndpoints.SavedImage(original);
+        }
+        var image = await covers.GetAsync(clip.Id, path, ct);
+        return image is null ? Results.NotFound() : new ArtworkFileResult(image);
     }
 
     private static async Task<IResult> ListManagedAsync(int? page, int? pageSize, string? sort, string? direction, HttpContext http,

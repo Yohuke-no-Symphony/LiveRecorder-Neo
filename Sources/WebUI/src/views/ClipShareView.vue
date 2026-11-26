@@ -18,22 +18,22 @@
       <v-btn variant="text" size="small" @click="load()">{{ t('views.common.retry') }}</v-btn>
     </template>
   </v-alert>
-  <ContentCard v-else-if="clip" class="shared-clip" :title="clip.title">
-    <div class="shared-clip-details text-body-2 muted">
-      <span class="mono">{{ formatDuration(clip.durationMs, true) }}</span>
+  <VideoCard v-else-if="clip" class="shared-clip" :title="clip.title" :duration-ms="clip.durationMs"
+             :cover-url="MediaAPI.sharedClipCover(id, token)" heading="h2">
+    <template #metadata>
       <span>{{ formatBytes(clip.bytes) }}</span>
       <time :datetime="clip.expiresAtUtc">{{ t('views.clips.expires', { date: formatDate(clip.expiresAtUtc) }) }}</time>
-    </div>
-    <div v-if="clip.owner" class="mt-4">
+    </template>
+    <div v-if="clip.owner" class="mt-2">
       <UserIdentityLink :user-id="clip.owner.id" :name="clip.owner.displayName" :avatar-url="clip.owner.avatarUrl" :size="28"/>
     </div>
-    <p v-if="!auth.canDownloadRecordings" class="text-body-2 mt-4">{{ t('sharing.downloadPermission') }}</p>
+    <p v-if="!auth.canDownloadRecordings" class="text-body-2 mt-2">{{ t('sharing.downloadPermission') }}</p>
     <template v-if="auth.canDownloadRecordings" #actions>
-      <v-btn :href="MediaAPI.downloadSharedClip(id, token)" download color="primary" prepend-icon="mdi-download">{{
-        t('views.common.download') }}
+      <v-btn :href="MediaAPI.downloadSharedClip(id, token)" download color="primary" class="ms-auto" prepend-icon="mdi-download">
+        {{ t('views.common.download') }}
       </v-btn>
     </template>
-  </ContentCard>
+  </VideoCard>
 </template>
 
 <script setup lang="ts">
@@ -45,10 +45,11 @@ import {MediaAPI} from '@/apis/MediaAPI'
 import ContentCard from '@/components/common/ContentCard.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import UserIdentityLink from '@/components/common/UserIdentityLink.vue'
+import VideoCard from '@/components/common/VideoCard.vue'
 import {useAction} from '@/composables/useAction'
 import type {SharedClip} from '@/models/clipShare'
 import {useAuthStore} from '@/stores/auth'
-import {formatBytes, formatDate, formatDuration} from '@/utilities/format'
+import {formatBytes, formatDate} from '@/utilities/format'
 import {keepSharePassword, takeSharePassword} from '@/utilities/sharePassword'
 
 const {t} = useI18n()
@@ -112,11 +113,5 @@ async function unlock(): Promise<void> {
 .shared-clip {
   max-width: 560px;
   margin-inline: auto;
-}
-
-.shared-clip-details {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
 }
 </style>

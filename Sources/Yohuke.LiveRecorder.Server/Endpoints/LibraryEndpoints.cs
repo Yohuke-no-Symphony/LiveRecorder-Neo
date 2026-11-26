@@ -111,7 +111,7 @@ public static class LibraryEndpoints
         viewing.MapGet("/sessions/{id}/cover", async (string id, SessionCoverService covers, CancellationToken ct) =>
         {
             var path = await covers.GetAsync(id, ct);
-            return path is null ? Results.NotFound() : Results.File(path, ImageType(path));
+            return path is null ? Results.NotFound() : SavedImage(path);
         });
         viewing.MapPost("/sessions/{id}/playback", async (string id, PlaybackRequest request, RenditionPlaybackService playback, CancellationToken ct) =>
         {
@@ -392,6 +392,8 @@ public static class LibraryEndpoints
         var image = source is null ? null : await artwork.GetAsync(source, ct);
         return image is null ? Results.NotFound() : new ArtworkFileResult(image);
     }
+
+    internal static IResult SavedImage(string path) => Results.File(path, ImageType(path));
 
     private static string ImageType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {
