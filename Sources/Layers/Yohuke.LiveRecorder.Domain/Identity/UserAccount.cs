@@ -16,5 +16,6 @@ public sealed class UserAccount : Entity
     public PermissionSet Permissions { get; set; } = PermissionSet.MemberDefaults;
     public string Status { get; set; } = "Pending";
     public bool EmailVerified { get; set; }
+    public PendingEmailChange? PendingEmailChange { get; set; }
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }

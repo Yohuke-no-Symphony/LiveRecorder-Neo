@@ -3,13 +3,18 @@ import { getServerUrl } from './ServerURL'
 import type { BilibiliRoomSearchPage } from '@/models/bilibili'
 import type { AppLanguage } from '@/localization/types'
 import type { SetupRequest, SetupStatus } from '@/models/setup'
-import type { BilibiliAccount, BilibiliLoginSession, Invitation, OAuthExchange, Registration, RegistrationOptions, SmsChallengeAnswer, PermissionDefinition, UserPermissions, UserProfile, UserSession } from '@/models/auth'
+import type { AccountSettings, BilibiliAccount, BilibiliLoginSession, Invitation, OAuthExchange, PendingEmailChange, Registration, RegistrationOptions, SmsChallengeAnswer, PermissionDefinition, UserPermissions, UserProfile, UserSession } from '@/models/auth'
 
 export const AuthAPI = {
   setupStatus: () => request<SetupStatus>('setup/status'),
   setup: (body: SetupRequest) => post<void>('setup', body),
   permissions: () => request<PermissionDefinition[]>('auth/permissions'),
   me: () => request<UserSession>('auth/me'),
+  accountSettings: () => request<AccountSettings>('auth/me/settings'),
+  setDisplayName: (displayName: string) => put<UserProfile>('auth/me/display-name', { displayName }),
+  changePassword: (currentPassword: string, newPassword: string) => put<void>('auth/me/password', { currentPassword, newPassword }),
+  requestEmailChange: (email: string, currentPassword?: string) => post<PendingEmailChange>('auth/me/email-change/request', { email, currentPassword }),
+  confirmEmailChange: (email: string, code: string) => post<void>('auth/me/email-change/confirm', { email, code }),
   setLanguage: (language: AppLanguage | null) => put<UserProfile>('auth/language', { language }),
   setAnalyticsRangePinned: (rangePinned: boolean) => put<UserProfile>('auth/analytics-preferences', { rangePinned }),
   setPlaybackEventRetentionCount: (eventRetentionCount: number) => put<UserProfile>('auth/playback-preferences', { eventRetentionCount }),
@@ -25,6 +30,7 @@ export const AuthAPI = {
   identities: () => request<string[]>('auth/identities'),
   oauthBegin: (id: string) => post<{ authorizationUrl: string }>(`auth/oauth/${encodeURIComponent(id)}/begin`),
   oauthBind: (id: string) => post<{ authorizationUrl: string; expiresAtUtc: string }>(`auth/oauth/${encodeURIComponent(id)}/bind`),
+  oauthEmailChange: (id: string, email: string) => post<{ authorizationUrl: string }>(`auth/oauth/${encodeURIComponent(id)}/email-change`, { email }),
   oauthExchange: (id: string, code: string, state: string) => post<OAuthExchange>(`auth/oauth/${encodeURIComponent(id)}/exchange`, { code, state }),
   oauthRegister: (body: Omit<Registration, 'password'>) => post<UserProfile>('auth/oauth/register', body),
   users: () => request<UserProfile[]>('admin/users'),

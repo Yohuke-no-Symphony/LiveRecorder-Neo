@@ -254,4 +254,14 @@ The link is valid for 30 minutes. Resetting your password invalidates previous s
   <data name="SEGMENT_TRASH_UNRESOLVED" xml:space="preserve"><value>This recording has segments in the trash. Restore or permanently delete them before grouping, splitting, repairing, or permanently deleting the recording.</value></data>
   <data name="SEGMENT_TRASH_SESSION_CHANGED" xml:space="preserve"><value>The original recording's media version or storage location has changed. This segment cannot be restored.</value></data>
   <data name="SEGMENT_TRASH_SESSION_TRASHED" xml:space="preserve"><value>Restore the entire recording from the trash before restoring its segments.</value></data>
+  <data name="AUTH_LOCAL_PASSWORD_REQUIRED" xml:space="preserve"><value>Use password reset by email to set a local password for this account.</value></data>
+  <data name="AUTH_EMAIL_CHANGE_REAUTH_REQUIRED" xml:space="preserve"><value>Verify your identity with a linked sign-in method before changing your email.</value></data>
+  <data name="AUTH_EMAIL_CHANGE_PASSWORD_REQUIRED" xml:space="preserve"><value>Enter your current password to change your email.</value></data>
+  <data name="AUTH_EMAIL_CHANGE_SAME_EMAIL" xml:space="preserve"><value>Enter a different email address.</value></data>
+  <data name="AUTH_EMAIL_CHANGE_UNAVAILABLE" xml:space="preserve"><value>The administrator has yet to configure the email service for verification.</value></data>
+  <data name="AUTH_EMAIL_CHANGE_DELIVERY_FAILED" xml:space="preserve"><value>Unable to send the verification code. Try again later.</value></data>
+  <data name="EMAIL_CHANGE_SUBJECT" xml:space="preserve"><value>Yohuke Live Recorder new email verification</value></data>
+  <data name="EMAIL_CHANGE_BODY" xml:space="preserve"><value>Your code to verify your new email address is: {0}
+
+Enter this code before the verification expires. If you did not request an email change, you can ignore this message.</value></data>
 </root>

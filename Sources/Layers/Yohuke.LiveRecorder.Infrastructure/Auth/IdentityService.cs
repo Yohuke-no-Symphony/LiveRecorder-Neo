@@ -19,6 +19,9 @@ namespace Yohuke.LiveRecorder.Infrastructure.Auth;
 /// <summary>以 MongoDB 保存账号与单次身份流程，统一执行普通注册与外部注册要求。</summary>
 public sealed class IdentityService(IMongoContext context, ISettingsStore settingsStore, IEmailSender emailSender, ISecretProtector protector, IPasswordHasher<UserAccount> passwordHasher, IHttpClientFactory httpClientFactory, IUserSessionRevoker sessionRevoker, OAuthAvatarCache avatarCache) : IIdentityService
 {
+    private const string OAUTH_LOGIN = "Login";
+    private const string OAUTH_BIND = "Bind";
+    private const string OAUTH_EMAIL_CHANGE = "EmailChange";
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly SemaphoreSlim indexGate = new(1, 1);
     private bool indexesCreated;
@@ -332,7 +335,7 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
 
     /// <inheritdoc />
     public Task<OAuthAuthorizationResult> BeginOAuthAsync(string providerId, string redirectUri, string browserBinding, CancellationToken cancellationToken = default) =>
-        BeginOAuthCoreAsync(providerId, redirectUri, browserBinding, null, cancellationToken);
+        BeginOAuthCoreAsync(providerId, redirectUri, browserBinding, new() { Intent = OAUTH_LOGIN }, cancellationToken);
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<string>> ListExternalProvidersAsync(string userId, CancellationToken cancellationToken = default)
@@ -345,10 +348,29 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
     public async Task<OAuthAuthorizationResult> BeginOAuthBindingAsync(string userId, string providerId, string redirectUri, string browserBinding, CancellationToken cancellationToken = default)
     {
         EnsureActive(await RequireUserAsync(userId, cancellationToken));
-        return await BeginOAuthCoreAsync(providerId, redirectUri, browserBinding, userId, cancellationToken);
+        return await BeginOAuthCoreAsync(providerId, redirectUri, browserBinding, new() { Intent = OAUTH_BIND, LinkUserId = userId }, cancellationToken);
     }
 
-    private async Task<OAuthAuthorizationResult> BeginOAuthCoreAsync(string providerId, string redirectUri, string browserBinding, string? linkUserId, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public async Task<OAuthAuthorizationResult> BeginOAuthEmailChangeAsync(string userId, long sessionVersion, string email, string providerId,
+        string redirectUri, string browserBinding, CancellationToken cancellationToken = default)
+    {
+        var bound = await context.Collection<ExternalLogin>("external_logins")
+            .Find(login => login.UserId == userId && login.ProviderId == providerId).AnyAsync(cancellationToken);
+        if (!bound)
+        {
+            throw new InfrastructureException(MessageCode.AUTH_OAUTH_BINDING_USER_MISMATCH, 403);
+        }
+        return await BeginOAuthCoreAsync(providerId, redirectUri, browserBinding, new()
+        {
+            Intent = OAUTH_EMAIL_CHANGE,
+            LinkUserId = userId,
+            LinkSessionVersion = sessionVersion,
+            NewEmail = email
+        }, cancellationToken);
+    }
+
+    private async Task<OAuthAuthorizationResult> BeginOAuthCoreAsync(string providerId, string redirectUri, string browserBinding, OAuthFlow flow, CancellationToken cancellationToken)
     {
         var provider = await GetProviderAsync(providerId, cancellationToken);
         ValidateEndpoint(redirectUri);
@@ -359,7 +381,12 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         await EnsureIndexesAsync(cancellationToken);
         var state = IdentityToken.Create();
         var verifier = IdentityToken.Create();
-        var flow = new OAuthFlow { Id = IdentityToken.Hash(state), ProviderId = providerId, Intent = linkUserId is null ? "Login" : "Bind", LinkUserId = linkUserId, RedirectUri = redirectUri, BrowserBindingHash = IdentityToken.Hash(browserBinding), ProtectedVerifier = protector.Protect(verifier), ExpiresAtUtc = DateTime.UtcNow.AddMinutes(10) };
+        flow.Id = IdentityToken.Hash(state);
+        flow.ProviderId = providerId;
+        flow.RedirectUri = redirectUri;
+        flow.BrowserBindingHash = IdentityToken.Hash(browserBinding);
+        flow.ProtectedVerifier = protector.Protect(verifier);
+        flow.ExpiresAtUtc = DateTime.UtcNow.AddMinutes(10);
         await context.Collection<OAuthFlow>("oauth_flows").InsertOneAsync(flow, cancellationToken: cancellationToken);
         var challenge = Convert.ToBase64String(SHA256.HashData(Encoding.ASCII.GetBytes(verifier))).TrimEnd('=').Replace('+', '-').Replace('/', '_');
         var parameters = new Dictionary<string, string> { ["response_type"] = "code", ["client_id"] = provider.ClientId, ["redirect_uri"] = redirectUri, ["scope"] = provider.Scope, ["state"] = state, ["code_challenge"] = challenge, ["code_challenge_method"] = "S256" };
@@ -372,7 +399,12 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         CompleteOAuthAsync(providerId, state, code, browserBinding, null, cancellationToken);
 
     /// <inheritdoc />
-    public async Task<OAuthLoginResult> CompleteOAuthAsync(string providerId, string state, string code, string browserBinding, string? currentUserId, CancellationToken cancellationToken = default)
+    public Task<OAuthLoginResult> CompleteOAuthAsync(string providerId, string state, string code, string browserBinding, string? currentUserId, CancellationToken cancellationToken = default) =>
+        CompleteOAuthAsync(providerId, state, code, browserBinding, currentUserId, null, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<OAuthLoginResult> CompleteOAuthAsync(string providerId, string state, string code, string browserBinding, string? currentUserId,
+        long? currentSessionVersion, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(state) || string.IsNullOrWhiteSpace(code) || code.Length > 4096 || string.IsNullOrWhiteSpace(browserBinding))
         {
@@ -383,17 +415,23 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         var flows = context.Collection<OAuthFlow>("oauth_flows");
         var flow = await flows.Find(x => x.Id == hash && x.ProviderId == providerId && x.BrowserBindingHash == bindingHash && x.ExpiresAtUtc > DateTime.UtcNow).FirstOrDefaultAsync(cancellationToken)
                    ?? throw new InfrastructureException(MessageCode.AUTH_OAUTH_FLOW_UNAVAILABLE);
-        if (flow.Intent is not ("Login" or "Bind"))
+        if (flow.Intent is not (OAUTH_LOGIN or OAUTH_BIND or OAUTH_EMAIL_CHANGE))
         {
             throw new InfrastructureException(MessageCode.AUTH_OAUTH_INTENT_INVALID);
         }
-        if (flow.Intent == "Bind")
+        if (flow.Intent is OAUTH_BIND or OAUTH_EMAIL_CHANGE)
         {
             if (string.IsNullOrWhiteSpace(currentUserId) || currentUserId != flow.LinkUserId)
             {
                 throw new InfrastructureException(MessageCode.AUTH_OAUTH_BINDING_USER_MISMATCH, 403);
             }
-            EnsureActive(await RequireUserAsync(currentUserId, cancellationToken));
+            var currentUser = await RequireUserAsync(currentUserId, cancellationToken);
+            EnsureActive(currentUser);
+            if (flow.Intent == OAUTH_EMAIL_CHANGE &&
+                (currentSessionVersion is null || currentSessionVersion != flow.LinkSessionVersion || currentUser.SessionVersion != flow.LinkSessionVersion))
+            {
+                throw new InfrastructureException(MessageCode.AUTH_OAUTH_BINDING_USER_MISMATCH, 403);
+            }
         }
         if (await flows.FindOneAndDeleteAsync(x => x.Id == hash && x.ProviderId == providerId && x.BrowserBindingHash == bindingHash && x.Intent == flow.Intent && x.LinkUserId == flow.LinkUserId && x.ExpiresAtUtc > DateTime.UtcNow, cancellationToken: cancellationToken) is null)
         {
@@ -439,7 +477,7 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
             throw new InfrastructureException(MessageCode.AUTH_OAUTH_SUBJECT_MISSING, 502);
         }
         var externalId = ExternalId(providerId, subject);
-        if (flow.Intent == "Bind")
+        if (flow.Intent == OAUTH_BIND)
         {
             return await BindIdentityAsync(flow.LinkUserId!, providerId, subject, externalId, cancellationToken);
         }
@@ -447,6 +485,15 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
             ? string.Empty
             : OAuthAvatarHttp.ResolveRelativeSource(ReadField(info, provider.AvatarField), userInfoEndpoint);
         var existing = await context.Collection<ExternalLogin>("external_logins").Find(x => x.Id == externalId).FirstOrDefaultAsync(cancellationToken);
+        if (flow.Intent == OAUTH_EMAIL_CHANGE)
+        {
+            if (existing is null || existing.UserId != currentUserId || flow.NewEmail is not { Length: > 0 } email ||
+                flow.LinkSessionVersion is not { } sessionVersion)
+            {
+                throw new InfrastructureException(MessageCode.AUTH_OAUTH_BINDING_USER_MISMATCH, 403);
+            }
+            return new(null, null, "", "") { EmailChangeAuthorization = new(existing.UserId, sessionVersion, email) };
+        }
         if (existing is not null)
         {
             var user = await RequireUserAsync(existing.UserId, cancellationToken);
@@ -637,7 +684,7 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
             {
                 return;
             }
-            await Users.Indexes.CreateOneAsync(new CreateIndexModel<UserAccount>(Builders<UserAccount>.IndexKeys.Ascending(x => x.NormalizedEmail), new CreateIndexOptions { Unique = true }), cancellationToken: cancellationToken);
+            await EnsureUniqueEmailIndexAsync(Users, cancellationToken);
             await Invitations.Indexes.CreateOneAsync(new CreateIndexModel<Invitation>(Builders<Invitation>.IndexKeys.Ascending(x => x.CodeHash), new CreateIndexOptions { Unique = true }), cancellationToken: cancellationToken);
             await Codes.Indexes.CreateOneAsync(new CreateIndexModel<EmailVerificationCode>(Builders<EmailVerificationCode>.IndexKeys.Ascending(x => x.ExpiresAtUtc), new CreateIndexOptions { ExpireAfter = TimeSpan.Zero }), cancellationToken: cancellationToken);
             await context.Collection<OAuthFlow>("oauth_flows").Indexes.CreateOneAsync(new CreateIndexModel<OAuthFlow>(Builders<OAuthFlow>.IndexKeys.Ascending(x => x.ExpiresAtUtc), new CreateIndexOptions { ExpireAfter = TimeSpan.Zero }), cancellationToken: cancellationToken);
@@ -650,6 +697,10 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
         }
     }
 
+    internal static Task EnsureUniqueEmailIndexAsync(IMongoCollection<UserAccount> users, CancellationToken cancellationToken) =>
+        users.Indexes.CreateOneAsync(new CreateIndexModel<UserAccount>(Builders<UserAccount>.IndexKeys.Ascending(user => user.NormalizedEmail),
+            new CreateIndexOptions { Unique = true }), cancellationToken: cancellationToken);
+
     private static string ReadField(JsonObject value, string path)
     {
         JsonNode? current = value;
@@ -661,7 +712,7 @@ public sealed class IdentityService(IMongoContext context, ISettingsStore settin
     }
 
     private static string ExternalId(string provider, string subject) => IdentityToken.Hash($"{provider}\n{subject}");
-    private static UserProfile Profile(UserAccount user) => new(user.Id, user.Email, user.DisplayName, user.AvatarUrl, user.Role, user.Status, user.Language)
+    internal static UserProfile Profile(UserAccount user) => new(user.Id, user.Email, user.DisplayName, user.AvatarUrl, user.Role, user.Status, user.Language)
     {
         SessionVersion = user.SessionVersion,
         AnalyticsRangePinned = user.AnalyticsRangePinned,

@@ -4,7 +4,9 @@
       <v-progress-circular v-if="busy" indeterminate color="primary" size="42" class="mb-6"/>
       <h1 class="auth-title">{{ error ? t('views.oauth.failed') : t('views.oauth.signingIn') }}</h1>
       <v-alert v-if="error" type="error" class="mb-6">{{ error }}</v-alert>
-      <v-btn v-if="error" block color="primary" to="/login">{{ t('views.common.backToLogin') }}</v-btn>
+      <v-btn v-if="error" block color="primary" :to="returnPath === '/account' && auth.hasAccess ? '/account' : '/login'">
+        {{ t(returnPath === '/account' && auth.hasAccess ? 'shell.nav.account' : 'views.common.backToLogin') }}
+      </v-btn>
     </v-card>
   </div>
 </template>
@@ -23,6 +25,7 @@ const {t} = useI18n()
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const returnPath = safeReturnPath(sessionStorage.getItem('oauth_return_to'))
 const {busy, error, run} = useAction()
 onMounted(() => {
   void run(async () => {
@@ -33,14 +36,17 @@ onMounted(() => {
     }
     const response = await AuthAPI.oauthExchange(String(route.params.providerId), code, state)
     window.history.replaceState(null, '', route.path)
+    sessionStorage.removeItem('oauth_return_to')
+    if (response.emailChangeStarted) {
+      await router.replace({path: '/account', query: {emailChange: 'sent'}})
+      return
+    }
     if (response.registrationRequired) {
       auth.oauthDraft = {email: response.email, displayName: response.displayName}
       await router.replace('/register?oauth=1')
       return
     }
     await auth.refresh()
-    const returnPath = safeReturnPath(sessionStorage.getItem('oauth_return_to'))
-    sessionStorage.removeItem('oauth_return_to')
     await router.replace(auth.hasAccess ? returnPath : '/access')
   })
 })

@@ -13,6 +13,7 @@ internal sealed class OAuthTestProvider : IAsyncDisposable
     private WebApplication app = null!;
     internal Uri Address { get; private set; } = null!;
     internal string ExpectedChallenge { get; set; } = "";
+    internal string Subject { get; set; } = "http-external-subject";
 
     internal static async Task<OAuthTestProvider> CreateAsync()
     {
@@ -28,7 +29,7 @@ internal sealed class OAuthTestProvider : IAsyncDisposable
                 : Results.BadRequest(new { error = "invalid_grant" });
         });
         provider.app.MapGet("/oauth2/userinfo", (HttpContext http) => http.Request.Headers.Authorization == "Bearer http-test-access-token"
-            ? Results.Ok(new { sub = "http-external-subject", displayName = "External profile", email = "external@example.test", emailVerified = true })
+            ? Results.Ok(new { sub = provider.Subject, displayName = "External profile", email = "external@example.test", emailVerified = true })
             : Results.Unauthorized());
         try
         {

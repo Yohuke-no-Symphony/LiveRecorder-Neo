@@ -5,6 +5,10 @@
       <h1 class="auth-title">{{ t('views.login.title') }}</h1>
       <v-alert v-if="route.query.passwordReset === 'success'" type="success" class="mb-6">{{ t('passwordReset.success')
         }}</v-alert>
+      <v-alert v-if="route.query.accountChanged === 'password' || route.query.accountChanged === 'email'"
+               type="success" class="mb-6">
+        {{ t(route.query.accountChanged === 'password' ? 'shell.account.passwordChanged' : 'shell.account.emailChanged') }}
+      </v-alert>
       <v-alert v-if="route.query.registered" type="success" class="mb-6">{{ t(route.query.registered === 'active' ?
         'views.login.approved' : 'views.login.registered') }}</v-alert>
       <form class="form-stack" @submit.prevent="login">

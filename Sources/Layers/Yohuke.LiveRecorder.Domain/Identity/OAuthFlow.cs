@@ -6,6 +6,8 @@ public sealed class OAuthFlow : Entity
     public string ProviderId { get; set; } = "";
     public string Intent { get; set; } = "Login";
     public string? LinkUserId { get; set; }
+    public long? LinkSessionVersion { get; set; }
+    public string? NewEmail { get; set; }
     public string BrowserBindingHash { get; set; } = "";
     public string ProtectedVerifier { get; set; } = "";
     public string RedirectUri { get; set; } = "";

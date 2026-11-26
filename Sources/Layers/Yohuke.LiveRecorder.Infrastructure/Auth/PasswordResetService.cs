@@ -1,4 +1,3 @@
-using System.Net.Mail;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
@@ -99,13 +98,8 @@ public sealed class PasswordResetService(IMongoContext context, ISettingsStore s
             throw InvalidToken();
         }
         var filter = Builders<UserAccount>.Filter;
-        var version = filter.Eq(item => item.SessionVersion, token.IssuedSessionVersion);
-        if (token.IssuedSessionVersion == 0)
-        {
-            version |= filter.Exists(item => item.SessionVersion, false);
-        }
         var updated = await Users.FindOneAndUpdateAsync(
-            filter.Eq(item => item.Id, user.Id) & filter.Eq(item => item.NormalizedEmail, token.NormalizedEmail) & version,
+            filter.Eq(item => item.Id, user.Id) & filter.Eq(item => item.NormalizedEmail, token.NormalizedEmail) & AccountSessionVersion.Filter(token.IssuedSessionVersion),
             Builders<UserAccount>.Update.Set(item => item.PasswordHash, hash).Set(item => item.EmailVerified, true)
                 .Set(item => item.UpdatedAtUtc, DateTime.UtcNow).Inc(item => item.SessionVersion, 1),
             new FindOneAndUpdateOptions<UserAccount> { ReturnDocument = ReturnDocument.After }, cancellationToken);
@@ -180,9 +174,7 @@ public sealed class PasswordResetService(IMongoContext context, ISettingsStore s
     }
 
     private static bool IsConfigured(ServerSettings settings) =>
-        PublicWebUrlPolicy.TryGetBaseUri(settings.PublicWebUrl, out _) && !string.IsNullOrWhiteSpace(settings.Smtp.Host)
-        && settings.Smtp.Port is > 0 and <= 65535 && MailAddress.TryCreate(settings.Smtp.FromAddress, out var from)
-        && from.Address == settings.Smtp.FromAddress && !settings.Smtp.FromAddress.Any(char.IsControl);
+        PublicWebUrlPolicy.TryGetBaseUri(settings.PublicWebUrl, out _) && SmtpEmailSender.IsConfigured(settings.Smtp);
 
     private static string TokenHash(string token) => IdentityToken.Hash("password-reset:" + token);
     private static InfrastructureException InvalidToken() => new(MessageCode.AUTH_PASSWORD_RESET_TOKEN_INVALID);

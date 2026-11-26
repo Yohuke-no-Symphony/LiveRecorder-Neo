@@ -254,4 +254,14 @@
   <data name="SEGMENT_TRASH_UNRESOLVED" xml:space="preserve"><value>此场录像仍有分段在回收站中，请先恢复或彻底删除这些分段，再进行归组、拆分、修复或整场彻底删除。</value></data>
   <data name="SEGMENT_TRASH_SESSION_CHANGED" xml:space="preserve"><value>原录像的媒体版本或存储位置已变化，无法恢复此分段。</value></data>
   <data name="SEGMENT_TRASH_SESSION_TRASHED" xml:space="preserve"><value>请先从回收站恢复整场录像，再恢复其中的分段。</value></data>
+  <data name="AUTH_LOCAL_PASSWORD_REQUIRED" xml:space="preserve"><value>此账号需要通过邮箱重设来设置本地密码。</value></data>
+  <data name="AUTH_EMAIL_CHANGE_REAUTH_REQUIRED" xml:space="preserve"><value>请通过已绑定的登录方式重新验证身份，再更换邮箱。</value></data>
+  <data name="AUTH_EMAIL_CHANGE_PASSWORD_REQUIRED" xml:space="preserve"><value>请使用当前密码验证身份，再更换邮箱。</value></data>
+  <data name="AUTH_EMAIL_CHANGE_SAME_EMAIL" xml:space="preserve"><value>请填写一个与当前邮箱不同的新邮箱地址。</value></data>
+  <data name="AUTH_EMAIL_CHANGE_UNAVAILABLE" xml:space="preserve"><value>管理员尚未配置用于验证新邮箱的邮件服务。</value></data>
+  <data name="AUTH_EMAIL_CHANGE_DELIVERY_FAILED" xml:space="preserve"><value>未能发送邮箱验证码，请稍后重试。</value></data>
+  <data name="EMAIL_CHANGE_SUBJECT" xml:space="preserve"><value>夜半录播 新邮箱验证</value></data>
+  <data name="EMAIL_CHANGE_BODY" xml:space="preserve"><value>您的换绑邮箱验证码为：{0}
+
+请在换绑验证到期前提交此验证码。如果您没有申请更换邮箱，请忽略本邮件。</value></data>
 </root>

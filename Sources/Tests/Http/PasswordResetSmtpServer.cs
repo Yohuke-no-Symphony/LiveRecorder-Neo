@@ -13,6 +13,7 @@ internal sealed class PasswordResetSmtpServer : IAsyncDisposable
     private readonly Task worker;
     internal int Port => ((IPEndPoint)listener.LocalEndpoint).Port;
     internal Task<string> Message => message.Task;
+    internal string? Recipient { get; private set; }
 
     internal PasswordResetSmtpServer()
     {
@@ -46,6 +47,7 @@ internal sealed class PasswordResetSmtpServer : IAsyncDisposable
                     }
                     await using var data = new MemoryStream(Encoding.UTF8.GetBytes(body.ToString()));
                     var parsed = await MimeMessage.LoadAsync(data, stopping.Token);
+                    Recipient = parsed.To.Mailboxes.Single().Address;
                     message.TrySetResult(parsed.TextBody ?? throw new InvalidDataException("Expected a plain-text password reset email."));
                     await writer.WriteLineAsync("250 Accepted");
                 }

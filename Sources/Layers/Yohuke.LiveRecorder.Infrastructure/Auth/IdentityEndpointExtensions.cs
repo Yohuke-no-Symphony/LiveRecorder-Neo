@@ -23,6 +23,7 @@ public static class IdentityEndpointExtensions
     public static IEndpointRouteBuilder MapIdentityEndpoints(this IEndpointRouteBuilder endpoints, IReadOnlyCollection<string>? allowedWebUiOrigins = null)
     {
         var auth = endpoints.MapGroup("/api/auth");
+        auth.MapAccountSettingsEndpoints();
         auth.MapGet("/permissions", () => Results.Ok(PermissionCatalog.Definitions)).RequireAuthorization();
         auth.MapGet(OAuthAvatarCache.ROUTE_PREFIX + "{id}", async (string id, HttpContext http, OAuthAvatarCache avatars, CancellationToken ct) =>
         {
@@ -105,10 +106,26 @@ public static class IdentityEndpointExtensions
             var callback = GetOAuthCallback(http.Request, providerId, allowedWebUiOrigins);
             return Results.Ok(await identity.BeginOAuthBindingAsync(http.User.FindFirstValue(ClaimTypes.NameIdentifier)!, providerId, callback, binding, ct));
         }).RequireAuthorization();
-        auth.MapPost("/oauth/{providerId}/exchange", async (string providerId, OAuthExchangeRequest request, HttpContext http, IIdentityService identity, IAntiforgery antiforgery, CancellationToken ct) =>
+        auth.MapPost("/oauth/{providerId}/email-change", async (string providerId, OAuthEmailChangeRequest request, HttpContext http,
+            IIdentityService identity, IAccountSettingsService settings, CancellationToken ct) =>
         {
-            var result = await identity.CompleteOAuthAsync(providerId, request.State, request.Code, http.Request.Cookies[OAUTH_BINDING_COOKIE] ?? "", http.User.FindFirstValue(ClaimTypes.NameIdentifier), ct);
-            if (result.User is { } user)
+            var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+            var sessionVersion = UserPrincipalFactory.GetSessionVersion(http.User)!.Value;
+            var email = await settings.ValidateOAuthEmailChangeAsync(userId, sessionVersion, request.Email, ct);
+            var binding = GetBrowserBinding(http);
+            var callback = GetOAuthCallback(http.Request, providerId, allowedWebUiOrigins);
+            return Results.Ok(await identity.BeginOAuthEmailChangeAsync(userId, sessionVersion, email, providerId, callback, binding, ct));
+        }).RequireAuthorization();
+        auth.MapPost("/oauth/{providerId}/exchange", async (string providerId, OAuthExchangeRequest request, HttpContext http,
+            IIdentityService identity, IAccountSettingsService settings, IAntiforgery antiforgery, CancellationToken ct) =>
+        {
+            var result = await identity.CompleteOAuthAsync(providerId, request.State, request.Code, http.Request.Cookies[OAUTH_BINDING_COOKIE] ?? "",
+                http.User.FindFirstValue(ClaimTypes.NameIdentifier), UserPrincipalFactory.GetSessionVersion(http.User), ct);
+            if (result.EmailChangeAuthorization is { } authorization)
+            {
+                await settings.RequestOAuthEmailChangeAsync(authorization, ct);
+            }
+            else if (result.User is { } user)
             {
                 await SignInAsync(http, user);
                 http.Response.Cookies.Delete(OAUTH_REGISTRATION_COOKIE, new CookieOptions { Path = "/api/auth/oauth" });
@@ -117,7 +134,15 @@ public static class IdentityEndpointExtensions
             {
                 http.Response.Cookies.Append(OAUTH_REGISTRATION_COOKIE, ticket, CookieOptions(http, "/api/auth/oauth"));
             }
-            return Results.Ok(new { result.User, registrationRequired = result.RegistrationTicket is not null, result.Email, result.DisplayName, csrfToken = antiforgery.GetAndStoreTokens(http).RequestToken });
+            return Results.Ok(new
+            {
+                result.User,
+                registrationRequired = result.RegistrationTicket is not null,
+                emailChangeStarted = result.EmailChangeAuthorization is not null,
+                result.Email,
+                result.DisplayName,
+                csrfToken = antiforgery.GetAndStoreTokens(http).RequestToken
+            });
         });
         auth.MapPost("/oauth/register", async (OAuthRegistrationRequest request, HttpContext http, IIdentityService identity, CancellationToken ct) =>
         {

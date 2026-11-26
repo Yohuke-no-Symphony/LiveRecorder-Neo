@@ -49,4 +49,21 @@ describe('会话清理与旧响应隔离', () =>
     await pending
     expect(auth.user).toBeNull()
   })
+
+  it('保存显示名称后，已发出的会话刷新保留新名称', async () =>
+  {
+    let complete!: (session: UserSession) => void
+    vi.spyOn(AuthAPI, 'me').mockImplementation(() => new Promise(resolve => { complete = resolve }))
+    vi.spyOn(AuthAPI, 'permissions').mockResolvedValue([])
+    vi.spyOn(AuthAPI, 'setDisplayName').mockResolvedValue({ ...profile, displayName: '新名称' })
+    const auth = useAuthStore()
+    auth.user = profile
+    const pending = auth.refresh()
+
+    await auth.setDisplayName('新名称')
+    complete({ user: profile, csrfToken: 'current' })
+    await pending
+
+    expect(auth.user?.displayName).toBe('新名称')
+  })
 })

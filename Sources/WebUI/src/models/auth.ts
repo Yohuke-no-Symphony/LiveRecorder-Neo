@@ -48,6 +48,20 @@ export interface UserSession
   csrfToken: string
 }
 
+export interface PendingEmailChange
+{
+  email: string
+  expiresAtUtc: string
+  nextSendAtUtc: string
+}
+
+export interface AccountSettings
+{
+  hasLocalPassword: boolean
+  canChangeEmail: boolean
+  pendingEmailChange?: PendingEmailChange | null
+}
+
 export interface Registration
 {
   email: string
@@ -69,6 +83,7 @@ export interface OAuthExchange
 {
   user: UserProfile | null
   registrationRequired: boolean
+  emailChangeStarted?: boolean
   email: string
   displayName: string
 }

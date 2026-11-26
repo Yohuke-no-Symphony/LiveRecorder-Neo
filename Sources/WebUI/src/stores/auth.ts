@@ -24,6 +24,7 @@ export const useAuthStore = defineStore('auth', () =>
   const permissionDefinitions = ref<PermissionDefinition[]>([])
   let permissionLoad: Promise<PermissionDefinition[]> | undefined
   let sessionGeneration = 0
+  let profileRevision = 0
   const analyticsPreferenceSaving = ref(false)
   let analyticsPreferenceRevision = 0
   const playbackPreferenceSaving = ref(false)
@@ -52,9 +53,10 @@ export const useAuthStore = defineStore('auth', () =>
     const operation = sessionGeneration
     const preferenceRevision = analyticsPreferenceRevision
     const playbackRevision = playbackPreferenceRevision
+    const identityRevision = profileRevision
     const session = await AuthAPI.me()
     if (operation !== sessionGeneration) { return }
-    user.value = preservePreferences(session.user, preferenceRevision, playbackRevision)
+    user.value = preserveSessionFields(session.user, preferenceRevision, playbackRevision, identityRevision)
     setCsrfToken(session.csrfToken)
     if (hasAccess.value)
     {
@@ -112,14 +114,31 @@ export const useAuthStore = defineStore('auth', () =>
     const operation = sessionGeneration
     const preferenceRevision = analyticsPreferenceRevision
     const playbackRevision = playbackPreferenceRevision
+    const identityRevision = profileRevision
     const updated = await AuthAPI.setLanguage(language)
-    if (operation === sessionGeneration) { user.value = preservePreferences(updated, preferenceRevision, playbackRevision) }
+    if (operation === sessionGeneration) { user.value = preserveSessionFields(updated, preferenceRevision, playbackRevision, identityRevision) }
   }
 
-  function preservePreferences(profile: UserProfile | null, analyticsRevision: number, playbackRevision: number): UserProfile | null
+  async function setDisplayName(displayName: string): Promise<string>
+  {
+    const operation = sessionGeneration
+    const updated = await AuthAPI.setDisplayName(displayName)
+    if (operation === sessionGeneration && user.value?.id === updated.id)
+    {
+      profileRevision++
+      user.value = { ...user.value, displayName: updated.displayName }
+    }
+    return updated.displayName
+  }
+
+  function preserveSessionFields(profile: UserProfile | null, analyticsRevision: number, playbackRevision: number, identityRevision: number): UserProfile | null
   {
     if (!profile || profile.id !== user.value?.id) { return profile }
     const preserved = { ...profile }
+    if (identityRevision !== profileRevision)
+    {
+      preserved.displayName = user.value.displayName
+    }
     if (analyticsPreferenceSaving.value || analyticsRevision !== analyticsPreferenceRevision)
     {
       preserved.analyticsRangePinned = user.value.analyticsRangePinned ?? true
@@ -210,5 +229,5 @@ export const useAuthStore = defineStore('auth', () =>
     setCsrfToken('')
   }
 
-  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canConfigureRecordings, canViewAnalytics, canGenerateAnalytics, canPurgeRecordings, canViewRecordings, canDownloadRecordings, canCreateClips, canManageClips, canUploadLiveMarkers, canGenerateLiveMarkers, canManageLiveMarkers, permissionDefinitions, hasPermission, homePath, bootstrap, refresh, login, logout, clearSession, setLanguage, analyticsPreferenceSaving, setAnalyticsRangePinned, playbackPreferenceSaving, setPlaybackEventRetentionCount }
+  return { user, installed, requiresToken, dataDirectory, recordsDirectory, ready, providers, oauthDraft, isAdmin, hasAccess, canManageRecordings, canConfigureRecordings, canViewAnalytics, canGenerateAnalytics, canPurgeRecordings, canViewRecordings, canDownloadRecordings, canCreateClips, canManageClips, canUploadLiveMarkers, canGenerateLiveMarkers, canManageLiveMarkers, permissionDefinitions, hasPermission, homePath, bootstrap, refresh, login, logout, clearSession, setLanguage, setDisplayName, analyticsPreferenceSaving, setAnalyticsRangePinned, playbackPreferenceSaving, setPlaybackEventRetentionCount }
 })

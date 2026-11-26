@@ -1,15 +1,22 @@
-using Yohuke.LiveRecorder.Application.Localization;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
+using Yohuke.LiveRecorder.Application.Localization;
+using Yohuke.LiveRecorder.Domain;
+using MailAddress = System.Net.Mail.MailAddress;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Auth;
 
 /// <summary>从受保护配置读取密码并发送验证邮件。</summary>
 public sealed class SmtpEmailSender(ISettingsStore settingsStore, ISecretProtector protector) : IEmailSender
 {
+    internal static bool IsConfigured(SmtpSettings settings) =>
+        !string.IsNullOrWhiteSpace(settings.Host) && settings.Port is > 0 and <= 65535
+        && MailAddress.TryCreate(settings.FromAddress, out var from)
+        && from.Address == settings.FromAddress && !settings.FromAddress.Any(char.IsControl);
+
     /// <inheritdoc />
     public async Task SendAsync(string email, string subject, string body, CancellationToken cancellationToken = default)
     {

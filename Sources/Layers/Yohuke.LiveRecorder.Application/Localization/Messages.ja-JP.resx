@@ -254,4 +254,14 @@
   <data name="SEGMENT_TRASH_UNRESOLVED" xml:space="preserve"><value>この録画にはゴミ箱内のセグメントがあります。グループ化、分割、修復、または録画全体の完全削除を行う前に、セグメントを復元するか完全に削除してください。</value></data>
   <data name="SEGMENT_TRASH_SESSION_CHANGED" xml:space="preserve"><value>元の録画のメディアバージョンまたは保存場所が変更されたため、このセグメントは復元できません。</value></data>
   <data name="SEGMENT_TRASH_SESSION_TRASHED" xml:space="preserve"><value>セグメントを復元する前に、ゴミ箱から録画全体を復元してください。</value></data>
+  <data name="AUTH_LOCAL_PASSWORD_REQUIRED" xml:space="preserve"><value>メールによるパスワード再設定で、このアカウントのパスワードを設定してください。</value></data>
+  <data name="AUTH_EMAIL_CHANGE_REAUTH_REQUIRED" xml:space="preserve"><value>メールアドレスを変更するには、連携済みのサインイン方法で本人確認を行ってください。</value></data>
+  <data name="AUTH_EMAIL_CHANGE_PASSWORD_REQUIRED" xml:space="preserve"><value>メールアドレスを変更するには、現在のパスワードを入力してください。</value></data>
+  <data name="AUTH_EMAIL_CHANGE_SAME_EMAIL" xml:space="preserve"><value>現在とは異なるメールアドレスを入力してください。</value></data>
+  <data name="AUTH_EMAIL_CHANGE_UNAVAILABLE" xml:space="preserve"><value>管理者がメール認証用のメールサービスを設定していません。</value></data>
+  <data name="AUTH_EMAIL_CHANGE_DELIVERY_FAILED" xml:space="preserve"><value>認証コードを送信できませんでした。時間をおいて再試行してください。</value></data>
+  <data name="EMAIL_CHANGE_SUBJECT" xml:space="preserve"><value>夜更けのレコーダー 新しいメールアドレスの認証</value></data>
+  <data name="EMAIL_CHANGE_BODY" xml:space="preserve"><value>新しいメールアドレスの認証コード：{0}
+
+有効期限内にこのコードを入力してください。メールアドレスの変更を申し込んでいない場合は、このメールを破棄してください。</value></data>
 </root>

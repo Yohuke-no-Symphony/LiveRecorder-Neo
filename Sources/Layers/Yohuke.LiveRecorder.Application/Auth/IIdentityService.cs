@@ -45,8 +45,12 @@ public interface IIdentityService
     Task<IReadOnlyList<string>> ListExternalProvidersAsync(string userId, CancellationToken cancellationToken = default);
     /// <summary>为当前有效用户创建显式绑定流程。</summary>
     Task<OAuthAuthorizationResult> BeginOAuthBindingAsync(string userId, string providerId, string redirectUri, string browserBinding, CancellationToken cancellationToken = default);
+    /// <summary>为同一账号已绑定的外部身份创建邮箱换绑授权流程。</summary>
+    Task<OAuthAuthorizationResult> BeginOAuthEmailChangeAsync(string userId, long sessionVersion, string email, string providerId, string redirectUri, string browserBinding, CancellationToken cancellationToken = default);
     /// <summary>一次性消费 state，完成服务器端换码。</summary>
     Task<OAuthLoginResult> CompleteOAuthAsync(string providerId, string state, string code, string browserBinding, CancellationToken cancellationToken = default);
     /// <summary>完成授权并以当前 Cookie 身份约束绑定意图。</summary>
     Task<OAuthLoginResult> CompleteOAuthAsync(string providerId, string state, string code, string browserBinding, string? currentUserId, CancellationToken cancellationToken = default);
+    /// <summary>完成授权，换绑意图绑定当前 Cookie 的账号和会话版本。</summary>
+    Task<OAuthLoginResult> CompleteOAuthAsync(string providerId, string state, string code, string browserBinding, string? currentUserId, long? currentSessionVersion, CancellationToken cancellationToken = default);
 }
