@@ -12,7 +12,7 @@ export const shellZh = {
   account: {
     title: '账户设置', language: '界面语言',
     loginMethods: '登录方式', bound: '已绑定', bind: '绑定', noProviders: '暂无外部登录方式', languageSaved: '语言设置已保存',
-    profile: '个人资料', profileSaved: '显示名称已保存', security: '账号安全',
+    profile: '个人资料', editDisplayName: '修改显示名称', profileSaved: '显示名称已保存', security: '账号安全',
     changePassword: '修改密码', currentPassword: '当前密码', setPassword: '通过邮件设置密码',
     changeEmail: '换绑邮箱', newEmail: '新邮箱', smtpUnavailable: '网站配置邮件服务后即可换绑邮箱。',
     emailCodeSent: '验证码已发送到新邮箱。', resendCode: '重发验证码', reauthorize: '重新授权并发送验证码',
@@ -119,7 +119,7 @@ export const shellEn: MessageSchema<typeof shellZh> = {
   account: {
     title: 'Account settings', language: 'Interface language',
     loginMethods: 'Sign-in methods', bound: 'Linked', bind: 'Link', noProviders: 'No external sign-in methods available', languageSaved: 'Language preference saved',
-    profile: 'Profile', profileSaved: 'Display name saved', security: 'Account security',
+    profile: 'Profile', editDisplayName: 'Edit display name', profileSaved: 'Display name saved', security: 'Account security',
     changePassword: 'Change password', currentPassword: 'Current password', setPassword: 'Set password by email',
     changeEmail: 'Change email', newEmail: 'New email', smtpUnavailable: 'Email changes are available once the server is configured to send mail.',
     emailCodeSent: 'A verification code was sent to the new email address.', resendCode: 'Resend code', reauthorize: 'Authorize and send code',
@@ -226,7 +226,7 @@ export const shellJa: MessageSchema<typeof shellZh> = {
   account: {
     title: 'アカウント設定', language: '表示言語',
     loginMethods: 'ログイン方法', bound: '連携済み', bind: '連携', noProviders: '外部ログイン方法はありません', languageSaved: '言語設定を保存しました',
-    profile: 'プロフィール', profileSaved: '表示名を保存しました', security: 'アカウントのセキュリティ',
+    profile: 'プロフィール', editDisplayName: '表示名を編集', profileSaved: '表示名を保存しました', security: 'アカウントのセキュリティ',
     changePassword: 'パスワードを変更', currentPassword: '現在のパスワード', setPassword: 'メールでパスワードを設定',
     changeEmail: 'メールアドレスを変更', newEmail: '新しいメールアドレス', smtpUnavailable: 'サーバーのメール設定後にアドレスを変更できます。',
     emailCodeSent: '新しいメールアドレスに確認コードを送信しました。', resendCode: '確認コードを再送', reauthorize: '再認証して確認コードを送信',

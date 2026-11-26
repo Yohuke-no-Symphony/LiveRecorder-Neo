@@ -1,7 +1,10 @@
 <template>
-  <v-dialog v-model="opened" max-width="520" scrollable :persistent="busy" :aria-labelledby="titleId" @after-leave="reset">
-    <ContentCard :title="t('shell.account.avatar.crop')" :title-id="titleId">
-      <form :id="formId" class="form-stack" @submit.prevent="save">
+  <v-dialog :model-value="opened" max-width="520" scrollable :persistent="busy" :aria-labelledby="titleId"
+            @update:model-value="updateOpen" @after-leave="reset">
+    <template #activator="{ props }"><slot name="activator" :props="props"/></template>
+    <ContentCard :title="t(confirmingClear ? 'shell.account.avatar.clear' : 'shell.account.avatar.crop')" :title-id="titleId">
+      <p v-if="confirmingClear">{{ t('shell.account.avatar.clearConfirm') }}</p>
+      <form v-else :id="formId" class="form-stack" @submit.prevent="save">
         <v-file-input :model-value="file" :label="t('shell.account.avatar.select')" :accept="acceptedTypes"
                       :loading="decoding" :disabled="busy" @update:model-value="select"/>
         <template v-if="image">
@@ -17,11 +20,17 @@
                       hide-details :disabled="busy || crop?.travelY === 0"/>
           </div>
         </template>
-        <v-alert v-if="selectionError || error" type="error">{{ selectionError || error }}</v-alert>
+        <v-alert v-if="selectionError" type="error">{{ selectionError }}</v-alert>
       </form>
+      <v-alert v-if="error" class="mt-3" type="error">{{ error }}</v-alert>
       <template #actions>
-        <v-btn variant="text" :disabled="busy" @click="opened = false">{{ t('views.common.cancel') }}</v-btn>
-        <v-btn type="submit" :form="formId" color="primary" :loading="busy" :disabled="!image || decoding">
+        <v-btn v-if="auth.user?.avatarUrl && !confirmingClear" type="button" variant="text" color="error" class="me-auto"
+               :disabled="busy || decoding" @click="confirmClear">{{ t('shell.account.avatar.clear') }}</v-btn>
+        <v-btn type="button" variant="text" :disabled="busy" @click="updateOpen(false)">{{ t('views.common.cancel') }}</v-btn>
+        <v-btn v-if="confirmingClear" type="button" color="error" :loading="busy" @click="clearAvatar">
+          {{ t('shell.account.avatar.clear') }}
+        </v-btn>
+        <v-btn v-else type="submit" :form="formId" color="primary" :loading="busy" :disabled="!image || decoding">
           {{ t('views.common.save') }}
         </v-btn>
       </template>
@@ -44,7 +53,7 @@ const acceptedTypes = allowedTypes.join(',')
 const {t} = useI18n()
 const auth = useAuthStore()
 const opened = defineModel<boolean>({required: true})
-const emit = defineEmits<{ saved: [] }>()
+const emit = defineEmits<{ saved: []; cleared: [] }>()
 const titleId = useId()
 const formId = useId()
 const file = shallowRef<File | null>(null)
@@ -54,6 +63,7 @@ const zoom = ref(1)
 const horizontal = ref(50)
 const vertical = ref(50)
 const decoding = ref(false)
+const confirmingClear = ref(false)
 const selectionError = ref('')
 const {busy, error, run} = useAction()
 let selection = 0
@@ -84,6 +94,7 @@ function reset(): void {
   image.value = undefined
   pointer = undefined
   decoding.value = false
+  confirmingClear.value = false
   selectionError.value = ''
   error.value = ''
   zoom.value = 1
@@ -149,6 +160,34 @@ function drag(event: PointerEvent): void {
 
 function endDrag(): void {
   pointer = undefined
+}
+
+function confirmClear(): void {
+  error.value = ''
+  confirmingClear.value = true
+}
+
+function updateOpen(value: boolean): void {
+  if (busy.value) {
+    return
+  }
+  if (!value && confirmingClear.value) {
+    confirmingClear.value = false
+    error.value = ''
+    return
+  }
+  opened.value = value
+}
+
+async function clearAvatar(): Promise<void> {
+  if (!confirmingClear.value || busy.value || !auth.user?.avatarUrl) {
+    return
+  }
+  await run(async () => {
+    await auth.changeAvatar(null)
+    opened.value = false
+    emit('cleared')
+  })
 }
 
 async function save(): Promise<void> {
