@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -12,15 +13,20 @@ internal sealed class RecordingSpool : IDisposable
 {
     private readonly Lock sync = new();
     private readonly string registryPath;
+    private readonly string abandonmentPath;
     private readonly string workerId;
     private readonly Dictionary<string, FileStream> roots = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> assignmentPaths = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> pinnedEventSnapshots = new(StringComparer.Ordinal);
     private readonly Action<string> log;
+    private List<RecordingUploadAbandonmentCommand> abandonments;
 
     internal RecordingSpool(string settingsPath, string workerId, string temporaryDirectory, Action<string>? log = null)
     {
         registryPath = settingsPath + ".recording-spools.json";
+        abandonmentPath = settingsPath + ".recording-abandonments.json";
+        abandonments = File.Exists(abandonmentPath)
+            ? RecordingSpoolFiles.Read<List<RecordingUploadAbandonmentCommand>>(abandonmentPath) : [];
         this.workerId = RecordingSpoolFiles.SafeId(workerId);
         this.log = log ?? Console.WriteLine;
         try
@@ -366,8 +372,17 @@ internal sealed class RecordingSpool : IDisposable
 
     internal async Task RecoverAsync(CancellationToken cancellationToken)
     {
+        var commands = Abandonments();
+        var assignments = commands.Count == 0 ? null
+            : Assignments().ToDictionary(value => value.Assignment.AssignmentId, value => value.Assignment, StringComparer.Ordinal);
         foreach (var session in Sessions())
         {
+            if (session.State.Descriptor.IsClosed && assignments?.GetValueOrDefault(session.State.AssignmentId) is { } assignment
+                && commands.Any(value => value.AssignmentId == assignment.AssignmentId && value.Generation == assignment.Generation
+                    && value.Token == assignment.Token && value.SessionId == session.State.Descriptor.SessionId))
+            {
+                continue;
+            }
             var commits = Commits(session.DirectoryPath);
             var lastReceived = session.State.Descriptor.Lifecycle is { Revision: > 0, LastMediaReceivedAtUtc: not null } lifecycle
                 ? lifecycle.LastMediaReceivedAtUtc
@@ -447,20 +462,23 @@ internal sealed class RecordingSpool : IDisposable
 
     internal long PendingBytes()
     {
-        var result = 0L;
-        foreach (var session in Sessions())
+        lock (sync)
         {
-            var receiptPath = Path.Combine(session.DirectoryPath, "uploaded.json");
-            var receipt = File.Exists(receiptPath) ? RecordingSpoolFiles.Read<RecordingUploadReceipt>(receiptPath) : new();
-            foreach (var commit in Commits(session.DirectoryPath))
+            var result = 0L;
+            foreach (var session in Sessions())
             {
-                receipt.Segments.TryGetValue(commit.SegmentId, out var accepted);
-                result = checked(result + Math.Max(0, commit.MediaCommittedBytes - (accepted?.MediaCommittedBytes ?? 0))
-                    + Math.Max(0, commit.IndexCommittedBytes - (accepted?.IndexCommittedBytes ?? 0)));
+                var receiptPath = Path.Combine(session.DirectoryPath, "uploaded.json");
+                var receipt = File.Exists(receiptPath) ? RecordingSpoolFiles.Read<RecordingUploadReceipt>(receiptPath) : new();
+                foreach (var commit in Commits(session.DirectoryPath))
+                {
+                    receipt.Segments.TryGetValue(commit.SegmentId, out var accepted);
+                    result = checked(result + Math.Max(0, commit.MediaCommittedBytes - (accepted?.MediaCommittedBytes ?? 0))
+                        + Math.Max(0, commit.IndexCommittedBytes - (accepted?.IndexCommittedBytes ?? 0)));
+                }
+                result = checked(result + Math.Max(0, (session.State.Events?.CommittedBytes ?? 0) - (receipt.Events?.CommittedBytes ?? 0)));
             }
-            result = checked(result + Math.Max(0, (session.State.Events?.CommittedBytes ?? 0) - (receipt.Events?.CommittedBytes ?? 0)));
+            return result;
         }
-        return result;
     }
 
     internal long FreeBytes(string temporaryDirectory)
@@ -532,16 +550,169 @@ internal sealed class RecordingSpool : IDisposable
             {
                 throw new InvalidOperationException("Unacknowledged recording session data must remain in the spool.");
             }
-            var assignmentPath = assignmentPaths[session.AssignmentId];
-            var assignment = RecordingSpoolFiles.Read<RecordingAssignmentState>(assignmentPath);
-            if (!assignment.CompletedSessionIds.Contains(session.Descriptor.SessionId))
-            {
-                RecordingSpoolFiles.Write(assignmentPath, assignment with
-                {
-                    CompletedSessionIds = [.. assignment.CompletedSessionIds, session.Descriptor.SessionId]
-                });
-            }
+            MarkSessionCompleted(session);
             Directory.Delete(directory, true);
+        }
+    }
+
+    private void MarkSessionCompleted(RecordingSessionState session)
+    {
+        var assignmentPath = assignmentPaths[session.AssignmentId];
+        var assignment = RecordingSpoolFiles.Read<RecordingAssignmentState>(assignmentPath);
+        if (!assignment.CompletedSessionIds.Contains(session.Descriptor.SessionId))
+        {
+            RecordingSpoolFiles.Write(assignmentPath, assignment with
+            {
+                CompletedSessionIds = [.. assignment.CompletedSessionIds, session.Descriptor.SessionId]
+            });
+        }
+    }
+
+    internal IReadOnlyList<RecordingUploadAbandonmentCommand> Abandonments()
+    {
+        lock (sync)
+        {
+            return abandonments.ToArray();
+        }
+    }
+
+    internal bool HasAbandonment(string assignmentId, int generation, string? sessionId = null)
+    {
+        lock (sync)
+        {
+            return abandonments.Any(value => value.AssignmentId == assignmentId && value.Generation == generation
+                && (sessionId is null || value.SessionId == sessionId));
+        }
+    }
+
+    internal void SaveAbandonments(IReadOnlyList<RecordingUploadAbandonmentCommand> commands)
+    {
+        lock (sync)
+        {
+            var updated = new List<RecordingUploadAbandonmentCommand>(abandonments);
+            foreach (var command in commands)
+            {
+                RecordingSpoolFiles.SafeId(command.AssignmentId);
+                RecordingSpoolFiles.SafeId(command.SessionId);
+                if (command.Generation <= 0 || string.IsNullOrWhiteSpace(command.Token) || command.Token.Length > 256)
+                {
+                    throw new InvalidDataException("The recording upload abandonment has an invalid durable owner.");
+                }
+                var index = updated.FindIndex(value => value.AssignmentId == command.AssignmentId
+                    && value.Generation == command.Generation && value.SessionId == command.SessionId);
+                if (index < 0)
+                {
+                    updated.Add(command);
+                }
+                else
+                {
+                    updated[index] = command;
+                }
+            }
+            if (!updated.SequenceEqual(abandonments))
+            {
+                SaveAbandonmentQueue(updated);
+            }
+        }
+    }
+
+    internal void ConfirmAbandonment(RecordingUploadAbandonmentCommand command)
+    {
+        lock (sync)
+        {
+            SaveAbandonmentQueue(abandonments.Where(value => value != command).ToList());
+        }
+    }
+
+    private void SaveAbandonmentQueue(List<RecordingUploadAbandonmentCommand> commands)
+    {
+        RecordingSpoolFiles.Write(abandonmentPath, commands);
+        abandonments = commands;
+    }
+
+    internal void AbandonSession(RecordingUploadAbandonmentCommand command)
+    {
+        var staged = new List<string>();
+        lock (sync)
+        {
+            var assignmentId = RecordingSpoolFiles.SafeId(command.AssignmentId);
+            var sessionId = RecordingSpoolFiles.SafeId(command.SessionId);
+            var identity = FormattableString.Invariant($"{assignmentId}:{command.Generation}:{sessionId}");
+            var stagingName = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
+            var assignment = assignmentPaths.TryGetValue(assignmentId, out var assignmentPath)
+                ? RecordingSpoolFiles.Read<RecordingAssignmentState>(assignmentPath).Assignment : null;
+            if (assignment is not null && (assignment.AssignmentId != assignmentId || assignment.Generation != command.Generation
+                || assignment.WorkerId != workerId || assignment.Token != command.Token))
+            {
+                throw new InvalidDataException("The recording upload abandonment does not match the local assignment.");
+            }
+            var moves = new List<(string Directory, string Staging, RecordingSessionState Session)>();
+            foreach (var root in roots.Keys)
+            {
+                if (!OwnedDirectoryExists(root))
+                {
+                    throw new IOException("A recording spool root is unavailable during upload abandonment.");
+                }
+                var stagingRoot = Path.Combine(root, "abandoned");
+                var destination = Path.Combine(stagingRoot, stagingName);
+                var alreadyStaged = OwnedDirectoryExists(stagingRoot) && OwnedDirectoryExists(destination);
+                if (alreadyStaged)
+                {
+                    staged.Add(destination);
+                }
+                foreach (var location in new[] { "sessions", "drafts" })
+                {
+                    var parent = Path.Combine(root, location);
+                    var directory = Path.Combine(parent, sessionId);
+                    if (!OwnedDirectoryExists(parent) || !OwnedDirectoryExists(directory))
+                    {
+                        continue;
+                    }
+                    var state = RecordingSpoolFiles.Read<RecordingSessionState>(Path.Combine(directory, "session.json"));
+                    if (assignment is null || state.AssignmentId != assignmentId || state.Descriptor.SessionId != sessionId
+                        || !state.Descriptor.IsClosed || alreadyStaged || moves.Any(value => value.Staging == destination))
+                    {
+                        throw new InvalidDataException("The recording upload abandonment does not match an unambiguous closed local session.");
+                    }
+                    moves.Add((directory, destination, state));
+                }
+            }
+            foreach (var move in moves)
+            {
+                var receiptPath = Path.Combine(move.Directory, "uploaded.json");
+                if (File.Exists(receiptPath) && RecordingSpoolFiles.Read<RecordingUploadReceipt>(receiptPath).SessionClosed)
+                {
+                    MarkSessionCompleted(move.Session);
+                }
+                Directory.CreateDirectory(Path.GetDirectoryName(move.Staging)!);
+                Directory.Move(move.Directory, move.Staging);
+                staged.Add(move.Staging);
+            }
+        }
+        foreach (var directory in staged)
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
+    private static bool OwnedDirectoryExists(string path)
+    {
+        try
+        {
+            var attributes = File.GetAttributes(path);
+            if ((attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != FileAttributes.Directory)
+            {
+                throw new InvalidDataException("A recording upload abandonment path is not a local spool directory.");
+            }
+            return true;
+        }
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return false;
         }
     }
 

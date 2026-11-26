@@ -44,7 +44,7 @@ export async function download(path: string, fallbackFileName: string, options: 
   return { blob, fileName: getDownloadFileName(response.headers.get('Content-Disposition'), fallbackFileName) }
 }
 
-async function requestResponse(path: string, options: RequestInit, accept: string): Promise<Response>
+export async function requestResponse(path: string, options: RequestInit, accept: string): Promise<Response>
 {
   const headers = new Headers(options.headers)
   headers.set('Accept', accept)

@@ -4,14 +4,15 @@ using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Application.Tasks;
+using Yohuke.LiveRecorder.Infrastructure.Recording;
 using Yohuke.LiveRecorder.Infrastructure.Tasks;
 
 namespace Yohuke.LiveRecorder.Server.Endpoints;
 
-/// <summary>隔离个人任务与管理员全量任务，并提供只清理历史展示的接口。</summary>
+/// <summary>提供个人及管理员任务查询、历史清理和录像补传处置接口。</summary>
 public static class TaskHistoryEndpoints
 {
-    /// <summary>注册个人及管理范围的统一查询、详情与二次确认清理端点。</summary>
+    /// <summary>注册个人及管理范围的任务查询和管理端点。</summary>
     public static IEndpointRouteBuilder MapTaskHistoryEndpoints(this IEndpointRouteBuilder endpoints)
     {
         Map(endpoints.MapGroup("/api/tasks").RequireAuthorization(), false);
@@ -22,6 +23,12 @@ public static class TaskHistoryEndpoints
         {
             await tasks.InterruptRecordingAsync(id, request, Viewer(http), ct);
             return Results.NoContent();
+        });
+        admin.MapPost("/recording/{id}/abandon-upload", async (string id, HttpContext http, RecordingUploadAbandonmentService abandonments,
+            CancellationToken ct) =>
+        {
+            await abandonments.RequestAsync(id, Viewer(http), ct);
+            return Results.Accepted();
         });
         endpoints.MapGet("/api/admin/worker-tasks/filters", async (HttpContext http, TaskHistoryService tasks, CancellationToken ct) =>
         {

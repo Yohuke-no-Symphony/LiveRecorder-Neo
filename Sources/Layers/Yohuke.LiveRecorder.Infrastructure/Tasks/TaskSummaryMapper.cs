@@ -21,6 +21,7 @@ internal static class TaskSummaryMapper
         var type = Text(row, "Type") ?? "";
         var state = Text(row, "State") ?? "Queued";
         var worker = Text(row, "WorkerId");
+        var abandonment = Text(data, "RecordingUploadAbandonmentState");
         var updatedAt = Date(data, "LastUpdatedAtUtc");
         var active = state is "Queued" or "Running" or "Publishing";
         var terminal = IsTerminal(state);
@@ -72,8 +73,11 @@ internal static class TaskSummaryMapper
             CanRetry = mayOperate && permission && (kind == "transcode" ? state is "Failed" or "Cancelled" or "Skipped"
                 : kind == "media" && state is "Failed" or "Cancelled"),
             CanInterruptRecording = viewer.IsAdmin && kind == "recording" && state == "Running"
+                && abandonment is null
                 && !string.IsNullOrWhiteSpace(worker) && worker != "local" && Bool(data, "InterruptibleSnapshot")
                 && updatedAt is { } reported && reported > DateTime.UnixEpoch && reported <= DateTime.UtcNow.AddSeconds(-RECORDING_INTERRUPTION_GRACE_SECONDS),
+            CanAbandonRecordingUpload = viewer.IsAdmin && Bool(data, "CanAbandonRecordingUpload"),
+            RecordingUploadAbandonmentState = abandonment,
             CanDelete = terminal && mayOperate,
             CanViewResults = kind == "recording" ? Bool(data, "Playable") && viewer.Has(PermissionIds.VIEW_RECORDINGS)
                 : viewer.Has(PermissionIds.VIEW_RECORDINGS),

@@ -9,6 +9,8 @@ internal sealed class RecordingLogFailureSource(string failure) : IRecordingCapt
 {
     private readonly RecordingTestCaptureSource source = new();
 
+    internal Task EventsStarted => source.EventsStarted.Task;
+
     public Task<LiveRoomSnapshot> GetRoomAsync(RecordingAssignment assignment, CancellationToken cancellationToken) =>
         failure == "Room" ? Task.FromException<LiveRoomSnapshot>(new IOException("Room unavailable."))
             : source.GetRoomAsync(assignment, cancellationToken);

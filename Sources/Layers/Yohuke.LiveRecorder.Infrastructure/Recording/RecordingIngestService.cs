@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
+using Yohuke.LiveRecorder.Application.Localization;
 using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
@@ -20,11 +21,13 @@ namespace Yohuke.LiveRecorder.Infrastructure.Recording;
 
 /// <summary>Receives durable recording spools and exposes only coherent media, prefix and event commit boundaries.</summary>
 public sealed class RecordingIngestService(IMongoContext context, IAppPaths paths, ISettingsStore settingsStore,
-    RecordingOwnershipService ownership, IStatusPublisher publisher, RecordingSessionProjectionService? projection = null) : IDisposable
+    RecordingOwnershipService ownership, IStatusPublisher publisher, RecordingSessionProjectionService? projection = null,
+    RecordingUploadAbandonmentService? uploadAbandonments = null) : IDisposable
 {
     private const int MAX_CHUNK_BYTES = 8 * 1024 * 1024;
     private readonly SemaphoreSlim[] gates = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
     private readonly RecordingSessionProjectionService projections = projection ?? new(context, paths, settingsStore, publisher);
+    private readonly RecordingUploadAbandonmentService abandonments = uploadAbandonments ?? new(context, paths);
 
     /// <summary>Creates or seals a stable remote broadcast without overwriting an existing local or different-owner session.</summary>
     public async Task RegisterSessionAsync(string workerId, string assignmentId, int generation, string token,
@@ -50,14 +53,14 @@ public sealed class RecordingIngestService(IMongoContext context, IAppPaths path
         await gate.WaitAsync(cancellationToken);
         try
         {
-            await using var ingestLock = await MediaJobExecutionLock.AcquireAsync(paths, "recording-ingest-" + descriptor.SessionId, cancellationToken);
+            await using var ingestLock = await MediaJobExecutionLock.AcquireAsync(paths, RecordingIngestPaths.UploadLockKey(descriptor.SessionId), cancellationToken);
             await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
             var assignment = await ownership.RequireAsync(workerId, assignmentId, generation, token, cancellationToken, true);
             if (descriptor.RoomId != assignment.RoomId)
             {
                 throw new InfrastructureException("录像场次不属于当前房间。", 409);
             }
-            var receipt = await Sessions.Find(value => value.Id == descriptor.SessionId).FirstOrDefaultAsync(cancellationToken);
+            var receipt = await FindSessionForUploadAsync(assignment, descriptor.SessionId, cancellationToken);
             if (receipt is null)
             {
                 if (assignment.State == "Released" || descriptor.IsClosed || await context.Collection<BroadcastSession>("sessions").Find(value => value.Id == descriptor.SessionId).AnyAsync(cancellationToken))
@@ -160,7 +163,7 @@ public sealed class RecordingIngestService(IMongoContext context, IAppPaths path
         await gate.WaitAsync(cancellationToken);
         try
         {
-            await using var ingestLock = await MediaJobExecutionLock.AcquireAsync(paths, "recording-ingest-" + sessionId, cancellationToken);
+            await using var ingestLock = await MediaJobExecutionLock.AcquireAsync(paths, RecordingIngestPaths.UploadLockKey(sessionId), cancellationToken);
             var assignment = await ownership.RequireAsync(workerId, assignmentId, generation, token, cancellationToken, true);
             var session = await RequireSessionAsync(assignment, sessionId, cancellationToken);
             ValidateArtifact(segmentId, kind, hash, length);
@@ -218,7 +221,7 @@ public sealed class RecordingIngestService(IMongoContext context, IAppPaths path
         string? chunkPath = null;
         try
         {
-            await using var ingestLock = await MediaJobExecutionLock.AcquireAsync(paths, "recording-ingest-" + sessionId, cancellationToken);
+            await using var ingestLock = await MediaJobExecutionLock.AcquireAsync(paths, RecordingIngestPaths.UploadLockKey(sessionId), cancellationToken);
             var assignment = await ownership.RequireAsync(workerId, assignmentId, generation, token, cancellationToken);
             var session = await RequireSessionAsync(assignment, sessionId, cancellationToken);
             await RequireActiveLibraryAsync(session, cancellationToken);
@@ -329,7 +332,7 @@ public sealed class RecordingIngestService(IMongoContext context, IAppPaths path
         await gate.WaitAsync(cancellationToken);
         try
         {
-            await using var ingestLock = await MediaJobExecutionLock.AcquireAsync(paths, "recording-ingest-" + commit.SessionId, cancellationToken);
+            await using var ingestLock = await MediaJobExecutionLock.AcquireAsync(paths, RecordingIngestPaths.UploadLockKey(commit.SessionId), cancellationToken);
             await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
             var assignment = await ownership.RequireAsync(workerId, assignmentId, generation, token, cancellationToken, true);
             var session = await RequireSessionAsync(assignment, commit.SessionId, cancellationToken);
@@ -417,7 +420,7 @@ public sealed class RecordingIngestService(IMongoContext context, IAppPaths path
         await gate.WaitAsync(cancellationToken);
         try
         {
-            await using var ingestLock = await MediaJobExecutionLock.AcquireAsync(paths, "recording-ingest-" + sessionId, cancellationToken);
+            await using var ingestLock = await MediaJobExecutionLock.AcquireAsync(paths, RecordingIngestPaths.UploadLockKey(sessionId), cancellationToken);
             await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
             var assignment = await ownership.RequireAsync(workerId, assignmentId, generation, token, cancellationToken, true);
             var session = await RequireSessionAsync(assignment, sessionId, cancellationToken);
@@ -478,7 +481,24 @@ public sealed class RecordingIngestService(IMongoContext context, IAppPaths path
         }
     }
 
-    /// <summary>Releases room ownership only after every locally declared session and its media and event receipts are sealed.</summary>
+    /// <summary>Acknowledges the original Worker's cleanup of one authorized capture.</summary>
+    public async Task AcknowledgeAbandonmentAsync(string workerId, string assignmentId, int generation, string token,
+        string sessionId, CancellationToken cancellationToken)
+    {
+        RecordingIngestPaths.RequireId(sessionId);
+        await using var ingestLock = await MediaJobExecutionLock.AcquireAsync(paths, RecordingIngestPaths.UploadLockKey(sessionId), cancellationToken);
+        var assignment = await ownership.RequireAsync(workerId, assignmentId, generation, token, cancellationToken, true);
+        var request = await abandonments.FindAsync(assignment, sessionId, cancellationToken)
+            ?? throw new InfrastructureException(MessageCode.REQUEST_ENDPOINT_NOT_FOUND, 404);
+        if (request.AcknowledgedAtUtc is not null)
+        {
+            return;
+        }
+        await projections.ApplyAbandonmentAsync(request, cancellationToken);
+        await abandonments.AcknowledgeAsync(request, cancellationToken);
+    }
+
+    /// <summary>Releases room ownership after each pending capture has a sealed receipt or a cleanup acknowledgement.</summary>
     public async Task StopAsync(string workerId, string assignmentId, int generation, string token,
         RecordingStopAcknowledgement acknowledgement, CancellationToken cancellationToken)
     {
@@ -493,9 +513,16 @@ public sealed class RecordingIngestService(IMongoContext context, IAppPaths path
         {
             throw new InfrastructureException("仍在监控的房间不能提前释放归属。", 409);
         }
+        var discarded = await abandonments.ForAssignmentAsync(assignment, cancellationToken);
+        if (acknowledgement.PendingUploadBytes != 0 || discarded.Any(value => value.AcknowledgedAtUtc is null))
+        {
+            throw new InfrastructureException("录像仍有未确认的补传数据。", 409);
+        }
+        var discardedIds = discarded.Select(value => value.Id).ToHashSet(StringComparer.Ordinal);
         var sessions = await Sessions.Find(value => value.AssignmentId == assignmentId).ToListAsync(cancellationToken);
-        if (acknowledgement.PendingUploadBytes != 0 || sessions.Any(value => !acknowledgement.SessionIds.Contains(value.Id))
-            || acknowledgement.SessionIds.Any(id => sessions.All(value => value.Id != id)))
+        sessions.RemoveAll(value => discardedIds.Contains(value.Id));
+        var expectedIds = acknowledgement.SessionIds.Where(id => !discardedIds.Contains(id)).ToHashSet(StringComparer.Ordinal);
+        if (!expectedIds.SetEquals(sessions.Select(value => value.Id)))
         {
             throw new InfrastructureException("录像仍有未确认的补传数据。", 409);
         }
@@ -522,11 +549,18 @@ public sealed class RecordingIngestService(IMongoContext context, IAppPaths path
 
     private async Task<RecordingSessionReceipt> RequireSessionAsync(RecordingAssignmentRecord assignment, string sessionId, CancellationToken cancellationToken)
     {
-        RecordingIngestPaths.RequireId(sessionId);
-        var session = await Sessions.Find(value => value.Id == sessionId).FirstOrDefaultAsync(cancellationToken)
+        var session = await FindSessionForUploadAsync(assignment, sessionId, cancellationToken)
             ?? throw new InfrastructureException("录像场次尚未注册。", 409);
         RequireSessionIdentity(session, assignment, sessionId);
         return session;
+    }
+
+    private async Task<RecordingSessionReceipt?> FindSessionForUploadAsync(RecordingAssignmentRecord assignment, string sessionId,
+        CancellationToken cancellationToken)
+    {
+        RecordingIngestPaths.RequireId(sessionId);
+        await abandonments.RequireUploadAllowedAsync(assignment, sessionId, cancellationToken);
+        return await Sessions.Find(value => value.Id == sessionId).FirstOrDefaultAsync(cancellationToken);
     }
 
     private async Task<RecordingSegmentReceipt> RequireSegmentAsync(RecordingAssignmentRecord assignment, RecordingSessionReceipt session,

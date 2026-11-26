@@ -223,9 +223,9 @@ public sealed class RecordingUploadLogTests
         }
     }
 
-    /// <summary>A rejected session upload retains the spool and reports a scoped warning without assigning node messages to that session.</summary>
+    /// <summary>A rejected session upload retains the spool and reports the failure once against the session.</summary>
     [Fact]
-    public async Task UploadFailureKeepsWarningSeverityAndNodeMessagesSeparate()
+    public async Task UploadRejectionRetainsSpoolAndLogsOnlyAtSessionScope()
     {
         using var fixture = new RecordingWorkerFixture();
         using var spool = fixture.Spool();
@@ -241,14 +241,12 @@ public sealed class RecordingUploadLogTests
         var upload = uploader.RunAsync(cancellation.Token);
         try
         {
-            await WaitAsync(() => entries.Any(value => value.JobId is null));
+            await WaitAsync(() => !entries.IsEmpty);
 
-            var scoped = Assert.Single(entries, value => value.JobId is not null);
+            var scoped = Assert.Single(entries);
             AssertSessionLog(scoped);
             Assert.Equal("Warning", scoped.Level);
-            var node = Assert.Single(entries, value => value.JobId is null);
-            Assert.Null(node.Stage);
-            Assert.Equal("Warning", node.Level);
+            Assert.Contains("POST /api/worker/recording/targets/assignment/sessions", scoped.Message, StringComparison.Ordinal);
             Assert.True(Directory.Exists(session.DirectoryPath));
             Assert.False(File.Exists(Path.Combine(session.DirectoryPath, "uploaded.json")));
         }
@@ -262,6 +260,7 @@ public sealed class RecordingUploadLogTests
     /// <summary>Rejected media commits retain the server failure details and keep unacknowledged files available for retry.</summary>
     [Theory]
     [InlineData(HttpStatusCode.BadRequest)]
+    [InlineData(HttpStatusCode.Conflict)]
     [InlineData(HttpStatusCode.InternalServerError)]
     [InlineData(HttpStatusCode.InsufficientStorage)]
     public async Task RejectedMediaCommitLogsServerDetailsAndRetainsSpool(HttpStatusCode status)
@@ -281,18 +280,14 @@ public sealed class RecordingUploadLogTests
         var upload = uploader.RunAsync(cancellation.Token);
         try
         {
-            await WaitAsync(() => entries.Any(value => value.JobId is null));
+            await WaitAsync(() => entries.Any(value => value.Level == "Warning"));
 
             var warning = Assert.Single(entries, value => value is { JobId: "session", Level: "Warning" });
             AssertSessionLog(warning);
-            var nodeWarning = Assert.Single(entries, value => value.JobId is null);
-            Assert.All(new[] { warning, nodeWarning }, value =>
-            {
-                Assert.Contains("HttpRequestException", value.Message, StringComparison.Ordinal);
-                Assert.Contains("POST /api/worker/recording/targets/assignment/sessions/session/segments/segment/commit", value.Message, StringComparison.Ordinal);
-                Assert.Contains(FormattableString.Invariant($"status {(int)status}"), value.Message, StringComparison.Ordinal);
-                Assert.Contains("The recording segment commit was rejected.", value.Message, StringComparison.Ordinal);
-            });
+            Assert.DoesNotContain(entries, value => value.JobId is null);
+            Assert.Contains("POST /api/worker/recording/targets/assignment/sessions/session/segments/segment/commit", warning.Message, StringComparison.Ordinal);
+            Assert.Contains(FormattableString.Invariant($"status {(int)status}"), warning.Message, StringComparison.Ordinal);
+            Assert.Contains("The recording segment commit was rejected.", warning.Message, StringComparison.Ordinal);
             Assert.True(Directory.Exists(session.DirectoryPath));
             Assert.True(File.Exists(Path.Combine(session.DirectoryPath, "video.flv")));
             Assert.True(File.Exists(Path.Combine(session.DirectoryPath, "video.index.jsonl")));

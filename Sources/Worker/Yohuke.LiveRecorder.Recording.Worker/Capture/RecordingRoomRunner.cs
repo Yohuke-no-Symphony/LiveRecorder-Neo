@@ -1,3 +1,4 @@
+using System.Net;
 using Yohuke.LiveRecorder.Application.Bilibili;
 using Yohuke.LiveRecorder.Application.Media;
 using Yohuke.LiveRecorder.Domain;
@@ -178,10 +179,6 @@ internal sealed class RecordingRoomRunner : IDisposable
                             continue;
                         }
                         PersistLifecycle();
-                        if (session is not null && events.IsCompleted)
-                        {
-                            StartEvents(session);
-                        }
                     }
                     var token = inactivity?.Token ?? lifetimeToken;
                     var room = await source.GetRoomAsync(current, token);
@@ -198,10 +195,6 @@ internal sealed class RecordingRoomRunner : IDisposable
                             await CloseSessionAsync("Capture closed after the room remained offline beyond the grace interval.");
                             token = lifetimeToken;
                         }
-                        if (session is not null && events.IsCompleted)
-                        {
-                            StartEvents(session);
-                        }
                         SetState("Monitoring");
                         await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(current.MonitorIntervalSeconds, 1, 300)), time, token);
                         continue;
@@ -215,6 +208,20 @@ internal sealed class RecordingRoomRunner : IDisposable
                     {
                         SetState("StorageFull", "RecordingStorageFull");
                         await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(current.MonitorIntervalSeconds, 1, 300)), time, token);
+                        continue;
+                    }
+                    LiveStreamDescriptor stream;
+                    try
+                    {
+                        stream = await source.ResolveStreamAsync(current, token);
+                    }
+                    catch
+                    {
+                        await StopEventsAsync();
+                        throw;
+                    }
+                    if (Current().ConfigurationRevision != current.ConfigurationRevision)
+                    {
                         continue;
                     }
                     if (session is null)
@@ -240,13 +247,7 @@ internal sealed class RecordingRoomRunner : IDisposable
                     var activeLifecycle = lifecycle!.State;
                     inactivity ??= new(TimeSpan.FromMinutes(current.RecordingTimeoutMinutes), time,
                         activeLifecycle.LastMediaReceivedAtUtc ?? activeLifecycle.TimeoutAnchorUtc, lifetimeToken);
-                    token = inactivity.Token;
-                    if (events.IsCompleted)
-                    {
-                        StartEvents(session);
-                    }
-                    var stream = await source.ResolveStreamAsync(current, token);
-                    await RecordAttemptAsync(current, session, stream, token);
+                    await RecordAttemptAsync(current, session, stream, inactivity.Token);
                     SetState("Retrying");
                     WriteCaptureLog(session, "The capture connection ended; room monitoring continues before reconnecting.");
                 }
@@ -263,6 +264,10 @@ internal sealed class RecordingRoomRunner : IDisposable
                 }
                 catch (Exception error)
                 {
+                    if (error is HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden })
+                    {
+                        await StopEventsAsync();
+                    }
                     SetState("Retrying", "RecordingSourceUnavailable");
                     WriteCaptureLog(session, "Recording source will reconnect (" + error.GetType().Name + ").", "Warning");
                 }
@@ -315,6 +320,10 @@ internal sealed class RecordingRoomRunner : IDisposable
         using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         lock (sync)
         {
+            if (assignment.ConfigurationRevision != current.ConfigurationRevision || attempt.IsCancellationRequested)
+            {
+                return;
+            }
             activeAttempt = attempt;
         }
         var started = time.GetUtcNow().UtcDateTime;
@@ -343,7 +352,7 @@ internal sealed class RecordingRoomRunner : IDisposable
                     lastCapturedSessionId = activeSession.State.Descriptor.SessionId;
                     state = "Recording";
                     errorCode = null;
-                    if (events.IsCompleted)
+                    if (events.IsCompleted && !attempt.IsCancellationRequested)
                     {
                         StartEvents(activeSession);
                     }

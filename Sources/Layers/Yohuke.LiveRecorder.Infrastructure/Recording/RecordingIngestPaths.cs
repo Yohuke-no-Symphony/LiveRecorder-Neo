@@ -7,6 +7,8 @@ namespace Yohuke.LiveRecorder.Infrastructure.Recording;
 
 internal static class RecordingIngestPaths
 {
+    internal static string UploadLockKey(string sessionId) => "recording-ingest-" + sessionId;
+
     internal static void RequireId(string value)
     {
         if (value.Length is < 1 or > 128 || value.Any(character => !char.IsAsciiLetterOrDigit(character) && character is not ('-' or '_')))

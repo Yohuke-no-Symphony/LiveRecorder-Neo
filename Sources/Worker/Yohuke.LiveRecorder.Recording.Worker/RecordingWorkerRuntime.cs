@@ -61,8 +61,9 @@ internal sealed class RecordingWorkerRuntime
             ?? new FlvMediaRecorder(media, Options.Create(new MediaToolOptions()), new RecordingMediaSettingsStore(selected), time);
         RefreshRooms(spool, Recorder, lifetime.Token);
         var supervisor = SuperviseRoomsAsync(spool, Recorder, lifetime);
-        var uploader = new RecordingSpoolUploader(spool, transfers, () => Volatile.Read(ref configuration),
-            id => !rooms.TryGetValue(id, out var room) || room.IsStopped, WriteLog, sessionProgress).RunAsync(lifetime.Token);
+        var spoolUploader = new RecordingSpoolUploader(spool, transfers, () => Volatile.Read(ref configuration),
+            id => !rooms.TryGetValue(id, out var room) || room.IsStopped, WriteLog, sessionProgress, time);
+        var uploader = spoolUploader.RunAsync(lifetime.Token);
         try
         {
             var delay = 1;
@@ -95,6 +96,7 @@ internal sealed class RecordingWorkerRuntime
                             LogBatch = welcome.LogProtocolVersion >= 1 ? logs.GetBatch() : null
                         }, lifetime.Token);
                         logs.Acknowledge(state.LogAcknowledgement);
+                        spoolUploader.AcceptAbandonments(state.RecordingUploadAbandonments);
                         await ApplyConfigurationAsync(state.Configuration, state.ConfigurationRevision, spool, lifetime.Token);
                         var known = spool.Assignments().ToDictionary(value => value.Assignment.AssignmentId, StringComparer.Ordinal);
                         foreach (var lease in state.RecordingAssignments)
@@ -260,7 +262,7 @@ internal sealed class RecordingWorkerRuntime
 
     private static WorkerCapabilities Capabilities() => new()
     {
-        RecordingVersion = 2, OperatingSystem = RuntimeInformation.OSDescription,
+        RecordingVersion = 2, RecordingUploadAbandonmentVersion = 1, OperatingSystem = RuntimeInformation.OSDescription,
         Architecture = RuntimeInformation.ProcessArchitecture.ToString()
     };
 

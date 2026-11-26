@@ -26,6 +26,7 @@ export function useTaskHistory(scope: () => TaskScope, filters: () => TaskQuery)
   const selectedStageId = ref('')
   const deleteTarget = ref<TaskSummary>()
   const interruptTarget = ref<TaskSummary>()
+  const abandonUploadTarget = ref<TaskSummary>()
   const clearPreview = ref<TaskClearPreview>()
   const clearFilter = ref<TaskQuery>()
   const page = computed(() => cursors.value.length + 1)
@@ -164,6 +165,31 @@ export function useTaskHistory(scope: () => TaskScope, filters: () => TaskQuery)
     }
   }
 
+  function openRecordingUploadAbandonment(task: TaskSummary): void
+  {
+    if (actionKey.value || scope() !== 'administration' || !mayRead.value || task.kind !== 'recording'
+      || !task.canAbandonRecordingUpload || task.recordingUploadAbandonmentState) { return }
+    actionError.value = ''
+    abandonUploadTarget.value = task
+  }
+
+  function closeRecordingUploadAbandonment(): void
+  {
+    if (actionKey.value) { return }
+    abandonUploadTarget.value = undefined
+    actionError.value = ''
+  }
+
+  async function abandonRecordingUpload(): Promise<void>
+  {
+    const task = abandonUploadTarget.value
+    if (!task?.canAbandonRecordingUpload || scope() !== 'administration') { return }
+    if (await perform(`${taskKey(task)}:abandon-upload`, () => TaskHistoryAPI.abandonRecordingUpload(task.id)))
+    {
+      abandonUploadTarget.value = undefined
+    }
+  }
+
   async function previewClear(): Promise<void>
   {
     if (actionKey.value || !mayRead.value) { return }
@@ -247,7 +273,7 @@ export function useTaskHistory(scope: () => TaskScope, filters: () => TaskQuery)
     total.value = 0
     cursors.value = []
     nextCursor.value = null
-    selectedTask.value = deleteTarget.value = interruptTarget.value = undefined
+    selectedTask.value = deleteTarget.value = interruptTarget.value = abandonUploadTarget.value = undefined
     clearPreview.value = undefined
     clearFilter.value = undefined
     actionKey.value = error.value = actionError.value = notice.value = ''
@@ -261,7 +287,8 @@ export function useTaskHistory(scope: () => TaskScope, filters: () => TaskQuery)
   })
   usePolling(load, 4000)
   return { items, total, loading, error, actionError, notice, actionKey, page, nextCursor, cursors,
-    selectedTask, selectedStageId, deleteTarget, interruptTarget, clearPreview, clearFilter,
+    selectedTask, selectedStageId, deleteTarget, interruptTarget, abandonUploadTarget, clearPreview, clearFilter,
     refresh, act, dismiss, openRecordingInterruption, closeRecordingInterruption, interruptRecording,
+    openRecordingUploadAbandonment, closeRecordingUploadAbandonment, abandonRecordingUpload,
     previewClear, clearCompleted, openStage, nextPage, previousPage }
 }

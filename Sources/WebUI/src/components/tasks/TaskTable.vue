@@ -12,7 +12,12 @@
     <tbody>
     <tr v-for="task in items" :key="taskKey(task)" :data-job-id="task.id" :data-job-kind="task.kind">
       <td class="task-status">
-        <StatusChip :status="task.state"/>
+        <v-chip v-if="task.recordingUploadAbandonmentState" size="small"
+                :color="task.recordingUploadAbandonmentState === 'Pending' ? 'warning' : 'secondary'"
+                :prepend-icon="task.recordingUploadAbandonmentState === 'Pending' ? 'mdi-timer-outline' : undefined">
+          {{ t(`taskHistory.recordingUploadAbandonment.${task.recordingUploadAbandonmentState}`) }}
+        </v-chip>
+        <StatusChip v-else :status="task.state"/>
         <div class="task-time mono" :title="t('taskHistory.duration')">{{ duration(task) }}</div>
         <time class="task-time" :datetime="task.createdAtUtc">{{ formatDate(task.createdAtUtc) }}</time>
       </td>
@@ -75,12 +80,13 @@ import StatusChip from '@/components/common/StatusChip.vue'
 import UserIdentityLink from '@/components/common/UserIdentityLink.vue'
 import TaskStages from './TaskStages.vue'
 
-defineProps<{ items: TaskSummary[]; actionKey?: string }>()
+const props = defineProps<{ items: TaskSummary[]; actionKey?: string; administration: boolean }>()
 const emit = defineEmits<{
   stage: [task: TaskSummary, id: string];
   action: [task: TaskSummary, action: 'cancel' | 'retry'];
   delete: [task: TaskSummary];
-  interrupt: [task: TaskSummary]
+  interrupt: [task: TaskSummary];
+  'abandon-upload': [task: TaskSummary]
 }>()
 const {t} = useI18n()
 const auth = useAuthStore()
@@ -135,6 +141,10 @@ function actions(task: TaskSummary): TaskAction[] {
       color: 'warning'
     })
   }
+  if (props.administration && auth.isAdmin && task.kind === 'recording' && task.canAbandonRecordingUpload
+    && !task.recordingUploadAbandonmentState) {
+    result.push({key: 'abandon-upload', label: t('taskHistory.abandonRecordingUpload'), icon: 'mdi-cloud-off-outline', color: 'error'})
+  }
   if (task.canDelete) {
     result.push({key: 'delete', label: t('taskHistory.delete'), icon: 'mdi-delete-outline', color: 'error'})
   }
@@ -148,6 +158,8 @@ function activate(task: TaskSummary, action: string): void {
     emit('delete', task)
   } else if (action === 'interrupt') {
     emit('interrupt', task)
+  } else if (action === 'abandon-upload') {
+    emit('abandon-upload', task)
   }
 }
 

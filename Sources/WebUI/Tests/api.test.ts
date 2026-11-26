@@ -1,5 +1,6 @@
 import { AuthAPI } from '../src/apis/AuthAPI'
 import { MediaAPI } from '../src/apis/MediaAPI'
+import { TaskHistoryAPI } from '../src/apis/TaskHistoryAPI'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, post, query, request, setCsrfToken } from '../src/apis/APIBase'
 import { i18n } from '../src/plugins/i18n'
@@ -66,6 +67,21 @@ describe('API 请求', () =>
     setCsrfToken('csrf-test')
     expect(await request('auth/me')).toBeUndefined()
     expect((fetcher.mock.calls[0]![1].headers as Headers).has('X-CSRF-TOKEN')).toBe(false)
+  })
+
+  it('放弃录像补传提交无请求体并接受没有内容长度的 202 空响应', async () =>
+  {
+    const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 202 }))
+    vi.stubGlobal('fetch', fetcher)
+    setCsrfToken('csrf-test')
+
+    await expect(TaskHistoryAPI.abandonRecordingUpload('capture/id')).resolves.toBeUndefined()
+
+    const [path, options] = fetcher.mock.calls[0]!
+    expect(new URL(path).pathname).toBe('/api/admin/worker-tasks/recording/capture%2Fid/abandon-upload')
+    expect(options).toMatchObject({ method: 'POST', credentials: 'include' })
+    expect(options.body).toBeUndefined()
+    expect((options.headers as Headers).get('X-CSRF-TOKEN')).toBe('csrf-test')
   })
 
   it.each([

@@ -32,6 +32,12 @@ public sealed class DatabaseIndexWorker(IMongoContext context, IBootstrapStore b
                         Builders<RecordingCaptureBinding>.IndexKeys.Ascending(value => value.LogicalSessionId).Ascending(value => value.StartedAtUtc)), cancellationToken: stoppingToken);
                     await context.Collection<RecordingSessionTaskSnapshot>("recordingSessionTasks").Indexes.CreateOneAsync(new CreateIndexModel<RecordingSessionTaskSnapshot>(
                         Builders<RecordingSessionTaskSnapshot>.IndexKeys.Ascending(value => value.WorkerId).Descending(value => value.CreatedAtUtc)), cancellationToken: stoppingToken);
+                    await context.Collection<RecordingUploadAbandonment>("recordingUploadAbandonments").Indexes.CreateManyAsync(
+                    [
+                        new(Builders<RecordingUploadAbandonment>.IndexKeys.Ascending(value => value.WorkerId).Ascending(value => value.AcknowledgedAtUtc)
+                            .Ascending(value => value.CreatedAtUtc).Ascending(value => value.Id)),
+                        new(Builders<RecordingUploadAbandonment>.IndexKeys.Ascending(value => value.AssignmentId))
+                    ], cancellationToken: stoppingToken);
                     await context.Collection<TaskHistoryDismissal>("taskHistoryDismissals").Indexes.CreateOneAsync(new CreateIndexModel<TaskHistoryDismissal>(
                         Builders<TaskHistoryDismissal>.IndexKeys.Ascending(value => value.Scope).Ascending(value => value.ViewerId).Descending(value => value.CreatedAtUtc)), cancellationToken: stoppingToken);
                     await context.Collection<RecordingSegmentReceipt>("recordingSegments").Indexes.CreateOneAsync(new CreateIndexModel<RecordingSegmentReceipt>(

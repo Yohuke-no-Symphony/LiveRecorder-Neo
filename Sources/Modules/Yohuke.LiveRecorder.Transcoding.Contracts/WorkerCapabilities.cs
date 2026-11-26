@@ -9,6 +9,7 @@ public sealed record WorkerCapabilities
     public int HlsPackagingVersion { get; set; }
     public int ClippingVersion { get; set; }
     public int RecordingVersion { get; set; }
+    public int RecordingUploadAbandonmentVersion { get; set; }
     public int AiExecutionVersion { get; set; }
     public List<EncoderCapability> Encoders { get; set; } = [];
 }

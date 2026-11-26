@@ -14,9 +14,10 @@ namespace Yohuke.LiveRecorder.Infrastructure.Recording;
 public sealed class RecordingJobScheduler(IMongoContext context, IAppPaths paths, ISettingsStore settingsStore,
     TranscodeWorkerService workers, RecordingOwnershipService ownership, RecordingAccountProvider accounts, IStatusPublisher publisher,
     RecordingHandoffService handoff, RecordingTargetStatusService? targetStatus = null, RecordingSessionTaskService? sessionTasks = null,
-    RecordingSessionProjectionService? projection = null)
+    RecordingSessionProjectionService? projection = null, RecordingUploadAbandonmentService? uploadAbandonments = null)
 {
     private readonly RecordingSessionProjectionService projections = projection ?? new(context, paths, settingsStore, publisher);
+    private readonly RecordingUploadAbandonmentService abandonments = uploadAbandonments ?? new(context, paths);
     /// <summary>Returns existing room controls even for disabled nodes, while only enabled configured nodes receive new rooms.</summary>
     public async Task<WorkerState> HeartbeatAsync(string workerId, WorkerHeartbeat heartbeat, CancellationToken cancellationToken,
         string? authenticatedSecretHash = null, Func<bool>? connectionIsCurrent = null)
@@ -39,6 +40,10 @@ public sealed class RecordingJobScheduler(IMongoContext context, IAppPaths paths
         }
         await context.Collection<TranscodeWorker>("transcodeWorkers").UpdateOneAsync(value => value.Id == workerId, update, cancellationToken: cancellationToken);
         var state = new WorkerState { Configuration = worker.Configuration, ConfigurationRevision = worker.ConfigurationRevision };
+        if (worker.Capabilities.RecordingUploadAbandonmentVersion >= 1)
+        {
+            state.RecordingUploadAbandonments = await abandonments.PendingAsync(workerId, ownership, cancellationToken);
+        }
         foreach (var progress in heartbeat.Recordings.Take(64))
         {
             try
@@ -138,12 +143,19 @@ public sealed class RecordingJobScheduler(IMongoContext context, IAppPaths paths
     {
         var ids = sources.Where(value => value.AssignmentId == assignment.Id && value.Generation == assignment.Generation
                 && (value.Descriptor.LogicalSessionId ?? value.Descriptor.SessionId) == logicalId
-                && (value.CapturedDurationMs > 0 || value.CommittedArchiveBytes > 0))
+                && value.CapturedDurationMs > 0)
             .Select(value => value.Descriptor.SessionId).ToHashSet(StringComparer.Ordinal);
         if (currentCaptureId is not null)
         {
             ids.Add(currentCaptureId);
         }
+        if (ids.Count == 0)
+        {
+            return false;
+        }
+        var discarded = await abandonments.ForCapturesAsync(ids, cancellationToken);
+        ids.ExceptWith(discarded.Where(value => value.WorkerId == assignment.OwnerId && value.AssignmentId == assignment.Id
+            && value.Generation == assignment.Generation).Select(value => value.Id));
         if (ids.Count == 0)
         {
             return false;

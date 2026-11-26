@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
@@ -258,7 +259,17 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                     {
                         throw new InfrastructureException(MessageCode.RECORDING_DISK_SPACE_LOW, 507);
                     }
-                    var source = await bilibili.ResolveStreamAsync(target.RoomId, target.Quality ?? settings.Quality, target.AccountId, token);
+                    LiveStreamDescriptor source;
+                    try
+                    {
+                        source = await bilibili.ResolveStreamAsync(target.RoomId, target.Quality ?? settings.Quality, target.AccountId, token);
+                    }
+                    catch
+                    {
+                        await StopEventCaptureAsync(eventCapture);
+                        eventCapture = null;
+                        throw;
+                    }
                     if (session is null)
                     {
                         session = PrepareSession(target, room, GetLiveTime(room), settings);
@@ -286,9 +297,6 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                     var needsPublication = publicationPending;
                     var progress = new RecordingAttemptProgress(activity);
                     RecordingProgressSink? sink = null;
-                    eventCapture ??= new(activeSession, activeTarget, directory,
-                        (value, streamer, writer, stop) => CaptureEventsAsync(value, streamer, writer, activeLifecycle,
-                            activeCapture.StartedAtUtc, stop), cancellationToken, activeTarget.RecordDanmu ?? settings.RecordDanmu);
                     try
                     {
                         if (hasActiveSession)
@@ -309,6 +317,9 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                                     projections, activeCapture.Id, activeCapture.RelativePathPrefix, activeLifecycle, clock);
                                 progress.Activate(sink);
                             }
+                            eventCapture ??= new(activeSession, activeTarget, directory,
+                                (value, streamer, writer, stop) => CaptureEventsAsync(value, streamer, writer, activeLifecycle,
+                                    activeCapture.StartedAtUtc, stop), cancellationToken, activeTarget.RecordDanmu ?? settings.RecordDanmu);
                             if (needsPublication)
                             {
                                 await sink!.FlushAsync();
@@ -383,6 +394,11 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
                 }
                 catch (Exception error)
                 {
+                    if (error is HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden })
+                    {
+                        await StopEventCaptureAsync(eventCapture);
+                        eventCapture = null;
+                    }
                     if (session is not null && sessionPublished)
                     {
                         await WriteTaskLogAsync(session, "Capturing", "Warning",

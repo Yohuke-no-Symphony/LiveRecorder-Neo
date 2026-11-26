@@ -27,8 +27,9 @@
     <div class="task-count text-caption muted" aria-live="polite">{{ t('taskHistory.count', { count: formatNumber(total)
       }) }}
     </div>
-    <TaskTable v-if="items.length" :items="items" :action-key="actionKey" @stage="openStage" @action="act"
-               @delete="deleteTarget = $event" @interrupt="openRecordingInterruption"/>
+    <TaskTable v-if="items.length" :items="items" :action-key="actionKey" :administration="administration"
+               @stage="openStage" @action="act" @delete="deleteTarget = $event" @interrupt="openRecordingInterruption"
+               @abandon-upload="openRecordingUploadAbandonment"/>
     <div v-else class="task-empty muted" :role="loading ? 'status' : undefined">{{ t(loading ? 'taskHistory.loading' :
       'taskHistory.empty') }}
     </div>
@@ -52,6 +53,10 @@
                  :message="t('taskHistory.interruptRecordingMessage', { title: interruptTarget?.title || t('components.library.unnamedSession'), started: formatDate(interruptTarget?.createdAtUtc) })"
                  :action-label="t('taskHistory.interruptRecording')" danger :busy="!!actionKey" :error="actionError"
                  @update:model-value="!$event && closeRecordingInterruption()" @confirm="interruptRecording"/>
+  <ConfirmDialog :model-value="!!abandonUploadTarget" :title="t('taskHistory.abandonRecordingUpload')"
+                 :message="t('taskHistory.abandonRecordingUploadMessage', { title: abandonUploadTarget?.title || t('components.library.unnamedSession'), started: formatDate(abandonUploadTarget?.createdAtUtc) })"
+                 :action-label="t('taskHistory.abandonRecordingUpload')" danger :busy="!!actionKey" :error="actionError"
+                 @update:model-value="!$event && closeRecordingUploadAbandonment()" @confirm="abandonRecordingUpload"/>
   <ConfirmDialog :model-value="!!clearPreview" :title="t('taskHistory.clearTitle')"
                  :message="`${t('taskHistory.clearMessage', { count: formatNumber(clearPreview?.count ?? 0) })} · ${frozenFilterLabel}`"
                  :action-label="t('taskHistory.clearCompleted')" danger :busy="!!actionKey" :error="actionError"
@@ -97,11 +102,12 @@ const filters = computed<TaskQuery>(() => ({
 }))
 const {
   items, total, loading, error, actionError, notice, actionKey, page, nextCursor, cursors,
-  selectedTask, selectedStageId, deleteTarget, interruptTarget, clearPreview, clearFilter, refresh, act, dismiss,
-  openRecordingInterruption, closeRecordingInterruption, interruptRecording, previewClear, clearCompleted,
+  selectedTask, selectedStageId, deleteTarget, interruptTarget, abandonUploadTarget, clearPreview, clearFilter, refresh, act, dismiss,
+  openRecordingInterruption, closeRecordingInterruption, interruptRecording,
+  openRecordingUploadAbandonment, closeRecordingUploadAbandonment, abandonRecordingUpload, previewClear, clearCompleted,
   openStage, nextPage, previousPage
 } = useTaskHistory(() => props.scope, () => filters.value)
-const pageActionError = computed(() => deleteTarget.value || interruptTarget.value || clearPreview.value ? '' : actionError.value)
+const pageActionError = computed(() => deleteTarget.value || interruptTarget.value || abandonUploadTarget.value || clearPreview.value ? '' : actionError.value)
 const stateOptions = computed(() => ['all', 'active', 'Completed', 'failed', 'Cancelled', 'Skipped'].map(value => ({
   value,
   title: t(`taskHistory.states.${value}`)

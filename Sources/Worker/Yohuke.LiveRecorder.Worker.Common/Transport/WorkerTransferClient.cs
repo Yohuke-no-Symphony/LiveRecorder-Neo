@@ -210,11 +210,6 @@ internal sealed class WorkerTransferClient : IDisposable
         {
             return;
         }
-        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.NotFound
-            or HttpStatusCode.Gone or HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict)
-        {
-            throw new WorkerLeaseLostException("The server rejected the current job lease or worker credentials (status " + (int)response.StatusCode + ").");
-        }
         string? detail = null;
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         limit.CancelAfter(networkTimeout);
@@ -238,6 +233,11 @@ internal sealed class WorkerTransferClient : IDisposable
         if (!string.IsNullOrWhiteSpace(detail))
         {
             message += " " + detail.Trim();
+        }
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.NotFound
+            or HttpStatusCode.Gone or HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict)
+        {
+            throw new WorkerLeaseLostException(message);
         }
         throw new HttpRequestException(message, null, response.StatusCode);
     }

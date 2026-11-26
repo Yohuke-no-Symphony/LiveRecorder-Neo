@@ -85,7 +85,7 @@ public sealed class RecordingSessionTaskService(IMongoContext context, Recording
             || item.AcknowledgedArchiveBytes > item.CommittedArchiveBytes
             || item.CaptureState is not ("Monitoring" or "Recording" or "Retrying" or "StorageFull" or "Paused" or "Draining" or "Closed" or "NoMedia")
             || item.UploadState is not ("Queued" or "Uploading" or "CaughtUp" or "Retrying" or "Finalizing" or "Skipped")
-            || item.CaptureState == "NoMedia" && (!descriptor.IsClosed || item.CommittedArchiveBytes != 0)
+            || item.CaptureState == "NoMedia" && (!descriptor.IsClosed || item.CapturedDurationMs != 0)
             || item.ErrorCode is not (null or "RecordingUploadFailed" or "RecordingSourceUnavailable" or "RecordingStorageFull")
             || item.CurrentTransfer is { } transfer && (transfer.BytesTransferred < 0 || transfer.TotalBytes < 0
                 || transfer.BytesTransferred > transfer.TotalBytes || transfer.ArtifactKind is not ("media" or "index" or "prefix" or "events" or "event-index")))

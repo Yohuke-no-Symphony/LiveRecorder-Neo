@@ -30,6 +30,8 @@ public sealed record BackgroundTaskSummary
     public bool CanCancel { get; init; }
     public bool CanRetry { get; init; }
     public bool CanInterruptRecording { get; init; }
+    public bool CanAbandonRecordingUpload { get; init; }
+    public string? RecordingUploadAbandonmentState { get; init; }
     public bool CanDelete { get; init; }
     public bool CanViewResults { get; init; }
     public int OutputCount { get; init; }

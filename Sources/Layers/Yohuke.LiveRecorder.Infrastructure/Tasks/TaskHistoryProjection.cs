@@ -212,7 +212,21 @@ internal static class TaskHistoryProjection
                 { "AcknowledgedArchiveBytes", IfNull("$AcknowledgedArchiveBytes", IfNull(First("$_library.TotalBytes"), 0)) },
                 { "CaptureState", IfNull("$CaptureState", Cond(Eq("$Descriptor.IsClosed", true), "Closed", "Recording")) }
             }));
+            stages.Add(Lookup("recordingUploadAbandonments", "_id", "_abandonments"));
+            stages.Add(new("$set", new BsonDocument("_abandonment",
+                Cond(And(Eq(First("$_abandonments.WorkerId"), "$WorkerId"), Eq(First("$_abandonments.AssignmentId"), "$AssignmentId"),
+                    Eq(First("$_abandonments.Generation"), "$Generation")), First("$_abandonments"), BsonNull.Value))));
         }
+        if (source == "snapshot")
+        {
+            stages.Add(Lookup("transcodeWorkers", "WorkerId", "_recordingWorkers", new BsonDocument
+            {
+                { "Kind", 1 }, { "Capabilities.RecordingUploadAbandonmentVersion", 1 }
+            }));
+        }
+        var requested = Eq(new BsonDocument("$type", "$_abandonment"), "object");
+        var acknowledged = Eq(new BsonDocument("$type", "$_abandonment.AcknowledgedAtUtc"), "date");
+        var canAbandon = source == "snapshot" ? CanAbandonRecording(requested) : new BsonDocument("$literal", false);
         BsonValue interruptedAt = source == "snapshot"
             ? Cond(And(Eq(First("$_interruptions.WorkerId"), "$WorkerId"), Eq(First("$_interruptions.AssignmentId"), "$AssignmentId"),
                     Eq(First("$_interruptions.Generation"), "$Generation"), Eq(First("$_interruptions.LastReportedAtUtc"), "$LastReportedAtUtc")),
@@ -222,9 +236,11 @@ internal static class TaskHistoryProjection
         stages.Add(new("$set", new BsonDocument
         {
             { "CreatedAtUtc", "$Descriptor.StartedAtUtc" }, { "Attempt", 0 },
-            { "State", Cond(new BsonDocument("$ne", new BsonArray { IfNull("$_finalized", BsonNull.Value), BsonNull.Value }), "Completed",
-                Cond(skipped, "Skipped", Cond(Eq(interruptedAt, BsonNull.Value), "Running", "Interrupted"))) },
-            { "FinishedAtUtc", IfNull("$_finalized", Cond(skipped, IfNull("$Descriptor.EndedAtUtc", "$Descriptor.StartedAtUtc"), interruptedAt)) },
+            { "State", Cond(requested, Cond(acknowledged, "Cancelled", "Running"),
+                Cond(new BsonDocument("$ne", new BsonArray { IfNull("$_finalized", BsonNull.Value), BsonNull.Value }), "Completed",
+                    Cond(skipped, "Skipped", Cond(Eq(interruptedAt, BsonNull.Value), "Running", "Interrupted")))) },
+            { "FinishedAtUtc", Cond(requested, IfNull("$_abandonment.AcknowledgedAtUtc", BsonNull.Value),
+                IfNull("$_finalized", Cond(skipped, IfNull("$Descriptor.EndedAtUtc", "$Descriptor.StartedAtUtc"), interruptedAt))) },
             { "Progress", 0 }
         }));
         var currentRecording = And(Eq(First("$_assignments.CurrentSessionId"), "$_id"),
@@ -241,12 +257,26 @@ internal static class TaskHistoryProjection
                 { "CapturedDurationMs", "$CapturedDurationMs" }, { "CommittedArchiveBytes", "$CommittedArchiveBytes" },
                 { "AcknowledgedArchiveBytes", "$AcknowledgedArchiveBytes" }, { "LastCapturedAtUtc", "$LastCapturedAtUtc" },
                 { "CurrentTransfer", "$CurrentTransfer" }, { "ErrorCode", "$ErrorCode" }, { "ErrorArguments", "$ErrorArguments" },
-                { "LastUpdatedAtUtc", IfNull("$LastReportedAtUtc", "$LastCapturedAtUtc") },
+                { "LastUpdatedAtUtc", Cond(requested, IfNull("$_abandonment.AcknowledgedAtUtc", "$_abandonment.CreatedAtUtc"),
+                    IfNull("$LastReportedAtUtc", "$LastCapturedAtUtc")) },
                 { "InterruptibleSnapshot", source == "snapshot" ? Cond(currentRecording, false, hasReport) : new BsonDocument("$literal", false) },
+                { "CanAbandonRecordingUpload", canAbandon },
+                { "RecordingUploadAbandonmentState", Cond(requested, Cond(acknowledged, "Completed", "Pending"), BsonNull.Value) },
                 { "IsClosed", "$Descriptor.IsClosed" }, { "Playable", IfNull("$_receipt.Published", source == "library") }
             }));
         return stages;
     }
+
+    private static BsonDocument CanAbandonRecording(BsonValue requested) => And(Eq(requested, false),
+        Eq("$Descriptor.SessionId", "$_id"), Eq("$Descriptor.IsClosed", true), Eq(new BsonDocument("$type", "$Descriptor.EndedAtUtc"), "date"),
+        Eq(First("$_assignments.OwnerKind"), "Worker"), Eq(First("$_assignments.OwnerId"), "$WorkerId"),
+        Eq(First("$_assignments.Generation"), "$Generation"), Eq(First("$_assignments.RoomId"), "$Descriptor.RoomId"),
+        Eq(First("$_recordingWorkers.Kind"), "Recording"),
+        new BsonDocument("$gte", new BsonArray { IfNull(First("$_recordingWorkers.Capabilities.RecordingUploadAbandonmentVersion"), 0), 1 }),
+        Cond(Eq(new BsonDocument("$type", "$_receipt"), "object"),
+            And(Eq("$_receipt.AssignmentId", "$AssignmentId"), Eq("$_receipt.Generation", "$Generation"),
+                Eq("$_receipt.Descriptor.RoomId", "$Descriptor.RoomId"), Eq(IfNull("$_receipt.Descriptor.IsClosed", false), false),
+                Eq(IfNull("$_receipt.FinalizedAtUtc", BsonNull.Value), BsonNull.Value)), true));
 
     private static BsonDocument Project(string kind, BsonValue type, BsonValue title, BsonValue session, BsonValue origin,
         BsonValue initiator, BsonValue name, BsonValue worker, BsonValue state, BsonDocument data)

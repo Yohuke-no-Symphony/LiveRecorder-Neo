@@ -69,7 +69,7 @@ public sealed class RecordingTaskLogTests
     /// <summary>Warnings attach to a broadcast only after that broadcast exists, including independent event reconnections.</summary>
     [Theory]
     [InlineData("Room", false)]
-    [InlineData("Stream", true)]
+    [InlineData("Stream", false)]
     [InlineData("Events", true)]
     public async Task CaptureFailuresKeepTheirSeverityAndExplicitSessionScope(string failure, bool hasSession)
     {
@@ -79,8 +79,10 @@ public sealed class RecordingTaskLogTests
         var entries = new ConcurrentQueue<WorkerLogEntry>();
         var warning = new TaskCompletionSource<WorkerLogEntry>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var cancellation = new CancellationTokenSource();
-        using var runner = new RecordingRoomRunner(fixture.Assignment, spool, new RecordingLogFailureSource(failure),
-            _ => new RecordingTestRecorder(), () => fixture.Configuration, TimeProvider.System, entry =>
+        var source = new RecordingLogFailureSource(failure);
+        var recorder = new RecordingTestRecorder();
+        using var runner = new RecordingRoomRunner(fixture.Assignment, spool, source,
+            _ => recorder, () => fixture.Configuration, TimeProvider.System, entry =>
             {
                 entries.Enqueue(entry);
                 if (entry.Level == "Warning")
@@ -108,6 +110,8 @@ public sealed class RecordingTaskLogTests
             Assert.Null(observed.JobId);
             Assert.Null(observed.Stage);
             Assert.Empty(spool.Sessions());
+            Assert.False(source.EventsStarted.IsCompleted);
+            Assert.False(recorder.Started.Task.IsCompleted);
         }
     }
 

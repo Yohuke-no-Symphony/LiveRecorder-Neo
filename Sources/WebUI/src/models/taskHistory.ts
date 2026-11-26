@@ -50,6 +50,8 @@ export interface TaskSummary
   canCancel: boolean
   canRetry: boolean
   canInterruptRecording?: boolean
+  canAbandonRecordingUpload?: boolean
+  recordingUploadAbandonmentState?: 'Pending' | 'Completed' | null
   canDelete: boolean
   canViewResults: boolean
   liveMarkerFileId?: string | null

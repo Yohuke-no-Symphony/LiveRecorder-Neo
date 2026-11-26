@@ -43,6 +43,12 @@ public static class RecordingWorkerEndpoints
         worker.MapPost("/sessions/{sessionId}/events/commit", async (string assignmentId, string sessionId,
             RecordingEventCommit commit, HttpContext http, RecordingIngestService ingest, CancellationToken ct) =>
             Results.Ok(await ingest.CommitEventsAsync(WorkerId(http), assignmentId, Generation(http), Token(http), sessionId, commit, ct)));
+        worker.MapPost("/sessions/{sessionId}/abandon-upload/ack", async (string assignmentId, string sessionId, HttpContext http,
+            RecordingIngestService ingest, CancellationToken ct) =>
+        {
+            await ingest.AcknowledgeAbandonmentAsync(WorkerId(http), assignmentId, Generation(http), Token(http), sessionId, ct);
+            return Results.NoContent();
+        });
         worker.MapPost("/stopped", async (string assignmentId, RecordingStopAcknowledgement acknowledgement, HttpContext http,
             RecordingIngestService ingest, CancellationToken ct) =>
         {

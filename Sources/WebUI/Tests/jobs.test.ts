@@ -13,7 +13,7 @@ import type { UserProfile } from '../src/models/auth'
 import type { WorkerLogEntry, WorkerLogPage } from '../src/models/transcoding'
 import { i18n } from '../src/plugins/i18n'
 
-const api = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn(), logs: vi.fn(), filters: vi.fn(), previewClear: vi.fn(), clearCompleted: vi.fn(), interruptRecording: vi.fn(), dismiss: vi.fn(), cancelMedia: vi.fn(), retryMedia: vi.fn(), cancelAi: vi.fn(), cancelTranscode: vi.fn(), retryTranscode: vi.fn(), download: vi.fn() }))
+const api = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn(), logs: vi.fn(), filters: vi.fn(), previewClear: vi.fn(), clearCompleted: vi.fn(), interruptRecording: vi.fn(), abandonRecordingUpload: vi.fn(), dismiss: vi.fn(), cancelMedia: vi.fn(), retryMedia: vi.fn(), cancelAi: vi.fn(), cancelTranscode: vi.fn(), retryTranscode: vi.fn(), download: vi.fn() }))
 vi.mock('../src/apis/TaskHistoryAPI', () => ({ TaskHistoryAPI: api }))
 vi.mock('../src/apis/MediaAPI', () => ({ MediaAPI: { cancelJob: api.cancelMedia, retryJob: api.retryMedia, downloadJobOutput: api.download } }))
 vi.mock('../src/apis/AiAnalysisAPI', () => ({ AiAnalysisAPI: { cancel: api.cancelAi } }))
@@ -345,6 +345,47 @@ describe('统一任务表格', () =>
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     expect(wrapper.find('[data-job-id="residue"]').exists()).toBe(false)
     expect(wrapper.find('[data-job-id="current"]').exists()).toBe(true)
+  })
+
+  it('管理员确认指定旧录像后提交放弃补传，并跟随 Worker 清理状态', async () =>
+  {
+    useAuthStore().user = viewer('Admin')
+    const neighbor = task({ id: 'neighbor', kind: 'recording', type: 'Recording', canCancel: false })
+    const eligible = task({ ...neighbor, id: 'old-capture', title: '待补传的旧录像', workerOnline: false, canAbandonRecordingUpload: true })
+    api.list.mockResolvedValue(page([eligible, neighbor]))
+    const personal = await open()
+    expect(personal.find('button[aria-label="放弃补传"]').exists()).toBe(false)
+    const wrapper = await open(true)
+    const row = wrapper.get('[data-job-id="old-capture"]')
+    expect(wrapper.get('[data-job-id="neighbor"]').find('button[aria-label="放弃补传"]').exists()).toBe(false)
+
+    await findButton(row, '放弃补传').trigger('click')
+    const confirmation = wrapper.get('[role="dialog"]')
+    expect(confirmation.text()).toContain(eligible.title)
+    expect(confirmation.text()).toContain('主站会保留已发布内容')
+    expect(confirmation.text()).toContain('重新连接后清理')
+    await findButton(confirmation, '取消').trigger('click')
+    expect(api.abandonRecordingUpload).not.toHaveBeenCalled()
+
+    await findButton(row, '放弃补传').trigger('click')
+    const pending = deferred<void>()
+    api.abandonRecordingUpload.mockReturnValueOnce(pending.promise)
+    await findButton(wrapper.get('[role="dialog"]'), '放弃补传').trigger('click')
+    expect(api.abandonRecordingUpload).toHaveBeenCalledExactlyOnceWith(eligible.id)
+    expect(findButton(wrapper.get('[role="dialog"]'), '取消').attributes('disabled')).toBeDefined()
+
+    const queued = { ...eligible, canAbandonRecordingUpload: false, recordingUploadAbandonmentState: 'Pending' as const }
+    api.list.mockResolvedValue(page([queued, neighbor]))
+    pending.resolve()
+    await flushPromises()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(row.text()).toContain('待 Worker 清理')
+    expect(row.find('button[aria-label="放弃补传"]').exists()).toBe(false)
+
+    api.list.mockResolvedValue(page([{ ...queued, state: 'Cancelled', recordingUploadAbandonmentState: 'Completed' }, neighbor]))
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(row.text()).toContain('已放弃补传')
+    expect(row.text()).not.toContain('待 Worker 清理')
   })
 
   it('删除失败仅在确认框显示一次错误，重试期间禁止关闭和重复确认', async () =>

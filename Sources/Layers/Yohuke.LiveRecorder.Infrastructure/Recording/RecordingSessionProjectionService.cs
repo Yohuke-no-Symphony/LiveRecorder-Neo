@@ -12,9 +12,10 @@ namespace Yohuke.LiveRecorder.Infrastructure.Recording;
 
 /// <summary>固定采集来源归属，并将独立文件和事件序号投影到稳定的逻辑场次。</summary>
 public sealed class RecordingSessionProjectionService(IMongoContext context, IAppPaths paths, ISettingsStore settingsStore,
-    IStatusPublisher publisher, TimeProvider? timeProvider = null)
+    IStatusPublisher publisher, TimeProvider? timeProvider = null, RecordingUploadAbandonmentService? uploadAbandonments = null)
 {
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
+    private readonly RecordingUploadAbandonmentService abandonments = uploadAbandonments ?? new(context, paths);
     private IMongoCollection<RecordingCaptureBinding> Captures => context.Collection<RecordingCaptureBinding>("recordingCaptureBindings");
     private IMongoCollection<BroadcastSession> Sessions => context.Collection<BroadcastSession>("sessions");
 
@@ -118,6 +119,30 @@ public sealed class RecordingSessionProjectionService(IMongoContext context, IAp
     public async Task<IReadOnlyList<RecordingCaptureBinding>> GetBindingsAsync(string logicalId, CancellationToken cancellationToken) =>
         await Captures.Find(value => value.LogicalSessionId == logicalId).SortBy(value => value.StartedAtUtc).ThenBy(value => value.Id).ToListAsync(cancellationToken);
 
+    internal async Task ApplyAbandonmentAsync(RecordingUploadAbandonment request, CancellationToken cancellationToken)
+    {
+        await using var libraryLock = await SessionLibraryLock.AcquireAsync(paths.RecordsDirectory, cancellationToken);
+        var capture = await Captures.Find(value => value.Id == request.Id && value.AssignmentId == request.AssignmentId
+            && value.Generation == request.Generation && !value.IsLocal).FirstOrDefaultAsync(cancellationToken);
+        var logicalId = capture?.LogicalSessionId ?? request.Id;
+        var session = await Sessions.Find(value => value.Id == logicalId && !value.IsHidden && !value.IsTrashed
+            && value.ProjectionReady && value.MediaRevision == 1).FirstOrDefaultAsync(cancellationToken);
+        if (session is null)
+        {
+            return;
+        }
+        if (capture is null)
+        {
+            if (session.RecordingAssignmentId != request.AssignmentId || session.RecordingGeneration != request.Generation
+                || session.Lifecycle is not null)
+            {
+                return;
+            }
+            session.EndedAtUtc ??= session.LastMediaAtUtc;
+        }
+        await ProjectAsync(session, cancellationToken);
+    }
+
     /// <summary>仅在没有未释放采集所有者时推进暂停场次，失联节点仍拥有其房间。</summary>
     public async Task MaintainPausedAsync(CancellationToken cancellationToken)
     {
@@ -135,7 +160,8 @@ public sealed class RecordingSessionProjectionService(IMongoContext context, IAp
                 continue;
             }
             var captures = await GetBindingsAsync(candidate.Id, cancellationToken);
-            if (captures.Count > 0 && captures.Any(value => !value.IsClosed))
+            var discarded = await AbandonedCapturesAsync(captures, cancellationToken);
+            if (captures.Any(value => !value.IsClosed && !discarded.ContainsKey(value.Id)))
             {
                 continue;
             }
@@ -274,7 +300,10 @@ public sealed class RecordingSessionProjectionService(IMongoContext context, IAp
             StartOffsetMs = (value.StartedAtUtc - session.StartedAtUtc).TotalMilliseconds
         }).ToList();
         var ended = session.Lifecycle?.EndReason is { } reason && reason != RecordingSessionEndReason.None || session.EndedAtUtc is not null;
-        var sealedSources = captures.Count > 0 && captures.All(value => value.IsClosed) && segments.All(value => value.IsClosed);
+        var discarded = await AbandonedCapturesAsync(captures, cancellationToken);
+        var settledCaptures = captures.All(value => value.IsClosed || discarded.ContainsKey(value.Id));
+        var sealedSources = captures.Count > 0 && settledCaptures
+            && await MediaSourcesSettledAsync(segments, discarded, cancellationToken);
         if (ended && sealedSources)
         {
             session.State = "Completed";
@@ -284,9 +313,38 @@ public sealed class RecordingSessionProjectionService(IMongoContext context, IAp
         {
             session.EndedAtUtc = null;
             session.State = ended ? "Finalizing" : session.Lifecycle?.LastObservedIsLive == false
-                || captures.Count == 0 || captures.All(value => value.IsClosed) ? "Waiting" : "Recording";
+                || settledCaptures ? "Waiting" : "Recording";
         }
         await SaveSessionAsync(session, cancellationToken);
+    }
+
+    private async Task<Dictionary<string, RecordingUploadAbandonment>> AbandonedCapturesAsync(IReadOnlyList<RecordingCaptureBinding> captures,
+        CancellationToken cancellationToken)
+    {
+        var remote = captures.Where(value => !value.IsLocal).ToDictionary(value => value.Id, StringComparer.Ordinal);
+        if (remote.Count == 0)
+        {
+            return new(StringComparer.Ordinal);
+        }
+        return (await abandonments.ForCapturesAsync(remote.Keys, cancellationToken)).Where(request => remote.TryGetValue(request.Id, out var capture)
+            && capture.AssignmentId == request.AssignmentId && capture.Generation == request.Generation)
+            .ToDictionary(value => value.Id, StringComparer.Ordinal);
+    }
+
+    private async Task<bool> MediaSourcesSettledAsync(List<RecordingSegment> segments, Dictionary<string, RecordingUploadAbandonment> discarded,
+        CancellationToken cancellationToken)
+    {
+        var open = segments.Where(value => !value.IsClosed).ToDictionary(value => value.Id, StringComparer.Ordinal);
+        if (open.Count == 0 || discarded.Count == 0)
+        {
+            return open.Count == 0;
+        }
+        var openIds = open.Keys.ToArray();
+        var receipts = await context.Collection<RecordingSegmentReceipt>("recordingSegments").Find(value => openIds.Contains(value.Id))
+            .ToListAsync(cancellationToken);
+        return receipts.Count == open.Count && receipts.All(value => discarded.TryGetValue(value.SessionId, out var request)
+            && request.AssignmentId == value.AssignmentId && request.Generation == value.Generation
+            && open[value.Id].AttemptId == value.AssignmentId);
     }
 
     private async Task SaveSessionAsync(BroadcastSession session, CancellationToken cancellationToken)

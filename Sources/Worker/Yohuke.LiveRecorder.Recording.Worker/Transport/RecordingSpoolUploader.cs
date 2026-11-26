@@ -1,28 +1,70 @@
 using Yohuke.LiveRecorder.Recording.Contracts;
 using Yohuke.LiveRecorder.Recording.Worker.Storage;
 using Yohuke.LiveRecorder.Transcoding.Contracts;
+using Yohuke.LiveRecorder.Transcoding.Worker.Transport;
 
 namespace Yohuke.LiveRecorder.Recording.Worker.Transport;
 
 internal sealed class RecordingSpoolUploader(RecordingSpool spool, RecordingFileTransfer transfer,
     Func<WorkerConfiguration> configuration, Func<string, bool> captureStopped, Action<WorkerLogEntry> log,
-    RecordingSessionProgressReporter? progress = null)
+    RecordingSessionProgressReporter? progress = null, TimeProvider? timeProvider = null)
 {
+    private static readonly TimeSpan LEASE_RETRY_DELAY = TimeSpan.FromSeconds(30);
+    private readonly Lock uploadSync = new();
+    private readonly TimeProvider time = timeProvider ?? TimeProvider.System;
+    private readonly Dictionary<(string AssignmentId, string? SessionId), (long FailedAt, string Message)> leaseRejections = new();
+    private readonly Dictionary<RecordingUploadAbandonmentCommand, (long FailedAt, string Message)> abandonmentRejections = new();
+    private (RecordingAssignment Assignment, string SessionId, CancellationTokenSource Cancellation)? activeUpload;
+    private Task stopUpload = Task.CompletedTask;
+
+    internal void AcceptAbandonments(IReadOnlyList<RecordingUploadAbandonmentCommand> commands)
+    {
+        if (commands.Count == 0)
+        {
+            return;
+        }
+        lock (uploadSync)
+        {
+            spool.SaveAbandonments(commands);
+            if (activeUpload is { } upload && !upload.Cancellation.IsCancellationRequested
+                && spool.HasAbandonment(upload.Assignment.AssignmentId, upload.Assignment.Generation, upload.SessionId))
+            {
+                stopUpload = upload.Cancellation.CancelAsync();
+            }
+        }
+    }
+
     internal async Task RunAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
+            await ProcessAbandonmentsAsync(cancellationToken);
             foreach (var assignment in spool.Assignments().Where(value => !value.Released))
             {
+                var assignmentId = assignment.Assignment.AssignmentId;
+                var stopScope = (assignmentId, (string?)null);
                 try
                 {
-                    foreach (var session in spool.Sessions(assignment.Assignment.AssignmentId).Where(value => value.State.Descriptor.IsClosed))
+                    var deferredBroadcasts = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var session in spool.Sessions(assignmentId).Where(value => value.State.Descriptor.IsClosed)
+                                 .OrderBy(value => value.State.Descriptor.StartedAtUtc))
                     {
                         var sessionId = session.State.Descriptor.SessionId;
-                        progress?.Uploading(sessionId);
+                        var logicalId = session.State.Descriptor.LogicalSessionId ?? sessionId;
+                        var scope = (assignmentId, sessionId);
+                        if (deferredBroadcasts.Contains(logicalId) || !LeaseRetryIsDue(scope))
+                        {
+                            deferredBroadcasts.Add(logicalId);
+                            continue;
+                        }
                         try
                         {
-                            await UploadSessionAsync(assignment.Assignment, session, cancellationToken);
+                            if (!await UploadUnlessAbandonedAsync(assignment.Assignment, session, cancellationToken))
+                            {
+                                deferredBroadcasts.Add(logicalId);
+                                continue;
+                            }
+                            leaseRejections.Remove(scope);
                             progress?.Uploaded(sessionId);
                         }
                         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -30,30 +72,128 @@ internal sealed class RecordingSpoolUploader(RecordingSpool spool, RecordingFile
                             WriteUploadLog(sessionId, "Upload paused; unacknowledged recording data remain queued.");
                             throw;
                         }
+                        catch (WorkerLeaseLostException error) when (!cancellationToken.IsCancellationRequested)
+                        {
+                            progress?.Failed(sessionId);
+                            deferredBroadcasts.Add(logicalId);
+                            if (RememberLeaseRejection(scope, error))
+                            {
+                                WriteUploadLog(sessionId, "Recording upload remains queued after a server rejection. " + error.Message, "Warning");
+                            }
+                        }
                         catch (Exception error) when (!cancellationToken.IsCancellationRequested)
                         {
                             progress?.Failed(sessionId);
+                            deferredBroadcasts.Add(logicalId);
+                            leaseRejections.Remove(scope);
                             WriteUploadLog(sessionId,
                                 $"Recording upload will retry. Committed data remain in the spool ({error.GetType().Name}). {error.Message}", "Warning");
-                            throw;
                         }
                     }
-                    if (!assignment.Assignment.Enabled && captureStopped(assignment.Assignment.AssignmentId)
-                        && spool.Sessions(assignment.Assignment.AssignmentId).Count == 0)
+                    if (!assignment.Assignment.Enabled && captureStopped(assignmentId) && LeaseRetryIsDue(stopScope)
+                        && !spool.HasAbandonment(assignmentId, assignment.Assignment.Generation)
+                        && spool.Sessions(assignmentId).Count == 0)
                     {
-                        var current = spool.Assignments().Single(value => value.Assignment.AssignmentId == assignment.Assignment.AssignmentId);
+                        var current = spool.Assignments().Single(value => value.Assignment.AssignmentId == assignmentId);
                         await transfer.StoppedAsync(current.Assignment, current.CompletedSessionIds, cancellationToken);
                         spool.SaveAssignment(current.Assignment, configuration().TempDirectory, released: true);
+                        leaseRejections.Remove(stopScope);
                         WriteNodeLog("The server acknowledged all recording data and released the room assignment.");
+                    }
+                }
+                catch (WorkerLeaseLostException error) when (!cancellationToken.IsCancellationRequested)
+                {
+                    if (RememberLeaseRejection(stopScope, error))
+                    {
+                        WriteNodeLog("The recording assignment remains queued after a server rejection. " + error.Message, "Warning");
                     }
                 }
                 catch (Exception error) when (!cancellationToken.IsCancellationRequested)
                 {
+                    leaseRejections.Remove(stopScope);
                     WriteNodeLog($"Recording upload remains queued in the persistent spool ({error.GetType().Name}). {error.Message}", "Warning");
                 }
             }
-            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+            await Task.Delay(TimeSpan.FromSeconds(1), time, cancellationToken);
         }
+    }
+
+    private async Task ProcessAbandonmentsAsync(CancellationToken cancellationToken)
+    {
+        foreach (var command in spool.Abandonments())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (abandonmentRejections.TryGetValue(command, out var previous)
+                && time.GetElapsedTime(previous.FailedAt) < LEASE_RETRY_DELAY)
+            {
+                continue;
+            }
+            try
+            {
+                spool.AbandonSession(command);
+                await transfer.AcknowledgeAbandonmentAsync(command, cancellationToken);
+                spool.ConfirmAbandonment(command);
+                abandonmentRejections.Remove(command);
+                leaseRejections.Remove((command.AssignmentId, command.SessionId));
+                leaseRejections.Remove((command.AssignmentId, null));
+                progress?.Uploaded(command.SessionId);
+                WriteUploadLog(command.SessionId, "The server acknowledged that the abandoned recording is absent from the local spool.");
+            }
+            catch (Exception error) when (!cancellationToken.IsCancellationRequested)
+            {
+                abandonmentRejections[command] = (time.GetTimestamp(), error.Message);
+                if (previous.Message != error.Message)
+                {
+                    WriteUploadLog(command.SessionId, "Recording upload abandonment remains queued. " + error.Message, "Warning");
+                }
+            }
+        }
+    }
+
+    private async Task<bool> UploadUnlessAbandonedAsync(RecordingAssignment assignment, RecordingSpoolSession session,
+        CancellationToken cancellationToken)
+    {
+        var sessionId = session.State.Descriptor.SessionId;
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        lock (uploadSync)
+        {
+            if (spool.HasAbandonment(assignment.AssignmentId, assignment.Generation, sessionId))
+            {
+                return false;
+            }
+            activeUpload = (assignment, sessionId, attempt);
+        }
+        try
+        {
+            progress?.Uploading(sessionId);
+            await UploadSessionAsync(assignment, session, attempt.Token);
+            return true;
+        }
+        catch (OperationCanceledException) when (attempt.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+        finally
+        {
+            Task callbacks;
+            lock (uploadSync)
+            {
+                activeUpload = null;
+                callbacks = stopUpload;
+                stopUpload = Task.CompletedTask;
+            }
+            await callbacks;
+        }
+    }
+
+    private bool LeaseRetryIsDue((string AssignmentId, string? SessionId) scope) =>
+        !leaseRejections.TryGetValue(scope, out var previous) || time.GetElapsedTime(previous.FailedAt) >= LEASE_RETRY_DELAY;
+
+    private bool RememberLeaseRejection((string AssignmentId, string? SessionId) scope, WorkerLeaseLostException error)
+    {
+        var changed = !leaseRejections.TryGetValue(scope, out var previous) || previous.Message != error.Message;
+        leaseRejections[scope] = (time.GetTimestamp(), error.Message);
+        return changed;
     }
 
     private async Task UploadSessionAsync(RecordingAssignment assignment, RecordingSpoolSession session, CancellationToken cancellationToken)

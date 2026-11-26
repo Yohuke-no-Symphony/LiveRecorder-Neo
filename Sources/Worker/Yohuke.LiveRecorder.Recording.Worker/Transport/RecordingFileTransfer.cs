@@ -21,6 +21,12 @@ internal sealed class RecordingFileTransfer : IDisposable
     internal Task SessionAsync(RecordingAssignment assignment, RecordingSessionDescriptor descriptor, CancellationToken cancellationToken) =>
         client.PostJsonAsync(Lease(assignment), "sessions", descriptor, cancellationToken);
 
+    internal Task AcknowledgeAbandonmentAsync(RecordingUploadAbandonmentCommand command, CancellationToken cancellationToken) =>
+        client.PostJsonAsync(new WorkerTransferLease
+        {
+            JobId = command.AssignmentId, Attempt = command.Generation, LeaseToken = command.Token
+        }, "sessions/" + Uri.EscapeDataString(command.SessionId) + "/abandon-upload/ack", new { }, cancellationToken);
+
     internal async Task<RecordingCommitAcknowledgement> SegmentAsync(RecordingAssignment assignment, string directory,
         string sessionId, MediaRecordingCommitSnapshot snapshot, long bytesPerSecond, CancellationToken cancellationToken,
         Action<RecordingSessionTransferProgress>? progress = null)

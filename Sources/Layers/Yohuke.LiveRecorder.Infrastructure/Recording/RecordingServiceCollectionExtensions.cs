@@ -13,6 +13,7 @@ public static class RecordingServiceCollectionExtensions
         services.AddSingleton<RecordingWorkerAssignmentService>();
         services.AddSingleton<RecordingAccountProvider>();
         services.AddSingleton<RecordingJobScheduler>();
+        services.AddSingleton<RecordingUploadAbandonmentService>();
         services.AddSingleton<RecordingIngestService>();
         services.AddSingleton<RecordingHandoffService>();
         services.AddSingleton<RecordingTargetStatusService>();

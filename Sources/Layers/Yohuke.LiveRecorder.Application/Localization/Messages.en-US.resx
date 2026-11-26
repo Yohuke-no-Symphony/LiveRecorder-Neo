@@ -165,6 +165,8 @@
   <data name="REQUEST_RATE_LIMIT" xml:space="preserve"><value>Too many requests. Try again later.</value></data>
   <data name="RECORDING_DISK_SPACE_LOW" xml:space="preserve"><value>Recording has paused because the recording volume is low on free space.</value></data>
   <data name="RECORDING_UPLOAD_FAILED" xml:space="preserve"><value>Recording upload was interrupted and is waiting to retry.</value></data>
+  <data name="RECORDING_UPLOAD_ABANDONED" xml:space="preserve"><value>An administrator requested that this recording upload be abandoned. The server no longer accepts uploads for this capture.</value></data>
+  <data name="RECORDING_UPLOAD_ABANDONMENT_UNSUPPORTED" xml:space="preserve"><value>This recording Worker does not support abandoning uploads. Update the Worker and try again.</value></data>
   <data name="RECORDING_CACHE_LOST" xml:space="preserve"><value>An administrator confirmed that the local recording cache was lost and uploads cannot resume.</value></data>
   <data name="TASK_EXECUTION_FAILED" xml:space="preserve"><value>The task failed. Contact an administrator for diagnostics.</value></data>
   <data name="RECORDING_SOURCE_UNAVAILABLE" xml:space="preserve"><value>The recording source is temporarily unavailable. Waiting to reconnect.</value></data>
