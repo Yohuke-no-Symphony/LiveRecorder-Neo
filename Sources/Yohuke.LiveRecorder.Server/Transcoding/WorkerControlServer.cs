@@ -7,6 +7,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Yohuke.LiveRecorder.Application;
+using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Transcoding;
 using Yohuke.LiveRecorder.Server.Configuration;
 using Yohuke.LiveRecorder.Transcoding.Contracts;
@@ -15,7 +16,7 @@ namespace Yohuke.LiveRecorder.Server.Transcoding;
 
 /// <summary>为独立转码 Worker 提供有界 TCP 或 TLS 控制连接。</summary>
 public sealed class WorkerControlServer(TranscodingCoordinator coordinator, IOptions<TranscodingControlOptions> options,
-    ILogger<WorkerControlServer> logger, WorkerConnectionStatusTracker connectionStatus) : BackgroundService
+    ILogger<WorkerControlServer> logger, WorkerConnectionStatusTracker connectionStatus, CurrentInstanceStorage storage) : BackgroundService
 {
     private readonly Lock workersGate = new();
     private readonly Dictionary<string, TcpClient> workers = new(StringComparer.Ordinal);
@@ -30,6 +31,7 @@ public sealed class WorkerControlServer(TranscodingCoordinator coordinator, IOpt
         {
             return;
         }
+        await storage.WaitForReadyAsync(stoppingToken);
         using var certificate = configuration.UseTls
             ? X509CertificateLoader.LoadPkcs12FromFile(configuration.CertificatePath!, configuration.CertificatePassword) : null;
         if (certificate is { HasPrivateKey: false })

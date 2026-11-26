@@ -17,7 +17,7 @@ public sealed class LiveMarkerMaintenanceWorker(
         {
             try
             {
-                if (bootstrap.IsInstalled)
+                if (bootstrap.IsReady)
                 {
                     await files.MaintainAsync(stoppingToken);
                 }

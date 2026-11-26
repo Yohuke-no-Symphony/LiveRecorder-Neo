@@ -26,7 +26,7 @@ public sealed class TranscodeMaintenanceService(IMongoContext context, IBootstra
         {
             try
             {
-                if (bootstrap.IsInstalled)
+                if (bootstrap.IsReady)
                 {
                     await MaintainAsync(stoppingToken);
                 }

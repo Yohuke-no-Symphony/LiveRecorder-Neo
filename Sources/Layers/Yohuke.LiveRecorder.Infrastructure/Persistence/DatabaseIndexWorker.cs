@@ -17,7 +17,7 @@ public sealed class DatabaseIndexWorker(IMongoContext context, IBootstrapStore b
         {
             try
             {
-                if (bootstrap.IsInstalled)
+                if (bootstrap.IsReady)
                 {
                     await context.Collection<Streamer>("streamers").Indexes.CreateOneAsync(new CreateIndexModel<Streamer>(Builders<Streamer>.IndexKeys.Ascending(x => x.RoomId), new CreateIndexOptions { Unique = true, Name = "room_unique" }), cancellationToken: stoppingToken);
                     await context.Collection<BroadcastSession>("sessions").Indexes.CreateOneAsync(new CreateIndexModel<BroadcastSession>(Builders<BroadcastSession>.IndexKeys.Ascending(x => x.StreamerId).Descending(x => x.CreatedAtUtc)), cancellationToken: stoppingToken);

@@ -15,7 +15,7 @@ public sealed class AiJobMaintenanceWorker(IBootstrapStore bootstrap, AiJobExecu
         {
             try
             {
-                if (bootstrap.IsInstalled)
+                if (bootstrap.IsReady)
                 {
                     probes.Maintain();
                     await execution.MaintainAsync(stoppingToken);

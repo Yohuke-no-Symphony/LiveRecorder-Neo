@@ -5,6 +5,7 @@ public sealed class CurrentBootstrapStore(CurrentInstanceStorage storage) : IBoo
 {
     public BootstrapConfiguration? Current => storage.Current.Bootstrap.Current;
     public bool IsInstalled => storage.IsInstalled;
+    public bool IsReady => storage.IsReady;
     public string InstallationToken => storage.Current.Bootstrap.InstallationToken;
 
     /// <inheritdoc />

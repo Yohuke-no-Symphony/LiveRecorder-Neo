@@ -4,9 +4,24 @@ namespace Yohuke.LiveRecorder.Infrastructure.Configuration;
 public sealed class CurrentInstanceStorage(InstanceStorageContext initial)
 {
     private InstanceStorageContext current = initial;
+    private readonly TaskCompletionSource ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public InstanceStorageContext Current => Volatile.Read(ref current);
     public bool IsInstalled => Current.IsInstalled;
+    public bool IsReady => ready.Task.IsCompletedSuccessfully;
+
+    /// <summary>等待已安装实例通过启动数据检查。</summary>
+    public Task WaitForReadyAsync(CancellationToken cancellationToken) => ready.Task.WaitAsync(cancellationToken);
+
+    /// <summary>在同一已发布实例完成迁移后开放业务。</summary>
+    public void MarkReady(InstanceStorageContext instance)
+    {
+        if (!instance.IsInstalled || !ReferenceEquals(Current, instance))
+        {
+            throw new InvalidOperationException("Only the published installation can become ready.");
+        }
+        ready.TrySetResult();
+    }
 
     /// <summary>发布已完成安装的候选；拒绝替换已安装实例或覆盖其他安装流程的结果。</summary>
     public void PublishInstalled(InstanceStorageContext expected, InstanceStorageContext candidate)

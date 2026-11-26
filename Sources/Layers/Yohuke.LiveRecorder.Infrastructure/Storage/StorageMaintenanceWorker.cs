@@ -15,7 +15,7 @@ public sealed class StorageMaintenanceWorker(IBootstrapStore bootstrap, StorageS
         {
             try
             {
-                if (bootstrap.IsInstalled)
+                if (bootstrap.IsReady)
                 {
                     await storage.MaintainAsync(stoppingToken);
                     await segmentTrash.MaintainAsync(stoppingToken);

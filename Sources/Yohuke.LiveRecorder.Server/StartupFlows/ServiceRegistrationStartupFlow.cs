@@ -12,6 +12,7 @@ using Yohuke.LiveRecorder.Infrastructure.Jobs;
 using Yohuke.LiveRecorder.Infrastructure.Library;
 using Yohuke.LiveRecorder.Infrastructure.Library.LiveMarkers;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
+using Yohuke.LiveRecorder.Infrastructure.Persistence.Migrations;
 using Yohuke.LiveRecorder.Infrastructure.Playback;
 using Yohuke.LiveRecorder.Infrastructure.Recording;
 using Yohuke.LiveRecorder.Infrastructure.Storage;
@@ -86,6 +87,9 @@ internal sealed class ServiceRegistrationStartupFlow : IBuilderStartupFlow
 
     private static void RegisterRuntimeServices(WebApplicationBuilder builder)
     {
+        builder.Services.AddMigrations();
+        builder.Services.AddSingleton<MigrationStartupService>();
+        builder.Services.AddHostedService(services => services.GetRequiredService<MigrationStartupService>());
         builder.Services.AddSingleton<StatusConnections>();
         builder.Services.AddSingleton<IUserSessionRevoker>(provider => provider.GetRequiredService<StatusConnections>());
         builder.Services.AddSingleton<IStatusPublisher, SignalRStatusPublisher>();

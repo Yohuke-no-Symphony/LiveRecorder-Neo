@@ -5,6 +5,7 @@ public interface IBootstrapStore
 {
     BootstrapConfiguration? Current { get; }
     bool IsInstalled { get; }
+    bool IsReady => IsInstalled;
     string InstallationToken { get; }
 
     /// <summary>原子保存实例的安装阶段与连接参数。</summary>

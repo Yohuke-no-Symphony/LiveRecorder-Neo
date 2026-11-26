@@ -21,7 +21,7 @@ public sealed class ArtworkMaintenanceWorker(IMongoContext context, IBootstrapSt
         {
             try
             {
-                if (bootstrap.IsInstalled)
+                if (bootstrap.IsReady)
                 {
                     var filter = Builders<BroadcastSession>.Filter.Where(x => !x.IsTrashed && !x.IsHidden && x.ProjectionReady && (x.CoverRelativePath == null || x.CoverRelativePath == ""));
                     if (coverCursor is not null)

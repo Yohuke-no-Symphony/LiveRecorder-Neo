@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Driver;
 using Yohuke.LiveRecorder.Application;
@@ -7,6 +8,7 @@ using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Auth;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
+using Yohuke.LiveRecorder.Infrastructure.Persistence.Migrations;
 
 namespace Yohuke.LiveRecorder.Identity.Tests;
 
@@ -27,6 +29,7 @@ internal sealed class IdentityFixture : IAsyncDisposable
     internal ISettingsStore Settings { get; private set; } = null!;
     internal InstallationService Installation { get; private set; } = null!;
     internal IdentityService Identity { get; private set; } = null!;
+    private ServiceProvider? services;
 
     internal static async Task<IdentityFixture> CreateAsync()
     {
@@ -43,7 +46,9 @@ internal sealed class IdentityFixture : IAsyncDisposable
             fixture.Protector = initial.SecretProtector;
             fixture.Settings = new SettingsStore(startup, new CurrentBootstrapStore(current), new CurrentMongoContext(current), new CurrentAppPaths(current));
             var hasher = new PasswordHasher<UserAccount>();
-            fixture.Installation = new(current, factory, startup, fixture.Settings, hasher);
+            fixture.services = new ServiceCollection().AddLogging().AddMigrations().BuildServiceProvider();
+            fixture.Installation = new(current, factory, startup, fixture.Settings, hasher,
+                fixture.services.GetRequiredService<MigrationManager>());
             await fixture.Installation.InstallAsync(fixture.InstallRequest());
             fixture.Paths = current.Current.Paths;
             fixture.Bootstrap = current.Current.Bootstrap;
@@ -77,6 +82,10 @@ internal sealed class IdentityFixture : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (services is not null)
+        {
+            await services.DisposeAsync();
+        }
         if (DatabaseName.StartsWith("identity_tests_", StringComparison.Ordinal) && DatabaseName.Length == 47)
         {
             await new MongoClient(ConnectionString).DropDatabaseAsync(DatabaseName);

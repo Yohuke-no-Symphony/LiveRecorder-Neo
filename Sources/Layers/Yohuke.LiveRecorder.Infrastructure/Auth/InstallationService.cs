@@ -11,11 +11,13 @@ using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.Configuration;
 using Yohuke.LiveRecorder.Infrastructure.Files;
 using Yohuke.LiveRecorder.Infrastructure.Persistence;
+using Yohuke.LiveRecorder.Infrastructure.Persistence.Migrations;
 
 namespace Yohuke.LiveRecorder.Infrastructure.Auth;
 
 /// <summary>在所选目录验证并完成新装或恢复，成功后一次性发布实例存储。</summary>
-public sealed class InstallationService(CurrentInstanceStorage current, InstanceStorageFactory factory, StartupConfigurationStore configuration, ISettingsStore settingsStore, IPasswordHasher<UserAccount> passwordHasher) : IInstallationService
+public sealed class InstallationService(CurrentInstanceStorage current, InstanceStorageFactory factory, StartupConfigurationStore configuration,
+    ISettingsStore settingsStore, IPasswordHasher<UserAccount> passwordHasher, MigrationManager migrations) : IInstallationService
 {
     private readonly SemaphoreSlim gate = new(1, 1);
 
@@ -144,9 +146,18 @@ public sealed class InstallationService(CurrentInstanceStorage current, Instance
                 user.PasswordHash = passwordHasher.HashPassword(user, password);
                 await users.InsertOneAsync(user, cancellationToken: cancellationToken);
             }
+            if (request.Mode == InstallationMode.New)
+            {
+                await migrations.InitializeNewAsync(database, paths, cancellationToken);
+            }
+            else
+            {
+                await migrations.RunAsync(database, paths, cancellationToken);
+            }
             installed.Installed = true;
             await configuration.CommitInstallationAsync(request.DataDirectory, request.RecordsDirectory, settings, token => bootstrap.SaveAsync(installed, token), cancellationToken);
             current.PublishInstalled(expected, candidate);
+            current.MarkReady(current.Current);
         }
         finally
         {

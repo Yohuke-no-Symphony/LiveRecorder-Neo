@@ -38,7 +38,7 @@ public sealed class RecordingSupervisor(IMongoContext context, IBootstrapStore b
         {
             try
             {
-                if (bootstrap.IsInstalled)
+                if (bootstrap.IsReady)
                 {
                     if (!reconciled)
                     {

@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <ItemGroup>
+        <InternalsVisibleTo Include="Yohuke.LiveRecorder.Identity.Tests" />
         <ProjectReference Include="../Yohuke.LiveRecorder.Application/Yohuke.LiveRecorder.Application.csproj" />
         <ProjectReference Include="../../Modules/Yohuke.LiveRecorder.Analytics/Yohuke.LiveRecorder.Analytics.csproj" />
         <ProjectReference Include="../../Modules/Yohuke.LiveRecorder.Recording/Yohuke.LiveRecorder.Recording.csproj" />

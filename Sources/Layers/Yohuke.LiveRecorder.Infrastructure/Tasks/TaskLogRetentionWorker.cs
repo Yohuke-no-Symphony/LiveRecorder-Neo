@@ -15,7 +15,7 @@ public sealed class TaskLogRetentionWorker(IBootstrapStore bootstrap, TaskLogRet
         {
             try
             {
-                if (bootstrap.IsInstalled)
+                if (bootstrap.IsReady)
                 {
                     await settings.ReplayPendingAsync(stoppingToken);
                     await retention.InitializeAsync(stoppingToken);

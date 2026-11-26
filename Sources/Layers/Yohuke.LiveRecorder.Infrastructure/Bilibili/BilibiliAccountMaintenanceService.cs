@@ -13,7 +13,7 @@ public sealed class BilibiliAccountMaintenanceService(BilibiliService service, I
         using var timer = new PeriodicTimer(TimeSpan.FromMinutes(10));
         do
         {
-            if (bootstrap.IsInstalled)
+            if (bootstrap.IsReady)
             {
                 try
                 {

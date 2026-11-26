@@ -20,11 +20,13 @@ internal sealed class RequestPipelineStartupFlow(CurrentInstanceStorage currentS
         }
         app.Use(async (http, next) =>
         {
-            if (!currentStorage.IsInstalled && http.Request.Path.StartsWithSegments("/api")
-                && http.Request.Path != "/api/setup" && http.Request.Path != "/api/setup/status"
-                && http.Request.Path != "/api/auth/me" && http.Request.Path != "/api/ui-settings")
+            var path = http.Request.Path;
+            if (!currentStorage.IsReady && (path.StartsWithSegments("/api") || path.StartsWithSegments("/hubs"))
+                && path != "/api/setup" && path != "/api/setup/status" && path != "/api/auth/me"
+                && (currentStorage.IsInstalled || path != "/api/ui-settings"))
             {
-                await LocalizedProblem.Create(MessageCode.SETUP_REQUIRED, 503).ExecuteAsync(http);
+                var code = currentStorage.IsInstalled ? MessageCode.REQUEST_DATABASE_UNAVAILABLE : MessageCode.SETUP_REQUIRED;
+                await LocalizedProblem.Create(code, 503).ExecuteAsync(http);
                 return;
             }
             await next();

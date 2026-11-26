@@ -34,7 +34,7 @@ public sealed class MediaJobWorker(IMongoContext context, IBootstrapStore bootst
             try
             {
                 running.RemoveAll(x => x.IsCompleted);
-                if (bootstrap.IsInstalled)
+                if (bootstrap.IsReady)
                 {
                     var settings = await settingsStore.GetAsync(stoppingToken);
                     if (DateTime.UtcNow - lastWorkSweepUtc > TimeSpan.FromSeconds(30))
