@@ -103,7 +103,8 @@ public static class ClipLibraryEndpoints
             { "_id", 1 }, { nameof(Clip.OwnerId), 1 }, { nameof(Clip.SessionId), 1 }, { nameof(Clip.Title), 1 },
             { nameof(Clip.Bytes), 1 }, { nameof(Clip.StartMs), 1 }, { nameof(Clip.EndMs), 1 },
             { nameof(Clip.CreatedAtUtc), 1 }, { nameof(Clip.ExpiresAtUtc), 1 },
-            { nameof(ManagedClipResponse.OwnerDisplayName), 1 }, { nameof(ManagedClipResponse.OwnerAvatarUrl), 1 }
+            { nameof(ManagedClipResponse.OwnerDisplayName), 1 }, { nameof(ManagedClipResponse.OwnerAvatarUrl), 1 },
+            { nameof(ManagedClipResponse.OwnerProfileId), 1 }
         }).ToListAsync(ct);
         return Results.Ok(new ManagedClipPage(items, total));
     }
@@ -115,14 +116,16 @@ public static class ClipLibraryEndpoints
         {
             new BsonDocument("$trim", new BsonDocument("input", displayName)), ""
         });
+        var hasProfile = new BsonDocument("$eq", new BsonArray { new BsonDocument("$first", "$_owner.Status"), "Active" });
         return query.AppendStage<Clip>(new BsonDocument("$lookup", new BsonDocument
         {
             { "from", "users" }, { "localField", nameof(Clip.OwnerId) }, { "foreignField", "_id" }, { "as", "_owner" },
-            { "pipeline", new BsonArray { new BsonDocument("$project", new BsonDocument { { "DisplayName", 1 }, { "AvatarUrl", 1 } }) } }
+            { "pipeline", new BsonArray { new BsonDocument("$project", new BsonDocument { { "DisplayName", 1 }, { "AvatarUrl", 1 }, { "Status", 1 } }) } }
         })).AppendStage<Clip>(new BsonDocument("$set", new BsonDocument
         {
             { nameof(ManagedClipResponse.OwnerDisplayName), new BsonDocument("$cond", new BsonArray { hasName, displayName, "$OwnerId" }) },
-            { nameof(ManagedClipResponse.OwnerAvatarUrl), new BsonDocument("$first", "$_owner.AvatarUrl") }
+            { nameof(ManagedClipResponse.OwnerAvatarUrl), new BsonDocument("$first", "$_owner.AvatarUrl") },
+            { nameof(ManagedClipResponse.OwnerProfileId), new BsonDocument("$cond", new BsonArray { hasProfile, "$OwnerId", BsonNull.Value }) }
         }));
     }
 

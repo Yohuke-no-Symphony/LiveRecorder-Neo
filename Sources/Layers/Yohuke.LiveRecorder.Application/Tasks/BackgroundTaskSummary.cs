@@ -11,6 +11,7 @@ public sealed record BackgroundTaskSummary
     public string State { get; init; } = "Queued";
     public string Origin { get; init; } = "Legacy";
     public string? InitiatorUserId { get; init; }
+    public string? InitiatorProfileId { get; init; }
     public string? InitiatorName { get; init; }
     public string? InitiatorAvatarUrl { get; init; }
     public string? WorkerId { get; init; }

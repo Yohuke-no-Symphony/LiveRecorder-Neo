@@ -35,13 +35,15 @@ internal static class TaskHistoryProjection
                 pipeline.Add(new("$match", new BsonDocument("$or", allowed)));
             }
         }
-        pipeline.Add(Lookup("users", "InitiatorUserId", "_creator", new() { { "DisplayName", 1 }, { "AvatarUrl", 1 } }));
+        pipeline.Add(Lookup("users", "InitiatorUserId", "_creator", new() { { "DisplayName", 1 }, { "AvatarUrl", 1 }, { "Status", 1 } }));
         pipeline.Add(Lookup("transcodeWorkers", "WorkerId", "_worker", new("Name", 1)));
+        var currentName = IfNull(First("$_creator.DisplayName"), "");
+        var blankName = Eq(new BsonDocument("$trim", new BsonDocument("input", currentName)), "");
         pipeline.Add(new("$set", new BsonDocument
         {
-            { "InitiatorName", Cond(Or(Eq("$InitiatorName", ""), Eq("$InitiatorName", BsonNull.Value)),
-                First("$_creator.DisplayName"), "$InitiatorName") },
+            { "InitiatorName", Cond(blankName, "$InitiatorName", currentName) },
             { "InitiatorAvatarUrl", First("$_creator.AvatarUrl") },
+            { nameof(BackgroundTaskSummary.InitiatorProfileId), Cond(Eq(First("$_creator.Status"), "Active"), First("$_creator._id"), BsonNull.Value) },
             { "WorkerName", IfNull(First("$_worker.Name"), "$WorkerId") },
             { "FinishedAtUtc", Cond(Terminal(), IfNull("$FinishedAtUtc", "$CreatedAtUtc"), BsonNull.Value) }
         }));
@@ -285,7 +287,6 @@ internal static class TaskHistoryProjection
     private static BsonDocument Eq(BsonValue first, BsonValue second) => new("$eq", new BsonArray { first, second });
     private static BsonDocument Cond(BsonValue condition, BsonValue yes, BsonValue no) => new("$cond", new BsonArray { condition, yes, no });
     private static BsonDocument And(params BsonValue[] values) => new("$and", new BsonArray(values));
-    private static BsonDocument Or(params BsonValue[] values) => new("$or", new BsonArray(values));
     private static BsonDocument First(string path) => new("$arrayElemAt", new BsonArray { path, 0 });
     private static BsonDocument Literal(string value) => new("$literal", value);
 

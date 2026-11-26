@@ -35,6 +35,8 @@
           </v-btn>
         </template>
         <v-list density="compact">
+          <v-list-item v-if="auth.user" :to="{name: 'user-profile', params: {userId: auth.user.id}}"
+                       :title="t('shell.nav.myProfile')" prepend-icon="mdi-account-outline"/>
           <v-list-item to="/account" :title="t('shell.nav.account')" prepend-icon="mdi-account-cog-outline"/>
           <v-list-item :title="t('shell.nav.logout')" prepend-icon="mdi-logout" @click="logout"/>
         </v-list>

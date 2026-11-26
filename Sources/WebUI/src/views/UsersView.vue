@@ -33,8 +33,8 @@
         item-value="id"
       >
         <template #item.displayName="{ item: user }">
-          <div class="d-flex align-center ga-3">
-            <UserAvatar :name="user.displayName" :avatar-url="user.avatarUrl" size="34"/>{{ user.displayName }}</div>
+          <UserIdentityLink :user-id="user.status === 'Active' ? user.id : null"
+                            :name="user.displayName" :avatar-url="user.avatarUrl" :size="34"/>
         </template>
         <template #item.role="{ item: user }">
           <v-chip size="small" :color="user.role === 'Admin' ? 'primary' : undefined">{{ user.role === 'Admin' ?
@@ -159,7 +159,7 @@ import {usePolling} from '@/composables/usePolling'
 import type {Invitation, UserPermissions, UserProfile} from '@/models/auth'
 import {formatDate, formatNumber} from '@/utilities/format'
 import PageHeader from '@/components/common/PageHeader.vue'
-import UserAvatar from '@/components/common/UserAvatar.vue'
+import UserIdentityLink from '@/components/common/UserIdentityLink.vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import PermissionFields from '@/components/common/PermissionFields.vue'

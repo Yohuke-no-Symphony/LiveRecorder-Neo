@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
+import { createPinia, disposePinia, type Pinia } from 'pinia'
 import RecordingWorkerAssignmentsDialog from '../src/components/common/RecordingWorkerAssignmentsDialog.vue'
 import TranscodingWorkersPanel from '../src/components/common/TranscodingWorkersPanel.vue'
 import { TranscodingAPI } from '../src/apis/TranscodingAPI'
@@ -23,6 +24,7 @@ const stubs = {
   VSpacer: true, StatusChip: true,
 }
 const mounted: VueWrapper[] = []
+let pinia: Pinia
 const room: RecordingWorkerAssignment = { targetId: 'target-1', roomId: 123456, name: '测试主播' }
 
 async function open(id = 'recording-1'): Promise<VueWrapper>
@@ -38,6 +40,7 @@ async function open(id = 'recording-1'): Promise<VueWrapper>
 
 beforeEach(() =>
 {
+  pinia = createPinia()
   vi.clearAllMocks()
   i18n.global.locale.value = 'zh-CN'
   vi.mocked(TranscodingAPI.workerAssignments).mockReset().mockResolvedValue([room])
@@ -47,6 +50,7 @@ beforeEach(() =>
 afterEach(() =>
 {
   mounted.splice(0).forEach(wrapper => wrapper.unmount())
+  disposePinia(pinia)
   i18n.global.locale.value = 'zh-CN'
 })
 
@@ -63,7 +67,7 @@ describe('录像 Worker 分配情况', () =>
     vi.mocked(TranscodingAPI.workers).mockResolvedValue(workers)
     for (const kind of ['Transcoding', 'Clipping', 'Recording'] satisfies WorkerKind[])
     {
-      const wrapper = mount(TranscodingWorkersPanel, { props: { kind }, global: { plugins: [i18n], stubs } })
+      const wrapper = mount(TranscodingWorkersPanel, { props: { kind }, global: { plugins: [i18n, pinia], stubs } })
       mounted.push(wrapper)
       await flushPromises()
       const button = wrapper.findAll('button').find(button => button.text() === '分配情况')

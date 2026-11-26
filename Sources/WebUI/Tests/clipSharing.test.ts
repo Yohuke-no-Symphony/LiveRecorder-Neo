@@ -7,6 +7,7 @@ import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { createVuetify } from 'vuetify'
 import { VTextField } from 'vuetify/components/VTextField'
 import { ApiError } from '../src/apis/APIBase'
+import { AuthAPI } from '../src/apis/AuthAPI'
 import { MediaAPI } from '../src/apis/MediaAPI'
 import ClipCard from '../src/components/clips/ClipCard.vue'
 import ClipShareDialog from '../src/components/clips/ClipShareDialog.vue'
@@ -16,6 +17,7 @@ import type { Clip } from '../src/models/media'
 import { i18n } from '../src/plugins/i18n'
 import { useAuthStore } from '../src/stores/auth'
 import ClipShareView from '../src/views/ClipShareView.vue'
+import UserProfileView from '../src/views/UserProfileView.vue'
 import { keepSharePassword, takeSharePassword } from '../src/utilities/sharePassword'
 
 const clip: Clip = {
@@ -34,6 +36,8 @@ const stubs = {
   VDialog: { props: ['modelValue'], template: '<section v-if="modelValue" role="dialog"><slot /></section>' },
   VSnackbar: { props: ['modelValue'], template: '<div v-if="modelValue" role="status"><slot /></div>' },
   VAlert: { template: '<div role="alert"><slot /><slot name="append" /></div>' },
+  UserAvatar: true, VList: container, VIcon: true,
+  VListItem: { props: ['to', 'title'], template: '<router-link :to="to">{{ title }}<slot name="subtitle" /></router-link>' },
   VBtn: {
     props: ['href', 'disabled', 'loading'],
     template: '<component :is="href ? \'a\' : \'button\'" :href="href" :disabled="disabled || loading"><slot /></component>',
@@ -102,6 +106,7 @@ beforeEach(async () =>
   router = createRouter({ history: createMemoryHistory(), routes: [
     { path: '/', component: placeholder },
     { path: '/login', component: placeholder },
+    { path: '/users/:userId', name: 'user-profile', component: UserProfileView },
     { path: '/shares/clips/:id/:token', name: 'shared-clip', component: ClipShareView },
   ] })
   await router.push('/')
@@ -256,6 +261,7 @@ describe('共享切片接收页', () =>
     const unlock = vi.spyOn(MediaAPI, 'unlockSharedClip').mockResolvedValue(undefined)
     const load = vi.spyOn(MediaAPI, 'sharedClip').mockResolvedValue({
       title: clip.title, durationMs: 6000, bytes: clip.bytes, expiresAtUtc: clip.expiresAtUtc,
+      owner: { id: clip.ownerId, displayName: '分享者甲', avatarUrl: '' },
     })
 
     const wrapper = await openCard()
@@ -263,6 +269,7 @@ describe('共享切片接收页', () =>
     expect(unlock.mock.invocationCallOrder[0]).toBeLessThan(load.mock.invocationCallOrder[0]!)
     expect(takeSharePassword(cardPath)).toBeUndefined()
     expect(wrapper.get('h2').text()).toBe(clip.title)
+    expect(wrapper.get('a[href="/users/owner"]').text()).toBe('分享者甲')
   })
 
   it('错误的 URL 密码显示提示并允许手动提取', async () =>
@@ -321,5 +328,50 @@ describe('共享切片接收页', () =>
     await openCard()
     expect(router.currentRoute.value.path).toBe('/login')
     expect(router.currentRoute.value.query.returnTo).toBe(cardPath)
+  })
+})
+
+describe('个人主页公开分享', () =>
+{
+  it('按分页位置继续加载，并让公开条目进入分享详情', async () =>
+  {
+    const owner = { id: clip.ownerId, displayName: '分享者甲', avatarUrl: '' }
+    const first = {
+      id: clip.id, token, title: clip.title, bytes: clip.bytes, durationMs: 6000,
+      createdAtUtc: clip.createdAtUtc, expiresAtUtc: clip.expiresAtUtc,
+    }
+    const nextCursor = { beforeUtc: first.createdAtUtc, beforeId: first.id }
+    vi.spyOn(AuthAPI, 'publicProfile').mockResolvedValue(owner)
+    const load = vi.spyOn(MediaAPI, 'publicClipShares')
+      .mockResolvedValueOnce({ items: [first], nextCursor })
+      .mockResolvedValueOnce({ items: [{ ...first, id: 'older', title: '较早的公开切片' }], nextCursor: null })
+    await router.push('/users/owner')
+    const wrapper = mount(UserProfileView, { global: globalOptions() })
+    mounted.push(wrapper)
+    await flushPromises()
+
+    expect(wrapper.get('h1').text()).toBe(owner.displayName)
+    expect(wrapper.get('a[href="' + cardPath + '"]').text()).toContain(clip.title)
+    await button(wrapper, '加载更多').trigger('click')
+    await flushPromises()
+
+    expect(load).toHaveBeenNthCalledWith(1, owner.id, null)
+    expect(load).toHaveBeenNthCalledWith(2, owner.id, nextCursor)
+    expect(wrapper.text()).toContain('较早的公开切片')
+    expect(wrapper.findAll('button').some(element => element.text() === '加载更多')).toBe(false)
+  })
+
+  it('缺少观看权限时仍显示用户名，并省略分享请求', async () =>
+  {
+    useAuthStore(pinia).user!.permissions = []
+    vi.spyOn(AuthAPI, 'publicProfile').mockResolvedValue({ id: clip.ownerId, displayName: '分享者甲', avatarUrl: '' })
+    const load = vi.spyOn(MediaAPI, 'publicClipShares')
+    await router.push('/users/owner')
+    const wrapper = mount(UserProfileView, { global: globalOptions() })
+    mounted.push(wrapper)
+    await flushPromises()
+    expect(wrapper.get('h1').text()).toBe('分享者甲')
+    expect(wrapper.text()).toContain('查看公开分享需要观看录像权限。')
+    expect(load).not.toHaveBeenCalled()
   })
 })

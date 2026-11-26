@@ -9,7 +9,7 @@ import type { SessionEventSnapshot } from '@/models/sessionEventSnapshot'
 import type { ServerPaths, ServerSettings } from '@/models/settings'
 import type { CacheCleanupOptions, CacheCleanupResult, StorageUsageReport } from '@/models/storage'
 import type { PlaybackLoadOptions } from '@/models/playbackLoadOptions'
-import type { ClipShareLink, ClipShareSettings, SharedClip } from '@/models/clipShare'
+import type { ClipShareLink, ClipShareSettings, PublicClipShareCursor, PublicClipSharePage, SharedClip } from '@/models/clipShare'
 import type { ClipManagementQuery, ClipTrashResult, ManagedClipPage } from '@/models/clipManagement'
 
 function clipSharePath(id: string): string
@@ -68,6 +68,8 @@ export const MediaAPI = {
   downloadClip: (id: string) => getServerUrl(`/api/clips/${encodeURIComponent(id)}/download`),
   previewClip: (id: string) => getServerUrl(`/api/clips/${encodeURIComponent(id)}/media`),
   clipShare: (id: string) => request<ClipShareLink>(clipSharePath(id)),
+  publicClipShares: (userId: string, cursor: PublicClipShareCursor | null = null) =>
+    request<PublicClipSharePage>(`users/${encodeURIComponent(userId)}/shares${query({ beforeUtc: cursor?.beforeUtc, beforeId: cursor?.beforeId })}`),
   saveClipShare: (id: string, settings: ClipShareSettings) => put<ClipShareLink>(clipSharePath(id) + '/settings', settings),
   revokeClipShare: (id: string, token: string) => remove(sharedClipPath(id, token)),
   sharedClip: (id: string, token: string) => request<SharedClip>(sharedClipPath(id, token)),

@@ -19,6 +19,48 @@ public sealed class ClipShareService(IMongoContext context, IAppPaths paths, Tim
     public const string PRIVATE_VISIBILITY = "private";
     private IMongoCollection<Clip> Clips => context.Collection<Clip>("clips");
 
+    /// <summary>按创建时间和标识倒序读取仍可访问的公开分享。</summary>
+    public async Task<IReadOnlyList<Clip>> ListPublicAsync(string ownerId, DateTime? beforeUtc, string? beforeId,
+        int count, CancellationToken cancellationToken)
+    {
+        var filter = Builders<Clip>.Filter;
+        var now = clock.GetUtcNow().UtcDateTime;
+        var match = filter.Eq(clip => clip.OwnerId, ownerId)
+                    & filter.Type(clip => clip.ShareToken, BsonType.String) & filter.Ne(clip => clip.ShareToken, "")
+                    & (filter.Eq(clip => clip.ShareVisibility, PUBLIC_VISIBILITY) | filter.Eq(clip => clip.ShareVisibility, null))
+                    & filter.Ne(clip => clip.IsTrashed, true) & filter.Ne(clip => clip.PublicationPending, true)
+                    & filter.Gt(clip => clip.ExpiresAtUtc, now);
+        if (beforeUtc is { } before && beforeId is not null)
+        {
+            match &= filter.Lt(clip => clip.CreatedAtUtc, before)
+                     | (filter.Eq(clip => clip.CreatedAtUtc, before) & filter.Lt(clip => clip.Id, beforeId));
+        }
+        var items = new List<Clip>(count);
+        using var cursor = await Clips.Find(match).SortByDescending(clip => clip.CreatedAtUtc).ThenByDescending(clip => clip.Id)
+            .ToCursorAsync(cancellationToken);
+        while (await cursor.MoveNextAsync(cancellationToken))
+        {
+            foreach (var clip in cursor.Current)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    ResolveAvailableFile(clip);
+                }
+                catch (InfrastructureException)
+                {
+                    continue;
+                }
+                items.Add(clip);
+                if (items.Count == count)
+                {
+                    return items;
+                }
+            }
+        }
+        return items;
+    }
+
     /// <summary>读取切片所有者或管理员可管理的当前分享状态。</summary>
     public async Task<(string? Token, string? Visibility)> GetSettingsAsync(string id, string userId, bool canManageAll, CancellationToken cancellationToken)
     {

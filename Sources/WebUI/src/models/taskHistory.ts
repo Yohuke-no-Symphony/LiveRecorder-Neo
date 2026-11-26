@@ -32,6 +32,7 @@ export interface TaskSummary
   state: string
   origin: 'User' | 'Automatic' | 'Legacy'
   initiatorUserId?: string | null
+  initiatorProfileId?: string | null
   initiatorName?: string | null
   initiatorAvatarUrl?: string | null
   workerId?: string | null

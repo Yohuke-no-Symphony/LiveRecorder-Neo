@@ -16,6 +16,7 @@ internal sealed class EndpointMappingStartupFlow(IReadOnlyCollection<string> dev
         app.MapLibraryEndpoints();
         app.MapClipLibraryEndpoints();
         app.MapClipShareEndpoints();
+        app.MapUserProfileEndpoints();
         app.MapTrashEndpoints();
         app.MapPlaybackEventSnapshotEndpoints();
         app.MapStorageCacheEndpoints();

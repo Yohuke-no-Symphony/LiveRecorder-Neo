@@ -65,6 +65,8 @@ public sealed class TaskHistoryHttpTests
             Id = "recording", WorkerId = "worker-a", Descriptor = new() { SessionId = "recording", Title = "自动录像", StartedAtUtc = DateTime.UtcNow },
             CaptureState = "Recording", UploadState = "CaughtUp", CommittedArchiveBytes = 100, AcknowledgedArchiveBytes = 100
         });
+        using var renamed = await browser.SendAsync(HttpMethod.Put, "/api/auth/me/display-name", new { displayName = "当前发起人" });
+        Assert.Equal(HttpStatusCode.OK, renamed.StatusCode);
         var mine = await browser.Client.GetFromJsonAsync<TaskHistoryPage>("/api/tasks");
         Assert.Equal(["analysis", "mine"], mine!.Items.Select(value => value.Id).Order().ToArray());
         using var forbidden = await browser.Client.GetAsync("/api/admin/worker-tasks");
@@ -78,6 +80,9 @@ public sealed class TaskHistoryHttpTests
         var all = await response.Content.ReadFromJsonAsync<TaskHistoryPage>();
         Assert.Equal(7, all!.Total);
         Assert.Equal("Legacy", Assert.Single(all.Items, value => value.Id == "legacy").Origin);
+        var manual = Assert.Single(all.Items, value => value.Id == "manual");
+        Assert.Equal("当前发起人", manual.InitiatorName);
+        Assert.Equal(owner.Id, manual.InitiatorProfileId);
         var recording = Assert.Single(all.Items, value => value.Id == "recording");
         Assert.Equal("Running", recording.State);
         Assert.Null(recording.Stages[0].Progress);

@@ -3,6 +3,7 @@ import type { Clip } from './media'
 export interface ManagedClip extends Omit<Clip, 'jobId' | 'isTrashed'>
 {
   ownerDisplayName: string
+  ownerProfileId?: string | null
   ownerAvatarUrl?: string | null
 }
 

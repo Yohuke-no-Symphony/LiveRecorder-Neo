@@ -51,6 +51,11 @@ public sealed class DatabaseIndexWorker(IMongoContext context, IBootstrapStore b
                     await context.Collection<Clip>("clips").Indexes.CreateOneAsync(new CreateIndexModel<Clip>(
                         Builders<Clip>.IndexKeys.Ascending(x => x.IsTrashed).Descending(x => x.CreatedAtUtc).Descending(x => x.Id),
                         new CreateIndexOptions { Name = "clips_management_created" }), cancellationToken: stoppingToken);
+                    await context.Collection<Clip>("clips").Indexes.CreateOneAsync(new CreateIndexModel<Clip>(
+                        Builders<Clip>.IndexKeys.Ascending(x => x.OwnerId).Descending(x => x.CreatedAtUtc).Descending(x => x.Id),
+                        new CreateIndexOptions<Clip> { Name = "clips_shared_owner_created",
+                            PartialFilterExpression = Builders<Clip>.Filter.Type(x => x.ShareToken, BsonType.String) }),
+                        cancellationToken: stoppingToken);
                     await context.Collection<TrashEntry>("trash").Indexes.CreateOneAsync(new CreateIndexModel<TrashEntry>(Builders<TrashEntry>.IndexKeys.Ascending(x => x.EntityId), new CreateIndexOptions { Unique = true, Name = "trash_entity_unique" }), cancellationToken: stoppingToken);
                     return;
                 }

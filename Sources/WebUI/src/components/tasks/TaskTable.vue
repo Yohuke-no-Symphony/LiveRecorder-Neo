@@ -34,10 +34,9 @@
         </div>
       </td>
       <td class="task-creator">
-        <div v-if="task.origin === 'User'" class="task-person">
-          <UserAvatar :name="task.initiatorName || t('taskHistory.unknownCreator')"
-                      :avatar-url="task.initiatorAvatarUrl" size="26"/>
-          <span>{{ task.initiatorName || t('taskHistory.unknownCreator') }}</span></div>
+        <UserIdentityLink v-if="task.origin === 'User'" :user-id="task.initiatorProfileId"
+                          :name="task.initiatorName || t('taskHistory.unknownCreator')"
+                          :avatar-url="task.initiatorAvatarUrl" :size="26"/>
         <div v-else class="task-person muted">
           <v-icon :icon="task.origin === 'Automatic' ? 'mdi-robot-outline' : 'mdi-history'" size="22"/>
           <span>{{ t(task.origin === 'Automatic' ? 'taskHistory.systemCreator' : 'taskHistory.legacyCreator') }}</span>
@@ -73,7 +72,7 @@ import type {TaskSummary} from '@/models/taskHistory'
 import {taskKey, taskTypeLabel} from '@/utilities/taskHistory'
 import {formatDate, formatDuration} from '@/utilities/format'
 import StatusChip from '@/components/common/StatusChip.vue'
-import UserAvatar from '@/components/common/UserAvatar.vue'
+import UserIdentityLink from '@/components/common/UserIdentityLink.vue'
 import TaskStages from './TaskStages.vue'
 
 defineProps<{ items: TaskSummary[]; actionKey?: string }>()

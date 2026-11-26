@@ -108,8 +108,9 @@ public sealed class MediaAuthorizationHttpTests
         var owner = await fixture.CreateUserAsync("share-owner@example.test");
         var recipient = await fixture.CreateUserAsync("share-recipient@example.test");
         var users = fixture.Context.Collection<UserAccount>("users");
+        const string OWNER_AVATAR = "https://example.test/owner-avatar.png";
         await users.UpdateOneAsync(x => x.Id == owner.Id, Builders<UserAccount>.Update.Set(x => x.Permissions,
-            new PermissionSet([PermissionIds.VIEW_RECORDINGS])));
+            new PermissionSet([PermissionIds.VIEW_RECORDINGS])).Set(x => x.AvatarUrl, OWNER_AVATAR));
         var ownerBrowser = fixture.NewBrowser();
         var recipientBrowser = fixture.NewBrowser();
         await ownerBrowser.LoginAsync(owner.Email, HttpServerFixture.USER_PASSWORD);
@@ -148,12 +149,17 @@ public sealed class MediaAuthorizationHttpTests
             Assert.True(response.Headers.CacheControl?.NoStore);
             var card = await response.Content.ReadFromJsonAsync<JsonObject>();
             Assert.NotNull(card);
-            Assert.Equal(new[] { "bytes", "durationMs", "expiresAtUtc", "title" }, card.Select(item => item.Key).Order(StringComparer.Ordinal));
+            Assert.Equal(new[] { "bytes", "durationMs", "expiresAtUtc", "owner", "title" }, card.Select(item => item.Key).Order(StringComparer.Ordinal));
             Assert.Equal(media.Clip.Title, card["title"]!.GetValue<string>());
             Assert.Equal(media.Clip.Bytes, card["bytes"]!.GetValue<long>());
             Assert.Equal(3000.5, card["durationMs"]!.GetValue<double>());
             Assert.Equal(new DateTimeOffset(media.Clip.ExpiresAtUtc).ToUnixTimeMilliseconds(),
                 card["expiresAtUtc"]!.GetValue<DateTimeOffset>().ToUnixTimeMilliseconds());
+            var sharedBy = Assert.IsType<JsonObject>(card["owner"]);
+            Assert.Equal(new[] { "avatarUrl", "displayName", "id" }, sharedBy.Select(item => item.Key).Order(StringComparer.Ordinal));
+            Assert.Equal(owner.Id, sharedBy["id"]!.GetValue<string>());
+            Assert.Equal(owner.DisplayName, sharedBy["displayName"]!.GetValue<string>());
+            Assert.Equal(OWNER_AVATAR, sharedBy["avatarUrl"]!.GetValue<string>());
         }
         using (var denied = await ownerBrowser.Client.GetAsync(cardUrl + "/download"))
         {

@@ -45,10 +45,12 @@ public static class ClipShareEndpoints
             }
             return Results.NoContent();
         }).RequireRateLimiting(UNLOCK_RATE_LIMIT_POLICY);
-        viewing.MapGet("", async (string id, string token, HttpContext http, ClipShareService service, ClipShareAccessCookie access, CancellationToken ct) =>
+        viewing.MapGet("", async (string id, string token, HttpContext http, ClipShareService service, ClipShareAccessCookie access,
+            IIdentityService identity, CancellationToken ct) =>
         {
             var (clip, _) = await service.GetSharedAsync(id, token, access.IsGranted(http, id, token), ct);
-            return Results.Ok(new SharedClipResponse(clip.Title, clip.EndMs - clip.StartMs, clip.Bytes, clip.ExpiresAtUtc));
+            var owner = PublicUserProfileResponse.From(await identity.GetUserAsync(clip.OwnerId, ct));
+            return Results.Ok(new SharedClipResponse(clip.Title, clip.EndMs - clip.StartMs, clip.Bytes, clip.ExpiresAtUtc, owner));
         });
         viewing.MapGet("/download", async (string id, string token, HttpContext http, ClipShareService service, ClipShareAccessCookie access, CancellationToken ct) =>
         {

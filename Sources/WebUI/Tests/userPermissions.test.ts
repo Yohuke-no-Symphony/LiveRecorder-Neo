@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, disposePinia, setActivePinia, type Pinia } from 'pinia'
 import { defineComponent, h } from 'vue'
+import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { createVuetify } from 'vuetify'
 import { VDataTable } from 'vuetify/components/VDataTable'
 import { AuthAPI } from '../src/apis/AuthAPI'
@@ -34,6 +35,7 @@ const definitions: PermissionDefinition[] = [
 const mounted: VueWrapper[] = []
 const vuetify = createVuetify({ components: { VDataTable } })
 let pinia: Pinia
+let router: Router
 const container = { template: '<div><slot /></div>' }
 const switchField = defineComponent({
   props: ['modelValue', 'label', 'disabled'],
@@ -68,13 +70,18 @@ function button(wrapper: VueWrapper, label: string)
   return result
 }
 
-beforeEach(() =>
+beforeEach(async () =>
 {
   vi.stubGlobal('localStorage', { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() })
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
   pinia = createPinia()
   setActivePinia(pinia)
+  router = createRouter({ history: createMemoryHistory(), routes: [
+    { path: '/', component: container },
+    { path: '/users/:userId', name: 'user-profile', component: container },
+  ] })
+  await router.push('/')
   i18n.global.locale.value = 'zh-CN'
   useAuthStore().permissionDefinitions = definitions
 })
@@ -96,13 +103,14 @@ describe('独立权限与管理入口', () =>
     vi.spyOn(AuthAPI, 'invitations').mockResolvedValue([])
     const ban = vi.spyOn(AuthAPI, 'banUser').mockRejectedValueOnce(new Error('封禁失败')).mockResolvedValue({ ...profile, status: 'Disabled' })
     const unban = vi.spyOn(AuthAPI, 'unbanUser').mockResolvedValue(profile)
-    const wrapper = mount(UsersView, { global: { plugins: [pinia, i18n, vuetify], stubs: {
+    const wrapper = mount(UsersView, { global: { plugins: [pinia, router, i18n, vuetify], stubs: {
       ...stubs, VList: container, VCardText: container,
       VMenu: { template: '<div><slot name="activator" :props="{}" /><slot /></div>' },
       VListItem: { props: ['title', 'disabled'], template: '<button :disabled="disabled">{{ title }}</button>' },
     } } })
     mounted.push(wrapper)
     await flushPromises()
+    expect(wrapper.get('a[href="/users/viewer"]').text()).toContain(profile.displayName)
     await button(wrapper, '封禁用户').trigger('click')
     expect(ban).not.toHaveBeenCalled()
     const confirmBan = wrapper.get('[role="dialog"]').findAll('button').find(item => item.text() === '封禁用户')!
@@ -128,7 +136,7 @@ describe('独立权限与管理入口', () =>
     useAuthStore().user = admin
     vi.spyOn(AuthAPI, 'users').mockResolvedValue([admin, { ...user(), status: 'Pending' }])
     vi.spyOn(AuthAPI, 'invitations').mockResolvedValue([])
-    const wrapper = mount(UsersView, { global: { plugins: [pinia, i18n, vuetify], stubs: {
+    const wrapper = mount(UsersView, { global: { plugins: [pinia, router, i18n, vuetify], stubs: {
       ...stubs, VList: container,
       VMenu: { template: '<div><slot name="activator" :props="{}" /><slot /></div>' },
       VListItem: { props: ['title'], template: '<button>{{ title }}</button>' },
@@ -257,7 +265,7 @@ describe('独立权限与管理入口', () =>
     vi.spyOn(AuthAPI, 'users').mockResolvedValue([profile])
     vi.spyOn(AuthAPI, 'invitations').mockResolvedValue([])
     const save = vi.spyOn(AuthAPI, 'userPermissions').mockRejectedValueOnce(new Error('保存失败')).mockResolvedValue({ ...profile, permissions: ['recordings.purge'] })
-    const wrapper = mount(UsersView, { global: { plugins: [pinia, i18n, vuetify], stubs } })
+    const wrapper = mount(UsersView, { global: { plugins: [pinia, router, i18n, vuetify], stubs } })
     mounted.push(wrapper)
     await flushPromises()
     await button(wrapper, '权限').trigger('click')
@@ -285,7 +293,7 @@ describe('独立权限与管理入口', () =>
       { ...invitation, id: 'many', usedCount: 12 },
       { ...invitation, id: 'few', usedCount: 2 },
     ])
-    const wrapper = mount(UsersView, { global: { plugins: [pinia, i18n, vuetify], stubs } })
+    const wrapper = mount(UsersView, { global: { plugins: [pinia, router, i18n, vuetify], stubs } })
     mounted.push(wrapper)
     await flushPromises()
     const userHeader = wrapper.findAll('th').find(header => header.text() === '用户')!

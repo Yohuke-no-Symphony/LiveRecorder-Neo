@@ -1,4 +1,8 @@
 export const sharingZh = {
+  profileShares: '公开分享',
+  profilePermission: '查看公开分享需要观看录像权限。',
+  noProfileShares: '暂无公开分享',
+  moreProfileShares: '加载更多',
   visibility: '可见性',
   public: '公开',
   private: '私密',
@@ -25,6 +29,10 @@ export const sharingZh = {
 }
 
 export const sharingEn = {
+  profileShares: 'Public shares',
+  profilePermission: 'You need permission to watch recordings to see public shares.',
+  noProfileShares: 'No public shares',
+  moreProfileShares: 'Load more',
   visibility: 'Visibility',
   public: 'Public',
   private: 'Private',
@@ -51,6 +59,10 @@ export const sharingEn = {
 }
 
 export const sharingJa = {
+  profileShares: '公開したクリップ',
+  profilePermission: '公開したクリップを見るには録画の視聴権限が必要です。',
+  noProfileShares: '公開したクリップはありません',
+  moreProfileShares: 'さらに読み込む',
   visibility: '公開範囲',
   public: '公開',
   private: '非公開',

@@ -2,6 +2,7 @@ import type { MessageSchema } from '@/localization/types'
 
 export const shellZh = {
   nav: {
+    userProfile: '个人主页', myProfile: '我的主页',
     workerTasks: 'Worker 任务', serverLogs: '服务器日志', sharedClip: '切片分享',
     clipManagement: '切片管理', trashManagement: '回收站管理',
     management: '管理', library: '录播库', clips: '我的切片', jobs: '后台任务', analytics: '直播分析', trash: '个人回收站',
@@ -108,6 +109,7 @@ export const shellZh = {
 
 export const shellEn: MessageSchema<typeof shellZh> = {
   nav: {
+    userProfile: 'User profile', myProfile: 'My profile',
     workerTasks: 'Worker tasks', serverLogs: 'Server logs', sharedClip: 'Shared clip',
     clipManagement: 'Clip management', trashManagement: 'Trash management',
     management: 'Management', library: 'Recording library', clips: 'My clips', jobs: 'Background jobs', analytics: 'Stream analytics', trash: 'Personal trash',
@@ -214,6 +216,7 @@ export const shellEn: MessageSchema<typeof shellZh> = {
 
 export const shellJa: MessageSchema<typeof shellZh> = {
   nav: {
+    userProfile: 'ユーザープロフィール', myProfile: 'マイプロフィール',
     workerTasks: 'Worker タスク', serverLogs: 'サーバーログ', sharedClip: '共有クリップ',
     clipManagement: 'クリップ管理', trashManagement: 'ゴミ箱管理',
     management: '管理', library: '録画ライブラリ', clips: '自分のクリップ', jobs: 'バックグラウンドタスク', analytics: '配信分析', trash: '個人のゴミ箱',

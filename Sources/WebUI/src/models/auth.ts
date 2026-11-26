@@ -48,6 +48,13 @@ export interface UserSession
   csrfToken: string
 }
 
+export interface PublicUserProfile
+{
+  id: string
+  displayName: string
+  avatarUrl: string
+}
+
 export interface PendingEmailChange
 {
   email: string

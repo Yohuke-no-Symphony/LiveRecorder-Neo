@@ -3,13 +3,14 @@ import { getServerUrl } from './ServerURL'
 import type { BilibiliRoomSearchPage } from '@/models/bilibili'
 import type { AppLanguage } from '@/localization/types'
 import type { SetupRequest, SetupStatus } from '@/models/setup'
-import type { AccountSettings, BilibiliAccount, BilibiliLoginSession, Invitation, OAuthExchange, PendingEmailChange, Registration, RegistrationOptions, SmsChallengeAnswer, PermissionDefinition, UserPermissions, UserProfile, UserSession } from '@/models/auth'
+import type { AccountSettings, BilibiliAccount, BilibiliLoginSession, Invitation, OAuthExchange, PendingEmailChange, PublicUserProfile, Registration, RegistrationOptions, SmsChallengeAnswer, PermissionDefinition, UserPermissions, UserProfile, UserSession } from '@/models/auth'
 
 export const AuthAPI = {
   setupStatus: () => request<SetupStatus>('setup/status'),
   setup: (body: SetupRequest) => post<void>('setup', body),
   permissions: () => request<PermissionDefinition[]>('auth/permissions'),
   me: () => request<UserSession>('auth/me'),
+  publicProfile: (id: string) => request<PublicUserProfile>(`users/${encodeURIComponent(id)}`),
   accountSettings: () => request<AccountSettings>('auth/me/settings'),
   setDisplayName: (displayName: string) => put<UserProfile>('auth/me/display-name', { displayName }),
   uploadAvatar: (image: Blob) => request<UserProfile>('auth/me/avatar', {

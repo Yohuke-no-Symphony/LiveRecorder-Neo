@@ -57,6 +57,7 @@ internal static class TaskSummaryMapper
             Id = Text(row, "Id") ?? "", Kind = kind, Type = type, SessionId = Text(row, "SessionId") ?? "",
             Title = Text(row, "Title") ?? "", State = state, Origin = Text(row, "Origin") ?? "Legacy",
             InitiatorUserId = Text(row, "InitiatorUserId"), InitiatorName = Text(row, "InitiatorName"),
+            InitiatorProfileId = Text(row, nameof(BackgroundTaskSummary.InitiatorProfileId)),
             InitiatorAvatarUrl = Text(row, "InitiatorAvatarUrl"), WorkerId = worker, WorkerName = Text(row, "WorkerName"),
             WorkerOnline = worker is null or "local" ? null : connections.IsOnline(worker),
             ProfileName = Text(data, "ProfileName"), Mode = Text(data, "Mode"),

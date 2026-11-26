@@ -32,10 +32,8 @@
         <template #item.title="{ item }"><span class="clip-table-title" :title="item.title">{{ item.title }}</span>
         </template>
         <template #item.ownerDisplayName="{ item }">
-          <div class="clip-table-owner">
-            <UserAvatar :name="item.ownerDisplayName" :avatar-url="item.ownerAvatarUrl" :size="26"/>
-            <span>{{ item.ownerDisplayName }}</span>
-          </div>
+          <UserIdentityLink :user-id="item.ownerProfileId"
+                            :name="item.ownerDisplayName" :avatar-url="item.ownerAvatarUrl" :size="26"/>
         </template>
         <template #item.duration="{ item }">{{ formatDuration(item.endMs - item.startMs) }}</template>
         <template #item.bytes="{ item }">{{ formatBytes(item.bytes) }}</template>
@@ -88,7 +86,7 @@ import {MediaAPI} from '@/apis/MediaAPI'
 import ClipShareDialog from '@/components/clips/ClipShareDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
-import UserAvatar from '@/components/common/UserAvatar.vue'
+import UserIdentityLink from '@/components/common/UserIdentityLink.vue'
 import ClipPreviewDialog from '@/components/player/ClipPreviewDialog.vue'
 import {useAction} from '@/composables/useAction'
 import type {ManagedClip} from '@/models/clipManagement'
@@ -211,16 +209,6 @@ onBeforeUnmount(() => activeLoad?.abort())
 .clip-table-title {
   display: block;
   max-width: 28rem;
-  overflow-wrap: anywhere;
-}
-
-.clip-table-owner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.clip-table-owner > span {
   overflow-wrap: anywhere;
 }
 

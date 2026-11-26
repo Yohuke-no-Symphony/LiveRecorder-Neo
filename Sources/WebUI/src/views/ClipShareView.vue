@@ -24,6 +24,9 @@
       <span>{{ formatBytes(clip.bytes) }}</span>
       <time :datetime="clip.expiresAtUtc">{{ t('views.clips.expires', { date: formatDate(clip.expiresAtUtc) }) }}</time>
     </div>
+    <div v-if="clip.owner" class="mt-4">
+      <UserIdentityLink :user-id="clip.owner.id" :name="clip.owner.displayName" :avatar-url="clip.owner.avatarUrl" :size="28"/>
+    </div>
     <p v-if="!auth.canDownloadRecordings" class="text-body-2 mt-4">{{ t('sharing.downloadPermission') }}</p>
     <template v-if="auth.canDownloadRecordings" #actions>
       <v-btn :href="MediaAPI.downloadSharedClip(id, token)" download color="primary" prepend-icon="mdi-download">{{
@@ -41,6 +44,7 @@ import {ApiError} from '@/apis/APIBase'
 import {MediaAPI} from '@/apis/MediaAPI'
 import ContentCard from '@/components/common/ContentCard.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import UserIdentityLink from '@/components/common/UserIdentityLink.vue'
 import {useAction} from '@/composables/useAction'
 import type {SharedClip} from '@/models/clipShare'
 import {useAuthStore} from '@/stores/auth'
