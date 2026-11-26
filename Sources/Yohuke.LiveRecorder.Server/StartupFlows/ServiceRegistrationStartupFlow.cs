@@ -1,9 +1,11 @@
 using System.Net;
+using Microsoft.AspNetCore.Identity;
 using Yohuke.DanmuCore.Services;
 using Yohuke.LiveRecorder.Application;
 using Yohuke.LiveRecorder.Application.Auth;
 using Yohuke.LiveRecorder.Application.Library.LiveMarkers;
 using Yohuke.LiveRecorder.Application.Media;
+using Yohuke.LiveRecorder.Domain;
 using Yohuke.LiveRecorder.Infrastructure.AI;
 using Yohuke.LiveRecorder.Infrastructure.Analytics;
 using Yohuke.LiveRecorder.Infrastructure.Auth;
@@ -44,6 +46,8 @@ internal sealed class ServiceRegistrationStartupFlow : IBuilderStartupFlow
         builder.Services.AddSingleton<EventArchiveReader>();
         builder.Services.AddSingleton<LibraryService>();
         builder.Services.AddSingleton<ClipShareService>();
+        builder.Services.AddSingleton<IPasswordHasher<Clip>, PasswordHasher<Clip>>();
+        builder.Services.AddSingleton<ClipShareAccessCookie>();
         builder.Services.AddSingleton<SessionBookmarkService>();
         builder.Services.AddSingleton<LiveMarkerFileStore>();
         builder.Services.AddSingleton<LiveMarkerYamlParser>();

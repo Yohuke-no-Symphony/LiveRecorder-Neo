@@ -1,4 +1,15 @@
 export const sharingZh = {
+  visibility: '可见性',
+  public: '公开',
+  private: '私密',
+  publicHint: '公开分享会显示在你的个人主页。',
+  privateHint: '访问者需要提取密码。',
+  password: '提取密码',
+  keepPassword: '留空保留现有密码',
+  updateLinkHint: '更改可见性或密码后，旧链接将失效。',
+  copyWithPassword: '复制带密码的链接',
+  unlockTitle: '提取私密切片',
+  unlock: '提取',
   clipTitle: '切片分享',
   create: '创建分享链接',
   createPermission: '创建链接需要查看录播权限。',
@@ -14,6 +25,17 @@ export const sharingZh = {
 }
 
 export const sharingEn = {
+  visibility: 'Visibility',
+  public: 'Public',
+  private: 'Private',
+  publicHint: 'Public shares appear on your profile.',
+  privateHint: 'Visitors need an access password.',
+  password: 'Access password',
+  keepPassword: 'Leave blank to keep the current password',
+  updateLinkHint: 'Changing visibility or the password invalidates the old link.',
+  copyWithPassword: 'Copy link with password',
+  unlockTitle: 'Unlock private clip',
+  unlock: 'Unlock',
   clipTitle: 'Share clip',
   create: 'Create share link',
   createPermission: 'You need permission to view recordings to create a link.',
@@ -29,6 +51,17 @@ export const sharingEn = {
 }
 
 export const sharingJa = {
+  visibility: '公開範囲',
+  public: '公開',
+  private: '非公開',
+  publicHint: '公開したクリップはプロフィールに表示されます。',
+  privateHint: '閲覧にはアクセスパスワードが必要です。',
+  password: 'アクセスパスワード',
+  keepPassword: '空欄のままにすると現在のパスワードを維持します',
+  updateLinkHint: '公開範囲やパスワードを変更すると、以前のリンクは無効になります。',
+  copyWithPassword: 'パスワード付きリンクをコピー',
+  unlockTitle: '非公開クリップを開く',
+  unlock: '開く',
   clipTitle: 'クリップの共有',
   create: '共有リンクを作成',
   createPermission: 'リンクを作成するには録画の視聴権限が必要です。',

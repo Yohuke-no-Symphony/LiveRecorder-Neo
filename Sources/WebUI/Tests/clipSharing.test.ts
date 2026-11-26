@@ -16,6 +16,7 @@ import type { Clip } from '../src/models/media'
 import { i18n } from '../src/plugins/i18n'
 import { useAuthStore } from '../src/stores/auth'
 import ClipShareView from '../src/views/ClipShareView.vue'
+import { keepSharePassword, takeSharePassword } from '../src/utilities/sharePassword'
 
 const clip: Clip = {
   id: 'clip-1', ownerId: 'owner', sessionId: 'session-1', jobId: 'clip-job', title: '测试切片',
@@ -29,7 +30,7 @@ const mounted: VueWrapper[] = []
 const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
 const container = { template: '<div><slot /></div>' }
 const stubs = {
-  VCard: container, VCardText: container, VProgressLinear: true,
+  VCard: container, VCardText: container, VProgressLinear: true, VSelect: true,
   VDialog: { props: ['modelValue'], template: '<section v-if="modelValue" role="dialog"><slot /></section>' },
   VSnackbar: { props: ['modelValue'], template: '<div v-if="modelValue" role="status"><slot /></div>' },
   VAlert: { template: '<div role="alert"><slot /><slot name="append" /></div>' },
@@ -49,7 +50,7 @@ function globalOptions()
 function openDialog(): VueWrapper
 {
   useAuthStore(pinia).user!.id = clip.ownerId
-  const wrapper = mount(ClipShareDialog, { props: { clip, modelValue: true }, global: globalOptions() })
+  const wrapper = mount(ClipShareDialog, { props: { clip, modelValue: true }, global: globalOptions(), attachTo: document.body })
   mounted.push(wrapper)
   return wrapper
 }
@@ -114,6 +115,7 @@ afterEach(() =>
   else { Reflect.deleteProperty(navigator, 'clipboard') }
   vi.restoreAllMocks()
   vi.unstubAllEnvs()
+  takeSharePassword(cardPath)
 })
 
 describe('切片卡片操作', () =>
@@ -166,7 +168,7 @@ describe('切片分享管理', () =>
   it('仅有查看权限也能创建链接，复制失败后可手动选中网站地址', async () =>
   {
     const status = vi.spyOn(MediaAPI, 'clipShare').mockResolvedValue({ token: null })
-    const create = vi.spyOn(MediaAPI, 'createClipShare').mockResolvedValue({ token })
+    const create = vi.spyOn(MediaAPI, 'saveClipShare').mockResolvedValue({ token, visibility: 'public' })
     const writeText = vi.fn().mockRejectedValue(new DOMException('Clipboard denied', 'NotAllowedError'))
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
     const wrapper = openDialog()
@@ -176,7 +178,7 @@ describe('切片分享管理', () =>
 
     await button(wrapper, '创建分享链接').trigger('click')
     await flushPromises()
-    expect(create).toHaveBeenCalledWith(clip.id)
+    expect(create).toHaveBeenCalledWith(clip.id, { token: null, visibility: 'public', password: undefined })
     const link = new URL(cardPath, window.location.origin).href
     const input = wrapper.get<HTMLInputElement>('input')
     expect(input.element.readOnly).toBe(true)
@@ -189,6 +191,29 @@ describe('切片分享管理', () =>
     input.element.select()
     expect(input.element.selectionStart).toBe(0)
     expect(input.element.selectionEnd).toBe(link.length)
+  })
+
+  it('可保存私密分享并复制包含提取密码的地址', async () =>
+  {
+    vi.spyOn(MediaAPI, 'clipShare').mockResolvedValue({ token: null })
+    const save = vi.spyOn(MediaAPI, 'saveClipShare').mockResolvedValue({ token, visibility: 'private' })
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const wrapper = openDialog()
+    await flushPromises()
+    wrapper.getComponent({name: 'VSelect'}).vm.$emit('update:modelValue', 'private')
+    await nextTick()
+    const password = 'one+two&三'
+    await wrapper.get('input[type="password"]').setValue(password)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(save).toHaveBeenCalledWith(clip.id, { token: null, visibility: 'private', password })
+    await button(wrapper, '复制带密码的链接').trigger('click')
+    await flushPromises()
+    const copied = new URL(writeText.mock.calls[0]![0])
+    expect(copied.pathname).toBe(cardPath)
+    expect(copied.searchParams.get('pwd')).toBe(password)
   })
 
   it('失去查看权限后仍能撤销已有链接，撤销后清除链接和复制状态', async () =>
@@ -225,6 +250,41 @@ describe('切片分享管理', () =>
 
 describe('共享切片接收页', () =>
 {
+  it('通过 URL 暂存的密码先提取，再显示卡片', async () =>
+  {
+    keepSharePassword(cardPath, 'one+two&三')
+    const unlock = vi.spyOn(MediaAPI, 'unlockSharedClip').mockResolvedValue(undefined)
+    const load = vi.spyOn(MediaAPI, 'sharedClip').mockResolvedValue({
+      title: clip.title, durationMs: 6000, bytes: clip.bytes, expiresAtUtc: clip.expiresAtUtc,
+    })
+
+    const wrapper = await openCard()
+    expect(unlock).toHaveBeenCalledWith(clip.id, token, 'one+two&三')
+    expect(unlock.mock.invocationCallOrder[0]).toBeLessThan(load.mock.invocationCallOrder[0]!)
+    expect(takeSharePassword(cardPath)).toBeUndefined()
+    expect(wrapper.get('h2').text()).toBe(clip.title)
+  })
+
+  it('错误的 URL 密码显示提示并允许手动提取', async () =>
+  {
+    keepSharePassword(cardPath, 'wrong')
+    const unlock = vi.spyOn(MediaAPI, 'unlockSharedClip')
+      .mockRejectedValueOnce(new ApiError(403, '密码错误', 'LIBRARY_CLIP_SHARE_PASSWORD_INVALID'))
+      .mockResolvedValue(undefined)
+    const load = vi.spyOn(MediaAPI, 'sharedClip').mockResolvedValue({
+      title: clip.title, durationMs: 6000, bytes: clip.bytes, expiresAtUtc: clip.expiresAtUtc,
+    })
+
+    const wrapper = await openCard()
+    expect(wrapper.text()).toContain('密码错误')
+    expect(load).not.toHaveBeenCalled()
+    await wrapper.get('input[type="password"]').setValue('right')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(unlock).toHaveBeenLastCalledWith(clip.id, token, 'right')
+    expect(wrapper.get('h2').text()).toBe(clip.title)
+  })
+
   it('有查看权限可读卡片，有下载权限才显示文件下载入口', async () =>
   {
     const load = vi.spyOn(MediaAPI, 'sharedClip').mockResolvedValue({

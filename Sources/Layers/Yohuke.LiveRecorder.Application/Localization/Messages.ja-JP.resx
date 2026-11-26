@@ -266,4 +266,8 @@
 有効期限内にこのコードを入力してください。メールアドレスの変更を申し込んでいない場合は、このメールを破棄してください。</value></data>
   <data name="AUTH_AVATAR_INVALID" xml:space="preserve"><value>256 × 256 の有効な JPEG アバターをアップロードしてください。</value></data>
   <data name="AUTH_AVATAR_TOO_LARGE" xml:space="preserve"><value>アバターファイルのサイズは 128 KiB 以下にしてください。</value></data>
+  <data name="LIBRARY_CLIP_SHARE_SETTINGS_INVALID" xml:space="preserve"><value>共有範囲を選択してください。非公開共有のパスワードは 4 ～ 64 文字で、空白のみの入力や制御文字は使用できません。</value></data>
+  <data name="LIBRARY_CLIP_SHARE_SETTINGS_CONFLICT" xml:space="preserve"><value>共有設定が変更されました。再読み込みしてから保存してください。</value></data>
+  <data name="LIBRARY_CLIP_SHARE_PASSWORD_REQUIRED" xml:space="preserve"><value>この共有にはパスワードが必要です。</value></data>
+  <data name="LIBRARY_CLIP_SHARE_PASSWORD_INVALID" xml:space="preserve"><value>共有パスワードが正しくありません。</value></data>
 </root>

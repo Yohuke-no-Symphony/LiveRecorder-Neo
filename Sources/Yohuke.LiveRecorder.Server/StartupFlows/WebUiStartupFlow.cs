@@ -27,6 +27,10 @@ internal sealed class WebUiStartupFlow(string webRoot) : IApplicationStartupFlow
             }
             http.Response.ContentType = "text/html; charset=utf-8";
             http.Response.Headers.CacheControl = "no-store";
+            if (http.Request.Path.StartsWithSegments("/shares/clips"))
+            {
+                http.Response.Headers["Referrer-Policy"] = "no-referrer";
+            }
             await http.Response.SendFileAsync(index);
         });
     }

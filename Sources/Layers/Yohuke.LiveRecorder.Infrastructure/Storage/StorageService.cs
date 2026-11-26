@@ -289,7 +289,7 @@ public sealed class StorageService(IMongoContext context, ISettingsStore setting
         }
         await RequireOperationAsync(entry, cancellationToken);
         await context.Collection<Clip>("clips").UpdateOneAsync(x => x.Id == entry.EntityId && x.RelativePath == entry.OriginalRelativePath,
-            Builders<Clip>.Update.Set(x => x.IsTrashed, true).Unset(x => x.ShareToken), cancellationToken: cancellationToken);
+            ClipShareService.ClearShare().Set(x => x.IsTrashed, true), cancellationToken: cancellationToken);
         if (File.Exists(source))
         {
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);

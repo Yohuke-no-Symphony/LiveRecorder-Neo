@@ -20,6 +20,8 @@ public static class MongoSerialization
         {
             mapping.AutoMap();
             mapping.MapMember(clip => clip.ShareToken).SetIgnoreIfNull(true);
+            mapping.MapMember(clip => clip.ShareVisibility).SetIgnoreIfNull(true);
+            mapping.MapMember(clip => clip.SharePasswordHash).SetIgnoreIfNull(true);
         });
     }
 

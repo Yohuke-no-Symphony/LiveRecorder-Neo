@@ -20,4 +20,10 @@ public sealed class Clip : Entity
 
     [JsonIgnore]
     public string? ShareToken { get; set; }
+
+    [JsonIgnore]
+    public string? ShareVisibility { get; set; }
+
+    [JsonIgnore]
+    public string? SharePasswordHash { get; set; }
 }

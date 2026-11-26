@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { PERMISSIONS } from '@/models/auth'
+import { keepSharePassword } from '@/utilities/sharePassword'
 import { canAccessRoute } from './access'
 
 const router = createRouter({
@@ -39,6 +40,17 @@ const router = createRouter({
 
 router.beforeEach(async to =>
 {
+  if (to.name === 'shared-clip' && 'pwd' in to.query)
+  {
+    const { pwd, ...query } = to.query
+    keepSharePassword(to.path, pwd)
+    const target = { path: to.path, query, hash: to.hash, replace: true }
+    if (window.location.pathname === to.path && new URLSearchParams(window.location.search).has('pwd'))
+    {
+      window.history.replaceState(window.history.state, '', router.resolve(target).href)
+    }
+    return target
+  }
   const auth = useAuthStore()
   await auth.bootstrap()
   if (auth.user)

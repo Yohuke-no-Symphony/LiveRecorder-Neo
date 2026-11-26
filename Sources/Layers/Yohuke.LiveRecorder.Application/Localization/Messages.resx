@@ -266,4 +266,8 @@
 请在换绑验证到期前提交此验证码。如果您没有申请更换邮箱，请忽略本邮件。</value></data>
   <data name="AUTH_AVATAR_INVALID" xml:space="preserve"><value>请上传 256 × 256 的有效 JPEG 头像。</value></data>
   <data name="AUTH_AVATAR_TOO_LARGE" xml:space="preserve"><value>头像文件大小不能超过 128 KiB。</value></data>
+  <data name="LIBRARY_CLIP_SHARE_SETTINGS_INVALID" xml:space="preserve"><value>请选择分享可见性。私密分享密码需为 4 至 64 个字符，不能全为空白或包含控制字符。</value></data>
+  <data name="LIBRARY_CLIP_SHARE_SETTINGS_CONFLICT" xml:space="preserve"><value>分享设置已变化，请刷新后再保存。</value></data>
+  <data name="LIBRARY_CLIP_SHARE_PASSWORD_REQUIRED" xml:space="preserve"><value>此分享需要提取密码。</value></data>
+  <data name="LIBRARY_CLIP_SHARE_PASSWORD_INVALID" xml:space="preserve"><value>提取密码不正确。</value></data>
 </root>

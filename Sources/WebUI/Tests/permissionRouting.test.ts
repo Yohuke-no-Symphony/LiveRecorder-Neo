@@ -7,6 +7,7 @@ import { i18n } from '../src/plugins/i18n'
 import router from '../src/router'
 import { useAuthStore } from '../src/stores/auth'
 import LoginView from '../src/views/LoginView.vue'
+import { takeSharePassword } from '../src/utilities/sharePassword'
 
 let pinia: Pinia
 
@@ -58,6 +59,20 @@ describe('录像权限路由边界', () =>
 describe('分享链接路由边界', () =>
 {
   const links = ['/shares/clips/clip-1/test-link_token', '/sessions/recording-1?at=123456']
+
+  it('未登录打开带密码的分享时，只用净化后的地址回跳', async () =>
+  {
+    const path = links[0]!
+    await router.replace('/account')
+    useAuthStore().user = null
+    await router.push(path + '?pwd=one%2Btwo%26three')
+
+    expect(router.currentRoute.value.path).toBe('/login')
+    expect(router.currentRoute.value.query.returnTo).toBe(path)
+    expect(window.location.href).not.toContain('pwd=')
+    expect(takeSharePassword(path)).toBe('one+two&three')
+    expect(takeSharePassword(path)).toBeUndefined()
+  })
 
   it.each(links)('未登录访问 %s 后，登录回到含原参数的链接', async link =>
   {
